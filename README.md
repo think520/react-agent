@@ -87,8 +87,6 @@ cli/
 skills/             # Skills 定义目录
   course-learning/  # 课程学习助手 skill
   weather/          # 示例：天气查询 skill
-  huashu-design/    # HTML 设计原型 skill
-  huashu-nuwa/      # 视角模拟 skill（含 12+ 人物视角示例）
 tests/              # 单元测试
 ```
 
