@@ -392,7 +392,7 @@ def test_memory_command_empty(tmp_path, capsys):
 
     repl.handle_memory_command("")
     output = capsys.readouterr().out
-    assert "Memory commands" in output
+    assert "记忆命令" in output or "Memory commands" in output
 
 
 def test_memory_command_disabled(capsys):

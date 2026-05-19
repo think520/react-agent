@@ -47,40 +47,40 @@ THINK_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "
 ALL_COMMANDS = ["help", "status", "cwd", "tools", "skill", "kb", "quiz", "learning", "memory", "ui", "exit", "quit", "session"]
 
 COMMAND_HINTS = [
-    ("/help", "Show command guide"),
-    ("/status", "Show runtime status"),
-    ("/cwd", "Show current directory"),
-    ("/tools", "List Agent tools"),
-    ("/kb status", "Show knowledge base status"),
-    ("/kb sync ", "Sync Obsidian vault"),
-    ("/kb search ", "Search local RAG index"),
-    ("/kb graph ", "Query knowledge graph"),
-    ("/kb reset --yes", "Delete generated knowledge indexes"),
-    ("/skill list", "List available skills"),
-    ("/skill run ", "Run a skill as an Agent task"),
-    ("/quiz generate <topic>", "Generate quiz questions on a topic"),
-    ("/quiz start [count]", "Start a quiz session"),
-    ("/quiz wrong", "Show wrong answer book"),
-    ("/quiz weak", "Show weakness analysis"),
-    ("/quiz stats", "Show quiz statistics"),
-    ("/learning plan <goal>", "Generate a learning plan"),
-    ("/learning progress", "Show mastery overview"),
-    ("/learning review", "Show today's review list"),
-    ("/learning mark <concept> <status>", "Manually set mastery status"),
-    ("/learning plans", "List saved learning plans"),
-    ("/memory list", "List saved memories"),
-    ("/memory search ", "Search memories by query"),
-    ("/memory show ", "Show memory details"),
-    ("/memory forget ", "Delete a memory"),
-    ("/memory stats", "Show memory statistics"),
-    ("/ui", "Show UI settings"),
-    ("/ui tools on", "Show tool calls while streaming"),
-    ("/ui tools off", "Hide tool calls while streaming"),
-    ("/session list", "List saved sessions"),
-    ("/session save ", "Save current session with optional name"),
-    ("/session resume", "Pick a session to resume"),
-    ("/session load ", "Load saved session by id or name"),
-    ("/exit", "Exit the REPL"),
+    ("/help", "显示命令帮助"),
+    ("/status", "运行状态"),
+    ("/cwd", "当前工作目录"),
+    ("/tools", "可用工具列表"),
+    ("/kb status", "知识库状态"),
+    ("/kb sync ", "同步 Obsidian vault"),
+    ("/kb search ", "本地 RAG 检索"),
+    ("/kb graph ", "知识图谱查询"),
+    ("/kb reset --yes", "删除生成的知识库索引"),
+    ("/skill list", "可用技能列表"),
+    ("/skill run ", "执行技能"),
+    ("/quiz generate <topic>", "生成练习题"),
+    ("/quiz start [count]", "开始一轮练习"),
+    ("/quiz wrong", "错题本"),
+    ("/quiz weak", "薄弱点分析"),
+    ("/quiz stats", "题库统计"),
+    ("/learning plan <goal>", "生成学习计划"),
+    ("/learning progress", "掌握度概览"),
+    ("/learning review", "今日复习清单"),
+    ("/learning mark <concept> <status>", "手动设置掌握度"),
+    ("/learning plans", "已保存的学习计划"),
+    ("/memory list", "已保存的记忆"),
+    ("/memory search ", "搜索记忆"),
+    ("/memory show ", "查看记忆详情"),
+    ("/memory forget ", "删除记忆"),
+    ("/memory stats", "记忆统计"),
+    ("/ui", "显示 UI 设置"),
+    ("/ui tools on", "显示工具调用"),
+    ("/ui tools off", "隐藏工具调用"),
+    ("/session list", "已保存的会话"),
+    ("/session save ", "保存会话（可选命名）"),
+    ("/session resume", "选择会话恢复"),
+    ("/session load ", "加载会话（ID/名称）"),
+    ("/exit", "退出"),
 ]
 
 
@@ -694,54 +694,61 @@ class REPL:
 
     def print_help(self):
         print()
-        print("  \033[1;37mCommands:\033[0m")
-        print("  \033[1;38;5;210m  /help\033[0m             Show this help")
-        print("  \033[1;38;5;210m  /status\033[0m           Show runtime status")
-        print("  \033[1;38;5;210m  /cwd\033[0m              Show current directory")
-        print("  \033[1;38;5;210m  /tools\033[0m           List available tools")
-        print("  \033[1;38;5;210m  /kb\033[0m              Knowledge base commands")
-        print("  \033[1;38;5;210m  /skill\033[0m           List skills / show skill info")
-        print("  \033[1;38;5;210m  /ui\033[0m              UI display settings")
-        print("  \033[1;38;5;210m  /exit, /quit\033[0m      Exit the REPL")
+        print("  \033[1;37m基本命令:\033[0m")
+        print("  \033[1;38;5;210m  /help\033[0m             显示帮助")
+        print("  \033[1;38;5;210m  /status\033[0m           运行状态")
+        print("  \033[1;38;5;210m  /cwd\033[0m              当前工作目录")
+        print("  \033[1;38;5;210m  /tools\033[0m           可用工具列表")
+        print("  \033[1;38;5;210m  /kb\033[0m              知识库命令")
+        print("  \033[1;38;5;210m  /skill\033[0m           技能管理")
+        print("  \033[1;38;5;210m  /ui\033[0m              显示设置")
+        print("  \033[1;38;5;210m  /exit, /quit\033[0m      退出")
         print()
-        print("  \033[1;37mSession commands:\033[0m")
-        print("  \033[1;38;5;210m  /session list\033[0m       List saved sessions")
-        print("  \033[1;38;5;210m  /session save [name]\033[0m  Save session with optional name")
-        print("  \033[1;38;5;210m  /session resume\033[0m     Pick a session to resume")
-        print("  \033[1;38;5;210m  /session load <id>\033[0m   Load by id, prefix, or name")
+        print("  \033[1;37m会话管理:\033[0m")
+        print("  \033[1;38;5;210m  /session list\033[0m       已保存的会话")
+        print("  \033[1;38;5;210m  /session save [name]\033[0m  保存会话（可选命名）")
+        print("  \033[1;38;5;210m  /session resume\033[0m     选择会话恢复")
+        print("  \033[1;38;5;210m  /session load <id>\033[0m   按 ID 或名称加载")
         print()
-        print("  \033[1;37mSkill commands:\033[0m")
-        print("  \033[1;38;5;210m  /skill list\033[0m       List available skills")
-        print("  \033[1;38;5;210m  /skill <name>\033[0m     Show skill content")
-        print("  \033[1;38;5;210m  /skill run <name>\033[0m  Run skill as agent task")
+        print("  \033[1;37m技能:\033[0m")
+        print("  \033[1;38;5;210m  /skill list\033[0m       可用技能列表")
+        print("  \033[1;38;5;210m  /skill <name>\033[0m     查看技能内容")
+        print("  \033[1;38;5;210m  /skill run <name>\033[0m  执行技能")
         print()
-        print("  \033[1;37mKnowledge base commands:\033[0m")
-        print("  \033[1;38;5;210m  /kb sync <vault> [course_dir] [--full]\033[0m")
-        print("  \033[1;38;5;210m  /kb status\033[0m")
-        print("  \033[1;38;5;210m  /kb search <query> [--course name] [--top-k n]\033[0m")
-        print("  \033[1;38;5;210m  /kb graph <concept> [--intent related] [--limit n]\033[0m")
-        print("  \033[1;38;5;210m  /kb reset --yes\033[0m")
+        print("  \033[1;37m知识库:\033[0m")
+        print("  \033[1;38;5;210m  /kb sync <vault> [course_dir] [--full]\033[0m  同步资料")
+        print("  \033[1;38;5;210m  /kb status\033[0m                                   知识库状态")
+        print("  \033[1;38;5;210m  /kb search <query> [--course name] [--top-k n]\033[0m  检索")
+        print("  \033[1;38;5;210m  /kb graph <concept> [--intent related] [--limit n]\033[0m  图谱查询")
+        print("  \033[1;38;5;210m  /kb reset --yes\033[0m                               删除索引")
         print()
-        print("  \033[1;37mLearning commands:\033[0m")
-        print("  \033[1;38;5;210m  /learning plan <goal>\033[0m     Generate a learning plan")
-        print("  \033[1;38;5;210m  /learning progress\033[0m       Show mastery overview")
-        print("  \033[1;38;5;210m  /learning review\033[0m         Today's review list")
-        print("  \033[1;38;5;210m  /learning mark <concept> <status>\033[0m  Set mastery manually")
-        print("  \033[1;38;5;210m  /learning plans\033[0m          List saved plans")
+        print("  \033[1;37m题库:\033[0m")
+        print("  \033[1;38;5;210m  /quiz generate <topic> [--count n]\033[0m  生成练习题")
+        print("  \033[1;38;5;210m  /quiz start [count]\033[0m               开始练习")
+        print("  \033[1;38;5;210m  /quiz wrong\033[0m                       错题本")
+        print("  \033[1;38;5;210m  /quiz weak\033[0m                        薄弱点分析")
+        print("  \033[1;38;5;210m  /quiz stats\033[0m                       题库统计")
         print()
-        print("  \033[1;37mMemory commands:\033[0m")
-        print("  \033[1;38;5;210m  /memory list\033[0m         List saved memories")
-        print("  \033[1;38;5;210m  /memory show <name>\033[0m  Show memory details")
-        print("  \033[1;38;5;210m  /memory search <query>\033[0m  Search memories")
-        print("  \033[1;38;5;210m  /memory forget <name>\033[0m  Delete a memory")
-        print("  \033[1;38;5;210m  /memory stats\033[0m       Show memory statistics")
+        print("  \033[1;37m学习路线:\033[0m")
+        print("  \033[1;38;5;210m  /learning plan <goal>\033[0m              生成学习计划")
+        print("  \033[1;38;5;210m  /learning progress\033[0m                掌握度概览")
+        print("  \033[1;38;5;210m  /learning review\033[0m                  今日复习清单")
+        print("  \033[1;38;5;210m  /learning mark <概念> <状态>\033[0m       手动设置掌握度")
+        print("  \033[1;38;5;210m  /learning plans\033[0m                   已保存的学习计划")
         print()
-        print("  \033[1;37mUI commands:\033[0m")
-        print("  \033[1;38;5;210m  /ui\033[0m              Show current UI settings")
-        print("  \033[1;38;5;210m  /ui tools on\033[0m     Show tool calls")
-        print("  \033[1;38;5;210m  /ui tools off\033[0m    Hide tool calls")
+        print("  \033[1;37m记忆:\033[0m")
+        print("  \033[1;38;5;210m  /memory list\033[0m         已保存的记忆")
+        print("  \033[1;38;5;210m  /memory show <name>\033[0m  查看记忆详情")
+        print("  \033[1;38;5;210m  /memory search <query>\033[0m  搜索记忆")
+        print("  \033[1;38;5;210m  /memory forget <name>\033[0m  删除记忆")
+        print("  \033[1;38;5;210m  /memory stats\033[0m       记忆统计")
         print()
-        print("  \033[1;37mAgent tools:\033[0m")
+        print("  \033[1;37m显示设置:\033[0m")
+        print("  \033[1;38;5;210m  /ui\033[0m              当前设置")
+        print("  \033[1;38;5;210m  /ui tools on\033[0m     显示工具调用")
+        print("  \033[1;38;5;210m  /ui tools off\033[0m    隐藏工具调用")
+        print()
+        print("  \033[1;37mAgent 工具:\033[0m")
         schemas = get_tools_schema()
         for schema in schemas:
             func = schema.get("function", {})
@@ -752,16 +759,16 @@ class REPL:
 
     def print_status(self):
         print()
-        print("  \033[1;37mRuntime Status:\033[0m")
-        print(f"  \033[1;38;5;210m  session id\033[0m   {self.session.session_id}")
-        print(f"  \033[1;38;5;210m  cwd\033[0m          {self.session.cwd}")
-        print(f"  \033[1;38;5;210m  workspace\033[0m   {self.session.workspace_root}")
-        print(f"  \033[1;38;5;210m  provider\033[0m     {self.default_provider}")
-        print(f"  \033[1;38;5;210m  model\033[0m        {self.model_name}")
-        print(f"  \033[1;38;5;210m  messages\033[0m    {len(self.session.messages)}")
-        print(f"  \033[1;38;5;210m  tools\033[0m       {self.tool_count} registered")
-        print(f"  \033[1;38;5;210m  save dir\033[0m     {self.session_save_dir}")
-        print(f"  \033[1;38;5;210m  resumed\033[0m      {'yes' if self.resumed_session else 'no'}")
+        print("  \033[1;37m运行状态:\033[0m")
+        print(f"  \033[1;38;5;210m  会话 ID\033[0m   {self.session.session_id}")
+        print(f"  \033[1;38;5;210m  工作目录\033[0m  {self.session.cwd}")
+        print(f"  \033[1;38;5;210m  工作区\033[0m    {self.session.workspace_root}")
+        print(f"  \033[1;38;5;210m  Provider\033[0m  {self.default_provider}")
+        print(f"  \033[1;38;5;210m  模型\033[0m      {self.model_name}")
+        print(f"  \033[1;38;5;210m  消息数\033[0m    {len(self.session.messages)}")
+        print(f"  \033[1;38;5;210m  工具数\033[0m    {self.tool_count}")
+        print(f"  \033[1;38;5;210m  保存目录\033[0m  {self.session_save_dir}")
+        print(f"  \033[1;38;5;210m  恢复会话\033[0m  {'是' if self.resumed_session else '否'}")
         print()
 
     def print_tools(self):
@@ -853,12 +860,12 @@ class REPL:
 
     def print_memory_help(self):
         print()
-        print("  \033[1;37mMemory commands:\033[0m")
-        print("  \033[1;38;5;210m  /memory list\033[0m         List all saved memories")
-        print("  \033[1;38;5;210m  /memory show <name>\033[0m  Show memory details")
-        print("  \033[1;38;5;210m  /memory search <query>\033[0m  Search memories")
-        print("  \033[1;38;5;210m  /memory forget <name>\033[0m  Delete a memory")
-        print("  \033[1;38;5;210m  /memory stats\033[0m       Show memory statistics")
+        print("  \033[1;37m记忆命令:\033[0m")
+        print("  \033[1;38;5;210m  /memory list\033[0m         已保存的记忆")
+        print("  \033[1;38;5;210m  /memory show <name>\033[0m  查看记忆详情")
+        print("  \033[1;38;5;210m  /memory search <query>\033[0m  搜索记忆")
+        print("  \033[1;38;5;210m  /memory forget <name>\033[0m  删除记忆")
+        print("  \033[1;38;5;210m  /memory stats\033[0m       记忆统计")
         print()
 
     def handle_ui_command(self, cmd: str):
@@ -1062,12 +1069,12 @@ class REPL:
 
     def print_kb_help(self):
         print()
-        print("  \033[1;37mKnowledge base commands:\033[0m")
-        print("  \033[1;38;5;210m  /kb sync <vault> [course_dir] [--full]\033[0m")
-        print("  \033[1;38;5;210m  /kb status\033[0m")
-        print("  \033[1;38;5;210m  /kb search <query> [--course name] [--top-k n]\033[0m")
-        print("  \033[1;38;5;210m  /kb graph <concept> [--intent related] [--limit n]\033[0m")
-        print("  \033[1;38;5;210m  /kb reset --yes\033[0m")
+        print("  \033[1;37m知识库命令:\033[0m")
+        print("  \033[1;38;5;210m  /kb sync <vault> [course_dir] [--full]\033[0m  同步资料到知识库")
+        print("  \033[1;38;5;210m  /kb status\033[0m                                   查看知识库状态")
+        print("  \033[1;38;5;210m  /kb search <query> [--course name] [--top-k n]\033[0m  本地检索")
+        print("  \033[1;38;5;210m  /kb graph <concept> [--intent related] [--limit n]\033[0m  图谱查询")
+        print("  \033[1;38;5;210m  /kb reset --yes\033[0m                               删除索引")
         print()
 
     def handle_kb_sync(self, args: list[str]):
@@ -1288,12 +1295,12 @@ class REPL:
 
     def print_quiz_help(self):
         print()
-        print("  \033[1;37mQuiz commands:\033[0m")
-        print("  \033[1;38;5;210m  /quiz generate <topic> [--count n] [--course name]\033[0m")
-        print("  \033[1;38;5;210m  /quiz start [count] [--course name]\033[0m")
-        print("  \033[1;38;5;210m  /quiz wrong\033[0m")
-        print("  \033[1;38;5;210m  /quiz weak\033[0m")
-        print("  \033[1;38;5;210m  /quiz stats\033[0m")
+        print("  \033[1;37m题库命令:\033[0m")
+        print("  \033[1;38;5;210m  /quiz generate <topic> [--count n] [--course name]\033[0m  生成练习题")
+        print("  \033[1;38;5;210m  /quiz start [count] [--course name]\033[0m               开始练习")
+        print("  \033[1;38;5;210m  /quiz wrong\033[0m                                       错题本")
+        print("  \033[1;38;5;210m  /quiz weak\033[0m                                        薄弱点分析")
+        print("  \033[1;38;5;210m  /quiz stats\033[0m                                       题库统计")
         print()
 
     def handle_quiz_generate(self, args: list[str]):
@@ -1413,12 +1420,12 @@ class REPL:
 
     def print_learning_help(self):
         print()
-        print("  \033[1;37mLearning commands:\033[0m")
-        print("  \033[1;38;5;210m  /learning plan <goal> [--course name] [--deadline date]\033[0m")
-        print("  \033[1;38;5;210m  /learning progress [concept name]\033[0m")
-        print("  \033[1;38;5;210m  /learning review\033[0m")
-        print("  \033[1;38;5;210m  /learning mark <concept> mastered|learning|needs_review\033[0m")
-        print("  \033[1;38;5;210m  /learning plans\033[0m")
+        print("  \033[1;37m学习路线命令:\033[0m")
+        print("  \033[1;38;5;210m  /learning plan <goal> [--course name] [--deadline date]\033[0m  生成学习计划")
+        print("  \033[1;38;5;210m  /learning progress [concept name]\033[0m                     掌握度概览")
+        print("  \033[1;38;5;210m  /learning review\033[0m                                       今日复习清单")
+        print("  \033[1;38;5;210m  /learning mark <concept> mastered|learning|needs_review\033[0m  手动设置")
+        print("  \033[1;38;5;210m  /learning plans\033[0m                                         已保存计划")
         print()
 
     def handle_learning_plan(self, args: list[str]):

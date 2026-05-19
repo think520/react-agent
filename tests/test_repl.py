@@ -139,7 +139,7 @@ def test_repl_status_output(monkeypatch, capsys):
     repl.print_status()
 
     output = capsys.readouterr().out
-    assert "Runtime Status:" in output
+    assert "运行状态:" in output or "Runtime Status:" in output
     assert "minimax" in output
     assert "MiniMax-Text-01" in output
     assert ".session-test" in output
