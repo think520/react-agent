@@ -1,0 +1,216 @@
+# 更新日志
+
+所有重要变更都记录在此文件中。
+
+格式参考 [Keep a Changelog](https://keepachangelog.com/)，版本号遵循 [语义化版本](https://semver.org/)。
+
+## [未发布]
+
+## [0.11.0] - 2026-05-19
+
+### 新增
+- **学习路线系统**: 新增 `learning/` 模块，实现"学习计划 → 掌握度追踪 → 间隔复习"闭环。
+  - `learning/schema.py`: `Mastery`（知识点掌握度）、`LearningPlan`（学习计划）数据模型。
+  - `learning/store.py`: `LearningStore` SQLite 存储，新增 `mastery` 和 `learning_plans` 两张表。
+  - `learning/scheduler.py`: `ReviewScheduler` 简单间隔重复算法（1/3/7/14天），做对推进、做错重置。支持手动覆盖（`mark_manual`）。
+  - `learning/progress.py`: `ProgressTracker` 掌握度概览、薄弱/最强知识点排行、从做题记录自动推断。
+  - `learning/path.py`: `LearningPathGenerator` 基于 LLM 的个性化学习计划生成。数据优先级：做题记录 > 用户目标 > 图谱关系 > 课程结构。无 LLM 时回退到基于薄弱点的简单计划。
+  - `tools/learning_tools.py`: 注册 `learning_path`、`learning_progress`、`learning_review` 三个 Agent 工具。
+  - `cli/repl.py`: 新增 `/learning` 命令集（`plan`/`progress`/`review`/`mark`/`plans`）。
+  - `tests/test_learning.py`: 28 个测试覆盖 schema、store、scheduler、progress、path generator、tool 集成。
+
+### 设计决策
+- 模块划分：learning/ 管路线+调度+进度，quiz/review 管诊断，职责不重叠。
+- 复习策略：先用简单间隔重复，遗忘曲线（Ebbinghaus）放后续计划。
+- 进度追踪：混合模式——自动从做题记录推断 + 用户手动覆盖。
+- 路线输出：结构化 JSON 存 SQLite，可选写回 Obsidian（待实现）。
+
+## [0.10.0] - 2026-05-19
+
+### 新增
+- **知识库状态产品化**: 新增 `knowledge/` 模块，包含 DocumentRecord（按文件追踪导入状态）、manifest（知识库清单）、import_report（同步后导入报告）、library（课程/chunk/图谱聚合统计）。新增 `knowledge_status` Agent 工具。`/kb status` 增强为显示课程分组、图谱节点类型、同步错误。
+  - `knowledge/documents.py`: `DocumentRecord` 数据类，`build_document_records()` 从 ScannedNote/SourceDocument 构建记录。
+  - `knowledge/manifest.py`: `.knowledge/manifest.json` 读写。
+  - `knowledge/import_report.py`: `ImportReport` 数据类，同步后错误和摘要报告。
+  - `knowledge/library.py`: `CourseSummary`、`LibrarySummary` 聚合统计。
+  - `tools/knowledge_status.py`: Agent 工具，返回知识库概览 JSON。
+  - `tests/test_knowledge_status.py`: 13 个测试。
+
+- **题库系统 MVP**: 新增 `quiz/` 模块，实现"生成题目 → 做题 → 批改 → 错题记录 → 薄弱点分析"学习闭环。
+  - `quiz/schema.py`: `Question`、`QuizSession`、`QuizAttempt` 数据模型，支持 single_choice / true_false / short_answer 三种题型。
+  - `quiz/store.py`: `QuizStore` SQLite CRUD（questions、quiz_sessions、quiz_attempts 三张表），每操作独立连接，WAL 模式。
+  - `quiz/generator.py`: `QuestionGenerator` 基于 RAG 检索 + LLM 出题，Prompt 约束 JSON 输出 + 后处理解析。
+  - `quiz/evaluator.py`: `QuizEvaluator` 选择/判断题自动批改，简答题 LLM 批改。支持中文答案归一化（对/错、是/否、√/×）。
+  - `quiz/review.py`: `QuizReviewer` 错题本和按概念的薄弱点分析。
+  - `tools/quiz_tools.py`: 注册 `question_generate`、`quiz_start`、`quiz_submit` 三个 Agent 工具。
+  - `tests/test_quiz.py`: 36 个测试覆盖 schema、store、evaluator、generator、review、tool 集成。
+
+- **Session 命名与恢复**: Session 新增 `name` 字段，支持给 session 起名字。
+  - `core/session.py`: 新增 `name` 字段、`list_session_summaries()` 方法、旧格式向后兼容（缺 name 字段默认空字符串）。
+  - `/session save [name]`: 保存时可选命名。
+  - `/session resume`: 交互式选择恢复，显示序号列表。
+  - `/session load <id|name>`: 支持按名称模糊匹配、ID 前缀匹配、精确匹配。
+  - `/session list`: 显示名称、消息数、最后活跃时间。
+  - 加载 session 后自动显示最近对话历史。
+  - `tests/test_session.py`: 新增 4 个测试。
+
+- 共新增 49 个测试（知识库 13 + 题库 36）。
+
+### 变更
+- **Quiz JSON 解析容错增强**: `quiz/generator.py` 的 `_parse_json_from_llm()` 改用括号深度追踪匹配 JSON 数组边界（替代 `rfind`），先尝试直接解析再做提取，增加尾逗号修复，解析失败时日志输出原始内容便于排查。
+- **Quiz 错误信息改善**: `tools/quiz_tools.py` 出题失败时列出可能原因（知识库无资料 / 材料不足 / LLM 格式异常），并提示用 `/kb search` 验证。
+
+### 修复
+- **MiniMax 2013 错误**: `providers/minimax.py` 将所有 system message（base、skills、memory）合并为一条发送，MiniMax 只支持单条 system message。同时移除所有消息角色的 `name` 字段。
+  - `tests/test_providers.py`: 更新断言，验证 system 消息合并和无 name 字段。
+
+## [0.9.0] - 2026-05-13
+
+### 变更
+- **MiniMax Provider 重构**: `MiniMaxProvider` 改为继承 `OpenAICompatibleProvider`，复用通用 HTTP 请求、重试和流式解析逻辑，仅保留 MiniMax 特有的消息转换（`_convert_messages`）和 refusal 检测（`_parse_response`）。
+- **工具路径解析收敛**: 将重复的 `_resolve_path()` 提取到 `tools/base.py`，`file_ops`、`dir_ops`、`obsidian_tool` 统一复用。
+
+### 修复
+- **RAG 文件读取句柄**: `rag/ingest.py` 的文本和 PDF 读取改为 `with open(...)`，避免文件句柄泄漏。
+- **DeepSeek 空测试**: 为 `test_deepseek_provider_complete()` 增加实际 payload 断言，避免空测试误报通过。
+- **Provider 导出**: `providers.__all__` 补充 `OpenAICompatibleProvider`。
+
+## [0.8.0] - 2026-05-09
+
+### 新增
+- **持久化记忆系统**: Agent 能在会话间记住用户偏好、学习上下文和反馈，跨 session 持久化。
+  - `core/memory.py`: `MemoryManager` 核心模块，支持 save/load/forget/search/build_memory_prompt。记忆以单独 Markdown 文件存储在 `.bobodan/memory/`，每个文件带 YAML frontmatter（name, description, type, created, updated）。自动维护 `MEMORY.md` 索引表。
+  - `tools/memory_tools.py`: 新增 `memory_save` 和 `memory_recall` 两个 Agent 工具，LLM 可主动保存和检索记忆。
+  - `rag/vector_store.py`: `LocalVectorStore` 新增 `upsert()` 增量更新和 `remove_by_source()` 按来源删除方法，支持记忆的增量向量索引。
+  - `core/agent_loop.py`: 新增 `memory_prompt` 参数和 `_inject_memory_prompt()` 方法，使用 `MEMORY_MARKER` 防重复注入（与 skills 同模式）。
+  - `cli/repl.py`: 新增 `/memory` 命令集（`list`/`show`/`search`/`forget`/`stats`），startup panel 显示 memories 计数。
+  - `config.yaml`: 新增 `memory: { enabled: true, dir: ".bobodan" }` 配置节。
+  - `graph/schema.py`: 新增 `Memory` 节点标签和 `REMEMBERS` 关系类型。
+  - `tests/test_memory.py`: 33 个测试覆盖 frontmatter 解析、文件读写、向量搜索、工具调用、prompt 注入、REPL 命令。
+
+## [0.7.0] - 2026-05-06
+
+### 变更
+- **CLI 流式 UI 重写**: 全面重写流式渲染，提升交互流畅度。
+  - **打字机效果**: 文本逐字符输出（~12ms/字符），完整行带内联 Markdown 渲染（加粗、代码、列表、表格、引用、标题），部分行实时预览。
+  - **Thinking 动画**: `⠋ thinking` 旋转 braille 字符，文字到来时无缝消失（`\r\033[2K` 清除），无内容时自动恢复。
+  - **紧凑工具调用**: `⏺ tool_name(args)` 格式替代 Rich 标签，结果预览 `✓/✗` + 80 字符摘要，不打断文本流。
+  - **简化用户消息**: `> 用户输入` 前缀替代 Rich Panel，移除 `> assistant` 标题。
+  - `cli/markdown_render.py`: 移除 `print_user_message` 和 `print_assistant_header`。
+  - `cli/repl.py`: 重写 `_flush_stream_buffer`（typewriter + markdown）、`run_agent_streaming`（thinking/工具/部分行状态机）、thinking 动画方法。
+  - `tests/test_repl.py`: 断言从 `"THINK"` 更新为 `"thinking"`。
+- **工具调用默认显示**: `show_tool_calls` 默认值改为 `True`。
+- **REPL UI 开关命令**: `/ui`、`/ui tools on`、`/ui tools off` 可切换工具调用显示。
+
+### 修复
+- **MiniMax 兼容性**: 移除遗留基础 system prompt 注入，避免 MiniMax 请求触发 `invalid chat setting (2013)`。
+
+## [0.6.0] - 2026-04-30
+
+### 新增
+- **Rich CLI 渲染**: Agent 回复中的常见 Markdown 会通过 Rich 渲染为更易读的终端格式，不再原样显示 `###` 标题、代码围栏和表格分隔行。`/kb status` 和 `/kb search` 改为 Rich 面板/表格展示，并保留内置轻量 fallback。
+- **启动页 Rich 面板**: REPL 启动界面改为 Rich Panel + grid 表格，避免手写框线在中文、长路径或窄终端下错位，并提示输入 `/` 查看命令建议。
+- **Slash-command 实时提示**: REPL 接入 `prompt_toolkit`，输入 `/` 时显示可用命令候选；如果终端不支持实时提示，输入 `/` 回车会显示精简命令面板。
+- **`/kb` 知识库命令入口**: 新增 REPL 直连命令，不依赖模型猜工具即可同步、检索和查询图谱。
+  - `/kb sync <vault> [course_dir] [--full]`: 同步 Obsidian vault 和可选课程资料目录。
+  - `/kb status`: 查看 `.knowledge/` 文件数、chunk 数、节点数、关系数和图谱后端。
+  - `/kb search <query> [--course name] [--top-k n]`: 直接检索本地 RAG 索引。
+  - `/kb graph <concept> [--intent related] [--limit n]`: 直接查询知识图谱关系。
+  - `/kb reset --yes`: 删除生成的 `.knowledge/` 索引，不删除原始笔记或资料。
+- **RAG + 知识图谱学习助手 MVP**: 新增面向课程学习的本地知识库闭环。
+  - `obsidian/`: 扫描 Obsidian vault，解析 Markdown frontmatter、标题、`[[双链]]`、alias、tag、文件 hash。
+  - `rag/`: 支持 Markdown/TXT/PDF 文档导入、文本切块、本地轻量 sparse vector 检索、引用结果格式化。
+  - `graph/`: 新增知识图谱 schema、本地 JSON 图谱存储，以及可选 Neo4j adapter。未配置 Neo4j 时自动回退到 `.knowledge/graph_store.json`。
+  - `tools/obsidian_tool.py`: 新增 `obsidian_sync`，同步 Obsidian 笔记和可选课程资料目录到 `.knowledge/`。
+  - `tools/rag_search.py`: 新增 `rag_search`，返回 `results[{text, source, score, metadata}]`。
+  - `tools/graph_query.py`: 新增 `graph_query`，支持 `related`、`tags`、`mentions`、`course`、`prerequisites` 等查询意图。
+  - `skills/course-learning/SKILL.md`: 新增课程学习助手 skill，引导 Agent 根据问题类型选择 RAG、图谱或组合查询。
+  - `docs/RAG_KNOWLEDGE_GRAPH_ASSISTANT.md`: 新增完整设计文档。
+  - `docs/RAG_KNOWLEDGE_GRAPH_MVP.md`: 新增 MVP 使用说明、数据流、工具接口和演示步骤。
+
+### 变更
+- **README**: 补充课程学习助手 MVP 的用途、项目结构、快速演示和工具说明。
+- **CLAUDE.md**: 补充 `obsidian/`、`rag/`、`graph/`、`.knowledge/` 的目录约定和运行数据规则。
+- `.gitignore`: 忽略 `.knowledge/` 本地索引目录。
+- `requirements.txt`: 新增 `pypdf>=4.0`（PDF 文本抽取）、`prompt_toolkit>=3.0`（slash-command 提示）、`rich>=13.0`（Markdown 渲染）。
+
+### 验证
+- 全部 123 个测试通过。
+
+## [0.5.0] - 2026-04-29
+
+### 新增
+- **Skills 系统**: 新增 skills 功能，仿照 OpenClaw 的 skills 架构。每个 skill 是 `skills/` 目录下的子文件夹，包含 `SKILL.md`（YAML frontmatter + Markdown 指令）。
+  - `core/skills.py`: skill 加载、frontmatter 解析、XML prompt 格式化。
+  - `cli/repl.py`: 新增 `/skill` 命令（`list` / `<name>` / `run <name>`）。
+  - `core/agent_loop.py`: 支持 `skills_prompt` 参数，首次 LLM 调用前注入 system message。
+  - `core/session.py`: `_trim_messages()` 保留首条 system message 不被裁剪。
+  - `config.yaml`: 新增 `skills.enabled` 和 `skills.dir` 配置节。
+  - `skills/weather/SKILL.md`: 示例天气查询 skill。
+  - `tests/test_skills.py`: 18 个单元测试覆盖 frontmatter 解析、skill 加载、prompt 格式化。
+
+### 修复
+- **MiniMax tool_call id not found (2013)**: 根因是消息顺序问题——MiniMax 要求 `assistant(tool_calls)` 出现在 `tool` 消息之前。Session 存储顺序为 `tool → assistant(tool_calls)` 但 MiniMax 需要反过来。在 `providers/minimax.py` 中重新排序消息修复。
+
+## [0.4.0] - 2026-04-27
+
+### 新增
+- **CLI 流式输出**: OpenAI-compatible 和 MiniMax provider 新增 SSE 流式响应，支持增量解析 tool call delta，并正确累积工具参数。
+- **Agent 过程事件**: 新增 `AgentLoop.run_stream()`，输出 assistant delta、工具开始、工具结束和最终回复事件，让 CLI 能展示 agent 正在做什么，而不是静默等待。
+- **REPL 工具调用可见**: Agent 运行过程中显示工具名、参数摘要和成功/失败状态。
+- **Provider 重试逻辑**: `OpenAICompatibleProvider` 和 `MiniMaxProvider` 的 `complete()` 方法增加指数退避重试。覆盖连接错误、超时、5xx、429。4xx（除 429）不重试，直接抛出清晰错误。
+- **CLI 超时控制**: `run_agent()` 增加 per-turn 超时（默认 300s，来自 `agent.timeout` 配置）。超时后打印提示，不写入不完整 session。线程设为 daemon，主进程可干净退出。
+- **Provider 配置校验**: `_validate_provider_config()` 校验 provider 类型、`api_key_env` 字段、环境变量是否设置。错误信息包含支持的类型列表和修复建议。
+- `requirements.txt` + `requirements-dev.txt`: 核心依赖 `httpx`、`PyYAML`、`python-dotenv`；开发依赖 `pytest`。
+
+### 变更
+- **REPL 回复渲染**: 流式阶段改为批量消费事件，并按完整行/长段落阈值增量写入，不再每个 delta 都重绘完整 Markdown 文档，减少长回复时的卡顿。
+- **流式 Markdown 清洗**: 流式输出会轻量处理标题、粗体、行内代码、列表和 Markdown 表格，避免用户看到原始 `**`、表格分隔行等格式标记。
+- **CLI 主题降噪**: 去掉高饱和橙色/紫色强调色，改用白色、灰色、青色和绿色，让输出更容易扫读。
+
+### 修复
+- **CLI 乱码 UI 文案**: prompt 和启动面板中的中文应用名改为英文 `bobodan`，工具状态图标和分隔线改为更适合 Windows 终端的 ASCII 文本。
+- **回复和 prompt 重叠**: 流式输出结束后强制补齐换行，避免下一轮输入提示贴在回复末尾。
+
+### 验证
+- 全部 80 个测试通过。
+
+## [0.3.0] - 2026-04-27
+
+### 新增
+- **`ToolResult` 结构化返回**: 新增 `ToolResult(ok, content, data)` 数据类。所有工具返回 `ToolResult`，程序逻辑用 `ok` 和 `data` 判断状态，给 LLM 的 tool message 仍用 `content` 字符串。
+- **Workspace 安全边界**: `tools/base.py` 新增 `_is_within_workspace()` 路径校验，工具只能访问 workspace 根目录内路径。新增 `_is_denied_path()` 拒绝列表，默认拒绝 `.env`、`.git`、`.session`、`__pycache__`、`.venv`。
+- **`read_file` 保护**: 增加文件大小限制（1 MB）、二进制文件检测、workspace 边界检查、deny list 检查。
+- **`write_file` 覆盖保护**: 新增 `overwrite` 参数，默认 `false`。已有文件需传 `overwrite=true` 才能覆盖。
+- `tests/test_file_ops.py`、`tests/test_dir_ops.py`、`tests/test_tool_base.py`: 新增 deny list、binary 检测、大小限制、覆盖保护、workspace 边界等测试。
+
+### 变更
+- `tools/base.py`: `execute_tool()` 返回 `ToolResult` 替代 `Any`。自动将非 `ToolResult` 返回值包装为 `ToolResult(ok=True, content=str(result))`。注入 `workspace` 参数。
+- `tools/dir_ops.py`: `change_dir` 通过 `data["cwd"]` 返回新路径，`_sync_session_state` 直接读取。
+- `core/agent_loop.py`: `_sync_session_state` 使用 `ToolResult.data["cwd"]` 替代中文前缀解析。
+
+## [0.2.0] - 2026-04-27
+
+### 新增
+- **`providers/types.py`**: 新增统一内部类型 `ToolCall(id, name, arguments)` 和 `LLMResponse(content, tool_calls)`。所有 provider 返回同一类型，`AgentLoop` 不再依赖 duck typing。
+- **`providers/openai_compat.py`**: 新增 `OpenAICompatibleProvider` 基类，封装 OpenAI 兼容 API 的消息转换、HTTP 请求和响应解析。Deepseek 和 OpenAI provider 均继承此类。
+- `tests/test_providers.py`、`tests/test_agent_loop.py`: 覆盖类型转换、多 tool call、消息顺序等。
+
+### 变更
+- **`providers/deepseek.py`**: 从 LangChain wrapper 改为继承 `OpenAICompatibleProvider`，移除 `langchain_openai` 依赖。同时修复了多 tool call 丢失 bug（原代码只取 `tool_calls_data[0]`）。
+- **`providers/minimax.py`**: 返回 `LLMResponse` 替代 ad-hoc `Response` 类。使用共享 `ToolCall` 类型。
+- **`providers/factory.py`**: `openai` 分支使用 `OpenAICompatibleProvider` 替代 `DeepseekProvider`，职责清晰。
+- **`core/agent_loop.py`**: 直接访问 `LLMResponse.tool_calls` 和 `ToolCall.id/name/arguments`，移除所有 `hasattr` 和 `isinstance(tc, dict)` duck typing。
+
+## [0.1.0] - 2026-04-22
+
+### 新增
+- **`.gitignore`**: 排除 `.env`、`.session/`、`.venv/`、`__pycache__/`、`.pytest_cache/` 等运行产物，防止敏感文件和缓存进入版本库。
+
+### 修复
+- **Tool call 消息顺序修正**: `core/agent_loop.py` 原代码先执行工具、添加 `tool` 消息，最后才添加 `assistant(tool_calls)`，形成 `user → tool → assistant(tool_calls)` 的错误顺序。现在改为：先解析 tool calls → 添加 `assistant(tool_calls)` → 再执行工具并添加 `tool` 消息。顺序始终为 `user → assistant(tool_calls) → tool`。
+- **Session 裁剪保护 tool call 组**: `core/session.py` 重写 `_trim_messages()`，新增 `_group_messages()` 方法。消息按"对话轮次"分组：`assistant(tool_calls)` 和对应 `tool` 消息作为原子单元，裁剪时要么一起保留要么一起移除。
+- `tests/test_repl.py`: 更新断言匹配实际 REPL 输出。
+
+### 验证
+- 全部 50 个测试通过。

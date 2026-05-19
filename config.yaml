@@ -1,11 +1,16 @@
 llm:
-  default_provider: "deepseek"
+  default_provider: "minimax"
   providers:
+    minimax:
+      type: "minimax"
+      base_url: "https://api.minimaxi.com/v1"
+      api_key_env: "MINIMAX_API_KEY"
+      model: "MiniMax-M2.7"
     deepseek:
       type: "deepseek"
       base_url: "https://api.deepseek.com/v1"
       api_key_env: "DEEPSEEK_API_KEY"
-      model: "deepseek-chat"
+      model: "deepseek-v4-pro"
     openai:
       type: "openai"
       base_url: "https://api.openai.com/v1"
@@ -15,8 +20,16 @@ llm:
 agent:
   temperature: 0.7
   max_retries: 3
-  timeout: 60
+  timeout: 300
 
 session:
   save_dir: ".session"
   max_messages: 100
+
+skills:
+  enabled: true
+  dir: "skills"
+
+memory:
+  enabled: true
+  dir: ".bobodan"

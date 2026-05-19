@@ -1,0 +1,37 @@
+# Environment & secrets
+.env
+
+# Session data
+.session/
+
+# Local knowledge indexes
+.knowledge/
+
+# Memory system runtime data
+.bobodan/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.pytest_cache_local/
+.pytest_tmp/
+.tmp_test/
+venv/
+.venv/
+
+# Local demo data
+demo_vault/
+note/
+
+# Obsidian config
+obsidian/.obsidian/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
