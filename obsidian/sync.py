@@ -173,7 +173,7 @@ def sync_sources(
         "graph_backend": graph_store.backend_name,
         "mode": mode,
     }
-    save_manifest(workspace, doc_records, sync_summary_dict)
+    save_manifest(workspace, doc_records, sync_summary_dict, vault_path=vault_path)
     save_import_report(workspace, ImportReport(
         mode=mode,
         scanned_files=len(new_state),

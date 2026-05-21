@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview 
 
-波波蛋 (Bobodan) is a Python-based ReAct agent with multiple LLM provider support, session persistence, a skills system, a persistent memory system, a local knowledge base with RAG and knowledge graph, a quiz system, a learning path system, and a CLI REPL interface. Users chat with the agent which reasons and calls tools (read_file, write_file, list_dir, change_dir, stat_path, memory_save, memory_recall, knowledge_status, question_generate, quiz_start, quiz_submit, learning_path, learning_progress, learning_review) in a loop until it produces a response.
+波波蛋 (Bobodan) is a Python-based ReAct agent with multiple LLM provider support, session persistence, a skills system, a persistent memory system with daily memory and FTS5 search, a local knowledge base with RAG and knowledge graph, a wiki compilation layer, a quiz system, a learning path system, and a CLI REPL interface. Users chat with the agent which reasons and calls tools (read_file, write_file, list_dir, change_dir, stat_path, memory_save, memory_recall, memory_daily_save, memory_daily_read, memory_promote, knowledge_status, question_generate, quiz_start, quiz_submit, learning_path, learning_progress, learning_review, wiki_ingest, wiki_lint) in a loop until it produces a response.
 
 ## Commands
 
@@ -44,9 +44,17 @@ pip install -r requirements-dev.txt      # with pytest
 /learning plans     # list saved learning plans
 /memory list        # list saved memories
 /memory show <name> # show memory details
-/memory search <query>  # search memories by semantic similarity
+/memory search <query>  # search memories (FTS5 + vector)
 /memory forget <name>   # delete a memory
-/memory stats       # show memory statistics
+/memory daily [content] # write/view today's daily memory
+/memory daily YYYY-MM-DD  # view specific date's memory
+/memory promote     # check and execute daily→permanent promotion
+/memory review      # show today's review list (from learning module)
+/memory stats       # show memory statistics (includes FTS5 stats)
+/wiki init <vault>  # initialize wiki directory structure
+/wiki ingest <source> [--vault path] [--force]  # compile sources into wiki pages
+/wiki lint [vault]  # wiki health check (orphans, broken links, stale)
+/wiki status [vault]  # wiki statistics
 /ui                 # show UI settings
 /ui tools on|off    # toggle tool call display during streaming
 /session list                 # list saved sessions (name, id, time)
@@ -97,7 +105,7 @@ tools/
   obsidian_tool.py # obsidian_sync tool (syncs vault to .knowledge/)
   rag_search.py   # rag_search tool (local RAG retrieval)
   graph_query.py  # graph_query tool (knowledge graph relationships)
-  memory_tools.py # memory_save, memory_recall tools (persistent memory)
+  memory_tools.py # memory_save, memory_recall, memory_daily_save, memory_daily_read, memory_promote
   knowledge_status.py # knowledge_status tool (knowledge base overview)
   quiz_tools.py   # question_generate, quiz_start, quiz_submit tools
 knowledge/        # Knowledge base management
@@ -117,6 +125,16 @@ learning/         # Learning path and progress tracking
   scheduler.py    # ReviewScheduler: simple spaced repetition (1/3/7/14 days)
   progress.py     # ProgressTracker: mastery overview, auto-infer from quiz
   path.py         # LearningPathGenerator: LLM-based personalized learning plans
+memory/           # Memory upgrade: daily memory, FTS5 index, promotion
+  store.py        # MemoryIndexStore: SQLite + FTS5 full-text search (chunks, recall_log, promotion_log)
+  daily.py        # DailyMemoryManager: daily memory files in .bobodan/daily/
+  search.py       # MemorySearcher: FTS5 primary + vector fallback
+  promotion.py    # PromotionEngine: daily→permanent promotion scoring
+wiki/             # LLM wiki compilation layer (Karpathy pattern)
+  schema.py       # WikiPage, CompileResult, WikiConfig, source registry
+  compiler.py     # WikiCompiler: LLM-based source→wiki page compilation
+  index.py        # WikiIndexer: index.md catalog + log.md chronicle
+  lint.py         # WikiLinter: orphan/broken link/stale page detection
 skills/           # Skills directory (configurable via config.yaml)
   weather/        # Example skill: weather queries via wttr.in
     SKILL.md      # YAML frontmatter (name, description) + Markdown instructions
@@ -166,7 +184,19 @@ tools/           # Agent-facing wrappers for sync, RAG search, and graph query
 
 **Skills system**: Skills are loaded from `skills/` directory (configurable). Each skill is a subdirectory containing a `SKILL.md` file with YAML frontmatter (`name`, `description`) and Markdown body (instructions). At startup, `build_skills_system_prompt()` scans the directory, parses frontmatter, and formats an XML catalog into a system message. The model reads the catalog and autonomously decides which skill to load via `read_file`. `/skill run <name>` strips frontmatter and sends the body as a user message prefixed with `[Skill: name]`. A stable `SKILLS_PROMPT_MARKER` in the injected system message prevents duplicate injection on session restore. System messages are protected from trimming in `_trim_messages()`.
 
-**Memory system**: Persistent memories are stored as individual Markdown files in `.bobodan/memory/` with YAML frontmatter (`name`, `description`, `type`, `created`, `updated`). An auto-generated `MEMORY.md` index provides a table overview. The `MemoryManager` class (`core/memory.py`) handles CRUD operations and vector indexing via `LocalVectorStore`. Two Agent tools are registered: `memory_save` (save/update) and `memory_recall` (semantic search). At startup, `build_memory_prompt()` builds an XML-structured system prompt fragment with a `MEMORY_MARKER` for idempotent injection (same pattern as skills). Memory types: `user` (profile/preferences), `feedback` (corrections/confirmations), `project` (context), `reference` (external pointers). REPL provides `/memory list|show|search|forget|stats` commands.
+**Memory system**: Two-tier memory with lifecycle management.
+
+Permanent memories (`.bobodan/memory/*.md`): YAML frontmatter (`name`, `description`, `type`, `created`, `updated`). Four types: `user` (profile), `feedback` (corrections), `project` (context), `reference` (external pointers). Auto-generated `MEMORY.md` index.
+
+Daily memories (`.bobodan/daily/YYYY-MM-DD.md`): Timestamped entries with YAML frontmatter (`date`, `tags`). Used as buffer for learning notes, quiz results, and transient context. Today + yesterday injected into system prompt automatically.
+
+Storage: `.bobodan/memory.db` (SQLite) with FTS5 full-text search for fast keyword retrieval. `memory_index.json` (vector store) kept as fallback. FTS5 triggers auto-sync with chunks table.
+
+Search: `MemorySearcher` uses FTS5 as primary, `LocalVectorStore` vector similarity as fallback.
+
+Promotion: `PromotionEngine` evaluates daily memories for promotion to permanent. Score = 0.4×frequency + 0.4×quiz_association + 0.2×recency (30-day half-life). Threshold: score ≥ 0.6 and recall_count ≥ 2. Triggered by `/memory promote` or `memory_promote` tool.
+
+Tools: `memory_save`, `memory_recall` (FTS5 search), `memory_daily_save`, `memory_daily_read`, `memory_promote`. REPL: `/memory list|show|search|forget|daily|promote|review|stats`.
 
 ## Provider API
 

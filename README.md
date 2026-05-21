@@ -48,7 +48,7 @@ tools/
   obsidian_tool.py  # obsidian_sync：同步 Obsidian/课程资料到知识库
   rag_search.py     # rag_search：本地 RAG 检索
   graph_query.py    # graph_query：知识图谱关系查询
-  memory_tools.py   # memory_save、memory_recall：跨会话持久化记忆
+  memory_tools.py   # memory_save、memory_recall、memory_daily_save、memory_daily_read、memory_promote
   knowledge_status.py # knowledge_status：知识库状态查询
   quiz_tools.py     # question_generate、quiz_start、quiz_submit：题库工具
 knowledge/          # 知识库管理
@@ -68,13 +68,20 @@ learning/           # 学习路线与进度追踪
   scheduler.py      # ReviewScheduler：简单间隔重复（1/3/7/14天）
   progress.py       # ProgressTracker：掌握度概览、自动推断
   path.py           # LearningPathGenerator：基于 LLM 的个性化学习计划
+memory/             # 记忆系统升级模块
+  store.py          # MemoryIndexStore：SQLite 索引 + FTS5 全文检索
+  daily.py          # DailyMemoryManager：每日记忆文件管理
+  search.py         # MemorySearcher：FTS5 主检索 + 向量 fallback
+  promotion.py      # PromotionEngine：每日记忆晋升评分和执行
 obsidian/           # Obsidian vault 扫描、frontmatter/双链/tag 解析
 rag/                # 文档导入、文本切块、本地轻量向量索引、检索
 graph/              # 知识图谱 schema、本地 JSON store、可选 Neo4j adapter
 .bobodan/           # 记忆系统运行时数据（.gitignore 已排除）
-  memory/           # 单独记忆文件（Markdown + YAML frontmatter）
+  memory/           # 永久记忆文件（Markdown + YAML frontmatter）
+  daily/            # 每日记忆文件（Markdown）
+  memory.db         # SQLite 索引 + FTS5 虚拟表
   MEMORY.md         # 自动生成的记忆索引
-  memory_index.json # 向量索引
+  memory_index.json # 向量索引（FTS5 降级兜底）
 .knowledge/         # 知识库运行时数据（.gitignore 已排除）
   rag_index.json    # RAG 向量索引
   graph_store.json  # 本地图谱
@@ -283,6 +290,92 @@ Dijkstra 算法和哪些知识点有关？
 - `mastery` — 知识点掌握度（概念、状态、分数、复习次数、连续正确、下次复习时间）
 - `learning_plans` — 学习计划（标题、目标、步骤 JSON、课程、截止日期）
 
+## LLM Wiki 编译层
+
+基于 Karpathy LLM Wiki 模式，将源文档编译为结构化 wiki 页面。与 `/kb sync`（被动索引）不同，`/wiki ingest` 是主动整理——LLM 读资料、提取实体和概念、生成交叉引用的 wiki 页面。
+
+### 数据流
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    原始资料 (Truth Source)                     │
+│  note/vault/Dijkstra.md                                      │
+│  note/vault/正则表达式.md                                      │
+└──────────────────────┬──────────────────────────────────────┘
+                       │
+          ┌────────────┴────────────┐
+          ▼                         ▼
+   /kb sync vault           /wiki ingest vault
+   (被动索引，不需要 LLM)      (主动编译，需要 LLM)
+          │                         │
+          ▼                         ▼
+  .knowledge/rag_index.json   vault/wiki/entities/*.md
+  .knowledge/graph_store.json vault/wiki/concepts/*.md
+                              vault/wiki/source_registry.json
+          │                         │
+          └────────────┬────────────┘
+                       ▼
+              Agent 检索时自动覆盖
+              原始资料 + wiki 页面
+```
+
+### 三层架构
+
+| 层级 | 内容 | 谁写 | 谁读 |
+|------|------|------|------|
+| 原始资料 | 用户的笔记、课程资料 | 用户 | `/kb sync`、`/wiki ingest` |
+| Wiki 编译层 | LLM 生成的实体/概念页面 | `/wiki ingest` | `/kb sync`（自动索引） |
+| 检索运行层 | RAG 索引、知识图谱 | `/kb sync` | Agent 对话 |
+
+### Wiki 页面格式
+
+每个 wiki 页面带防冲突 frontmatter：
+
+```yaml
+type: wiki_entity          # wiki_entity | wiki_concept
+title: Dijkstra 算法
+generated_by: bobodan      # 标记为 LLM 生成
+tags: [algorithm, graph]
+sources: [note/vault/Dijkstra.md]  # 原始来源
+source_hash: a1b2c3d4      # 增量更新依据
+indexable: true             # 可被 /kb sync 索引
+```
+
+### 使用方式
+
+```bash
+# 1. 同步原始资料（快速，不需要 LLM）
+/kb sync note/vault
+
+# 2. 编译 wiki 页面（需要 LLM，消耗 token）
+/wiki ingest note/vault
+
+# 3. 再次同步，索引 wiki 页面
+/kb sync note/vault
+
+# 日常：新增笔记后只需 /kb sync
+# 想让 LLM 整理时才用 /wiki ingest
+```
+
+### REPL 命令
+
+| 命令 | 用途 |
+|------|------|
+| `/wiki init <vault>` | 初始化 wiki 目录结构（可选，ingest 会自动创建） |
+| `/wiki ingest <source> [--vault path] [--force]` | 编译源文件为 wiki 页面 |
+| `/wiki lint [vault]` | 健康检查（孤立页面、断链、过期） |
+| `/wiki status [vault]` | wiki 统计 |
+
+### 防冲突规则
+
+| 冲突 | 处理方式 |
+|------|----------|
+| 重复索引 | wiki 页面 `type: wiki_entity` 与用户笔记区分 |
+| 概念重复 | `generated_by: bobodan` 标记，便于归一化 |
+| 来源混乱 | `sources` + `source_hash` 追踪原始来源 |
+| 循环处理 | `wiki ingest` 默认跳过 `wiki/` 目录 |
+| 旧 wiki 过期 | source hash 增量更新 + `/wiki lint` 检测 |
+
 ## Skills
 
 Agent 启动时自动加载 `skills/` 目录下的 skill。模型根据用户输入自主判断是否需要某个 skill，通过 `read_file` 读取完整 SKILL.md 内容并遵循指令。
@@ -291,20 +384,54 @@ Agent 启动时自动加载 `skills/` 目录下的 skill。模型根据用户输
 
 ## 记忆系统
 
-Agent 支持跨会话持久化记忆。记忆以单独 Markdown 文件存储在 `.bobodan/memory/`，自动维护 `MEMORY.md` 索引和向量索引。启动时记忆内容注入 system prompt，让 Agent 在新会话中也能记住用户偏好和上下文。
+Agent 支持跨会话持久化记忆，包含每日记忆、FTS5 全文检索和晋升机制。
 
-四种记忆类型：`user`（用户画像）、`feedback`（纠正/确认）、`project`（项目上下文）、`reference`（外部资源指针）。
+### 永久记忆
 
-Agent 工具：
-- `memory_save` — 保存记忆（name, description, content, type）
-- `memory_recall` — 语义搜索记忆
+记忆以单独 Markdown 文件存储在 `.bobodan/memory/`，自动维护 `MEMORY.md` 索引和向量索引。四种记忆类型：`user`（用户画像）、`feedback`（纠正/确认）、`project`（项目上下文）、`reference`（外部资源指针）。
 
-REPL 命令：
+### 每日记忆
+
+每日记忆存储在 `.bobodan/daily/YYYY-MM-DD.md`，用于临时记录学习笔记、做题结果等。启动时自动注入今日+昨日的每日记忆到 system prompt。
+
+### FTS5 检索
+
+记忆检索使用 FTS5 全文搜索为主、向量搜索为辅。FTS5 支持中文分词，零外部依赖。
+
+### 晋升机制
+
+每日记忆可通过晋升机制升级为永久记忆。评分公式：`0.4×频率 + 0.4×做题关联 + 0.2×时间衰减`。晋升阈值：score ≥ 0.6 且召回次数 ≥ 2。
+
+### Agent 工具
+
+- `memory_save` — 保存永久记忆
+- `memory_recall` — FTS5 搜索记忆（覆盖每日+永久）
+- `memory_daily_save` — 写入每日记忆
+- `memory_daily_read` — 读取每日记忆
+- `memory_promote` — 检查并执行晋升
+
+### REPL 命令
+
 - `/memory list` — 列出所有记忆
 - `/memory show <name>` — 查看详情
-- `/memory search <query>` — 语义搜索
+- `/memory search <query>` — 搜索记忆
 - `/memory forget <name>` — 删除
+- `/memory daily [content]` — 写入/查看今日记忆
+- `/memory daily YYYY-MM-DD` — 查看指定日期记忆
+- `/memory promote` — 检查并执行晋升
+- `/memory review` — 今日复习清单
 - `/memory stats` — 统计信息
+
+### 数据存储
+
+```text
+.bobodan/
+  memory/           # 永久记忆（Markdown + YAML frontmatter）
+  daily/            # 每日记忆（Markdown）
+  memory.db         # SQLite 索引 + FTS5 虚拟表
+  memory_index.json # 向量索引（FTS5 降级兜底）
+  MEMORY.md         # 自动生成的记忆索引
+```
 
 配置（`config.yaml`）：
 ```yaml

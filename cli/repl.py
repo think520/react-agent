@@ -44,7 +44,7 @@ THINK_START = "<think>"
 THINK_END = "</think>"
 THINK_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
-ALL_COMMANDS = ["help", "status", "cwd", "tools", "skill", "kb", "quiz", "learning", "memory", "ui", "exit", "quit", "session"]
+ALL_COMMANDS = ["help", "status", "cwd", "tools", "skill", "kb", "quiz", "learning", "memory", "wiki", "ui", "exit", "quit", "session"]
 
 COMMAND_HINTS = [
     ("/help", "显示命令帮助"),
@@ -73,6 +73,10 @@ COMMAND_HINTS = [
     ("/memory show ", "查看记忆详情"),
     ("/memory forget ", "删除记忆"),
     ("/memory stats", "记忆统计"),
+    ("/wiki init ", "初始化 wiki 目录"),
+    ("/wiki ingest ", "编译源文件为 wiki 页面"),
+    ("/wiki lint", "wiki 健康检查"),
+    ("/wiki status", "wiki 统计"),
     ("/ui", "显示 UI 设置"),
     ("/ui tools on", "显示工具调用"),
     ("/ui tools off", "隐藏工具调用"),
@@ -311,6 +315,10 @@ class REPL:
             self.handle_memory_command(cmd_line[len("memory"):].strip())
             return
 
+        if cmd == "wiki":
+            self.handle_wiki_command(cmd_line[len("wiki"):].strip())
+            return
+
         if cmd == "ui":
             self.handle_ui_command(cmd_line[len("ui"):].strip())
             return
@@ -456,21 +464,50 @@ class REPL:
 
         return buffer, wrote
 
-    def _render_thinking_line(self, frame: str) -> str:
+    def _render_thinking_line(self, frame: str, elapsed: float = 0.0) -> str:
         cyan = "\033[38;5;39m"
         dim = "\033[2m"
         reset = "\033[0m"
-        return f"{cyan}{frame}{reset} {dim}thinking{reset}"
+        if elapsed >= 1.0:
+            timer = f" {dim}·{reset} {dim}{elapsed:.1f}s{reset}"
+        else:
+            timer = ""
+        return f"  {cyan}{frame}{reset} {dim}thinking{reset}{timer}"
 
-    def _show_thinking_line(self, frame: str) -> None:
+    def _show_thinking_line(self, frame: str, elapsed: float = 0.0) -> None:
         out = rich_console().file
-        out.write(f"\r\033[2K{self._render_thinking_line(frame)}")
+        out.write(f"\r\033[2K{self._render_thinking_line(frame, elapsed)}")
         out.flush()
 
     def _clear_thinking_line(self) -> None:
         out = rich_console().file
         out.write("\r\033[2K")
         out.flush()
+
+    def _format_tool_display(self, tool_name: str, args: dict) -> str:
+        """Format tool call line like Claude Code style."""
+        cyan = "\033[38;5;39m"
+        dim = "\033[2m"
+        reset = "\033[0m"
+        args_str = self._format_tool_args(args, limit=60)
+        return f"  {cyan}▸{reset} {tool_name}({dim}{args_str}{reset})"
+
+    def _format_tool_result(self, ok: bool, content: str) -> str:
+        """Format tool result line."""
+        dim = "\033[2m"
+        reset = "\033[0m"
+        if ok:
+            icon = "\033[32m✓\033[0m"
+        else:
+            icon = "\033[31m✗\033[0m"
+        preview = ""
+        if content:
+            preview = content[:100].replace("\n", " ").strip()
+            if len(content) > 100:
+                preview += "..."
+        if preview:
+            return f"    {icon} {dim}{preview}{reset}"
+        return f"    {icon}"
 
     def run_agent_streaming(self, user_input: str) -> None:
         """Run agent with typewriter streaming, thinking animation, and compact tool display."""
@@ -519,17 +556,18 @@ class REPL:
 
         try:
             while not done_event.is_set() or not events.empty():
-                elapsed = int(time.monotonic() - start)
+                now = time.monotonic()
+                elapsed = now - start
                 if elapsed >= self.agent_timeout:
                     timed_out = True
                     break
 
-                # Thinking animation
+                # Thinking animation with timer
                 if thinking_visible:
-                    frame_index = int((time.monotonic() - start) * 10) % len(THINK_FRAMES)
+                    frame_index = int(elapsed * 10) % len(THINK_FRAMES)
                     frame = THINK_FRAMES[frame_index]
                     if frame != last_thinking_frame:
-                        self._show_thinking_line(frame)
+                        self._show_thinking_line(frame, elapsed)
                         last_thinking_frame = frame
 
                 try:
@@ -549,6 +587,10 @@ class REPL:
                     event_type = event.get("type")
 
                     if event_type == "assistant_delta":
+                        # Clear thinking before writing content
+                        if thinking_visible:
+                            self._clear_thinking_line()
+                            thinking_visible = False
                         accumulated += event.get("content", "")
                         visible_text = self._visible_stream_text(accumulated)
                         if visible_text.startswith(rendered_text):
@@ -565,15 +607,15 @@ class REPL:
                         continue
 
                     if event_type == "tool_start":
-                        if thinking_visible:
-                            self._clear_thinking_line()
-                            thinking_visible = False
+                        # Flush any pending stream content
                         if partial_written:
                             out.write(f"\033[{partial_written}D\033[K")
                             out.flush()
                             partial_written = 0
-                        stream_buffer, _ = self._flush_stream_buffer(stream_buffer, force=True)
+                        if stream_buffer:
+                            stream_buffer, _ = self._flush_stream_buffer(stream_buffer, force=True)
                         if stream_wrote:
+                            self._clear_thinking_line()
                             out.write("\n")
                             out.flush()
                         accumulated = ""
@@ -581,29 +623,31 @@ class REPL:
                         self._stream_in_code_block = False
                         if self.show_tool_calls:
                             tool_name = event.get("tool_name", "?")
-                            args = self._format_tool_args(event.get("args", {}))
-                            out.write(f"  \033[38;5;39m⏺\033[0m {tool_name} \033[2m{args}\033[0m\n")
+                            line = self._format_tool_display(tool_name, event.get("args", {}))
+                            self._clear_thinking_line()
+                            out.write(f"{line}\n")
                             out.flush()
                         stream_wrote = False
+                        # Keep thinking_visible — re-show thinking after tool display
+                        thinking_visible = True
+                        last_thinking_frame = ""
                         continue
 
                     if event_type == "tool_end":
                         if self.show_tool_calls:
                             ok = event.get("ok", False)
-                            icon = "\033[32m✓\033[0m" if ok else "\033[31m✗\033[0m"
-                            result_preview = event.get("content", "")
-                            if result_preview:
-                                preview = result_preview[:80].replace("\n", " ")
-                                if len(result_preview) > 80:
-                                    preview += "..."
-                                out.write(f"    {icon} \033[2m{preview}\033[0m\n")
-                            else:
-                                out.write(f"    {icon}\n")
+                            line = self._format_tool_result(ok, event.get("content", ""))
+                            self._clear_thinking_line()
+                            out.write(f"{line}\n")
                             out.flush()
+                        # Thinking stays visible for next LLM call
+                        last_thinking_frame = ""
+                        continue
 
                 # Flush complete lines with typewriter effect
                 if thinking_visible and stream_buffer:
                     self._clear_thinking_line()
+                    thinking_visible = False
                 stream_buffer, wrote = self._flush_stream_buffer(
                     stream_buffer, clear_partial=partial_written
                 )
@@ -618,14 +662,16 @@ class REPL:
                     partial_written = len(stream_buffer)
                     stream_buffer = ""
 
-                # Re-show thinking if buffer is empty (waiting for more)
+                # Re-show thinking if buffer is empty and we had content before
                 if not stream_buffer and stream_wrote and not thinking_visible:
                     thinking_visible = True
+                    last_thinking_frame = ""
 
                 # Force flush large partial buffer
                 if len(stream_buffer) >= 120:
                     if thinking_visible:
                         self._clear_thinking_line()
+                        thinking_visible = False
                     stream_buffer, _ = self._flush_stream_buffer(stream_buffer, force=True)
                     stream_wrote = True
 
@@ -842,14 +888,29 @@ class REPL:
             else:
                 print_error(f"Memory not found: {name}")
 
+        elif action == "daily":
+            self.handle_memory_daily(parts[1:])
+
+        elif action == "promote":
+            self.handle_memory_promote(parts[1:])
+
+        elif action == "review":
+            self.handle_memory_review()
+
         elif action == "stats":
             stats = self.memory_manager.get_stats()
+            fts_info = stats.get("fts", {})
             print_kv_panel(
                 "Memory Statistics",
                 [
                     ("total memories", stats["total"]),
                     ("by type", stats.get("by_type", {})),
                     ("vector chunks", stats.get("vector_chunks", 0)),
+                    ("FTS5 chunks", fts_info.get("total_chunks", "N/A")),
+                    ("daily chunks", fts_info.get("daily_chunks", "N/A")),
+                    ("permanent chunks", fts_info.get("permanent_chunks", "N/A")),
+                    ("recalls", fts_info.get("total_recalls", "N/A")),
+                    ("promotions", fts_info.get("total_promotions", "N/A")),
                     ("base dir", stats.get("base_dir", "")),
                 ],
             )
@@ -858,14 +919,322 @@ class REPL:
             print(f"  \033[1;38;5;208mUnknown /memory command: {action}\033[0m")
             self.print_memory_help()
 
+    def handle_memory_daily(self, args: list[str]):
+        """Handle /memory daily [content | YYYY-MM-DD]"""
+        from memory.daily import DailyMemoryManager
+        daily = DailyMemoryManager(self.session.workspace_root)
+
+        if not args:
+            # Show today's daily memory
+            content = daily.get_today()
+            if not content:
+                print_notice("今日暂无每日记忆。使用 /memory daily <content> 写入。")
+                return
+            print()
+            print("  \033[1;37m今日记忆:\033[0m")
+            print_markdown(content)
+            print()
+            return
+
+        # Check if it's a date string
+        if len(args) == 1 and len(args[0]) == 10 and args[0][4] == "-":
+            content = daily.read(args[0])
+            if not content:
+                print_notice(f"{args[0]} 没有记忆记录。")
+                return
+            print()
+            print(f"  \033[1;37m{args[0]} 记忆:\033[0m")
+            print_markdown(content)
+            print()
+            return
+
+        # Otherwise treat as content to save
+        text = " ".join(args)
+        filepath = daily.append(text)
+
+        # Index in FTS5
+        try:
+            from memory.store import MemoryIndexStore
+            from datetime import datetime, timezone
+            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            idx = MemoryIndexStore(self.session.workspace_root)
+            idx.index_text(path=filepath, source="daily", text=text, date=today)
+        except Exception:
+            pass
+
+        print_success(f"每日记忆已保存: {filepath}")
+
+    def handle_memory_promote(self, args: list[str]):
+        """Handle /memory promote [--dry-run]"""
+        from memory.promotion import PromotionEngine
+        engine = PromotionEngine(self.session.workspace_root)
+        dry_run = "--dry-run" in args
+
+        candidates = engine.run_promotion_check()
+        if not candidates:
+            print_notice("没有待晋升的每日记忆。")
+            return
+
+        print()
+        print(f"  \033[1;37m晋升候选 ({len(candidates)}):\033[0m")
+        for c in candidates:
+            status = "\033[1;32m✓ eligible\033[0m" if c["eligible"] else "\033[1;31m✗\033[0m"
+            print(
+                f"    {c['date']} — score: {c['score']:.2f} "
+                f"(freq={c['frequency']:.1f}, quiz={c['quiz']:.1f}, recency={c['recency']:.1f}) "
+                f"recalls={c['recall_count']} — {status}"
+            )
+
+            if c["eligible"] and not dry_run:
+                result = engine.promote(c["path"])
+                if result["promoted"]:
+                    print(f"      → {result['details']}")
+
+        if dry_run:
+            print("\n  (Dry run — 未执行晋升)")
+        print()
+
+    def handle_memory_review(self):
+        """Show today's review list from learning scheduler."""
+        try:
+            from learning.store import LearningStore
+            from learning.scheduler import ReviewScheduler
+            store = LearningStore(self.session.workspace_root)
+            scheduler = ReviewScheduler(store)
+            due = scheduler.get_due_reviews()
+
+            if not due:
+                print_notice("今日没有需要复习的知识点。")
+                return
+
+            print()
+            print("  \033[1;37m今日复习清单:\033[0m")
+            for item in due:
+                concept = item.get("concept", "?")
+                status = item.get("status", "?")
+                score = item.get("score", 0)
+                print(f"    [{status}] {concept} (score: {score:.1f})")
+            print()
+        except Exception as e:
+            print_error(f"获取复习清单失败: {e}")
+
     def print_memory_help(self):
         print()
         print("  \033[1;37m记忆命令:\033[0m")
-        print("  \033[1;38;5;210m  /memory list\033[0m         已保存的记忆")
-        print("  \033[1;38;5;210m  /memory show <name>\033[0m  查看记忆详情")
-        print("  \033[1;38;5;210m  /memory search <query>\033[0m  搜索记忆")
-        print("  \033[1;38;5;210m  /memory forget <name>\033[0m  删除记忆")
-        print("  \033[1;38;5;210m  /memory stats\033[0m       记忆统计")
+        print("  \033[1;38;5;210m  /memory list\033[0m              已保存的记忆")
+        print("  \033[1;38;5;210m  /memory show <name>\033[0m       查看记忆详情")
+        print("  \033[1;38;5;210m  /memory search <query>\033[0m    搜索记忆")
+        print("  \033[1;38;5;210m  /memory forget <name>\033[0m     删除记忆")
+        print("  \033[1;38;5;210m  /memory daily [content]\033[0m   写入/查看今日记忆")
+        print("  \033[1;38;5;210m  /memory daily YYYY-MM-DD\033[0m  查看指定日期记忆")
+        print("  \033[1;38;5;210m  /memory promote\033[0m           检查并执行记忆晋升")
+        print("  \033[1;38;5;210m  /memory review\033[0m            今日复习清单")
+        print("  \033[1;38;5;210m  /memory stats\033[0m             记忆统计")
+        print()
+
+    def handle_wiki_command(self, cmd: str):
+        parts = cmd.strip().split()
+        if not parts or parts[0] in {"help", "-h", "--help"}:
+            self.print_wiki_help()
+            return
+
+        action = parts[0]
+        if action == "init":
+            self.handle_wiki_init(parts[1:])
+        elif action == "ingest":
+            self.handle_wiki_ingest(parts[1:])
+        elif action == "lint":
+            self.handle_wiki_lint(parts[1:])
+        elif action == "status":
+            self.handle_wiki_status(parts[1:])
+        else:
+            print(f"  \033[1;38;5;208mUnknown /wiki command: {action}\033[0m")
+            self.print_wiki_help()
+
+    def handle_wiki_init(self, args: list[str]):
+        """Initialize wiki directory structure in vault."""
+        if not args:
+            print("  \033[1;38;5;210mUsage:\033[0m /wiki init <vault_path>")
+            return
+
+        vault_path = args[0]
+        if not os.path.isabs(vault_path):
+            vault_path = os.path.join(self.session.workspace_root, vault_path)
+
+        if not os.path.isdir(vault_path):
+            print_error(f"Vault path not found: {vault_path}")
+            return
+
+        from wiki.schema import WikiConfig
+        config = WikiConfig()
+        for subdir in [config.entity_dir, config.concept_dir]:
+            path = os.path.join(vault_path, config.wiki_dir, subdir)
+            os.makedirs(path, exist_ok=True)
+
+        print_success(f"Wiki 目录已初始化: {os.path.join(vault_path, config.wiki_dir)}")
+        print()
+        print("  \033[1;37m目录结构:\033[0m")
+        print(f"    {config.wiki_dir}/")
+        print(f"      {config.entity_dir}/         实体页面")
+        print(f"      {config.concept_dir}/         概念页面")
+        print(f"      source_registry.json  来源注册表")
+        print(f"      index.md              内容索引")
+        print(f"      log.md                操作日志")
+        print()
+
+    def handle_wiki_ingest(self, args: list[str]):
+        """Compile source files into wiki pages."""
+        if not args:
+            print("  \033[1;38;5;210mUsage:\033[0m /wiki ingest <source_path> [--vault path] [--force]")
+            return
+
+        source_path = args[0]
+        force = "--force" in args
+
+        # Find vault path from args or config
+        vault_path = None
+        for i, arg in enumerate(args):
+            if arg == "--vault" and i + 1 < len(args):
+                vault_path = args[i + 1]
+        if not vault_path:
+            # Try to use the last synced vault from knowledge base
+            from knowledge.manifest import load_manifest
+            manifest = load_manifest(self.session.workspace_root)
+            vault_path = manifest.get("vault_path")
+            if not vault_path:
+                print_error("请指定 vault 路径：/wiki ingest <source> --vault <path>")
+                return
+
+        if not os.path.isabs(source_path):
+            source_path = os.path.join(self.session.workspace_root, source_path)
+        if not os.path.isabs(vault_path):
+            vault_path = os.path.join(self.session.workspace_root, vault_path)
+
+        if not os.path.exists(source_path):
+            print_error(f"Source path not found: {source_path}")
+            return
+
+        from wiki.compiler import WikiCompiler
+        compiler = WikiCompiler(self.session.workspace_root, vault_path)
+
+        # Collect files
+        source_files = []
+        if os.path.isfile(source_path):
+            source_files = [source_path]
+        elif os.path.isdir(source_path):
+            for root, dirs, files in os.walk(source_path):
+                dirs[:] = [d for d in dirs if not d.startswith('.') and d != 'wiki']
+                for f in files:
+                    if f.endswith(".md"):
+                        source_files.append(os.path.join(root, f))
+
+        if not source_files:
+            print_notice("未找到 .md 文件。")
+            return
+
+        print(f"\n  \033[1;37m编译 {len(source_files)} 个文件...\033[0m\n")
+
+        result = compiler.compile_batch(source_files, force=force)
+
+        print_kv_panel(
+            "Wiki 编译结果",
+            [
+                ("处理文件", len(source_files)),
+                ("生成实体", result.entities_count),
+                ("生成概念", result.concepts_count),
+                ("生成来源页", result.sources_count),
+                ("跳过（未变更）", len(result.skipped)),
+                ("错误", len(result.errors)),
+            ],
+        )
+
+        if result.pages:
+            print()
+            print("  \033[1;37m生成的页面:\033[0m")
+            for page in result.pages:
+                icon = {"wiki_entity": "▸", "wiki_concept": "◆", "wiki_source": "●"}.get(page.page_type, "·")
+                print(f"    {icon} {page.title} [{page.page_type}]")
+
+        if result.errors:
+            print()
+            for err in result.errors:
+                print_error(f"  {err.get('source', '?')}: {err.get('error', '?')}")
+        print()
+
+    def handle_wiki_lint(self, args: list[str]):
+        """Check wiki health."""
+        vault_path = args[0] if args else None
+        if not vault_path:
+            from knowledge.manifest import load_manifest
+            manifest = load_manifest(self.session.workspace_root)
+            vault_path = manifest.get("vault_path")
+            if not vault_path:
+                print_error("请指定 vault 路径：/wiki lint <vault_path>")
+                return
+
+        if not os.path.isabs(vault_path):
+            vault_path = os.path.join(self.session.workspace_root, vault_path)
+
+        from wiki.lint import WikiLinter
+        linter = WikiLinter(vault_path)
+        result = linter.lint()
+        summary = linter.format_result(result)
+        print()
+        print(f"  {summary}")
+        print()
+
+    def handle_wiki_status(self, args: list[str]):
+        """Show wiki statistics."""
+        vault_path = args[0] if args else None
+        if not vault_path:
+            from knowledge.manifest import load_manifest
+            manifest = load_manifest(self.session.workspace_root)
+            vault_path = manifest.get("vault_path")
+            if not vault_path:
+                print_error("请指定 vault 路径：/wiki status <vault_path>")
+                return
+
+        if not os.path.isabs(vault_path):
+            vault_path = os.path.join(self.session.workspace_root, vault_path)
+
+        from wiki.schema import WikiConfig, load_wiki_state, load_source_registry
+        config = WikiConfig()
+        wiki_dir = os.path.join(vault_path, config.wiki_dir)
+
+        if not os.path.isdir(wiki_dir):
+            print_notice("Wiki 未初始化。使用 /wiki init <vault> 初始化。")
+            return
+
+        # Count pages
+        counts = {}
+        for dir_name in [config.entity_dir, config.concept_dir]:
+            dir_path = os.path.join(wiki_dir, dir_name)
+            if os.path.isdir(dir_path):
+                counts[dir_name] = len([f for f in os.listdir(dir_path) if f.endswith(".md")])
+            else:
+                counts[dir_name] = 0
+
+        state = load_wiki_state(vault_path, config)
+        registry = load_source_registry(vault_path, config)
+
+        print_kv_panel(
+            "Wiki Status",
+            [
+                ("实体页面", counts.get(config.entity_dir, 0)),
+                ("概念页面", counts.get(config.concept_dir, 0)),
+                ("已编译源文件", len(registry)),
+                ("最后编译", state.get("last_compile", "never")),
+                ("目录", wiki_dir),
+            ],
+        )
+
+    def print_wiki_help(self):
+        print()
+        print("  \033[1;37mWiki 命令:\033[0m")
+        print("  \033[1;38;5;210m  /wiki init <vault>\033[0m              初始化 wiki 目录结构")
+        print("  \033[1;38;5;210m  /wiki ingest <source> [--vault path]\033[0m  编译源文件为 wiki 页面")
+        print("  \033[1;38;5;210m  /wiki lint [vault]\033[0m              wiki 健康检查")
+        print("  \033[1;38;5;210m  /wiki status [vault]\033[0m            wiki 统计")
         print()
 
     def handle_ui_command(self, cmd: str):

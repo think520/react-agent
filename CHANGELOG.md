@@ -6,6 +6,41 @@
 
 ## [未发布]
 
+### 新增
+- **LLM Wiki 编译层**: 新增 `wiki/` 模块，基于 Karpathy LLM Wiki 模式，将源文档编译为结构化 wiki 页面写入 Obsidian vault。
+  - `wiki/schema.py`: `WikiPage`、`CompileResult`、`WikiConfig` 数据模型。页面类型：`wiki_entity`（实体）、`wiki_concept`（概念）。来源追踪通过 `source_registry.json` 而非复制内容。
+  - `wiki/compiler.py`: `WikiCompiler` LLM 编译引擎。读源文件 → LLM 提取实体/概念/摘要 → 生成 wiki 页面。支持增量更新（source hash 追踪，只编译变更文件）。
+  - `wiki/index.py`: `WikiIndexer` 管理 `index.md`（内容目录）和 `log.md`（操作日志）。
+  - `wiki/lint.py`: `WikiLinter` 健康检查——孤立页面、断链、缺失页面、过期页面。
+  - `tools/wiki_tools.py`: 注册 `wiki_ingest`（编译源文件）、`wiki_lint`（健康检查）两个 Agent 工具。
+  - `cli/repl.py`: 新增 `/wiki init`、`/wiki ingest`、`/wiki lint`、`/wiki status` 命令。
+  - `tests/test_wiki.py`: 23 个测试覆盖 schema、index、lint、compiler、REPL 命令。
+
+### 变更
+- **REPL UI 改进**: thinking 动效增加实时计时器（`⠋ thinking · 3.2s`）。工具调用显示改为 Claude Code 风格（`▸ tool_name(args)` → `✓ preview`），消除多余空白行。thinking 动效在工具执行期间保持可见。
+
+## [0.12.0] - 2026-05-20
+
+### 新增
+- **记忆系统升级**: 新增 `memory/` 模块，实现"每日记忆 → FTS5 检索 → 晋升机制"记忆生命周期。
+  - `memory/store.py`: `MemoryIndexStore` SQLite 索引 + FTS5 全文检索虚拟表。支持 `chunks`（文本块索引）、`recall_log`（召回记录）、`promotion_log`（晋升记录）三张表。FTS5 triggers 自动同步 chunks 表变更。
+  - `memory/daily.py`: `DailyMemoryManager` 每日记忆文件管理，存储在 `.bobodan/daily/YYYY-MM-DD.md`。支持 `append`（带时间戳追加）、`read`、`get_today`、`get_yesterday`、`list_recent`、`get_all_dates`。文件带 YAML frontmatter（date, tags）。
+  - `memory/search.py`: `MemorySearcher` 混合检索，FTS5 为主、向量为辅。FTS5 无结果时自动降级到现有 `LocalVectorStore`。支持 `search`、`search_daily`、`search_permanent` 三种模式。
+  - `memory/promotion.py`: `PromotionEngine` 每日记忆晋升引擎。评分公式：`0.4×frequency + 0.4×quiz + 0.2×recency`（30天半衰期）。晋升阈值：score ≥ 0.6 且 recall_count ≥ 2。`promote()` 将每日记忆写入永久记忆并记录晋升日志。
+  - `tools/memory_tools.py`: 新增 `memory_daily_save`（写入每日记忆）、`memory_daily_read`（读取每日记忆）、`memory_promote`（检查并执行晋升）三个 Agent 工具。`memory_recall` 改为 FTS5 优先检索。
+  - `core/memory.py`: `save()` 自动索引到 FTS5，`forget()` 自动清理 FTS5。`build_memory_prompt()` 注入今日+昨日每日记忆到 system prompt。`search()` 改为 FTS5 优先、向量降级。`get_stats()` 增加 FTS5 统计。
+  - `cli/repl.py`: 新增 `/memory daily [content|YYYY-MM-DD]`（写入/查看每日记忆）、`/memory promote [--dry-run]`（晋升检查）、`/memory review`（今日复习清单，联动 learning 模块）。`/memory stats` 增加 FTS5 统计。
+  - `tools/__init__.py`: 导出新增的三个工具。
+  - `tests/test_memory_upgrade.py`: 34 个测试覆盖 store、daily、search、promotion、core 集成、REPL 命令、Agent 工具。
+
+### 设计决策
+- 每日记忆定位：缓冲 + 学习日志 + 晋升。做题结束后自动写入，用户也可手动写入。
+- FTS5 与向量：FTS5 为主（零依赖、支持中文、比稀疏向量更准确），向量为降级兜底。
+- 晋升评分：出现次数(0.4) + 做题关联(0.4) + 时间衰减(0.2)。利用学习助手独有的做题数据驱动晋升。
+- 晋升调度：启动时轻量检查 + `/memory promote` 手动触发（CLI 工具无常驻进程）。
+- 存储格式：Markdown 文件 + SQLite 只做索引，保持人可读、易备份。
+- 记忆生命周期：每日缓冲 → 晋升评分 ≥ 0.6 且出现 ≥ 2 → 永久记忆。
+
 ## [0.11.0] - 2026-05-19
 
 ### 新增

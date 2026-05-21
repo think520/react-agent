@@ -152,6 +152,9 @@ class MemoryManager:
         # Update vector store
         self._update_vector_store(entry)
 
+        # Update FTS5 index
+        self._update_fts_index(entry)
+
         logger.info("Memory saved: %s (%s)", name, entry_type)
         return entry
 
@@ -181,6 +184,9 @@ class MemoryManager:
         # Remove from vector store
         self._remove_from_vector_store(name)
 
+        # Remove from FTS5 index
+        self._remove_from_fts_index(name)
+
         logger.info("Memory forgotten: %s", name)
         return True
 
@@ -190,7 +196,26 @@ class MemoryManager:
         return self.entries
 
     def search(self, query: str, top_k: int = 5) -> list[dict]:
-        """Search memories using vector similarity."""
+        """Search memories using FTS5 as primary, vector as fallback."""
+        # Try FTS5 first
+        try:
+            from memory.search import MemorySearcher
+            searcher = MemorySearcher(self.workspace_root, os.path.relpath(self.base_dir, self.workspace_root))
+            results = searcher.search(query, limit=top_k)
+            if results:
+                return [
+                    {
+                        "text": r["text"],
+                        "source": r.get("path", r.get("source", "")),
+                        "score": r.get("score", 0),
+                        "metadata": {"method": r.get("method", "fts5")},
+                    }
+                    for r in results
+                ]
+        except Exception as e:
+            logger.debug("FTS5 search unavailable, falling back to vector: %s", e)
+
+        # Fallback to vector store
         try:
             from rag.vector_store import LocalVectorStore
             store = LocalVectorStore(self.index_path)
@@ -282,9 +307,14 @@ class MemoryManager:
 
         Returns None if no memories exist. Uses MEMORY_MARKER for idempotent
         injection (same pattern as SKILLS_PROMPT_MARKER).
+        Includes today and yesterday daily memories when available.
         """
         entries = self.load_entries()
-        if not entries:
+
+        # Also get daily memory content
+        daily_content = self._get_daily_prompt_content()
+
+        if not entries and not daily_content:
             return None
 
         lines = [
@@ -321,6 +351,15 @@ class MemoryManager:
                 lines.append(f"    </memory>")
             lines.append(f"  </memory_group>")
 
+        # Inject daily memory (today + yesterday)
+        if daily_content:
+            lines.append(f"  <memory_group type=\"daily\" label=\"Recent Daily Memory\">")
+            lines.append(f"    <memory name=\"daily-recent\">")
+            lines.append(f"      <description>Today and yesterday learning notes</description>")
+            lines.append(f"      <content>{daily_content}</content>")
+            lines.append(f"    </memory>")
+            lines.append(f"  </memory_group>")
+
         lines.append("</memories>")
         lines.append("")
         return "\n".join(lines)
@@ -342,10 +381,92 @@ class MemoryManager:
         except Exception:
             pass
 
+        # Check FTS5 index
+        fts_stats = {}
+        try:
+            from memory.store import MemoryIndexStore
+            idx_store = MemoryIndexStore(self.workspace_root, os.path.relpath(self.base_dir, self.workspace_root))
+            fts_stats = idx_store.get_stats()
+        except Exception:
+            pass
+
         return {
             "total": len(entries),
             "by_type": by_type,
             "vector_chunks": vector_chunks,
             "base_dir": self.base_dir,
             "memory_dir": self.memory_dir,
+            "fts": fts_stats,
         }
+
+    def _get_daily_prompt_content(self) -> str:
+        """Get today and yesterday daily memory for prompt injection."""
+        try:
+            from memory.daily import DailyMemoryManager
+            daily_dir = os.path.relpath(self.base_dir, self.workspace_root)
+            daily = DailyMemoryManager(self.workspace_root, daily_dir)
+
+            parts = []
+            today = daily.get_today()
+            if today:
+                # Strip frontmatter
+                body = today
+                if today.startswith("---"):
+                    end = today.find("---", 3)
+                    if end != -1:
+                        body = today[end + 3:].strip()
+                if body:
+                    parts.append(f"[Today]\n{body}")
+
+            yesterday = daily.get_yesterday()
+            if yesterday:
+                body = yesterday
+                if yesterday.startswith("---"):
+                    end = yesterday.find("---", 3)
+                    if end != -1:
+                        body = yesterday[end + 3:].strip()
+                if body:
+                    parts.append(f"[Yesterday]\n{body}")
+
+            return "\n\n".join(parts) if parts else ""
+        except Exception as e:
+            logger.debug("Could not load daily memory for prompt: %s", e)
+            return ""
+
+    def _update_fts_index(self, entry: MemoryEntry) -> None:
+        """Index a memory entry in the FTS5 store."""
+        try:
+            from memory.store import MemoryIndexStore
+            from rag.chunker import chunk_text
+
+            idx_store = MemoryIndexStore(self.workspace_root, os.path.relpath(self.base_dir, self.workspace_root))
+
+            # Remove old chunks for this entry
+            source_prefix = f"permanent://{entry.name}"
+            idx_store.remove_by_source(source_prefix)
+
+            # Chunk and index
+            full_text = f"{entry.name}: {entry.description}\n\n{entry.content}"
+            chunks = chunk_text(
+                full_text,
+                source=source_prefix,
+                metadata={"name": entry.name, "type": entry.type},
+            )
+            for chunk in chunks:
+                idx_store.index_chunk(
+                    chunk_id=chunk.id,
+                    path=f"permanent://{entry.name}",
+                    source="permanent",
+                    text=chunk.text,
+                )
+        except Exception as e:
+            logger.debug("Failed to update FTS5 index: %s", e)
+
+    def _remove_from_fts_index(self, name: str) -> None:
+        """Remove a memory entry from the FTS5 store."""
+        try:
+            from memory.store import MemoryIndexStore
+            idx_store = MemoryIndexStore(self.workspace_root, os.path.relpath(self.base_dir, self.workspace_root))
+            idx_store.remove_by_source(f"permanent://{name}")
+        except Exception as e:
+            logger.debug("Failed to remove from FTS5 index: %s", e)

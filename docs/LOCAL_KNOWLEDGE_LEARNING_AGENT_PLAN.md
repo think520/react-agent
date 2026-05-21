@@ -506,6 +506,34 @@ Agent：
 - [x] 能基于错题调整路线
 - [x] 能生成每日复习清单
 
+### Phase 4.5：记忆系统升级 ✅ 已实现 (2026-05-20)
+
+目标：给记忆系统加每日缓冲、FTS5 检索、晋升机制，让记忆有生命周期。
+
+详细计划见 `docs/MEMORY_UPGRADE_PLAN.md`。
+
+任务：
+
+- [x] 新增 `memory/store.py`：SQLite 索引 + FTS5 虚拟表（chunks、recall_log、promotion_log）
+- [x] 新增 `memory/daily.py`：每日记忆文件管理（append、read、list_recent、get_today、get_yesterday）
+- [x] 新增 `memory/search.py`：FTS5 主检索 + 向量 fallback
+- [x] 新增 `memory/promotion.py`：晋升评分（频率 0.4 + 做题 0.4 + 时间衰减 0.2），阈值 score ≥ 0.6 且 recalls ≥ 2
+- [x] 改造 `core/memory.py`：save/forget 自动同步 FTS5，build_memory_prompt 注入今日+昨日每日记忆，search 改为 FTS5 优先
+- [x] 新增 Agent 工具：`memory_daily_save`、`memory_daily_read`、`memory_promote`
+- [x] 改造 `memory_recall` 工具：FTS5 搜索覆盖每日+永久
+- [x] 新增 REPL 命令：`/memory daily`、`/memory promote`、`/memory review`
+- [ ] 做题结束自动写每日记忆（待集成到 quiz_submit）
+
+实现：`memory/` 模块 4 个文件、改造 `core/memory.py`、改造 `tools/memory_tools.py`、改造 `cli/repl.py`、`tests/test_memory_upgrade.py` 34 个测试。
+
+验收：
+
+- [x] FTS5 搜索覆盖每日和永久记忆
+- [x] 晋升机制能筛选有价值的每日记忆升级为永久记忆
+- [x] `/memory daily` 能写入和查看每日记忆
+- [x] `/memory promote` 能检查并执行晋升
+- [x] 全量测试通过（285 tests）
+
 ### Phase 5：体验层优化
 
 目标：降低非技术用户门槛。
