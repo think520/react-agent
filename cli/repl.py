@@ -181,6 +181,14 @@ class REPL:
                 self.rag_router = None
                 self.rag_backend_info = {"active": "sparse", "fallback": None, "mode": "local"}
 
+            # MCP server registration (must run before AgentLoop so its
+            # tools_schema snapshot includes the MCP tools).
+            try:
+                from tools.mcp import register_mcp_tools
+                register_mcp_tools(self.config)
+            except Exception as e:
+                logger.warning("MCP registration failed: %s", e)
+
             if self.resume_session_id:
                 self.load_session(self.resume_session_id, announce=False)
             elif self.session is None:
@@ -224,6 +232,16 @@ class REPL:
             self.agent.set_session(session)
 
     def render_startup(self) -> None:
+        from tools.mcp import get_mcp_manager
+        mgr = get_mcp_manager()
+        mcp_line = "disabled"
+        if mgr is not None:
+            states = mgr.get_all_states()
+            connected = sum(1 for s in states.values() if s.state == "connected")
+            total = sum(1 for s in states.values() if s.config.enabled)
+            n_tools = sum(len(s.tools) for s in states.values() if s.state == "connected")
+            mcp_line = f"{connected}/{total} connected, {n_tools} tools"
+
         print_startup_panel(
             [
                 ("session", self.session.session_id),
@@ -234,6 +252,7 @@ class REPL:
                 ("tools", f"{self.tool_count} registered"),
                 ("skills", self.skill_count),
                 ("memories", self.memory_count),
+                ("mcp", mcp_line),
                 ("save dir", self.session_save_dir),
             ]
         )
