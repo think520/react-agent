@@ -1,6 +1,6 @@
 # 波波蛋 (Bobodan)
 
-Python ReAct Agent，支持多 LLM Provider、工具调用、Session 持久化、Skills 注入、持久化记忆系统、本地知识库（RAG + 知识图谱）、题库系统（生成/练习/批改/错题分析）、学习路线与复习计划、CLI REPL 交互。
+Python ReAct Agent，支持多 LLM Provider、工具调用、Session 持久化、Skills 注入、持久化记忆系统、本地知识库（RAG + 知识图谱）、题库系统（生成/练习/批改/错题分析）、学习路线与复习计划、MCP 客户端（stdio / SSE / streamable_http）、CLI REPL 交互。
 
 ## 运行
 
@@ -51,6 +51,16 @@ tools/
   memory_tools.py   # memory_save、memory_recall、memory_daily_save、memory_daily_read、memory_promote
   knowledge_status.py # knowledge_status：知识库状态查询
   quiz_tools.py     # question_generate、quiz_start、quiz_submit：题库工具
+  mcp.py            # register_mcp_tools：MCP 客户端集成入口
+mcp_client/         # MCP (Model Context Protocol) 客户端实现
+  config.py         # YAML 加载 + ${ENV_VAR} 占位符替换
+  event_loop.py     # AsyncEventLoop：后台异步线程桥
+  manager.py        # MCPManager：per-server 状态、懒连接、reload
+  naming.py         # server__tool 命名 sanitization
+  catalog.py        # 跨 server 拉取 tool specs
+  tool_wrapper.py   # MCP tool → Bobodan ToolResult 包装
+  prompt.py         # system prompt 软提示段
+  transport_*.py    # stdio / SSE / streamable_http 三种传输协议
 knowledge/          # 知识库管理
   documents.py      # DocumentRecord：按文件追踪导入状态
   manifest.py       # .knowledge/manifest.json 读写
@@ -142,6 +152,11 @@ tests/              # 单元测试
 /session save [name] # 保存当前 session（可选命名）
 /session resume     # 交互式选择 session 恢复
 /session load <id>  # 按 ID、前缀或名称加载 session
+/mcp  # 列出所有 MCP server 状态
+/mcp status  # 详细状态
+/mcp restart [name]  # 重连 MCP server
+/mcp tools <name>  # 列出 server 的 tools
+/mcp reload  # 重读 config.yaml
 /exit, /quit        # 退出
 ```
 
