@@ -85,13 +85,14 @@ class StreamableHttpTransport(Transport):
         # Convert SDK content blocks to a plain JSON-serializable shape.
         content: list[dict[str, Any]] = []
         for block in result.content or []:
-            if hasattr(block, "text"):
+            btype = getattr(block, "type", None)
+            if btype == "text" and getattr(block, "text", None) is not None:
                 content.append({"type": "text", "text": block.text})
-            elif hasattr(block, "data") and hasattr(block, "mimeType"):
+            elif btype == "image" and hasattr(block, "data") and hasattr(block, "mimeType"):
                 content.append(
                     {"type": "image", "data": block.data, "mimeType": block.mimeType}
                 )
-            elif hasattr(block, "resource"):
+            elif btype == "resource" and hasattr(block, "resource"):
                 content.append({"type": "resource", "resource": str(block.resource)})
             else:
                 content.append({"type": "text", "text": str(block)})
