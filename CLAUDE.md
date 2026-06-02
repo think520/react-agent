@@ -130,6 +130,18 @@ memory/           # Memory upgrade: daily memory, FTS5 index, promotion
   daily.py        # DailyMemoryManager: daily memory files in .bobodan/daily/
   search.py       # MemorySearcher: FTS5 primary + vector fallback
   promotion.py    # PromotionEngine: daily→permanent promotion scoring
+mcp_client/       # MCP (Model Context Protocol) client integration
+  config.py       # YAML loading + ${ENV_VAR} substitution
+  event_loop.py   # AsyncEventLoop: background thread bridge for async MCP SDK
+  manager.py      # MCPManager: per-server state, lazy connect, reload
+  naming.py       # build_safe_tool_name: server__tool format with sanitization
+  catalog.py      # build_mcp_tool_specs: enumerate tools across servers
+  tool_wrapper.py # make_mcp_tool_func: wrap as Bobodan ToolResult
+  prompt.py       # build_mcp_status_prompt: system prompt segment
+  transport_base.py    # Transport abstract base
+  transport_stdio.py   # stdio transport (subprocess + SDK)
+  transport_sse.py     # SSE transport (legacy HTTP+SSE)
+  transport_http.py    # streamable_http transport (modern HTTP)
 rag/              # Document ingestion, chunking, embeddings, vector stores, retrieval router
   chunker.py      # TextChunk, chunk_text (paragraph-aware sliding window)
   embeddings.py   # LocalEmbeddingProvider: sparse TF+L2 vectors
@@ -145,6 +157,8 @@ wiki/             # LLM wiki compilation layer (Karpathy pattern)
   compiler.py     # WikiCompiler: LLM-based source→wiki page compilation
   index.py        # WikiIndexer: index.md catalog + log.md chronicle
   lint.py         # WikiLinter: orphan/broken link/stale page detection
+tools/
+  mcp.py          # register_mcp_tools: REPL integration entry point for MCP
 skills/           # Skills directory (configurable via config.yaml)
   weather/        # Example skill: weather queries via wttr.in
     SKILL.md      # YAML frontmatter (name, description) + Markdown instructions
@@ -223,6 +237,51 @@ Routing (`rag/router.py`): `VectorStoreRouter` selects backend based on `config.
 Ollama client (`rag/ollama.py`): `OllamaEmbeddingClient` probes Ollama health + model capability + real embed request. Caches availability. Config: `rag.ollama_url`, `rag.ollama_model`, `rag.probe_timeout`, `rag.request_timeout`.
 
 Index files: `.knowledge/rag_index.json` (sparse), `.knowledge/rag_index_dense.json` (dense). Dense index stores model name + embedding dim for model change detection.
+
+## MCP (Model Context Protocol) Client
+
+Bobodan can connect to external MCP servers and expose their tools to the LLM agent. Three transports: stdio (subprocess), streamable_http, SSE. All backed by the official `mcp` Python SDK 1.19+.
+
+**Architecture** (`mcp_client/`):
+- `event_loop.py` — `AsyncEventLoop` singleton: background daemon thread runs asyncio, `run_sync(coro, timeout)` bridges sync→async via `run_coroutine_threadsafe`
+- `manager.py` — `MCPManager`: per-server state (config, transport, connected/error, tools), lazy connect on first tool call, `reload()` diffs config and adds/removes/reconnects
+- `config.py` — config loader; supports both `transport` and `type` field names; substitutes `${ENV_VAR}` in any string field (fail-fast on missing); validates stdio needs `command`, http needs `url` with `http(s)://`
+- `naming.py` — `build_safe_tool_name(server, tool, reserved)`: sanitizes special chars to `-`, truncates server to 30 chars and combined to 64, appends `-2`/`-3` on collision against reserved names
+- `catalog.py` — `build_mcp_tool_specs(mgr, reserved)`: connects to each enabled server and returns a list of `{safe_name, server, tool_name, description, inputSchema}` dicts
+- `tool_wrapper.py` — `make_mcp_tool_func(server, tool, mgr)`: returns a function that calls `mgr.call()` and converts the MCP result to a `ToolResult(ok, content, data)`
+- `prompt.py` — `build_mcp_status_prompt(mgr)`: returns the `## MCP Servers` segment for the system prompt; lists each enabled server's connection state and tool count
+
+**Transports** (`mcp_client/transport_*.py`): all three implement the same `Transport` ABC (`connect / disconnect / list_tools / call_tool / is_connected`). They wrap the corresponding SDK context manager and `mcp.ClientSession`. The call_tool result conversion uses `btype` to disambiguate text/image/resource blocks.
+
+**REPL integration** (`tools/mcp.py` + `cli/repl.py`):
+- `tools/mcp.register_mcp_tools(config)` is called once at REPL startup, before `AgentLoop` is constructed. It builds the catalog and calls `register_tool()` for each MCP tool. Per-server connect failures are isolated: a server that can't connect is logged and skipped, others register.
+- `core/agent_loop.py` takes a new `mcp_prompt` parameter and injects it as a system message on first turn (HTML comment marker for idempotency).
+- `/mcp` command group: `list` (default), `status`, `restart [name]`, `tools <name>`, `reload`. See `cli/repl.py`.
+- Startup panel shows `mcp: <connected>/<total> connected, N tools`.
+
+**Config schema** (`config.yaml`):
+```yaml
+mcp:
+  enabled: true
+  connection_timeout: 30
+  tool_call_timeout: 60
+  servers:
+    github:        # stdio (auto-inferred from `command`)
+      command: uvx
+      args: ["mcp-server-git"]
+    amap:          # streamable_http
+      transport: streamable_http
+      url: "https://mcp.example.com/mcp"
+      headers:
+        Authorization: "Bearer ${GITHUB_TOKEN}"
+    legacy:        # sse (default for url without explicit transport)
+      transport: sse
+      url: "https://mcp.example.com/sse"
+```
+
+**Security model**: trust-first. Any server in `config.yaml` is fully trusted; all its tools are auto-available. No per-tool approval gate (that's Phase 2 per the harness plan).
+
+**Testing**: `tests/test_mcp_*.py` covers config, event loop, manager, naming, catalog, prompt, all three transports (SDK-mocked), and the REPL commands — 76 tests total.
 
 ## Provider API
 

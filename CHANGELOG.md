@@ -7,6 +7,21 @@
 ## [未发布]
 
 ### 新增
+- **MCP (Model Context Protocol) 客户端**: 接入外部 MCP server，把它们暴露的 tools 注入到 agent loop。
+  - `mcp_client/event_loop.py`: `AsyncEventLoop` 单例，后台 daemon 线程跑 asyncio event loop，`run_sync(coro, timeout)` 桥接 sync→async。
+  - `mcp_client/manager.py`: `MCPManager` 单例，per-server 状态（config/transport/connected/tools/last_error），懒连接，`reload()` diff 配置。
+  - `mcp_client/config.py`: YAML 加载 + `${ENV_VAR}` 占位符替换（fail-fast 缺失）。`type` 字段作为 `transport` 的别名，兼容 Claude Desktop 配置格式。
+  - `mcp_client/naming.py`: `build_safe_tool_name()` 按 OpenClaw 规则做 sanitization（替换特殊字符为 `-`，server 截断 30 字符，总长 64 字符，冲突加 `-2`/`-3` 后缀）。
+  - `mcp_client/catalog.py`: 跨所有 enabled server 拉取 tool specs，连接失败隔离。
+  - `mcp_client/tool_wrapper.py`: 把 MCP tool 包装成 Bobodan `ToolResult`，None kwargs 过滤，异常透传。
+  - `mcp_client/prompt.py`: `build_mcp_status_prompt()` 生成 system prompt 段。
+  - `mcp_client/transport_stdio.py` / `transport_sse.py` / `transport_http.py`: 三个 transport 真实实现，官方 SDK 1.19+ 驱动。stdio 子进程 stderr 走 DEBUG 日志。call_tool 用 `btype` 区分 text/image/resource block。
+  - `tools/mcp.py`: `register_mcp_tools(config)` REPL 集成入口，per-server 失败隔离。
+  - `core/agent_loop.py`: 新增 `mcp_prompt` 参数，`_inject_mcp_prompt()` 幂等注入 system message。
+  - `cli/repl.py`: 新增 `/mcp` 命令组（list/status/restart/tools/reload）。启动面板增加 `mcp: ...` 行。
+  - `tests/test_mcp_*.py`: 76 个测试覆盖 config、event loop、manager、naming、catalog、prompt、tool_wrapper、三个 transport、REPL 命令、agent_loop 注入。
+  - `docs/MCP.md`: 用户文档（配置、命令、troubleshooting、架构图、限制）。
+
 - **Ollama RAG 嵌入后端**: 接入本地 Ollama embedding 模型，提升 RAG 检索的语义匹配能力。
   - `rag/ollama.py`: `OllamaEmbeddingClient` Ollama embedding API 客户端。三层探测（服务可达→模型能力→真实 embed 请求），结果缓存，超时控制。
   - `rag/dense_store.py`: `DenseVectorStore` dense 向量索引，纯 Python cosine similarity，预存 norm 加速搜索。索引文件包含 model/dim 元数据，支持模型变化检测。

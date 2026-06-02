@@ -256,6 +256,51 @@ auto 模式下，`/kb sync` 会同时写两个索引：
 - `nomic-embed-text` — 通用英文 embedding
 - `embeddinggemma` — Google embedding 模型
 
+## MCP (Model Context Protocol) 客户端
+
+Bobodan 作为 MCP **客户端**接入外部 MCP server，把它们暴露的 tools 注入到 agent loop。三种传输协议：stdio（子进程）、streamable_http（现代 HTTP）、SSE（传统 HTTP）。基于官方 `mcp` Python SDK。
+
+### 配置
+
+```yaml
+mcp:
+  enabled: true
+  connection_timeout: 30
+  tool_call_timeout: 60
+  servers:
+    context7:                              # stdio（自动推断）
+      command: uvx
+      args: ["context7-mcp"]
+    amap:                                  # streamable_http
+      transport: streamable_http
+      url: "https://mcp.example.com/mcp"
+      headers:
+        Authorization: "Bearer ${AMAP_TOKEN}"   # ${ENV_VAR} 占位符
+    legacy:                                # sse
+      url: "https://mcp.example.com/sse"
+```
+
+### REPL 命令
+
+| 命令 | 用途 |
+|------|------|
+| `/mcp` | 列出所有 server 状态 |
+| `/mcp status` | 详细状态（错误/重试时间） |
+| `/mcp restart [name]` | 重连 server |
+| `/mcp tools <name>` | 列出 server 的 tools |
+| `/mcp reload` | 重新读 config.yaml |
+
+### 使用
+
+启动后 LLM 会看到形如 `amap-maps__maps_geo` 的工具名（`server__tool`），用自然语言提问即可：
+
+```
+> 帮我查成都锦城学院到昆明的自驾路线
+> 用 GitHub MCP 工具列出我所有的 PR
+```
+
+详见 [`docs/MCP.md`](docs/MCP.md) 和 [`docs/mcp_design.md`](docs/mcp_design.md)。
+
 ## 题库系统
 
 题库系统实现"生成题目 → 做题 → 批改 → 错题记录 → 薄弱点分析"的学习闭环。
