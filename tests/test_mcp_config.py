@@ -77,6 +77,23 @@ def test_parse_http_defaults_to_sse():
     assert cfg.url == "https://x.example.com"
 
 
+def test_parse_type_field_as_transport_alias():
+    """The standard MCP config format uses 'type' instead of 'transport'."""
+    cfg = parse_server_config("amap", {"type": "streamable_http", "url": "https://x.com/mcp"})
+    assert cfg.transport == "streamable_http"
+    assert cfg.url == "https://x.com/mcp"
+
+
+def test_transport_field_wins_over_type():
+    """If both are present, 'transport' takes precedence."""
+    cfg = parse_server_config("x", {
+        "transport": "sse",
+        "type": "streamable_http",
+        "url": "https://x.com",
+    })
+    assert cfg.transport == "sse"
+
+
 def test_parse_explicit_streamable_http():
     cfg = parse_server_config("s", {"url": "https://x", "transport": "streamable_http"})
     assert cfg.transport == "streamable_http"

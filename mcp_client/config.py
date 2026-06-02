@@ -140,7 +140,7 @@ def parse_server_config(name: str, raw: dict[str, Any]) -> MCPServerConfig:
 
     raw = substitute_env_in_mapping(raw)
 
-    transport_raw = raw.get("transport")
+    transport_raw = raw.get("transport") or raw.get("type")
     command = raw.get("command")
     url = raw.get("url")
 

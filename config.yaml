@@ -40,3 +40,12 @@ rag:
 memory:
   enabled: true
   dir: ".bobodan"
+
+mcp:
+  enabled: true
+  connection_timeout: 30
+  tool_call_timeout: 60
+  servers:
+    amap-maps:
+      transport: streamable_http
+      url: "https://mcp.api-inference.modelscope.net/3afe787f778c49/mcp"
