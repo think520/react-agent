@@ -7,6 +7,14 @@
 ## [未发布]
 
 ### 新增
+- **Ollama RAG 嵌入后端**: 接入本地 Ollama embedding 模型，提升 RAG 检索的语义匹配能力。
+  - `rag/ollama.py`: `OllamaEmbeddingClient` Ollama embedding API 客户端。三层探测（服务可达→模型能力→真实 embed 请求），结果缓存，超时控制。
+  - `rag/dense_store.py`: `DenseVectorStore` dense 向量索引，纯 Python cosine similarity，预存 norm 加速搜索。索引文件包含 model/dim 元数据，支持模型变化检测。
+  - `rag/router.py`: `VectorStoreRouter` 路由层。auto 模式探测 Ollama 后自动选择后端，`/kb sync` 双写 dense + sparse 索引，搜索失败自动降级。
+  - `config.yaml`: 新增 `rag:` section（`embedding_backend`、`ollama_url`、`ollama_model`、`probe_timeout`、`request_timeout`）。
+  - `cli/repl.py`: 启动时探测 embedding 后端并打印状态。`/kb status` 增加 embedding 后端信息。
+  - `tests/test_ollama_embedding.py`: 38 个测试覆盖 OllamaEmbeddingClient、DenseVectorStore、VectorStoreRouter、retriever 集成。
+
 - **LLM Wiki 编译层**: 新增 `wiki/` 模块，基于 Karpathy LLM Wiki 模式，将源文档编译为结构化 wiki 页面写入 Obsidian vault。
   - `wiki/schema.py`: `WikiPage`、`CompileResult`、`WikiConfig` 数据模型。页面类型：`wiki_entity`（实体）、`wiki_concept`（概念）。来源追踪通过 `source_registry.json` 而非复制内容。
   - `wiki/compiler.py`: `WikiCompiler` LLM 编译引擎。读源文件 → LLM 提取实体/概念/摘要 → 生成 wiki 页面。支持增量更新（source hash 追踪，只编译变更文件）。

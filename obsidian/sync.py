@@ -9,6 +9,7 @@ from knowledge.import_report import ImportReport, save_import_report
 from knowledge.manifest import save_manifest
 from rag.chunker import TextChunk, chunk_text
 from rag.ingest import iter_documents
+from rag.router import VectorStoreRouter
 from rag.vector_store import LocalVectorStore
 
 from .vault import scan_vault
@@ -70,6 +71,7 @@ def sync_sources(
     vault_path: str,
     course_dir: str | None = None,
     mode: str = "incremental",
+    config: dict | None = None,
 ) -> SyncSummary:
     """Parse source files, rebuild the local RAG index, and sync graph relations."""
     knowledge_dir = _knowledge_dir(workspace)
@@ -150,8 +152,14 @@ def sync_sources(
                     error=str(e),
                 ))
 
-    index_path = os.path.join(knowledge_dir, "rag_index.json")
-    LocalVectorStore(index_path).replace(chunks)
+    # Write RAG index — router handles dual-write (dense + sparse) in auto mode
+    if config and config.get("rag"):
+        router = VectorStoreRouter(workspace, config)
+        router.replace(chunks)
+        index_path = os.path.join(knowledge_dir, "rag_index.json")
+    else:
+        index_path = os.path.join(knowledge_dir, "rag_index.json")
+        LocalVectorStore(index_path).replace(chunks)
 
     graph_store = get_graph_store(workspace)
     relationship_count = graph_store.replace_from_notes(notes)

@@ -30,6 +30,13 @@ skills:
   enabled: true
   dir: "skills"
 
+rag:
+  embedding_backend: auto          # auto | local | ollama
+  ollama_url: "http://localhost:11434"
+  ollama_model: "qwen3-embedding:0.6b"
+  probe_timeout: 3
+  request_timeout: 10
+
 memory:
   enabled: true
   dir: ".bobodan"

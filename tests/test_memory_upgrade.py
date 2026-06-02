@@ -3,6 +3,7 @@
 import json
 import os
 import sqlite3
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -65,12 +66,14 @@ def test_store_recall_logging(tmp_path):
 
 def test_store_promotion_candidates(tmp_path):
     store = MemoryIndexStore(str(tmp_path))
-    store.index_text(path="/daily/2026-05-01.md", source="daily", text="old memory", date="2026-05-01")
-    store.index_text(path="/daily/2026-05-19.md", source="daily", text="recent memory", date="2026-05-19")
+    old_date = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%d")
+    recent_date = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
+    store.index_text(path=f"/daily/{old_date}.md", source="daily", text="old memory", date=old_date)
+    store.index_text(path=f"/daily/{recent_date}.md", source="daily", text="recent memory", date=recent_date)
     candidates = store.get_promotion_candidates(min_age_days=3)
     # Only the old one should be a candidate
     assert len(candidates) == 1
-    assert candidates[0]["date"] == "2026-05-01"
+    assert candidates[0]["date"] == old_date
 
 
 def test_store_stats(tmp_path):
@@ -265,21 +268,24 @@ def test_run_promotion_check(tmp_path):
     store = MemoryIndexStore(str(tmp_path))
     engine = PromotionEngine(str(tmp_path))
 
+    old_date = (datetime.now(timezone.utc) - timedelta(days=60)).strftime("%Y-%m-%d")
+    recent_date = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
+
     daily = DailyMemoryManager(str(tmp_path))
-    daily.append("old content", date="2025-01-01")
-    daily.append("recent content", date="2026-05-19")
+    daily.append("old content", date=old_date)
+    daily.append("recent content", date=recent_date)
 
     # Index the daily files in the store (simulating what the system does)
-    old_path = daily._file_path("2025-01-01")
-    recent_path = daily._file_path("2026-05-19")
-    store.index_text(path=old_path, source="daily", text="old content", date="2025-01-01")
-    store.index_text(path=recent_path, source="daily", text="recent content", date="2026-05-19")
+    old_path = daily._file_path(old_date)
+    recent_path = daily._file_path(recent_date)
+    store.index_text(path=old_path, source="daily", text="old content", date=old_date)
+    store.index_text(path=recent_path, source="daily", text="recent content", date=recent_date)
 
     results = engine.run_promotion_check(min_age_days=3)
     # Only old one should appear
     dates = [r["date"] for r in results]
-    assert "2025-01-01" in dates
-    assert "2026-05-19" not in dates
+    assert old_date in dates
+    assert recent_date not in dates
 
 
 # --- Integration with core/memory.py ---

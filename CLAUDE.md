@@ -130,6 +130,16 @@ memory/           # Memory upgrade: daily memory, FTS5 index, promotion
   daily.py        # DailyMemoryManager: daily memory files in .bobodan/daily/
   search.py       # MemorySearcher: FTS5 primary + vector fallback
   promotion.py    # PromotionEngine: daily→permanent promotion scoring
+rag/              # Document ingestion, chunking, embeddings, vector stores, retrieval router
+  chunker.py      # TextChunk, chunk_text (paragraph-aware sliding window)
+  embeddings.py   # LocalEmbeddingProvider: sparse TF+L2 vectors
+  vector_store.py # LocalVectorStore: JSON-backed sparse vector index
+  dense_store.py  # DenseVectorStore: JSON-backed dense vector index (Ollama)
+  ollama.py       # OllamaEmbeddingClient: probe, embed, cache availability
+  router.py       # VectorStoreRouter: auto/local/ollama backend selection + dual-write
+  retriever.py    # search_index: thin search wrapper
+  ingest.py       # Document loading (md/txt/pdf)
+  citations.py    # format_search_results
 wiki/             # LLM wiki compilation layer (Karpathy pattern)
   schema.py       # WikiPage, CompileResult, WikiConfig, source registry
   compiler.py     # WikiCompiler: LLM-based source→wiki page compilation
@@ -148,7 +158,7 @@ needed for tool integration.
 
 ```
 obsidian/        # Obsidian vault scanning and Markdown/frontmatter/link/tag parsing
-rag/             # Document ingestion, chunking, local embeddings, vector index, retrieval
+rag/             # Document ingestion, chunking, embeddings, vector stores, retrieval router
 graph/           # Knowledge graph schema, local JSON store, optional Neo4j adapter
 tools/           # Agent-facing wrappers for sync, RAG search, and graph query
 .knowledge/      # Runtime indexes and sync state; generated locally and not tracked by git
@@ -197,6 +207,22 @@ Search: `MemorySearcher` uses FTS5 as primary, `LocalVectorStore` vector similar
 Promotion: `PromotionEngine` evaluates daily memories for promotion to permanent. Score = 0.4×frequency + 0.4×quiz_association + 0.2×recency (30-day half-life). Threshold: score ≥ 0.6 and recall_count ≥ 2. Triggered by `/memory promote` or `memory_promote` tool.
 
 Tools: `memory_save`, `memory_recall` (FTS5 search), `memory_daily_save`, `memory_daily_read`, `memory_promote`. REPL: `/memory list|show|search|forget|daily|promote|review|stats`.
+
+## RAG Embedding System
+
+Two vector store backends with automatic routing:
+
+- **Sparse** (`rag/vector_store.py`): TF + L2 normalization, dict-based vectors. Zero dependencies, always available.
+- **Dense** (`rag/dense_store.py`): Ollama embedding models, float arrays. Better semantic matching, requires local Ollama.
+
+Routing (`rag/router.py`): `VectorStoreRouter` selects backend based on `config.yaml` `rag.embedding_backend`:
+- `auto` (default): probe Ollama at startup → use dense if available, sparse as fallback. Dual-writes both indices on `/kb sync`.
+- `local`: force sparse only.
+- `ollama`: force dense, fail if unavailable.
+
+Ollama client (`rag/ollama.py`): `OllamaEmbeddingClient` probes Ollama health + model capability + real embed request. Caches availability. Config: `rag.ollama_url`, `rag.ollama_model`, `rag.probe_timeout`, `rag.request_timeout`.
+
+Index files: `.knowledge/rag_index.json` (sparse), `.knowledge/rag_index_dense.json` (dense). Dense index stores model name + embedding dim for model change detection.
 
 ## Provider API
 

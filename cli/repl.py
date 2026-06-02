@@ -130,6 +130,8 @@ class REPL:
         self.agent_timeout = 300  # seconds, per-turn timeout
         self.prompt_session = None
         self.show_tool_calls = True
+        self.rag_router = None
+        self.rag_backend_info = {}
 
     def initialize(self):
         """Initialize the agent with config."""
@@ -162,6 +164,22 @@ class REPL:
                 self.memory_manager = MemoryManager(os.getcwd(), base_dir=memory_dir)
                 self.memory_prompt = self.memory_manager.build_memory_prompt()
                 self.memory_count = len(self.memory_manager.list_entries())
+
+            # RAG embedding backend probe
+            rag_config = self.config.get("rag") or {}
+            embedding_backend = rag_config.get("embedding_backend", "auto")
+            if embedding_backend != "local":
+                from rag.router import VectorStoreRouter
+                try:
+                    self.rag_router = VectorStoreRouter(os.getcwd(), self.config)
+                    info = self.rag_router.get_backend_info()
+                    self.rag_backend_info = info
+                except Exception:
+                    self.rag_router = None
+                    self.rag_backend_info = {"active": "sparse", "fallback": None, "mode": "auto"}
+            else:
+                self.rag_router = None
+                self.rag_backend_info = {"active": "sparse", "fallback": None, "mode": "local"}
 
             if self.resume_session_id:
                 self.load_session(self.resume_session_id, announce=False)
@@ -1451,33 +1469,44 @@ class REPL:
             print("  \033[1;38;5;210mUsage:\033[0m /kb sync <vault> [course_dir] [--full]")
             return
 
+        from obsidian.sync import sync_sources
+        from tools.base import _resolve_path
+
         mode = "full" if "--full" in args else "incremental"
         paths = [arg for arg in args if arg != "--full"]
         vault_path = paths[0]
         course_dir = paths[1] if len(paths) > 1 else None
 
-        result = obsidian_sync(
-            vault_path=vault_path,
-            course_dir=course_dir,
-            mode=mode,
-            cwd=self.session.cwd,
-            workspace=self.session.workspace_root,
-        )
-        if not result.ok:
-            print_error(result.content)
+        resolved_vault = _resolve_path(vault_path, self.session.cwd)
+        resolved_course = _resolve_path(course_dir, self.session.cwd) if course_dir else None
+
+        try:
+            summary = sync_sources(
+                workspace=os.path.abspath(self.session.workspace_root),
+                vault_path=resolved_vault,
+                course_dir=resolved_course,
+                mode=mode,
+                config=self.config,
+            )
+        except Exception as e:
+            print_error(str(e))
             return
 
-        data = result.data
         print_success("Knowledge base synced")
-        print_kv_panel(
-            "Sync Summary",
-            [
-                ("files", f"{data.get('scanned_files', 0)} scanned, {data.get('updated_files', 0)} updated"),
-                ("chunks", data.get("chunk_count", 0)),
-                ("relations", data.get("relationship_count", 0)),
-                ("graph", data.get("graph_backend", "unknown")),
-            ],
-        )
+        panel_items = [
+            ("files", f"{summary.scanned_files} scanned, {summary.updated_files} updated"),
+            ("chunks", summary.chunk_count),
+            ("relations", summary.relationship_count),
+            ("graph", summary.graph_backend),
+        ]
+        # Show embedding backend info
+        info = self.rag_backend_info or {}
+        active = info.get("active", "sparse")
+        if active == "dense":
+            panel_items.append(("embedding", f"ollama ({info.get('model')}, dim={info.get('dim')})"))
+        else:
+            panel_items.append(("embedding", "local (sparse)"))
+        print_kv_panel("Sync Summary", panel_items)
 
     def print_kb_status(self):
         knowledge_dir = os.path.join(self.session.workspace_root, ".knowledge")
@@ -1504,6 +1533,25 @@ class REPL:
                 ("last sync", summary.last_sync or "never"),
             ],
         )
+
+        # Show embedding backend info
+        info = self.rag_backend_info or {}
+        active = info.get("active", "sparse")
+        mode = info.get("mode", "auto")
+        embedding_items = [("backend", f"{active} (mode: {mode})")]
+        if active == "dense" or info.get("model"):
+            embedding_items.append(("model", info.get("model", "?")))
+            embedding_items.append(("dim", info.get("dim", "?")))
+        sparse_count = info.get("sparse_chunks")
+        dense_count = info.get("dense_chunks")
+        if sparse_count is not None:
+            embedding_items.append(("sparse chunks", sparse_count))
+        if dense_count is not None:
+            embedding_items.append(("dense chunks", dense_count))
+        if info.get("fallback"):
+            embedding_items.append(("fallback", info["fallback"]))
+        print()
+        print_kv_panel("Embedding", embedding_items)
 
         # Show per-course breakdown
         if summary.courses and len(summary.courses) > 1:

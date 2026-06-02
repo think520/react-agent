@@ -74,7 +74,16 @@ memory/             # 记忆系统升级模块
   search.py         # MemorySearcher：FTS5 主检索 + 向量 fallback
   promotion.py      # PromotionEngine：每日记忆晋升评分和执行
 obsidian/           # Obsidian vault 扫描、frontmatter/双链/tag 解析
-rag/                # 文档导入、文本切块、本地轻量向量索引、检索
+rag/                # 文档导入、文本切块、向量索引、检索路由
+  chunker.py        # TextChunk：段落感知滑动窗口切块
+  embeddings.py     # LocalEmbeddingProvider：稀疏 TF+L2 向量
+  vector_store.py   # LocalVectorStore：JSON 稀疏向量索引
+  dense_store.py    # DenseVectorStore：JSON dense 向量索引（Ollama）
+  ollama.py         # OllamaEmbeddingClient：探测、embedding、缓存
+  router.py         # VectorStoreRouter：auto/local/ollama 后端选择 + 双写
+  retriever.py      # search_index：检索入口
+  ingest.py         # 文档加载（md/txt/pdf）
+  citations.py      # 检索结果格式化
 graph/              # 知识图谱 schema、本地 JSON store、可选 Neo4j adapter
 .bobodan/           # 记忆系统运行时数据（.gitignore 已排除）
   memory/           # 永久记忆文件（Markdown + YAML frontmatter）
@@ -83,7 +92,8 @@ graph/              # 知识图谱 schema、本地 JSON store、可选 Neo4j ada
   MEMORY.md         # 自动生成的记忆索引
   memory_index.json # 向量索引（FTS5 降级兜底）
 .knowledge/         # 知识库运行时数据（.gitignore 已排除）
-  rag_index.json    # RAG 向量索引
+  rag_index.json    # RAG 稀疏向量索引
+  rag_index_dense.json # RAG dense 向量索引（Ollama）
   graph_store.json  # 本地图谱
   sync_state.json   # 增量同步 hash
   manifest.json     # 知识库清单（文档记录）
@@ -209,6 +219,42 @@ Dijkstra 算法和哪些知识点有关？
 | `/kb reset --yes` | 删除生成的 `.knowledge/` 索引 |
 
 更多细节见 `docs/RAG_KNOWLEDGE_GRAPH_MVP.md`。
+
+## RAG 嵌入后端
+
+Bobodan 支持两种向量检索后端，通过 `config.yaml` 的 `rag.embedding_backend` 切换：
+
+| 模式 | 行为 |
+|------|------|
+| `auto`（默认） | 启动时探测 Ollama，可用则用 dense embedding，同时保留 sparse 索引作降级 |
+| `local` | 强制使用本地稀疏向量（TF + L2 归一化），不需要 Ollama |
+| `ollama` | 强制使用 Ollama dense embedding，不可用则报错 |
+
+### 配置
+
+```yaml
+rag:
+  embedding_backend: auto          # auto | local | ollama
+  ollama_url: "http://localhost:11434"
+  ollama_model: "qwen3-embedding:0.6b"
+  probe_timeout: 3                 # 启动探测超时（秒）
+  request_timeout: 10              # embedding 请求超时（秒）
+```
+
+### 工作原理
+
+auto 模式下，`/kb sync` 会同时写两个索引：
+
+- `.knowledge/rag_index.json` — 稀疏向量（本地，零依赖）
+- `.knowledge/rag_index_dense.json` — dense 向量（Ollama）
+
+搜索时优先走 dense 索引，Ollama 不可用时自动降级到稀疏索引。Ollama 挂掉不影响已有功能。
+
+### 推荐模型
+
+- `qwen3-embedding:0.6b` — 轻量，中文友好
+- `nomic-embed-text` — 通用英文 embedding
+- `embeddinggemma` — Google embedding 模型
 
 ## 题库系统
 

@@ -6,18 +6,35 @@ from rag.retriever import search_index
 
 from .base import ToolResult, register_tool
 
+_config_cache = None
+
+
+def _load_config() -> dict:
+    global _config_cache
+    if _config_cache is not None:
+        return _config_cache
+    try:
+        from providers.factory import ProviderFactory
+        _config_cache = ProviderFactory.load_config("config.yaml")
+    except Exception:
+        _config_cache = {}
+    return _config_cache
+
 
 def rag_search(query: str, course: str | None = None, top_k: int = 5, workspace: str = ".") -> ToolResult:
     """Search the workspace-local knowledge index."""
-    index_path = os.path.join(workspace, ".knowledge", "rag_index.json")
-    if not os.path.exists(index_path):
+    knowledge_dir = os.path.join(workspace, ".knowledge")
+    sparse_path = os.path.join(knowledge_dir, "rag_index.json")
+    dense_path = os.path.join(knowledge_dir, "rag_index_dense.json")
+    if not os.path.exists(sparse_path) and not os.path.exists(dense_path):
         return ToolResult(
             ok=False,
             content="RAG index not found. Run obsidian_sync first.",
             data={"results": []},
         )
 
-    results = search_index(os.path.abspath(workspace), query=query, course=course, top_k=top_k)
+    config = _load_config()
+    results = search_index(os.path.abspath(workspace), query=query, course=course, top_k=top_k, config=config)
     data = {"results": results}
     return ToolResult(
         ok=True,

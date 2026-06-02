@@ -5,6 +5,20 @@ from obsidian.sync import sync_sources
 
 from .base import ToolResult, _is_within_workspace, _resolve_path, register_tool
 
+_config_cache = None
+
+
+def _load_config() -> dict:
+    global _config_cache
+    if _config_cache is not None:
+        return _config_cache
+    try:
+        from providers.factory import ProviderFactory
+        _config_cache = ProviderFactory.load_config("config.yaml")
+    except Exception:
+        _config_cache = {}
+    return _config_cache
+
 
 def obsidian_sync(
     vault_path: str,
@@ -31,11 +45,13 @@ def obsidian_sync(
         if not os.path.isdir(resolved_course):
             return ToolResult(ok=False, content=f"Course directory not found: {course_dir}")
 
+    config = _load_config()
     summary = sync_sources(
         workspace=os.path.abspath(workspace),
         vault_path=resolved_vault,
         course_dir=resolved_course,
         mode=mode,
+        config=config,
     )
     data = summary.to_dict()
     return ToolResult(
