@@ -1,6 +1,6 @@
 # 波波蛋 (Bobodan)
 
-Python ReAct Agent，支持多 LLM Provider、工具调用、Session 持久化、Skills 注入、持久化记忆系统、本地知识库（RAG + 知识图谱）、题库系统（生成/练习/批改/错题分析）、学习路线与复习计划、CLI REPL 交互。
+Python ReAct Agent，支持多 LLM Provider、工具调用、Session 持久化、Skills 注入、持久化记忆系统、本地知识库（RAG + 知识图谱）、题库系统（生成/练习/批改/错题分析）、学习路线与复习计划、MCP 客户端（stdio / SSE / streamable_http）、CLI REPL 交互。
 
 ## 运行
 
@@ -51,6 +51,16 @@ tools/
   memory_tools.py   # memory_save、memory_recall、memory_daily_save、memory_daily_read、memory_promote
   knowledge_status.py # knowledge_status：知识库状态查询
   quiz_tools.py     # question_generate、quiz_start、quiz_submit：题库工具
+  mcp.py            # register_mcp_tools：MCP 客户端集成入口
+mcp_client/         # MCP (Model Context Protocol) 客户端实现
+  config.py         # YAML 加载 + ${ENV_VAR} 占位符替换
+  event_loop.py     # AsyncEventLoop：后台异步线程桥
+  manager.py        # MCPManager：per-server 状态、懒连接、reload
+  naming.py         # server__tool 命名 sanitization
+  catalog.py        # 跨 server 拉取 tool specs
+  tool_wrapper.py   # MCP tool → Bobodan ToolResult 包装
+  prompt.py         # system prompt 软提示段
+  transport_*.py    # stdio / SSE / streamable_http 三种传输协议
 knowledge/          # 知识库管理
   documents.py      # DocumentRecord：按文件追踪导入状态
   manifest.py       # .knowledge/manifest.json 读写
@@ -142,6 +152,11 @@ tests/              # 单元测试
 /session save [name] # 保存当前 session（可选命名）
 /session resume     # 交互式选择 session 恢复
 /session load <id>  # 按 ID、前缀或名称加载 session
+/mcp  # 列出所有 MCP server 状态
+/mcp status  # 详细状态
+/mcp restart [name]  # 重连 MCP server
+/mcp tools <name>  # 列出 server 的 tools
+/mcp reload  # 重读 config.yaml
 /exit, /quit        # 退出
 ```
 
@@ -255,6 +270,51 @@ auto 模式下，`/kb sync` 会同时写两个索引：
 - `qwen3-embedding:0.6b` — 轻量，中文友好
 - `nomic-embed-text` — 通用英文 embedding
 - `embeddinggemma` — Google embedding 模型
+
+## MCP (Model Context Protocol) 客户端
+
+Bobodan 作为 MCP **客户端**接入外部 MCP server，把它们暴露的 tools 注入到 agent loop。三种传输协议：stdio（子进程）、streamable_http（现代 HTTP）、SSE（传统 HTTP）。基于官方 `mcp` Python SDK。
+
+### 配置
+
+```yaml
+mcp:
+  enabled: true
+  connection_timeout: 30
+  tool_call_timeout: 60
+  servers:
+    context7:                              # stdio（自动推断）
+      command: uvx
+      args: ["context7-mcp"]
+    amap:                                  # streamable_http
+      transport: streamable_http
+      url: "https://mcp.example.com/mcp"
+      headers:
+        Authorization: "Bearer ${AMAP_TOKEN}"   # ${ENV_VAR} 占位符
+    legacy:                                # sse
+      url: "https://mcp.example.com/sse"
+```
+
+### REPL 命令
+
+| 命令 | 用途 |
+|------|------|
+| `/mcp` | 列出所有 server 状态 |
+| `/mcp status` | 详细状态（错误/重试时间） |
+| `/mcp restart [name]` | 重连 server |
+| `/mcp tools <name>` | 列出 server 的 tools |
+| `/mcp reload` | 重新读 config.yaml |
+
+### 使用
+
+启动后 LLM 会看到形如 `amap-maps__maps_geo` 的工具名（`server__tool`），用自然语言提问即可：
+
+```
+> 帮我查成都锦城学院到昆明的自驾路线
+> 用 GitHub MCP 工具列出我所有的 PR
+```
+
+详见 [`docs/MCP.md`](docs/MCP.md) 和 [`docs/mcp_design.md`](docs/mcp_design.md)。
 
 ## 题库系统
 

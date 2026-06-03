@@ -44,7 +44,7 @@ THINK_START = "<think>"
 THINK_END = "</think>"
 THINK_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
-ALL_COMMANDS = ["help", "status", "cwd", "tools", "skill", "kb", "quiz", "learning", "memory", "wiki", "ui", "exit", "quit", "session"]
+ALL_COMMANDS = ["help", "status", "cwd", "tools", "skill", "kb", "quiz", "learning", "memory", "wiki", "mcp", "ui", "exit", "quit", "session"]
 
 COMMAND_HINTS = [
     ("/help", "显示命令帮助"),
@@ -56,6 +56,11 @@ COMMAND_HINTS = [
     ("/kb search ", "本地 RAG 检索"),
     ("/kb graph ", "知识图谱查询"),
     ("/kb reset --yes", "删除生成的知识库索引"),
+    ("/mcp", "MCP server 状态"),
+    ("/mcp status", "MCP 详细状态"),
+    ("/mcp restart ", "重连 MCP server"),
+    ("/mcp tools ", "列出 server 的 tools"),
+    ("/mcp reload", "重读 config.yaml"),
     ("/skill list", "可用技能列表"),
     ("/skill run ", "执行技能"),
     ("/quiz generate <topic>", "生成练习题"),
@@ -132,6 +137,7 @@ class REPL:
         self.show_tool_calls = True
         self.rag_router = None
         self.rag_backend_info = {}
+        self.mcp_prompt = None
 
     def initialize(self):
         """Initialize the agent with config."""
@@ -181,6 +187,23 @@ class REPL:
                 self.rag_router = None
                 self.rag_backend_info = {"active": "sparse", "fallback": None, "mode": "local"}
 
+            # MCP server registration (must run before AgentLoop so its
+            # tools_schema snapshot includes the MCP tools).
+            try:
+                from tools.mcp import register_mcp_tools
+                register_mcp_tools(self.config)
+            except Exception as e:
+                logger.warning("MCP registration failed: %s", e)
+
+            # Build the MCP status prompt segment for the LLM system prompt.
+            try:
+                from mcp_client.prompt import build_mcp_status_prompt
+                from tools.mcp import get_mcp_manager as _get_mcp_mgr
+                self.mcp_prompt = build_mcp_status_prompt(_get_mcp_mgr())
+            except Exception as e:
+                logger.warning("MCP prompt build failed: %s", e)
+                self.mcp_prompt = None
+
             if self.resume_session_id:
                 self.load_session(self.resume_session_id, announce=False)
             elif self.session is None:
@@ -193,6 +216,7 @@ class REPL:
                 self.session,
                 skills_prompt=self.skills_prompt,
                 memory_prompt=self.memory_prompt,
+                mcp_prompt=self.mcp_prompt,
             )
             self.tool_count = len(get_tools_schema())
             self.setup_prompt_session()
@@ -224,6 +248,16 @@ class REPL:
             self.agent.set_session(session)
 
     def render_startup(self) -> None:
+        from tools.mcp import get_mcp_manager
+        mgr = get_mcp_manager()
+        mcp_line = "disabled"
+        if mgr is not None:
+            states = mgr.get_all_states()
+            connected = sum(1 for s in states.values() if s.state == "connected")
+            total = sum(1 for s in states.values() if s.config.enabled)
+            n_tools = sum(len(s.tools) for s in states.values() if s.state == "connected")
+            mcp_line = f"{connected}/{total} connected, {n_tools} tools"
+
         print_startup_panel(
             [
                 ("session", self.session.session_id),
@@ -234,6 +268,7 @@ class REPL:
                 ("tools", f"{self.tool_count} registered"),
                 ("skills", self.skill_count),
                 ("memories", self.memory_count),
+                ("mcp", mcp_line),
                 ("save dir", self.session_save_dir),
             ]
         )
@@ -335,6 +370,10 @@ class REPL:
 
         if cmd == "wiki":
             self.handle_wiki_command(cmd_line[len("wiki"):].strip())
+            return
+
+        if cmd == "mcp":
+            self.handle_mcp_command(cmd_line[len("mcp"):].strip())
             return
 
         if cmd == "ui":
@@ -1253,6 +1292,197 @@ class REPL:
         print("  \033[1;38;5;210m  /wiki ingest <source> [--vault path]\033[0m  编译源文件为 wiki 页面")
         print("  \033[1;38;5;210m  /wiki lint [vault]\033[0m              wiki 健康检查")
         print("  \033[1;38;5;210m  /wiki status [vault]\033[0m            wiki 统计")
+        print()
+
+    # --- MCP commands ---
+
+    def handle_mcp_command(self, cmd: str):
+        """Dispatch /mcp <subcommand> [args].
+
+        Subcommands:
+          (none) / list   — overview of all configured servers
+          status          — detailed per-server state
+          restart [name]  — disconnect + reconnect (no name = all)
+          tools <name>    — list tools exposed by a server
+          reload          — reread config.yaml, diff + reconnect
+        """
+        try:
+            parts = shlex.split(cmd)
+        except ValueError as e:
+            print_error(str(e))
+            return
+
+        if not parts or parts[0] in {"help", "-h", "--help", "list"}:
+            self.handle_mcp_list()
+            return
+
+        action = parts[0]
+        args = parts[1:]
+        if action == "status":
+            self.handle_mcp_status()
+        elif action == "restart":
+            self.handle_mcp_restart(args)
+        elif action == "tools":
+            self.handle_mcp_tools(args)
+        elif action == "reload":
+            self.handle_mcp_reload()
+        else:
+            print_error(f"Unknown /mcp subcommand: {action}")
+            self.print_mcp_help()
+
+    def print_mcp_help(self):
+        print()
+        print("  \033[1;37mMCP 命令:\033[0m")
+        print("  \033[1;38;5;210m  /mcp\033[0m                     列出所有 server 状态")
+        print("  \033[1;38;5;210m  /mcp status\033[0m              详细状态（错误/重试时间）")
+        print("  \033[1;38;5;210m  /mcp restart [name]\033[0m      重连 server（无 name = 全部）")
+        print("  \033[1;38;5;210m  /mcp tools <name>\033[0m        列出该 server 暴露的 tools")
+        print("  \033[1;38;5;210m  /mcp reload\033[0m               重新读 config.yaml")
+        print()
+
+    def handle_mcp_list(self):
+        """Default view: one line per server."""
+        from tools.mcp import get_mcp_status_text
+        text = get_mcp_status_text()
+        for line in text.split("\n"):
+            print(f"  {line}")
+        self.print_mcp_help()
+
+    def handle_mcp_status(self):
+        """Detailed per-server state."""
+        from tools.mcp import get_mcp_manager
+        mgr = get_mcp_manager()
+        if mgr is None:
+            print_notice("MCP not initialized (disabled or no servers).")
+            return
+        states = mgr.get_all_states()
+        if not states:
+            print_notice("No MCP servers configured.")
+            return
+        print()
+        print("  \033[1;37mMCP Status:\033[0m")
+        for name, state in sorted(states.items()):
+            if not state.config.enabled:
+                print(f"  \033[90m- {name}: disabled\033[0m")
+                continue
+            icon = "✓" if state.state == "connected" else "✗"
+            color = "32" if state.state == "connected" else "31"
+            cfg = state.config
+            transport_info = cfg.transport
+            if cfg.transport == "stdio":
+                transport_info = f"stdio ({cfg.command})"
+            elif cfg.transport in ("sse", "streamable_http"):
+                transport_info = f"{cfg.transport} ({cfg.url})"
+            print(f"  \033[1;38;5;{color}m{icon} {name}\033[0m [{state.state}] {transport_info}")
+            print(f"      tools: {len(state.tools)}")
+            if state.state == "connected" and state.last_connected_at:
+                print(f"      last_connected: {state.last_connected_at}")
+            if state.last_error:
+                err = state.last_error
+                if len(err) > 70:
+                    err = err[:67] + "..."
+                print(f"      \033[31mlast_error: {err}\033[0m")
+        print()
+
+    def handle_mcp_restart(self, args: list[str]):
+        """Disconnect and reconnect one or all servers."""
+        from tools.mcp import get_mcp_manager
+        mgr = get_mcp_manager()
+        if mgr is None:
+            print_notice("MCP not initialized.")
+            return
+        if args:
+            name = args[0]
+            state = mgr.get_state(name)
+            if state is None:
+                print_error(f"No MCP server named {name!r}")
+                return
+            print(f"  Restarting {name}...")
+            ok = mgr.restart_server(name)
+            if ok:
+                print_success(f"  {name} reconnected ({len(state.tools)} tools)")
+            else:
+                err = state.last_error or "unknown error"
+                print_error(f"  {name} failed: {err}")
+        else:
+            print("  Restarting all MCP servers...")
+            for name in mgr.list_server_names():
+                state = mgr.get_state(name)
+                if state is None or not state.config.enabled:
+                    continue
+                print(f"  - {name}...", end=" ", flush=True)
+                ok = mgr.restart_server(name)
+                if ok:
+                    print(f"\033[32mok\033[0m ({len(state.tools)} tools)")
+                else:
+                    err = (state.last_error or "unknown error")[:50]
+                    print(f"\033[31mfailed: {err}\033[0m")
+
+    def handle_mcp_tools(self, args: list[str]):
+        """List tools exposed by a single MCP server."""
+        from tools.mcp import get_mcp_manager
+        mgr = get_mcp_manager()
+        if mgr is None:
+            print_notice("MCP not initialized.")
+            return
+        if not args:
+            print("  \033[1;38;5;210mUsage:\033[0m /mcp tools <server_name>")
+            return
+        name = args[0]
+        state = mgr.get_state(name)
+        if state is None:
+            print_error(f"No MCP server named {name!r}")
+            return
+        if state.state != "connected" or not state.tools:
+            print_notice(f"{name} is not connected; cannot list tools.")
+            return
+        print()
+        print(f"  \033[1;37mTools exposed by {name}:\033[0m")
+        for tool in state.tools:
+            desc = tool.get("description", "").split("\n")[0]
+            if len(desc) > 80:
+                desc = desc[:77] + "..."
+            tname = tool.get("name", "?")
+            print(f"  \033[1;38;5;210m  {tname}\033[0m  {desc}")
+        print()
+
+    def handle_mcp_reload(self):
+        """Reread config.yaml, diff against current, add/remove/reconnect."""
+        from tools.mcp import get_mcp_manager
+        from providers.factory import ProviderFactory
+        mgr = get_mcp_manager()
+        if mgr is None:
+            print_notice("MCP not initialized; nothing to reload.")
+            return
+        try:
+            new_config = ProviderFactory.load_config(self.config_path)
+        except Exception as e:
+            print_error(f"Failed to load {self.config_path}: {e}")
+            return
+        from mcp_client.config import load_config as load_mcp_config
+        new_mcp_cfg = load_mcp_config(new_config)
+        if not new_mcp_cfg.enabled:
+            print_notice("MCP is disabled in the new config. Reload skipped.")
+            return
+        diff = mgr.reload(new_mcp_cfg)
+        added = diff.get("added", [])
+        removed = diff.get("removed", [])
+        updated = diff.get("updated", [])
+        unchanged = diff.get("unchanged", [])
+        print()
+        print("  \033[1;37mMCP config reloaded:\033[0m")
+        if added:
+            print(f"  \033[32m+ added:\033[0m {', '.join(added)}")
+        if removed:
+            print(f"  \033[31m- removed:\033[0m {', '.join(removed)}")
+        if updated:
+            print(f"  \033[33m~ updated:\033[0m {', '.join(updated)}")
+        if unchanged:
+            print(f"  \033[90m= unchanged: {len(unchanged)}\033[0m")
+        # Note: added/updated/removed server tools will only take full
+        # effect after an AgentLoop restart. The current tools_schema
+        # snapshot is taken at AgentLoop construction time.
+        print("  \033[90m(hint: /exit and re-launch REPL to pick up new tools)\033[0m")
         print()
 
     def handle_ui_command(self, cmd: str):

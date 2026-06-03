@@ -17,18 +17,21 @@ LEGACY_BASE_SYSTEM_PROMPT = (
     "Keep replies concise, practical, and grounded in the current repository and tools."
 )
 
+MCP_PROMPT_MARKER = "<!-- bobodan:mcp-prompt -->"
+
 
 class AgentLoop:
     """ReAct agent loop implementation."""
 
     def __init__(self, llm_provider, session, skills_prompt: str | None = None,
-                 memory_prompt: str | None = None):
+                 memory_prompt: str | None = None, mcp_prompt: str | None = None):
         self.llm = llm_provider
         self.session = session
         self.tools_schema = get_tools_schema()
         self.max_iterations = 8
         self.skills_prompt = skills_prompt
         self.memory_prompt = memory_prompt
+        self.mcp_prompt = mcp_prompt
 
     def set_session(self, session) -> None:
         self.session = session
@@ -70,6 +73,18 @@ class AgentLoop:
                 return
         self.session.add_message("system", self.memory_prompt)
 
+    def _inject_mcp_prompt(self) -> None:
+        """Inject MCP system prompt (active server list) if not present."""
+        if not self.mcp_prompt:
+            return
+        for m in self.session.messages:
+            if m.get("role") == "system" and MCP_PROMPT_MARKER in (m.get("content") or ""):
+                return
+        # The marker is an HTML comment so it doesn't affect the
+        # visible prompt but is stable for idempotency detection.
+        tagged = f"{MCP_PROMPT_MARKER}\n{self.mcp_prompt}"
+        self.session.add_message("system", tagged)
+
     def run(self, user_input: str) -> str:
         """Run one turn of the agent loop."""
         final_response = ""
@@ -83,6 +98,7 @@ class AgentLoop:
         self._remove_legacy_base_prompt()
         self._inject_skills_prompt()
         self._inject_memory_prompt()
+        self._inject_mcp_prompt()
         self.session.add_message("user", user_input)
 
         for iteration in range(self.max_iterations):
