@@ -79,6 +79,22 @@ pytest tests/ -v                     # verbose
 cp .env.example .env                 # then edit .env with API keys
 ```
 
+## Git workflow
+
+**Before branching or writing code**, sync with remote:
+```bash
+git fetch origin
+git status              # verify clean working tree
+git pull --rebase       # if behind
+```
+
+**Commit / PR / push standards:**
+- Commit message: English, concise, one-line summary preferred. Multi-line only when the "why" needs context — never restate the diff.
+- PR title: < 70 chars, conventional prefix (`feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:`, `perf:`).
+- PR body: short — Summary (1-3 sentences), What's in (5-8 bullets max), Test plan (checkbox list). No diff restating, no padding.
+- Push only on explicit user request. Never auto-push.
+- Keep working tree tidy: don't mix local-only config (personal API keys, dev-only MCP servers) into feature commits.
+
 ## Architecture
 
 ```
