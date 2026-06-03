@@ -44,7 +44,7 @@ THINK_START = "<think>"
 THINK_END = "</think>"
 THINK_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
-ALL_COMMANDS = ["help", "status", "cwd", "tools", "skill", "kb", "quiz", "learning", "memory", "wiki", "mcp", "ui", "exit", "quit", "session"]
+ALL_COMMANDS = ["help", "status", "cwd", "tools", "skill", "kb", "quiz", "learning", "memory", "wiki", "mcp", "ui", "model", "exit", "quit", "session"]
 
 COMMAND_HINTS = [
     ("/help", "显示命令帮助"),
@@ -85,6 +85,9 @@ COMMAND_HINTS = [
     ("/ui", "显示 UI 设置"),
     ("/ui tools on", "显示工具调用"),
     ("/ui tools off", "隐藏工具调用"),
+    ("/model", "当前激活的 provider / 模型"),
+    ("/model list", "列出所有可用的 provider"),
+    ("/model use ", "切换到指定 provider"),
     ("/session list", "已保存的会话"),
     ("/session save ", "保存会话（可选命名）"),
     ("/session resume", "选择会话恢复"),
@@ -123,6 +126,8 @@ class REPL:
         self.session_max_messages = None
         self.default_provider = "unknown"
         self.model_name = "unknown"
+        self.active_provider = "unknown"
+        self.active_model = "unknown"
         self.api_key_env = ""
         self.tool_count = 0
         self.resumed_session = False
@@ -145,8 +150,10 @@ class REPL:
             self.config = ProviderFactory.load_config(self.config_path)
             llm_config = self.config.get("llm", {})
             self.default_provider = llm_config.get("default_provider", "unknown")
+            self.active_provider = self.default_provider
             provider_info = llm_config.get("providers", {}).get(self.default_provider, {})
             self.model_name = provider_info.get("model", "unknown")
+            self.active_model = self.model_name
             self.api_key_env = provider_info.get("api_key_env", "")
 
             session_config = self.config.get("session", {})
@@ -212,7 +219,7 @@ class REPL:
                 self.set_session(self.session)
 
             self.agent = AgentLoop(
-                ProviderFactory.create_from_config(self.config_path),
+                self._make_active_provider(),
                 self.session,
                 skills_prompt=self.skills_prompt,
                 memory_prompt=self.memory_prompt,
@@ -264,7 +271,7 @@ class REPL:
                 ("state", "resumed" if self.resumed_session else "new"),
                 ("cwd", self.session.cwd),
                 ("workspace", self.session.workspace_root),
-                ("model", f"{self.default_provider}/{self.model_name}"),
+                ("model", f"{self.active_provider}/{self.active_model}"),
                 ("tools", f"{self.tool_count} registered"),
                 ("skills", self.skill_count),
                 ("memories", self.memory_count),
@@ -380,6 +387,10 @@ class REPL:
             self.handle_ui_command(cmd_line[len("ui"):].strip())
             return
 
+        if cmd == "model":
+            self.handle_model_command(cmd_line[len("model"):].strip())
+            return
+
         print(f"  \033[1;38;5;208mUnknown command: {cmd}\033[0m")
         print("  Type \033[1;38;5;210m/help\033[0m for available commands")
 
@@ -422,13 +433,31 @@ class REPL:
             index = end + len(THINK_END)
         return "".join(visible)
 
+    @staticmethod
+    def _terminal_cell_width(text: str) -> int:
+        """Return terminal display columns, not Python character count."""
+        try:
+            from rich.cells import cell_len
+            return cell_len(text)
+        except Exception:
+            import unicodedata
+
+            total = 0
+            for ch in text:
+                if unicodedata.combining(ch):
+                    continue
+                if unicodedata.category(ch)[0] == "C":
+                    continue
+                total += 2 if unicodedata.east_asian_width(ch) in {"F", "W"} else 1
+            return total
+
     def _flush_stream_buffer(self, buffer: str, force: bool = False, clear_partial: int = 0) -> tuple[str, bool]:
         """Render complete lines with markdown + typewriter effect.
 
         Args:
             buffer: accumulated text to render.
             force: if True, write remaining partial content without delay.
-            clear_partial: number of chars already written as partial preview
+            clear_partial: number of terminal columns already written as partial preview
                            (will be cleared before re-rendering the full line).
 
         Returns:
@@ -573,10 +602,11 @@ class REPL:
 
         session_copy = copy.deepcopy(self.session)
         agent_copy = AgentLoop(
-            ProviderFactory.create_from_config(self.config_path),
+            self._make_active_provider(),
             session_copy,
             skills_prompt=self.skills_prompt,
             memory_prompt=self.memory_prompt,
+            mcp_prompt=self.mcp_prompt,
         )
 
         events: queue.Queue[dict] = queue.Queue()
@@ -609,7 +639,8 @@ class REPL:
         timed_out = False
         last_thinking_frame = ""
         self._stream_in_code_block = False
-        partial_written = 0  # chars written as partial preview (for clearing)
+        partial_written = 0  # terminal columns written as partial preview
+        partial_preview = ""
 
         try:
             while not done_event.is_set() or not events.empty():
@@ -648,6 +679,9 @@ class REPL:
                         if thinking_visible:
                             self._clear_thinking_line()
                             thinking_visible = False
+                        if partial_preview:
+                            stream_buffer = partial_preview + stream_buffer
+                            partial_preview = ""
                         accumulated += event.get("content", "")
                         visible_text = self._visible_stream_text(accumulated)
                         if visible_text.startswith(rendered_text):
@@ -665,6 +699,9 @@ class REPL:
 
                     if event_type == "tool_start":
                         # Flush any pending stream content
+                        if partial_preview:
+                            stream_buffer = partial_preview + stream_buffer
+                            partial_preview = ""
                         if partial_written:
                             out.write(f"\033[{partial_written}D\033[K")
                             out.flush()
@@ -677,6 +714,7 @@ class REPL:
                             out.flush()
                         accumulated = ""
                         rendered_text = ""
+                        partial_preview = ""
                         self._stream_in_code_block = False
                         if self.show_tool_calls:
                             tool_name = event.get("tool_name", "?")
@@ -705,10 +743,13 @@ class REPL:
                 if thinking_visible and stream_buffer:
                     self._clear_thinking_line()
                     thinking_visible = False
+                clear_partial = partial_written if stream_buffer else 0
                 stream_buffer, wrote = self._flush_stream_buffer(
-                    stream_buffer, clear_partial=partial_written
+                    stream_buffer, clear_partial=clear_partial
                 )
-                partial_written = 0
+                if clear_partial:
+                    partial_written = 0
+                    partial_preview = ""
                 if wrote:
                     stream_wrote = True
 
@@ -716,7 +757,8 @@ class REPL:
                 if stream_buffer and not thinking_visible:
                     out.write(stream_buffer)
                     out.flush()
-                    partial_written = len(stream_buffer)
+                    partial_preview = stream_buffer
+                    partial_written = self._terminal_cell_width(stream_buffer)
                     stream_buffer = ""
 
                 # Re-show thinking if buffer is empty and we had content before
@@ -729,6 +771,9 @@ class REPL:
                     if thinking_visible:
                         self._clear_thinking_line()
                         thinking_visible = False
+                    if partial_preview:
+                        stream_buffer = partial_preview + stream_buffer
+                        partial_preview = ""
                     stream_buffer, _ = self._flush_stream_buffer(stream_buffer, force=True)
                     stream_wrote = True
 
@@ -738,9 +783,13 @@ class REPL:
             self._clear_thinking_line()
 
         # Final flush
+        if partial_preview:
+            stream_buffer = partial_preview + stream_buffer
+            partial_preview = ""
         if partial_written:
             out.write(f"\033[{partial_written}D\033[K")
             out.flush()
+            partial_written = 0
         stream_buffer, _ = self._flush_stream_buffer(stream_buffer, force=True)
         if stream_wrote:
             out.write("\n")
@@ -851,6 +900,11 @@ class REPL:
         print("  \033[1;38;5;210m  /ui tools on\033[0m     显示工具调用")
         print("  \033[1;38;5;210m  /ui tools off\033[0m    隐藏工具调用")
         print()
+        print("  \033[1;37m模型:\033[0m")
+        print("  \033[1;38;5;210m  /model\033[0m              当前激活的 provider / 模型")
+        print("  \033[1;38;5;210m  /model list\033[0m         列出所有可用的 provider")
+        print("  \033[1;38;5;210m  /model use <name>\033[0m   切换到指定 provider（不写入 config.yaml）")
+        print()
         print("  \033[1;37mAgent 工具:\033[0m")
         schemas = get_tools_schema()
         for schema in schemas:
@@ -866,8 +920,8 @@ class REPL:
         print(f"  \033[1;38;5;210m  会话 ID\033[0m   {self.session.session_id}")
         print(f"  \033[1;38;5;210m  工作目录\033[0m  {self.session.cwd}")
         print(f"  \033[1;38;5;210m  工作区\033[0m    {self.session.workspace_root}")
-        print(f"  \033[1;38;5;210m  Provider\033[0m  {self.default_provider}")
-        print(f"  \033[1;38;5;210m  模型\033[0m      {self.model_name}")
+        print(f"  \033[1;38;5;210m  Provider\033[0m  {self.active_provider} (default: {self.default_provider})")
+        print(f"  \033[1;38;5;210m  模型\033[0m      {self.active_model}")
         print(f"  \033[1;38;5;210m  消息数\033[0m    {len(self.session.messages)}")
         print(f"  \033[1;38;5;210m  工具数\033[0m    {self.tool_count}")
         print(f"  \033[1;38;5;210m  保存目录\033[0m  {self.session_save_dir}")
@@ -1501,6 +1555,125 @@ class REPL:
             return
 
         print("  \033[1;38;5;210mUsage:\033[0m /ui [tools on|tools off]")
+
+    # --- Model / provider switching ---
+
+    def _make_active_provider(self):
+        """Create a provider instance for the currently active provider.
+
+        Used by both initialize() and run_agent_streaming() so that
+        /model use takes effect on the next turn.
+        """
+        provider_config = (
+            self.config.get("llm", {}).get("providers", {}).get(self.active_provider)
+        )
+        if not provider_config:
+            available = sorted((self.config.get("llm", {}).get("providers") or {}).keys())
+            raise ValueError(
+                f"Active provider '{self.active_provider}' not found in "
+                f"{self.config_path}. Available: {', '.join(available) or '(none)'}"
+            )
+        agent_config = self.config.get("agent", {})
+        return ProviderFactory.create(provider_config, agent_config)
+
+    def set_provider(self, provider_name: str) -> tuple[bool, str]:
+        """Switch the active LLM provider at runtime.
+
+        Returns (success, message). On failure, the active provider is
+        unchanged. Does not modify config.yaml — to persist, edit the file
+        and restart the REPL.
+        """
+        providers = self.config.get("llm", {}).get("providers") or {}
+        if provider_name not in providers:
+            available = ", ".join(sorted(providers.keys())) or "(none)"
+            return False, f"Unknown provider '{provider_name}'. Available: {available}"
+
+        provider_config = providers[provider_name]
+        agent_config = self.config.get("agent", {})
+        try:
+            new_provider = ProviderFactory.create(provider_config, agent_config)
+        except Exception as e:
+            return False, f"Failed to create provider: {e}"
+
+        previous = f"{self.active_provider}/{self.active_model}"
+        self.active_provider = provider_name
+        self.active_model = provider_config.get("model", "?")
+        if self.agent is not None:
+            self.agent.set_provider(new_provider)
+        new_label = f"{self.active_provider}/{self.active_model}"
+        return True, f"Switched: {previous} → {new_label}"
+
+    def handle_model_command(self, cmd: str):
+        """Dispatch /model [list|use <name>|current]."""
+        try:
+            parts = shlex.split(cmd)
+        except ValueError as e:
+            print_error(str(e))
+            return
+
+        if not parts or parts[0] in {"current"}:
+            self.print_model_status()
+            return
+
+        if parts[0] in {"help", "-h", "--help"}:
+            self.print_model_help()
+            return
+
+        action = parts[0]
+        if action == "list":
+            self.print_model_list()
+        elif action == "use":
+            if len(parts) < 2:
+                print("  \033[1;38;5;210mUsage:\033[0m /model use <provider_name>")
+                return
+            ok, message = self.set_provider(parts[1])
+            if ok:
+                print_success(message)
+            else:
+                print_error(message)
+        else:
+            print(f"  \033[1;38;5;208mUnknown /model subcommand: {action}\033[0m")
+            self.print_model_help()
+
+    def print_model_status(self):
+        """Show the active provider and model (default view for /model)."""
+        marker = "★ " if self.active_provider == self.default_provider else "  "
+        is_default = self.active_provider == self.default_provider
+        print()
+        print("  \033[1;37mActive provider:\033[0m")
+        if is_default:
+            print(f"  \033[1;38;5;210m  {self.active_provider}\033[0m / {self.active_model}  (default)")
+        else:
+            print(f"  \033[1;38;5;210m  {self.active_provider}\033[0m / {self.active_model}  \033[2;37m(overridden from default: {self.default_provider})\033[0m")
+        print()
+
+    def print_model_list(self):
+        """List all configured providers, marking the active one."""
+        providers = self.config.get("llm", {}).get("providers") or {}
+        if not providers:
+            print_notice("No providers configured in config.yaml.")
+            return
+        print()
+        print("  \033[1;37mConfigured providers:\033[0m")
+        for name in sorted(providers.keys()):
+            info = providers[name]
+            model = info.get("model", "?")
+            api_key_env = info.get("api_key_env", "?")
+            ptype = info.get("type", "?")
+            star = "★" if name == self.active_provider else " "
+            color = "147" if name == self.active_provider else "245"
+            print(f"  \033[1;38;5;{color}m  {star} {name:<14}\033[0m {model:<24} type={ptype:<14} key={api_key_env}")
+        print()
+        print("  \033[90m★ = active.  /model use <name> to switch.\033[0m")
+        print()
+
+    def print_model_help(self):
+        print()
+        print("  \033[1;37mModel 命令:\033[0m")
+        print("  \033[1;38;5;210m  /model\033[0m              当前激活的 provider / 模型")
+        print("  \033[1;38;5;210m  /model list\033[0m         列出所有可用的 provider")
+        print("  \033[1;38;5;210m  /model use <name>\033[0m   切换到指定 provider（不写入 config.yaml）")
+        print()
 
     def normalize_session_id(self, session_id: str) -> str:
         return session_id[:-5] if session_id.endswith(".json") else session_id
