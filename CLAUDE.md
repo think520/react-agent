@@ -57,6 +57,9 @@ pip install -r requirements-dev.txt      # with pytest
 /wiki status [vault]  # wiki statistics
 /ui                 # show UI settings
 /ui tools on|off    # toggle tool call display during streaming
+/model              # show active provider / model
+/model list         # list all configured providers
+/model use <name>   # switch active provider at runtime (no config rewrite)
 /session list                 # list saved sessions (name, id, time)
 /session save [name]          # save session with optional name
 /session resume               # interactive session picker
@@ -194,9 +197,9 @@ tools/           # Agent-facing wrappers for sync, RAG search, and graph query
 
 ### Key patterns
 
-**Provider creation**: `ProviderFactory.create_from_config(config.yaml)` reads `llm.default_provider` from config and instantiates the matching provider class.
+**Provider creation**: `ProviderFactory.create_from_config(config.yaml)` reads `llm.default_provider` from config and instantiates the matching provider class. For runtime switching, `ProviderFactory.create(provider_config, agent_config)` takes a single provider's config dict (used by `REPL._make_active_provider()` after `/model use`).
 
-**Provider types**: All providers return `LLMResponse(content: str, tool_calls: list[ToolCall])`. `ToolCall` has `id`, `name`, `arguments` fields. `LLMProvider` protocol: `complete(messages, tools=None) -> LLMResponse`. Providers also implement `complete_stream()` returning `Iterator[LLMStreamChunk]` for streaming; `AgentLoop._complete_with_events()` auto-detects streaming support via `getattr(self.llm, "complete_stream")`.
+**Provider types**: All providers return `LLMResponse(content: str, tool_calls: list[ToolCall])`. `ToolCall` has `id`, `name`, `arguments` fields. `LLMProvider` protocol: `complete(messages, tools=None) -> LLMResponse`. Providers also implement `complete_stream()` returning `Iterator[LLMStreamChunk]` for streaming; `AgentLoop._complete_with_events()` auto-detects streaming support via `getattr(self.llm, "complete_stream")`. `AgentLoop.set_provider(llm_provider)` swaps the active provider mid-session; previous turns remain in the session as context for the new model.
 
 **Tool registration**: Tools auto-register at import time — `tools/__init__.py` imports all tool modules, each of which calls `register_tool()` at module level. Adding a new tool: create the file, call `register_tool()`, add the import to `tools/__init__.py`.
 

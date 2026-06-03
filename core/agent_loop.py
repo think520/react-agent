@@ -36,6 +36,15 @@ class AgentLoop:
     def set_session(self, session) -> None:
         self.session = session
 
+    def set_provider(self, llm_provider) -> None:
+        """Swap the active LLM provider at runtime.
+
+        The new provider is used for subsequent turns. Session message
+        history is preserved (the previous turns remain in the session);
+        the new model will see them as context.
+        """
+        self.llm = llm_provider
+
     def _remove_legacy_base_prompt(self) -> None:
         self.session.messages = [
             msg for msg in self.session.messages
