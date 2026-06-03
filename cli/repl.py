@@ -433,13 +433,31 @@ class REPL:
             index = end + len(THINK_END)
         return "".join(visible)
 
+    @staticmethod
+    def _terminal_cell_width(text: str) -> int:
+        """Return terminal display columns, not Python character count."""
+        try:
+            from rich.cells import cell_len
+            return cell_len(text)
+        except Exception:
+            import unicodedata
+
+            total = 0
+            for ch in text:
+                if unicodedata.combining(ch):
+                    continue
+                if unicodedata.category(ch)[0] == "C":
+                    continue
+                total += 2 if unicodedata.east_asian_width(ch) in {"F", "W"} else 1
+            return total
+
     def _flush_stream_buffer(self, buffer: str, force: bool = False, clear_partial: int = 0) -> tuple[str, bool]:
         """Render complete lines with markdown + typewriter effect.
 
         Args:
             buffer: accumulated text to render.
             force: if True, write remaining partial content without delay.
-            clear_partial: number of chars already written as partial preview
+            clear_partial: number of terminal columns already written as partial preview
                            (will be cleared before re-rendering the full line).
 
         Returns:
@@ -588,6 +606,7 @@ class REPL:
             session_copy,
             skills_prompt=self.skills_prompt,
             memory_prompt=self.memory_prompt,
+            mcp_prompt=self.mcp_prompt,
         )
 
         events: queue.Queue[dict] = queue.Queue()
@@ -620,7 +639,8 @@ class REPL:
         timed_out = False
         last_thinking_frame = ""
         self._stream_in_code_block = False
-        partial_written = 0  # chars written as partial preview (for clearing)
+        partial_written = 0  # terminal columns written as partial preview
+        partial_preview = ""
 
         try:
             while not done_event.is_set() or not events.empty():
@@ -659,6 +679,9 @@ class REPL:
                         if thinking_visible:
                             self._clear_thinking_line()
                             thinking_visible = False
+                        if partial_preview:
+                            stream_buffer = partial_preview + stream_buffer
+                            partial_preview = ""
                         accumulated += event.get("content", "")
                         visible_text = self._visible_stream_text(accumulated)
                         if visible_text.startswith(rendered_text):
@@ -676,6 +699,9 @@ class REPL:
 
                     if event_type == "tool_start":
                         # Flush any pending stream content
+                        if partial_preview:
+                            stream_buffer = partial_preview + stream_buffer
+                            partial_preview = ""
                         if partial_written:
                             out.write(f"\033[{partial_written}D\033[K")
                             out.flush()
@@ -688,6 +714,7 @@ class REPL:
                             out.flush()
                         accumulated = ""
                         rendered_text = ""
+                        partial_preview = ""
                         self._stream_in_code_block = False
                         if self.show_tool_calls:
                             tool_name = event.get("tool_name", "?")
@@ -716,10 +743,13 @@ class REPL:
                 if thinking_visible and stream_buffer:
                     self._clear_thinking_line()
                     thinking_visible = False
+                clear_partial = partial_written if stream_buffer else 0
                 stream_buffer, wrote = self._flush_stream_buffer(
-                    stream_buffer, clear_partial=partial_written
+                    stream_buffer, clear_partial=clear_partial
                 )
-                partial_written = 0
+                if clear_partial:
+                    partial_written = 0
+                    partial_preview = ""
                 if wrote:
                     stream_wrote = True
 
@@ -727,7 +757,8 @@ class REPL:
                 if stream_buffer and not thinking_visible:
                     out.write(stream_buffer)
                     out.flush()
-                    partial_written = len(stream_buffer)
+                    partial_preview = stream_buffer
+                    partial_written = self._terminal_cell_width(stream_buffer)
                     stream_buffer = ""
 
                 # Re-show thinking if buffer is empty and we had content before
@@ -740,6 +771,9 @@ class REPL:
                     if thinking_visible:
                         self._clear_thinking_line()
                         thinking_visible = False
+                    if partial_preview:
+                        stream_buffer = partial_preview + stream_buffer
+                        partial_preview = ""
                     stream_buffer, _ = self._flush_stream_buffer(stream_buffer, force=True)
                     stream_wrote = True
 
@@ -749,9 +783,13 @@ class REPL:
             self._clear_thinking_line()
 
         # Final flush
+        if partial_preview:
+            stream_buffer = partial_preview + stream_buffer
+            partial_preview = ""
         if partial_written:
             out.write(f"\033[{partial_written}D\033[K")
             out.flush()
+            partial_written = 0
         stream_buffer, _ = self._flush_stream_buffer(stream_buffer, force=True)
         if stream_wrote:
             out.write("\n")

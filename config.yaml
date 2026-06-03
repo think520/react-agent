@@ -1,5 +1,5 @@
 llm:
-  default_provider: "minimax"
+  default_provider: "deepseek"
   providers:
     minimax:
       type: "minimax"
@@ -10,7 +10,7 @@ llm:
       type: "deepseek"
       base_url: "https://api.deepseek.com/v1"
       api_key_env: "DEEPSEEK_API_KEY"
-      model: "deepseek-v4-pro"
+      model: "deepseek-v4-flash"
     openai:
       type: "openai"
       base_url: "https://api.openai.com/v1"

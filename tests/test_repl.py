@@ -43,6 +43,25 @@ class StreamingProvider:
         return "streaming"
 
 
+class DelayedStreamingProvider(StreamingProvider):
+    def __init__(self, chunk_groups, delay=0.08):
+        super().__init__(chunk_groups)
+        self.delay = delay
+
+    def complete_stream(self, messages, tools=None):
+        chunks = self.chunk_groups[min(self.call_count, len(self.chunk_groups) - 1)]
+        self.call_count += 1
+        for chunk in chunks:
+            time.sleep(self.delay)
+            yield chunk
+
+
+def test_repl_uses_terminal_cell_width_for_cjk_partial_clear():
+    repl = REPL()
+
+    assert repl._terminal_cell_width("知识🐱") == 6
+
+
 def test_repl_initialize_renders_rich_startup(monkeypatch, capsys):
     config = {
         "llm": {
@@ -364,6 +383,44 @@ def test_repl_streaming_does_not_leak_prompt_into_body(monkeypatch, capsys):
     assert "thinking" in output
 
 
+def test_repl_streaming_preserves_lines_split_across_chunks(monkeypatch, capsys):
+    config = {
+        "llm": {
+            "default_provider": "deepseek",
+            "providers": {
+                "deepseek": {
+                    "model": "deepseek-v4-flash",
+                    "api_key_env": "DEEPSEEK_API_KEY",
+                }
+            },
+        },
+        "session": {"save_dir": ".session-test"},
+        "agent": {"timeout": 30},
+    }
+    provider = DelayedStreamingProvider([
+        [
+            LLMStreamChunk(content_delta="我可以帮你"),
+            LLMStreamChunk(content_delta="做这些：\n"),
+            LLMStreamChunk(content_delta="- 学习"),
+            LLMStreamChunk(content_delta="计划\n"),
+        ]
+    ])
+
+    monkeypatch.setattr("cli.repl.ProviderFactory.load_config", lambda path: config)
+    monkeypatch.setattr("cli.repl.ProviderFactory.create", lambda provider_config, agent_config: provider)
+    monkeypatch.setattr("cli.repl.get_tools_schema", lambda: [{"function": {"name": "read_file"}}])
+
+    repl = REPL(config_path="config.yaml")
+    repl.initialize()
+    capsys.readouterr()
+
+    repl.run_agent("你可以帮我干什么")
+
+    output = capsys.readouterr().out
+    assert "我可以帮你做这些：" in output
+    assert "学习计划" in output
+
+
 def test_repl_streaming_hides_think_content_from_body(monkeypatch, capsys):
     config = {
         "llm": {
@@ -398,6 +455,42 @@ def test_repl_streaming_hides_think_content_from_body(monkeypatch, capsys):
     assert "answer body" in output
     # Think tags are stripped from streaming output
     assert "planning tools" not in output
+
+
+def test_repl_streaming_preserves_mcp_prompt(monkeypatch, capsys):
+    config = {
+        "llm": {
+            "default_provider": "minimax",
+            "providers": {
+                "minimax": {
+                    "model": "MiniMax-Text-01",
+                    "api_key_env": "MINIMAX_API_KEY",
+                }
+            },
+        },
+        "session": {"save_dir": ".session-test"},
+        "agent": {"timeout": 30},
+    }
+    provider = StreamingProvider([[LLMStreamChunk(content_delta="ok")]])
+
+    monkeypatch.setattr("cli.repl.ProviderFactory.load_config", lambda path: config)
+    monkeypatch.setattr("cli.repl.ProviderFactory.create", lambda provider_config, agent_config: provider)
+    monkeypatch.setattr("cli.repl.get_tools_schema", lambda: [{"function": {"name": "read_file"}}])
+
+    repl = REPL(config_path="config.yaml")
+    repl.initialize()
+    repl.mcp_prompt = "## MCP Servers\n- `amap`: 12 tools"
+    capsys.readouterr()
+
+    repl.run_agent("hello")
+
+    system_text = "\n".join(
+        message.get("content", "")
+        for message in repl.session.messages
+        if message.get("role") == "system"
+    )
+    assert "## MCP Servers" in system_text
+    assert "`amap`: 12 tools" in system_text
 
 
 def test_ui_command_toggles_tool_display(capsys):
