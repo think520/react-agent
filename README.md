@@ -1,6 +1,6 @@
 # 波波蛋 (Bobodan)
 
-Python ReAct Agent，支持多 LLM Provider、工具调用、Session 持久化、Skills 注入、持久化记忆系统、本地知识库（RAG + 知识图谱）、题库系统（生成/练习/批改/错题分析）、学习路线与复习计划、MCP 客户端（stdio / SSE / streamable_http）、CLI REPL 交互。
+Python ReAct Agent，支持多 LLM Provider、工具调用、Session 持久化、Skills 注入、持久化记忆系统、本地知识库（RAG + 知识图谱）、题库系统（生成/练习/批改/错题分析）、学习路线与复习计划、MCP 客户端（stdio / SSE / streamable_http）、多 agent 编排（Learning Agent Orchestrator：3 个 specialist 派活）、CLI REPL 交互。
 
 ## 运行
 
@@ -52,6 +52,17 @@ tools/
   knowledge_status.py # knowledge_status：知识库状态查询
   quiz_tools.py     # question_generate、quiz_start、quiz_submit：题库工具
   mcp.py            # register_mcp_tools：MCP 客户端集成入口
+  agents.py         # register_delegate_tools：3 个 specialist 委派工具
+agents/             # Learning Agent Orchestrator v1（多 agent 骨架）
+  base.py           # BaseSpecialist ABC（specialist 契约）
+  config.py         # SpecialistConfig：Python 默认 + YAML 合并
+  registry.py       # SpecialistRegistry + last_invocations deque
+  runner.py         # 执行 specialist sub-AgentLoop（隔离 session、工具过滤、timeout）
+  prompt.py         # system prompt 模板渲染
+  specialists/      # 3 个 built-in specialist
+    doc_reader.py   # 长文档/笔记摘要（上下文隔离）
+    triage.py       # 分类与路由决策（模型替换 + 沙箱）
+    planner.py      # 学习计划生成（状态写入编排）
 mcp_client/         # MCP (Model Context Protocol) 客户端实现
   config.py         # YAML 加载 + ${ENV_VAR} 占位符替换
   event_loop.py     # AsyncEventLoop：后台异步线程桥
@@ -157,6 +168,9 @@ tests/              # 单元测试
 /mcp restart [name]  # 重连 MCP server
 /mcp tools <name>  # 列出 server 的 tools
 /mcp reload  # 重读 config.yaml
+/specialists                       # 列出所有 specialist
+/specialists status                # 最近调用（in-memory）
+/specialists tools <name>          # specialist 的 effective tool set
 /exit, /quit        # 退出
 ```
 

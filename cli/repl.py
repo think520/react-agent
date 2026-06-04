@@ -6,6 +6,7 @@ import shlex
 import shutil
 import sys
 import threading
+import time
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -44,7 +45,7 @@ THINK_START = "<think>"
 THINK_END = "</think>"
 THINK_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
-ALL_COMMANDS = ["help", "status", "cwd", "tools", "skill", "kb", "quiz", "learning", "memory", "wiki", "mcp", "ui", "model", "exit", "quit", "session"]
+ALL_COMMANDS = ["help", "status", "cwd", "tools", "skill", "kb", "quiz", "learning", "memory", "wiki", "mcp", "ui", "model", "specialists", "exit", "quit", "session"]
 
 COMMAND_HINTS = [
     ("/help", "显示命令帮助"),
@@ -88,6 +89,9 @@ COMMAND_HINTS = [
     ("/model", "当前激活的 provider / 模型"),
     ("/model list", "列出所有可用的 provider"),
     ("/model use ", "切换到指定 provider"),
+    ("/specialists", "列出所有 specialist"),
+    ("/specialists status", "最近 specialist 调用"),
+    ("/specialists tools ", "specialist 的工具集"),
     ("/session list", "已保存的会话"),
     ("/session save ", "保存会话（可选命名）"),
     ("/session resume", "选择会话恢复"),
@@ -143,6 +147,7 @@ class REPL:
         self.rag_router = None
         self.rag_backend_info = {}
         self.mcp_prompt = None
+        self.agent_registry = None
 
     def initialize(self):
         """Initialize the agent with config."""
@@ -201,6 +206,22 @@ class REPL:
                 register_mcp_tools(self.config)
             except Exception as e:
                 logger.warning("MCP registration failed: %s", e)
+
+            # Specialist (multi-agent) registration — must run before AgentLoop
+            # so delegate_* tools are in the snapshot.
+            try:
+                from agents.registry import register_builtin_specialists
+                from tools.agents import register_delegate_tools
+                yaml_section = self.config.get("specialists") or {}
+                self.agent_registry = register_builtin_specialists(yaml_section)
+                register_delegate_tools(
+                    self.agent_registry,
+                    get_session=lambda: self.session,
+                    get_app_config=lambda: self.config,
+                )
+            except Exception as e:
+                logger.warning("Specialist registration failed: %s", e)
+                self.agent_registry = None
 
             # Build the MCP status prompt segment for the LLM system prompt.
             try:
@@ -389,6 +410,10 @@ class REPL:
 
         if cmd == "model":
             self.handle_model_command(cmd_line[len("model"):].strip())
+            return
+
+        if cmd == "specialists":
+            self.handle_specialists_command(cmd_line[len("specialists"):].strip())
             return
 
         print(f"  \033[1;38;5;208mUnknown command: {cmd}\033[0m")
@@ -1673,6 +1698,112 @@ class REPL:
         print("  \033[1;38;5;210m  /model\033[0m              当前激活的 provider / 模型")
         print("  \033[1;38;5;210m  /model list\033[0m         列出所有可用的 provider")
         print("  \033[1;38;5;210m  /model use <name>\033[0m   切换到指定 provider（不写入 config.yaml）")
+        print()
+
+    # --- Specialists (multi-agent) ---
+
+    def handle_specialists_command(self, cmd: str):
+        """Dispatch /specialists [status|tools <name>]."""
+        try:
+            parts = shlex.split(cmd)
+        except ValueError as e:
+            print_error(str(e))
+            return
+
+        if not parts or parts[0] in {"help", "-h", "--help", "list"}:
+            self.print_specialists_list()
+            return
+
+        action = parts[0]
+        if action == "status":
+            self.print_specialists_status()
+        elif action == "tools":
+            self.print_specialists_tools(parts[1:])
+        else:
+            print(f"  \033[1;38;5;208mUnknown /specialists subcommand: {action}\033[0m")
+            self.print_specialists_help()
+
+    def print_specialists_help(self):
+        print()
+        print("  \033[1;37mSpecialists 命令:\033[0m")
+        print("  \033[1;38;5;210m  /specialists\033[0m              列出所有 specialist + 配置")
+        print("  \033[1;38;5;210m  /specialists status\033[0m       最近 3 次调用")
+        print("  \033[1;38;5;210m  /specialists tools <name>\033[0m  该 specialist 的 effective tool set")
+        print()
+
+    def print_specialists_list(self):
+        if self.agent_registry is None:
+            print_notice("Specialists not initialized (check logs).")
+            return
+        enabled = self.agent_registry.list_enabled()
+        all_names = self.agent_registry.list_names()
+        n_enabled = len(enabled)
+        n_total = len(all_names)
+        print()
+        print(f"  \033[1;37mConfigured specialists ({n_enabled}/{n_total} enabled):\033[0m")
+        for name, sp, cfg in enabled:
+            print(
+                f"  \033[1;38;5;210m  {name:<14}\033[0m enabled   "
+                f"provider={cfg.provider or sp.default_provider:<10} "
+                f"model={cfg.model or sp.default_model:<22} "
+                f"timeout={cfg.timeout_seconds}s   iter={cfg.max_iterations}"
+            )
+        for name in all_names:
+            if name in {n for n, _, _ in enabled}:
+                continue
+            cfg = self.agent_registry.get_config(name)
+            if cfg is not None and not cfg.enabled:
+                print(f"  \033[90m  {name:<14} disabled\033[0m")
+        print()
+
+    def print_specialists_status(self):
+        if self.agent_registry is None:
+            print_notice("Specialists not initialized.")
+            return
+        records = self.agent_registry.get_invocation(3)
+        if not records:
+            print_notice("No specialist invocations yet.")
+            return
+        print()
+        print("  \033[1;37mLast specialist invocations (in-memory, REPL runtime):\033[0m")
+        for r in records:
+            ago = int(time.time() - r.ts) if r.ts else 0
+            ago_str = f"{ago}s ago" if ago < 60 else f"{ago // 60}m ago"
+            icon = "✓" if r.ok else "✗"
+            color = "32" if r.ok else "31"
+            err = f" error={r.error_type}" if not r.ok else ""
+            print(
+                f"  \033[1;38;5;{color}m{icon} {r.specialist:<14}\033[0m "
+                f"{'ok=True' if r.ok else 'ok=False':<10}{err:<25} "
+                f"{r.duration_ms}ms   {ago_str}"
+            )
+        print()
+
+    def print_specialists_tools(self, args: list):
+        if self.agent_registry is None:
+            print_notice("Specialists not initialized.")
+            return
+        if not args:
+            print("  \033[1;38;5;210mUsage:\033[0m /specialists tools <name>")
+            return
+        name = args[0]
+        cfg = self.agent_registry.get_config(name)
+        if cfg is None:
+            print_error(f"No specialist named {name!r}. Available: {', '.join(self.agent_registry.list_names())}")
+            return
+        # Show effective tool set by filtering the live TOOL_REGISTRY
+        from tools.base import TOOL_REGISTRY, get_tools_schema
+        from agents.runner import build_specialist_tools
+        all_tools = get_tools_schema()
+        effective = build_specialist_tools(cfg, all_tools)
+        print()
+        print(f"  \033[1;37mSpecialist {name!r} effective tool set:\033[0m")
+        for t in effective:
+            print(f"  \033[1;38;5;147m  {t['function']['name']}\033[0m  {t['function'].get('description', '')[:80]}")
+        print()
+        print("  \033[90mNote: delegate_* and memory_* are always excluded (v1 hard walls).\033[0m")
+        if not cfg.allow_mcp:
+            print("  \033[90mNote: MCP tools excluded (allow_mcp=false).\033[0m")
         print()
 
     def normalize_session_id(self, session_id: str) -> str:

@@ -7,6 +7,23 @@
 ## [未发布]
 
 ### 新增
+- **Learning Agent Orchestrator（多 agent 骨架 v1）**: 主 bobodan 派活给 specialist，不是 peer-to-peer。3 个 built-in specialist（doc_reader / triage / planner），每个配一个 `delegate_*` tool。详见 `docs/agents_design.md`。
+  - `agents/base.py`: `BaseSpecialist` ABC（name / system_prompt_template / data_to_content / defaults 契约）。
+  - `agents/config.py`: `SpecialistConfig` Python defaults + YAML merge，未知 key 报错。
+  - `agents/registry.py`: `SpecialistRegistry` + `last_invocations` deque(maxlen=10)。
+  - `agents/runner.py`: `run_specialist()` — fresh session 隔离，工具过滤（hard deny `delegate_*`/`memory_*`），per-specialist timeout (`concurrent.futures.ThreadPoolExecutor`)，guarded catch（无自动重试），triage 窄合约校验。content cap 2000 chars，error cap 500 chars，centralized。
+  - `agents/specialists/doc_reader.py` / `triage.py` / `planner.py`: 3 个 specialist 实现，documented return contracts。
+  - `agents/prompt.py`: system prompt 模板渲染。
+  - `tools/agents.py`: `register_delegate_tools(registry, get_session, get_app_config)` 注册 3 个 `delegate_*` tool（每个独立 schema）。
+  - `core/agent_loop.py`: 新增 `tools_schema` 和 `max_iterations` 可选构造参数（specialist runner 用）。
+  - `cli/repl.py`: 新增 `/specialists` 命令组（list / status / tools），启动时 `register_builtin_specialists()` + `register_delegate_tools()`。启动面板增加 specialist 数。
+  - `config.yaml`: 新增 `specialists:` section（3 个 specialist 各自 timeout/iter/allowed_tools/allow_mcp）。
+  - `tests/test_agents_*.py`: 64 个测试覆盖 7 条 runtime invariant（无 delegate/memory leak、MCP 两道门、timeout/crash/contract_violation、parent session 不可变）。Boundary-first，mock sub-AgentLoop。
+  - `docs/agents_design.md`: 完整设计文档（14 决策 + 13 runtime invariant + 10 章）。
+
+- **Runtime model switch (`/model` command)**: REPL 启动后可切换 active provider 不重启会话。`AgentLoop.set_provider()` + `REPL._make_active_provider()` helper。详见 `feature/model-switch` 分支。
+
+
 - **MCP (Model Context Protocol) 客户端**: 接入外部 MCP server，把它们暴露的 tools 注入到 agent loop。
   - `mcp_client/event_loop.py`: `AsyncEventLoop` 单例，后台 daemon 线程跑 asyncio event loop，`run_sync(coro, timeout)` 桥接 sync→async。
   - `mcp_client/manager.py`: `MCPManager` 单例，per-server 状态（config/transport/connected/tools/last_error），懒连接，`reload()` diff 配置。

@@ -60,6 +60,9 @@ pip install -r requirements-dev.txt      # with pytest
 /model              # show active provider / model
 /model list         # list all configured providers
 /model use <name>   # switch active provider at runtime (no config rewrite)
+/specialists                       # list all configured specialists
+/specialists status                # recent in-memory invocations (last 3)
+/specialists tools <name>          # effective tool set after filtering
 /session list                 # list saved sessions (name, id, time)
 /session save [name]          # save session with optional name
 /session resume               # interactive session picker
@@ -127,6 +130,17 @@ tools/
   memory_tools.py # memory_save, memory_recall, memory_daily_save, memory_daily_read, memory_promote
   knowledge_status.py # knowledge_status tool (knowledge base overview)
   quiz_tools.py   # question_generate, quiz_start, quiz_submit tools
+  agents.py       # register_delegate_tools — 3 delegate_* tools wired to specialist runner
+agents/           # Learning Agent Orchestrator v1 (multi-agent skeleton)
+  base.py         # BaseSpecialist ABC (subclass contract)
+  config.py       # SpecialistConfig: Python defaults + YAML merge
+  registry.py     # SpecialistRegistry + last_invocations deque(maxlen=10)
+  runner.py       # run(name, task, parent_session) → ToolResult; tool filter; timeout
+  prompt.py       # system_prompt 模板渲染
+  specialists/
+    doc_reader.py # DocReaderSpecialist — long doc → digest (context isolation)
+    triage.py     # TriageSpecialist — JSON decision (model substitution + sandbox)
+    planner.py    # PlannerSpecialist — learning plan (state-write orchestration)
 knowledge/        # Knowledge base management
   documents.py    # DocumentRecord, build_document_records (per-file import tracking)
   manifest.py     # .knowledge/manifest.json read/write
@@ -301,6 +315,31 @@ mcp:
 **Security model**: trust-first. Any server in `config.yaml` is fully trusted; all its tools are auto-available. No per-tool approval gate (that's Phase 2 per the harness plan).
 
 **Testing**: `tests/test_mcp_*.py` covers config, event loop, manager, naming, catalog, prompt, all three transports (SDK-mocked), and the REPL commands — 76 tests total.
+
+## Learning Agent Orchestrator (multi-agent skeleton)
+
+**v1 scope**: 3 built-in specialists — `doc_reader` (context isolation), `triage` (model substitution + sandbox), `planner` (state-write orchestration). Main bobodan dispatches to specialists via dedicated `delegate_*` tools. No peer-to-peer, no recursion, no parallelism. See [`docs/agents_design.md`](docs/agents_design.md) for the full design.
+
+**Architecture** (`agents/` + `tools/agents.py`):
+- `agents/base.py` defines the `BaseSpecialist` ABC (name, system_prompt_template, data_to_content, defaults)
+- `agents/registry.py` owns the registry and in-memory `last_invocations` deque (max 10)
+- `agents/runner.py` is the only module that creates sub-AgentLoops — enforces all runtime invariants
+- `tools/agents.py` registers 3 delegate tools (`delegate_doc_reader`, `delegate_triage`, `delegate_planner`) with specialist-specific schemas
+- `REPL._make_active_provider` is the helper used by both `initialize()` and `run_agent_streaming()`; specialist runners do the same pattern with their own config
+
+**Hard runtime invariants** (enforced by `runner.build_specialist_tools` + `assert_invariants`):
+- `delegate_*` and `memory_*` tools are NEVER exposed to a specialist
+- MCP tools default-denied; opt-in only via `allow_mcp: true` AND exact name in `allowed_tools` (two doors; `all`/`*` does not auto-include MCP)
+- Timeout → `ToolResult(ok=False, error_type=timeout)`; crash → `error_type=crash`; invalid triage `recommended_specialist` → `error_type=contract_violation`
+- Parent session `messages` is never mutated by specialist
+- Specialist internals (display events OK, messages never enter parent session)
+
+**REPL integration** (`tools/agents.py` + `cli/repl.py`):
+- `register_delegate_tools(registry, get_session, get_app_config)` called at REPL startup, before `AgentLoop` is constructed (so the tools_schema snapshot includes the delegate tools)
+- `/specialists` lists configured specialists; `/specialists status` shows recent in-memory calls; `/specialists tools <name>` shows the filtered tool set
+- Specialist failures never crash the parent agent — they surface as `ok=False` tool results
+
+**Testing**: `tests/test_agents_*.py` covers 7 mandatory invariants (no delegate_/memory_ leak, MCP two-door, timeout/crash/contract_violation paths, parent session immutability) — 64 tests, all boundary-first with mock sub-AgentLoop.
 
 ## Provider API
 
