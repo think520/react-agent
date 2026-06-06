@@ -16,10 +16,11 @@
   - **`/ui tools on|off` 低噪音模式** (`_b_should_show`): off 时隐藏 tool_start / 成功 tool_end / 成功 coalesce summary / 成功 specialist_event，但**保留所有 ok=False 错误行**（包括 specialist 内部错误）—— errors 是安全网，不进低噪音模式。
   - **删除 specialist running 占位行** (`◐ doc_reader_specialist running...`): B-lite 下 delegate active line 已经表达 running 状态，额外 running 行是噪音；specialist scope 只用 4 空格缩进表达。
   - **`tests/test_repl_display.py`** (新): 42 个 L1（参数化摘要规则）+ L2（7 个 coalesce 状态机 case + flush without pending emits empty）单元测试。
-  - **`tests/test_repl.py`** 扩 4 个 L3 结构测试：B-lite active line seal on assistant_delta / seal on new tool_start / in-place update / off mode 隐藏成功保留错误。
-  - 总 +46 测试，全部 677 通过。
+  - **`tests/test_repl.py`** 扩 L3 结构测试：B-lite active line seal on assistant_delta / seal on new tool_start / in-place update / off mode 隐藏成功保留错误；并覆盖 coalesce wall-clock total、delegate parent scope 记账、thinking spinner tick。
+  - **`agents/runner.py`**: specialist 内部 `display_events` 透传 `elapsed` / `result_summary`，避免内部 tool success 显示退化为 `(0.0s)`。
+  - 完整测试 680 个通过（1 个既有 MCP coroutine warning）。
 
-- **Learning Agent Orchestrator（多 agent 骨架 v1）**: 主 bobodan 派活给 specialist，不是 peer-to-peer。3 个 built-in specialist（doc_reader / triage / planner），每个配一个 `delegate_*` tool。详见 `docs/agents_design.md`。
+- **Learning Agent Orchestrator（多 agent 骨架 v1）**: 主 bobodan 派活给 specialist，不是 peer-to-peer。3 个 built-in specialist（doc_reader / triage / planner），每个配一个 `delegate_*` tool。详见 `docs/archive/agents_design.md`。
   - `agents/base.py`: `BaseSpecialist` ABC（name / system_prompt_template / data_to_content / defaults 契约）。
   - `agents/config.py`: `SpecialistConfig` Python defaults + YAML merge，未知 key 报错。
   - `agents/registry.py`: `SpecialistRegistry` + `last_invocations` deque(maxlen=10)。
@@ -32,7 +33,7 @@
   - `cli/repl.py`: 新增 `/specialists` 命令组（list / status / tools），启动时 `register_builtin_specialists()` + `register_delegate_tools()`。delegate tool 运行时显示 specialist running header 和缩进内部 tool events。
   - `config.yaml`: 新增 `specialists:` section（3 个 specialist 各自 timeout/iter/allowed_tools/allow_mcp）。
   - `tests/test_agents_*.py` + `tests/test_agent_loop.py`: 回归测试覆盖 7 条 runtime invariant、真实 `AgentLoop.run_stream(task)` 调用契约、非阻塞 timeout、disabled specialist 不暴露 delegate tool、triage `(none)` 契约、`doc_reader.source_paths` 路径保真、specialist display events 不污染父 session。
-  - `docs/agents_design.md`: 完整设计文档（14 决策 + 13 runtime invariant + 10 章）。
+  - `docs/archive/agents_design.md`: 完整设计文档（14 决策 + 13 runtime invariant + 10 章）。
 
 - **Runtime model switch (`/model` command)**: REPL 启动后可切换 active provider 不重启会话。`AgentLoop.set_provider()` + `REPL._make_active_provider()` helper。详见 `feature/model-switch` 分支。
 
@@ -70,6 +71,7 @@
   - `tests/test_wiki.py`: 23 个测试覆盖 schema、index、lint、compiler、REPL 命令。
 
 ### 变更
+- **Docs cleanup**: 新增 `docs/README.md` 作为文档索引，新增 `docs/DESIGN.md` 作为长期视觉设计参考；将已实现或历史详细设计移入 `docs/archive/`，当前执行入口收敛到 `docs/NEXT_STEPS_EXECUTION_PLAN.md`。
 - **REPL UI 改进**: thinking 动效增加实时计时器（`⠋ thinking · 3.2s`）。工具调用显示改为 Claude Code 风格（`▸ tool_name(args)` → `✓ preview`），消除多余空白行。thinking 动效在工具执行期间保持可见。
 
 ## [0.12.0] - 2026-05-20

@@ -128,7 +128,7 @@ Bobodan 用的是 **trust-first** 模型：
 - 失败隔离：单个 server 出问题不影响其他 server 和内置功能
 - 不做 per-tool approval gate
 
-如果需要更严格的权限控制，参见 [harness 改进计划](AGENT_HARNESS_IMPROVEMENT_PLAN.md) — 那里有 approval gate 设计。
+如果需要更严格的权限控制，参见当前执行计划 [`NEXT_STEPS_EXECUTION_PLAN.md`](NEXT_STEPS_EXECUTION_PLAN.md)；历史 approval gate 设计已归档到 [`archive/AGENT_HARNESS_IMPROVEMENT_PLAN.md`](archive/AGENT_HARNESS_IMPROVEMENT_PLAN.md)。
 
 ## 7. 故障排查
 
@@ -222,4 +222,4 @@ config.yaml **会**进入 git（不像 .env），所以不要把 token 写明文
 | `mcp_client/transport_*.py` | 三种 transport 实现 |
 | `tools/mcp.py` | REPL 集成入口（register_mcp_tools） |
 | `tests/test_mcp_*.py` | 54 个测试 |
-| `docs/mcp_design.md` | 详细设计文档（18 章节） |
+| `docs/archive/mcp_design.md` | 归档详细设计文档（18 章节） |

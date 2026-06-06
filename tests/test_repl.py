@@ -12,6 +12,7 @@ def _plain(text: str) -> str:
 from cli.repl import REPL, SlashCommandCompleter
 from core.session import Session
 from providers.types import LLMResponse, LLMStreamChunk, ToolCallDelta
+from tools.base import TOOL_REGISTRY, TOOL_SCHEMAS, ToolResult, register_tool
 
 
 class DummyProvider:
@@ -737,6 +738,96 @@ def test_b_lite_active_line_in_place_update(capsys):
     plain = _plain(output)
     for f in seen_frames:
         assert f in plain
+
+
+def test_b_lite_thinking_line_spinner_advances():
+    repl = REPL()
+
+    first = _plain(repl._b_render_thinking(0.0))
+    second = _plain(repl._b_render_thinking(0.1))
+
+    assert first != second
+
+
+def test_b_lite_coalesce_summary_uses_wall_clock_not_tool_duration(monkeypatch, capsys, tmp_path):
+    """Four consecutive successful calls should flush a positive total, not a
+    negative number caused by mixing monotonic timestamps with per-tool duration."""
+    monkeypatch.chdir(tmp_path)
+    for name in ["a.txt", "b.txt", "c.txt", "d.txt"]:
+        (tmp_path / name).write_text(name, encoding="utf-8")
+    provider = StreamingProvider([
+        [
+            LLMStreamChunk(tool_call_deltas=[
+                ToolCallDelta(index=0, id="c1", name="read_file", arguments='{"path":"a.txt"}'),
+                ToolCallDelta(index=1, id="c2", name="read_file", arguments='{"path":"b.txt"}'),
+                ToolCallDelta(index=2, id="c3", name="read_file", arguments='{"path":"c.txt"}'),
+                ToolCallDelta(index=3, id="c4", name="read_file", arguments='{"path":"d.txt"}'),
+            ]),
+        ],
+        [LLMStreamChunk(content_delta="done")],
+    ])
+    repl = _make_repl_for_tool_event(monkeypatch, provider)
+    capsys.readouterr()
+
+    repl.run_agent("read four")
+
+    output = _plain(capsys.readouterr().out)
+    assert "✓ read_file ×4 total" in output
+    assert "total -" not in output
+
+
+def test_b_lite_delegate_success_is_recorded_in_parent_scope(monkeypatch, capsys, tmp_path):
+    """Outer delegate success must not increment the specialist's inner tool run."""
+    monkeypatch.chdir(tmp_path)
+
+    def delegate_fake():
+        return ToolResult(
+            ok=True,
+            content="delegate summary",
+            data={
+                "display_events": [
+                    {"type": "tool_start", "tool_name": "read_file", "args": {"path": "a.md"}},
+                    {"type": "tool_end", "tool_name": "read_file", "ok": True, "content": "a", "elapsed": 0.1},
+                    {"type": "tool_start", "tool_name": "read_file", "args": {"path": "b.md"}},
+                    {"type": "tool_end", "tool_name": "read_file", "ok": True, "content": "b", "elapsed": 0.1},
+                ]
+            },
+        )
+
+    TOOL_REGISTRY.pop("delegate_fake", None)
+    TOOL_SCHEMAS[:] = [
+        schema for schema in TOOL_SCHEMAS
+        if schema.get("function", {}).get("name") != "delegate_fake"
+    ]
+    register_tool(
+        "delegate_fake",
+        "fake delegate",
+        {"type": "object", "properties": {}},
+        delegate_fake,
+    )
+    try:
+        provider = StreamingProvider([
+            [
+                LLMStreamChunk(tool_call_deltas=[
+                    ToolCallDelta(index=0, id="c1", name="delegate_fake", arguments="{}"),
+                ]),
+            ],
+            [LLMStreamChunk(content_delta="done")],
+        ])
+        repl = _make_repl_for_tool_event(monkeypatch, provider)
+        capsys.readouterr()
+
+        repl.run_agent("delegate")
+
+        output = _plain(capsys.readouterr().out)
+        assert "✓ delegate_fake ×3" not in output
+        assert "✓ delegate_fake" in output
+    finally:
+        TOOL_REGISTRY.pop("delegate_fake", None)
+        TOOL_SCHEMAS[:] = [
+            schema for schema in TOOL_SCHEMAS
+            if schema.get("function", {}).get("name") != "delegate_fake"
+        ]
 
 
 def test_b_lite_off_mode_hides_success_keeps_error(monkeypatch, capsys, tmp_path):

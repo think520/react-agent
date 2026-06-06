@@ -629,7 +629,7 @@ class REPL:
             timer = f" {_B_DIM}·{_B_RESET} {_B_DIM}{elapsed:.1f}s{_B_RESET}"
         else:
             timer = ""
-        return f"  {_B_CYAN}{THINK_FRAMES[0]}{_B_RESET} {_B_DIM}{verb}{_B_RESET}{timer}"
+        return f"  {_B_CYAN}{spinner_frame_at(elapsed)}{_B_RESET} {_B_DIM}{verb}{_B_RESET}{timer}"
 
     def _b_render_tool_start(self, frame: str, name: str, summary: str, indent: str = _B_TOOL_INDENT_MAIN) -> str:
         summary_part = f" {_B_DIM}{summary}{_B_RESET}" if summary else ""
@@ -726,6 +726,7 @@ class REPL:
         self._stream_in_code_block = False
         partial_written = 0
         partial_preview = ""
+        delegate_summaries_by_call: dict[str, str] = {}
 
         def _flush_partial_stream() -> None:
             nonlocal stream_buffer, partial_written, partial_preview
@@ -739,7 +740,7 @@ class REPL:
             if stream_buffer:
                 stream_buffer, _ = self._flush_stream_buffer(stream_buffer, force=True)
 
-        def _handle_tool_start(tool_name: str, args: dict, indent: str) -> None:
+        def _handle_tool_start(tool_name: str, args: dict, indent: str) -> str:
             nonlocal stream_buffer, partial_written, partial_preview, stream_wrote
             nonlocal accumulated, rendered_text
             _flush_partial_stream()
@@ -768,13 +769,14 @@ class REPL:
                 self._b_write_active_line(
                     self._b_render_tool_start(THINK_FRAMES[0], tool_name, summary, indent)
                 )
+            return summary
 
         def _handle_tool_end(tool_name: str, ok: bool, elapsed_tool: float,
                              result_summary: str | None, content: str,
-                             indent: str) -> None:
-            summary = result_summary or self._active_tool_summary
+                             indent: str, summary_override: str | None = None) -> None:
+            summary = result_summary or summary_override or self._active_tool_summary
             if ok:
-                show_inline, _count = self._coalescer_stack.record_success(elapsed_tool)
+                show_inline, _count = self._coalescer_stack.record_success(time.monotonic())
                 if not self._b_should_show(True):
                     # Off mode: success hidden. If a spinner was on screen, seal it.
                     if self._active_line_kind == "tool":
@@ -889,7 +891,9 @@ class REPL:
 
                     if event_type == "tool_start":
                         tool_name = event.get("tool_name", "?")
-                        _handle_tool_start(tool_name, event.get("args", {}), self._B_TOOL_INDENT_MAIN)
+                        summary = _handle_tool_start(tool_name, event.get("args", {}), self._B_TOOL_INDENT_MAIN)
+                        if tool_name.startswith("delegate_"):
+                            delegate_summaries_by_call[str(event.get("tool_call_id", ""))] = summary
                         continue
 
                     if event_type == "tool_end":
@@ -898,12 +902,22 @@ class REPL:
                         elapsed_tool = event.get("elapsed", 0.0)
                         result_summary = event.get("result_summary")
                         content = event.get("content", "")
-                        _handle_tool_end(tool_name, ok, elapsed_tool, result_summary, content, self._B_TOOL_INDENT_MAIN)
+                        summary_override = None
                         if tool_name.startswith("delegate_"):
                             pop_payload = self._coalescer_stack.pop_scope()
                             if pop_payload and self._b_should_show(True):
                                 out.write(f"{pop_payload}\n")
                                 out.flush()
+                            summary_override = delegate_summaries_by_call.pop(str(event.get("tool_call_id", "")), None)
+                        _handle_tool_end(
+                            tool_name,
+                            ok,
+                            elapsed_tool,
+                            result_summary,
+                            content,
+                            self._B_TOOL_INDENT_MAIN,
+                            summary_override=summary_override,
+                        )
                         continue
 
                     if event_type == "specialist_event":

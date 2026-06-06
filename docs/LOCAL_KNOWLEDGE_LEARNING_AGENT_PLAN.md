@@ -43,16 +43,17 @@ Bobodan 不是通用 coding agent，也不是简单的聊天壳。
 
 ## 3. 当前 active 文档
 
-当前只保留 4 份 active docs：
+当前执行入口以 `NEXT_STEPS_EXECUTION_PLAN.md` 为准。其他 active docs 分工如下：
 
 | 文档 | 用途 |
 |------|------|
+| `NEXT_STEPS_EXECUTION_PLAN.md` | 当前下一步执行顺序：先做什么、为什么、哪些暂缓 |
 | `LOCAL_KNOWLEDGE_LEARNING_AGENT_PLAN.md` | 主迭代计划 |
 | `BOBODAN_AGENT_FRAMEWORK_ARCHITECTURE.md` | 架构边界规范 |
 | `RAG_KNOWLEDGE_GRAPH_MVP.md` | 当前 RAG + 图谱使用说明 |
-| `OLLAMA_RAG_EMBEDDING_PLAN.md` | Ollama embedding 接入方案 |
+| `MCP.md` | MCP 用户文档 |
 
-其他历史调研、review、早期设计已移动到 `docs/archive/`。
+执行规则：日常排期先看 `NEXT_STEPS_EXECUTION_PLAN.md`；架构边界看 `BOBODAN_AGENT_FRAMEWORK_ARCHITECTURE.md`；知识库使用看 `RAG_KNOWLEDGE_GRAPH_MVP.md`；已实现或历史设计放在 `archive/`。
 
 ## 4. 产品边界
 
@@ -413,4 +414,3 @@ Bobodan 后续不要做成“什么都能做的通用 Agent”。
 > 一个围绕本地知识库、个人学习、Obsidian、RAG、wiki、题库、学习路径构建的 lightweight learning agent framework。
 
 框架化是为了支撑学习主线，不是为了追逐通用 Agent 形态。
-

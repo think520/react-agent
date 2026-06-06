@@ -187,7 +187,14 @@ def test_success_collects_specialist_display_events():
         mock_loop_instance = MagicMock()
         mock_loop_instance.run_stream.return_value = iter([
             {"type": "tool_start", "tool_name": "knowledge_status", "args": {}},
-            {"type": "tool_end", "tool_name": "knowledge_status", "ok": True, "content": "ok"},
+            {
+                "type": "tool_end",
+                "tool_name": "knowledge_status",
+                "ok": True,
+                "content": "ok",
+                "elapsed": 0.4,
+                "result_summary": "status 200",
+            },
             {
                 "type": "assistant_done",
                 "content": (
@@ -204,7 +211,14 @@ def test_success_collects_specialist_display_events():
     assert result.ok is True
     assert result.data["display_events"] == [
         {"type": "tool_start", "tool_name": "knowledge_status", "args": {}},
-        {"type": "tool_end", "tool_name": "knowledge_status", "ok": True, "content": "ok"},
+        {
+            "type": "tool_end",
+            "tool_name": "knowledge_status",
+            "ok": True,
+            "content": "ok",
+            "elapsed": 0.4,
+            "result_summary": "status 200",
+        },
     ]
 
 
