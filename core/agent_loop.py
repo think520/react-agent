@@ -24,11 +24,13 @@ class AgentLoop:
     """ReAct agent loop implementation."""
 
     def __init__(self, llm_provider, session, skills_prompt: str | None = None,
-                 memory_prompt: str | None = None, mcp_prompt: str | None = None):
+                 memory_prompt: str | None = None, mcp_prompt: str | None = None,
+                 tools_schema: list[dict] | None = None,
+                 max_iterations: int | None = None):
         self.llm = llm_provider
         self.session = session
-        self.tools_schema = get_tools_schema()
-        self.max_iterations = 8
+        self.tools_schema = tools_schema if tools_schema is not None else get_tools_schema()
+        self.max_iterations = max_iterations if max_iterations is not None else 8
         self.skills_prompt = skills_prompt
         self.memory_prompt = memory_prompt
         self.mcp_prompt = mcp_prompt
@@ -140,6 +142,14 @@ class AgentLoop:
                         self._sync_session_state(tc.name, result)
                         self.session.add_tool_message(tc.id, result.content)
                         logger.info(f"[AgentLoop] tool result for id={tc.id!r}: {result.content[:200]!r}")
+                        for display_event in result.data.get("display_events", []):
+                            yield {
+                                **display_event,
+                                "type": "specialist_event",
+                                "event_type": display_event.get("type"),
+                                "parent_tool_call_id": tc.id,
+                                "parent_tool_name": tc.name,
+                            }
                         yield {
                             "type": "tool_end",
                             "tool_call_id": tc.id,

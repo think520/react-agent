@@ -53,3 +53,33 @@ mcp:
   #   amap-maps:
   #     transport: streamable_http
   #     url: "https://mcp.api-inference.modelscope.net/3afe787f778c49/mcp"
+
+# Learning Agent Orchestrator v1 — 3 built-in specialists.
+# YAML can only override behavior of Python-defined specialists;
+# v1 does not allow creating a new specialist from YAML alone.
+specialists:
+  doc_reader:
+    enabled: true
+    timeout_seconds: 60
+    max_iterations: 5
+    allow_mcp: false
+    allowed_tools:
+      - read_file
+      - rag_search
+      - knowledge_status
+  triage:
+    enabled: true
+    timeout_seconds: 30
+    max_iterations: 2
+    allow_mcp: false
+    allowed_tools:
+      - read_file
+      - knowledge_status
+  planner:
+    enabled: true
+    timeout_seconds: 120
+    max_iterations: 8
+    allow_mcp: false
+    allowed_tools:
+      - learning_path
+      - learning_progress

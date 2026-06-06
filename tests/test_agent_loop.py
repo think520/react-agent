@@ -1,6 +1,7 @@
 from core.agent_loop import AgentLoop, LEGACY_BASE_SYSTEM_PROMPT
 from core.session import Session
 from providers.types import LLMResponse, LLMStreamChunk, ToolCall, ToolCallDelta
+from tools.base import TOOL_REGISTRY, TOOL_SCHEMAS, ToolResult, register_tool
 
 
 class MockLLMProvider:
@@ -128,6 +129,68 @@ def test_agent_loop_tool_call_then_text(tmp_path):
 
     assert result == "done"
     assert (tmp_path / "test.txt").read_text(encoding="utf-8") == "hello world"
+
+
+def test_agent_loop_yields_specialist_display_events_without_session_pollution(tmp_path):
+    def delegate_fake():
+        return ToolResult(
+            ok=True,
+            content="specialist summary",
+            data={
+                "display_events": [
+                    {"type": "tool_start", "tool_name": "read_file", "args": {"path": "x.md"}},
+                    {"type": "tool_end", "tool_name": "read_file", "ok": True, "content": "read 10 chars"},
+                ]
+            },
+        )
+
+    TOOL_REGISTRY.pop("delegate_fake", None)
+    TOOL_SCHEMAS[:] = [
+        schema for schema in TOOL_SCHEMAS
+        if schema.get("function", {}).get("name") != "delegate_fake"
+    ]
+    register_tool(
+        "delegate_fake",
+        "fake delegate",
+        {"type": "object", "properties": {}},
+        delegate_fake,
+    )
+    try:
+        session = Session.new(str(tmp_path))
+        llm = MockLLMProvider([
+            _tool_response([
+                {"name": "delegate_fake", "args": {}}
+            ]),
+            LLMResponse(content="done"),
+        ])
+        agent = AgentLoop(llm, session)
+
+        events = list(agent.run_stream("delegate"))
+
+        specialist_events = [event for event in events if event["type"] == "specialist_event"]
+        assert [event["tool_name"] for event in specialist_events] == ["read_file", "read_file"]
+        tool_messages = [m for m in session.messages if m["role"] == "tool"]
+        assert tool_messages == [{
+            "role": "tool",
+            "tool_call_id": "call_delegate_fake",
+            "content": "specialist summary",
+        }]
+    finally:
+        TOOL_REGISTRY.pop("delegate_fake", None)
+        TOOL_SCHEMAS[:] = [
+            schema for schema in TOOL_SCHEMAS
+            if schema.get("function", {}).get("name") != "delegate_fake"
+        ]
+
+
+def test_read_file_description_points_summary_tasks_to_delegate_doc_reader():
+    read_file_schema = next(
+        schema for schema in TOOL_SCHEMAS
+        if schema.get("function", {}).get("name") == "read_file"
+    )
+    desc = read_file_schema["function"]["description"]
+    assert "delegate_doc_reader" in desc
+    assert "summar" in desc.lower()
 
 
 def test_agent_loop_multi_tool_calls(tmp_path):

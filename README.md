@@ -1,6 +1,6 @@
 # 波波蛋 (Bobodan)
 
-Python ReAct Agent，支持多 LLM Provider、工具调用、Session 持久化、Skills 注入、持久化记忆系统、本地知识库（RAG + 知识图谱）、题库系统（生成/练习/批改/错题分析）、学习路线与复习计划、MCP 客户端（stdio / SSE / streamable_http）、CLI REPL 交互。
+Python ReAct Agent，支持多 LLM Provider、工具调用、Session 持久化、Skills 注入、持久化记忆系统、本地知识库（RAG + 知识图谱）、题库系统（生成/练习/批改/错题分析）、学习路线与复习计划、MCP 客户端（stdio / SSE / streamable_http）、多 agent 编排（Learning Agent Orchestrator：3 个 specialist 派活）、CLI REPL 交互。
 
 ## 运行
 
@@ -52,6 +52,17 @@ tools/
   knowledge_status.py # knowledge_status：知识库状态查询
   quiz_tools.py     # question_generate、quiz_start、quiz_submit：题库工具
   mcp.py            # register_mcp_tools：MCP 客户端集成入口
+  agents.py         # register_delegate_tools：3 个 specialist 委派工具
+agents/             # Learning Agent Orchestrator v1（多 agent 骨架）
+  base.py           # BaseSpecialist ABC（specialist 契约）
+  config.py         # SpecialistConfig：Python 默认 + YAML 合并
+  registry.py       # SpecialistRegistry + last_invocations deque
+  runner.py         # 执行 specialist sub-AgentLoop（隔离 session、工具过滤、timeout）
+  prompt.py         # system prompt 模板渲染
+  specialists/      # 3 个 built-in specialist
+    doc_reader.py   # 长文档/笔记摘要（上下文隔离）
+    triage.py       # 分类与路由决策（模型替换 + 沙箱）
+    planner.py      # 学习计划生成（状态写入编排）
 mcp_client/         # MCP (Model Context Protocol) 客户端实现
   config.py         # YAML 加载 + ${ENV_VAR} 占位符替换
   event_loop.py     # AsyncEventLoop：后台异步线程桥
@@ -157,12 +168,31 @@ tests/              # 单元测试
 /mcp restart [name]  # 重连 MCP server
 /mcp tools <name>  # 列出 server 的 tools
 /mcp reload  # 重读 config.yaml
+/specialists                       # 列出所有 specialist
+/specialists status                # 最近调用（in-memory）
+/specialists tools <name>          # specialist 的 effective tool set
 /exit, /quit        # 退出
 ```
 
 安装 `prompt_toolkit` 后，输入 `/` 会实时显示可用命令候选；如果当前终端不支持实时提示，输入 `/` 回车会显示精简命令面板。
 
 启动页和知识库命令使用 Rich 渲染：启动信息会显示为不会错位的面板；`/kb status`、`/kb search` 会使用 Rich 面板和表格展示。Agent 流式回复使用打字机效果逐字符输出，支持标题、代码块、表格、列表、引用等内联 Markdown 渲染；thinking 动画使用旋转 braille 字符（`⠋ thinking`），文字到来时无缝消失。
+
+## Learning Agent Orchestrator
+
+Bobodan v1 支持主 agent 将部分任务委派给内置 specialist。委派不是硬编码路由，而是 LLM 根据工具描述自动选择 `delegate_doc_reader`、`delegate_triage` 或 `delegate_planner`；用户也可以直接点名这些 delegate 工具。
+
+v1 的主要价值是上下文隔离和工具沙箱：例如“阅读并总结文件”会优先交给 `doc_reader`，它在独立 session 中读取文档并返回摘要，避免把长原文和内部 tool call 写入主会话。需要原文内容时，仍然直接使用 `read_file`。
+
+可用命令：
+
+| 命令 | 用途 |
+|------|------|
+| `/specialists` | 查看已配置 specialist |
+| `/specialists status` | 查看最近 specialist 调用结果（仅内存） |
+| `/specialists tools <name>` | 查看某个 specialist 的有效工具集 |
+
+设计边界详见 [`docs/agents_design.md`](docs/agents_design.md)。
 
 ## 课程学习助手 MVP
 
