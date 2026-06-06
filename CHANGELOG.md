@@ -18,8 +18,9 @@
   - **`tests/test_repl_display.py`** (新): 42 个 L1（参数化摘要规则）+ L2（7 个 coalesce 状态机 case + flush without pending emits empty）单元测试。
   - **`tests/test_repl.py`** 扩 L3 结构测试：B-lite active line seal on assistant_delta / seal on new tool_start / in-place update / off mode 隐藏成功保留错误；并覆盖 coalesce wall-clock total、delegate parent scope 记账、thinking spinner tick。
   - **Streaming 文本输出修复**: assistant 正文开始后清除 thinking active line，避免 `Thinking` / `Checking` / `Working` 状态行被 seal 到正文中反复刷屏。
+  - **Streaming 速度修复**: 移除 `_flush_stream_buffer()` 的逐字符 `sleep`，避免格式化整行输出时阻塞 UI loop，改善流式输出和 thinking spinner 的卡顿感。
   - **`agents/runner.py`**: specialist 内部 `display_events` 透传 `elapsed` / `result_summary`，避免内部 tool success 显示退化为 `(0.0s)`。
-  - 完整测试 681 个通过（1 个既有 MCP coroutine warning）。
+  - 完整测试 682 个通过（1 个既有 MCP coroutine warning）。
 
 - **Learning Agent Orchestrator（多 agent 骨架 v1）**: 主 bobodan 派活给 specialist，不是 peer-to-peer。3 个 built-in specialist（doc_reader / triage / planner），每个配一个 `delegate_*` tool。详见 `docs/archive/agents_design.md`。
   - `agents/base.py`: `BaseSpecialist` ABC（name / system_prompt_template / data_to_content / defaults 契约）。

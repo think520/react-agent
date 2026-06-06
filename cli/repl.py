@@ -491,7 +491,7 @@ class REPL:
             return total
 
     def _flush_stream_buffer(self, buffer: str, force: bool = False, clear_partial: int = 0) -> tuple[str, bool]:
-        """Render complete lines with markdown + typewriter effect.
+        """Render complete lines with markdown.
 
         Args:
             buffer: accumulated text to render.
@@ -502,7 +502,6 @@ class REPL:
         Returns:
             (remaining_buffer, wrote_something)
         """
-        import time
         from cli.markdown_render import render_inline, strip_table_separator, is_table_row, DIM, BOLD, RESET, GRAY, CYAN
         import re
 
@@ -524,10 +523,7 @@ class REPL:
                     self._stream_in_code_block = False
                     continue
                 rendered = f"  {GRAY}|{RESET} {CYAN}{line}{RESET}\n"
-                for ch in rendered:
-                    out.write(ch)
-                    if ch not in ("\r", "\n"):
-                        time.sleep(0.008)
+                out.write(rendered)
                 out.flush()
                 wrote = True
                 continue
@@ -572,11 +568,7 @@ class REPL:
                         else:
                             rendered = f"  {render_inline(line)}\n"
 
-            # Typewriter: character by character
-            for ch in rendered:
-                out.write(ch)
-                if ch not in ("\r", "\n"):
-                    time.sleep(0.012)
+            out.write(rendered)
             out.flush()
             wrote = True
 

@@ -660,6 +660,20 @@ def test_repl_print_response_renders_markdown(capsys):
     assert "rag_search" in output
 
 
+def test_flush_stream_buffer_does_not_sleep_per_character(monkeypatch, capsys):
+    calls = []
+    monkeypatch.setattr(time, "sleep", lambda delay: calls.append(delay))
+
+    repl = REPL()
+    repl._stream_in_code_block = False
+    remaining, wrote = repl._flush_stream_buffer("hello world\n")
+
+    assert remaining == ""
+    assert wrote is True
+    assert "hello world" in capsys.readouterr().out
+    assert calls == []
+
+
 # --- L3: B-lite active-line structure (Q8) ----------------------------------
 #
 # These tests assert structural properties of the B-lite state machine:
