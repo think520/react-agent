@@ -438,6 +438,39 @@ def test_repl_streaming_does_not_restart_thinking_after_text_starts(monkeypatch,
     assert "Polishing" not in after_text
 
 
+def test_repl_streaming_small_chunks_do_not_rewrite_partial_preview(monkeypatch, capsys):
+    config = {
+        "llm": {
+            "default_provider": "minimax",
+            "providers": {
+                "minimax": {
+                    "model": "MiniMax-Text-01",
+                    "api_key_env": "MINIMAX_API_KEY",
+                }
+            },
+        },
+        "session": {"save_dir": ".session-test"},
+        "agent": {"timeout": 30},
+    }
+    provider = DelayedStreamingProvider([
+        [LLMStreamChunk(content_delta="x") for _ in range(12)]
+    ], delay=0.01)
+
+    monkeypatch.setattr("cli.repl.ProviderFactory.load_config", lambda path: config)
+    monkeypatch.setattr("cli.repl.ProviderFactory.create", lambda provider_config, agent_config: provider)
+    monkeypatch.setattr("cli.repl.get_tools_schema", lambda: [{"function": {"name": "read_file"}}])
+
+    repl = REPL(config_path="config.yaml")
+    repl.initialize()
+    capsys.readouterr()
+
+    repl.run_agent("hello")
+
+    output = capsys.readouterr().out
+    assert "xxxxxxxxxxxx" in _plain(output)
+    assert "\033[K" not in output
+
+
 def test_repl_streaming_preserves_lines_split_across_chunks(monkeypatch, capsys):
     config = {
         "llm": {

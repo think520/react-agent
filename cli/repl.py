@@ -596,6 +596,7 @@ class REPL:
 
     _B_TOOL_INDENT_MAIN = "  "
     _B_TOOL_INDENT_SPECIALIST = "    "
+    _B_PARTIAL_PREVIEW_MIN_CHARS = 48
 
     def _b_write_active_line(self, text: str) -> None:
         """Rewrite the current active line in place (no trailing newline)."""
@@ -957,11 +958,14 @@ class REPL:
                 if wrote:
                     stream_wrote = True
 
-                if stream_buffer and self._active_line_kind == "none":
+                if (
+                    stream_buffer
+                    and self._active_line_kind == "none"
+                    and len(stream_buffer) >= self._B_PARTIAL_PREVIEW_MIN_CHARS
+                ):
                     out.write(stream_buffer)
                     out.flush()
-                    partial_preview = stream_buffer
-                    partial_written = self._terminal_cell_width(stream_buffer)
+                    stream_wrote = True
                     stream_buffer = ""
 
                 if (
