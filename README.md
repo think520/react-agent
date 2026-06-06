@@ -178,6 +178,22 @@ tests/              # 单元测试
 
 启动页和知识库命令使用 Rich 渲染：启动信息会显示为不会错位的面板；`/kb status`、`/kb search` 会使用 Rich 面板和表格展示。Agent 流式回复使用打字机效果逐字符输出，支持标题、代码块、表格、列表、引用等内联 Markdown 渲染；thinking 动画使用旋转 braille 字符（`⠋ thinking`），文字到来时无缝消失。
 
+## Learning Agent Orchestrator
+
+Bobodan v1 支持主 agent 将部分任务委派给内置 specialist。委派不是硬编码路由，而是 LLM 根据工具描述自动选择 `delegate_doc_reader`、`delegate_triage` 或 `delegate_planner`；用户也可以直接点名这些 delegate 工具。
+
+v1 的主要价值是上下文隔离和工具沙箱：例如“阅读并总结文件”会优先交给 `doc_reader`，它在独立 session 中读取文档并返回摘要，避免把长原文和内部 tool call 写入主会话。需要原文内容时，仍然直接使用 `read_file`。
+
+可用命令：
+
+| 命令 | 用途 |
+|------|------|
+| `/specialists` | 查看已配置 specialist |
+| `/specialists status` | 查看最近 specialist 调用结果（仅内存） |
+| `/specialists tools <name>` | 查看某个 specialist 的有效工具集 |
+
+设计边界详见 [`docs/agents_design.md`](docs/agents_design.md)。
+
 ## 课程学习助手 MVP
 
 这个功能把学习资料分成两层能力：
