@@ -620,6 +620,29 @@ class REPL:
             return f"    {icon} {dim}{preview}{reset}"
         return f"    {icon}"
 
+    def _format_specialist_running(self, delegate_tool: str) -> str:
+        """Format the immediate running line for a delegate_* tool."""
+        dim = "\033[2m"
+        reset = "\033[0m"
+        name = delegate_tool.removeprefix("delegate_")
+        return f"    {dim}◐ {name}_specialist running...{reset}"
+
+    def _format_specialist_event(self, event: dict) -> str:
+        """Format display-only specialist internal tool events."""
+        dim = "\033[2m"
+        reset = "\033[0m"
+        tool_name = event.get("tool_name", "?")
+        if event.get("event_type") == "tool_start":
+            args_str = self._format_tool_args(event.get("args", {}), limit=50)
+            return f"    {dim}▸ {tool_name}({args_str}){reset}"
+
+        ok = event.get("ok", False)
+        icon = "✓" if ok else "✗"
+        content = str(event.get("content", "")).replace("\n", " ").strip()
+        if len(content) > 80:
+            content = content[:77] + "..."
+        return f"      {dim}{icon} {content}{reset}" if content else f"      {dim}{icon}{reset}"
+
     def run_agent_streaming(self, user_input: str) -> None:
         """Run agent with typewriter streaming, thinking animation, and compact tool display."""
         import time
@@ -746,6 +769,8 @@ class REPL:
                             line = self._format_tool_display(tool_name, event.get("args", {}))
                             self._clear_thinking_line()
                             out.write(f"{line}\n")
+                            if tool_name.startswith("delegate_"):
+                                out.write(f"{self._format_specialist_running(tool_name)}\n")
                             out.flush()
                         stream_wrote = False
                         # Keep thinking_visible — re-show thinking after tool display
@@ -761,6 +786,15 @@ class REPL:
                             out.write(f"{line}\n")
                             out.flush()
                         # Thinking stays visible for next LLM call
+                        last_thinking_frame = ""
+                        continue
+
+                    if event_type == "specialist_event":
+                        if self.show_tool_calls:
+                            line = self._format_specialist_event(event)
+                            self._clear_thinking_line()
+                            out.write(f"{line}\n")
+                            out.flush()
                         last_thinking_frame = ""
                         continue
 

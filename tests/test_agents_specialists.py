@@ -77,6 +77,15 @@ def test_triage_system_prompt_renders():
         assert field in rendered
 
 
+def test_triage_prompt_uses_parenthesized_none_consistently():
+    sp = TriageSpecialist()
+    rendered = sp.system_prompt_template.format(
+        specialist_name=sp.name, task="classify this", allowed_tools="read_file"
+    )
+    assert "recommended_specialist=(none)" in rendered
+    assert "recommended_specialist=none" not in rendered
+
+
 def test_planner_system_prompt_renders():
     sp = PlannerSpecialist()
     rendered = sp.system_prompt_template.format(
@@ -144,6 +153,21 @@ def test_triage_data_to_content_with_json_string():
     out = sp.data_to_content(raw, content_cap=2000)
     assert "qa" in out
     assert "ambiguous" in out
+
+
+def test_triage_data_to_content_accepts_string_confidence():
+    sp = TriageSpecialist()
+    out = sp.data_to_content(
+        {
+            "task_type": "qa",
+            "recommended_specialist": "(none)",
+            "confidence": "0.30",
+            "reason": "ambiguous",
+            "should_delegate": False,
+        },
+        content_cap=2000,
+    )
+    assert "0.30" in out
 
 
 def test_planner_data_to_content_with_steps():

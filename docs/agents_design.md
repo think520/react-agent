@@ -2,7 +2,7 @@
 
 > 实现版本：v1 骨架
 > 协议/参考：MCP 集成（`mcp_client/`）+ skills + tools 体系
-> 配套文档：[`MCP.md`](MCP.md) · [`agents_disign.md`](agents_design.md) 自我引用
+> 配套文档：[`MCP.md`](MCP.md)
 
 ## 1. Background & Goals
 
@@ -53,11 +53,11 @@ Bobodan 当前是**单 AgentLoop** —— 一个 ReAct 循环跑完所有任务�
                             │  • fresh = Session.new(parent.cwd)          │
                             │  • fresh.workspace_root = parent.workspace  │
                             │  • inject specialist system_prompt          │
-                            │  • inject task as user message              │
+                            │  • pass task to sub_loop.run_stream(task)   │
                             │  • build tools: filter delegate_/memory_    │
                             │                  apply allow_mcp/allowlist │
                             │  • create sub-provider (capped timeout)     │
-                            │  • executor.submit(run, timeout=cfg.timeout)│
+                            │  • executor.submit(run_stream, timeout=cfg) │
                             │  • catch all → ToolResult(ok, content, data)│
                             └────────────────────┬────────────────────────┘
                                                  │
@@ -69,7 +69,7 @@ Bobodan 当前是**单 AgentLoop** —— 一个 ReAct 循环跑完所有任务�
                             │  • its own tool set (filtered)              │
                             │  • its own max_iterations                    │
                             │  • its own timeout_seconds (30/60/120)      │
-                            │  Returns: final_response string             │
+                            │  Returns: final_response + display_events   │
                             └────────────────────┬────────────────────────┘
                                                  │
                                                  ▼
@@ -126,7 +126,7 @@ config.yaml                          # 新增 specialists: 段
 | 6 | 硬禁递归（code-level filter） | specialist 工具集永远无 `delegate_*` |
 | 7 | per-specialist wall-clock timeout（30/60/120s） | provider request timeout 也被 cap 到 `min(base, cfg)` |
 | 8 | ToolResult 双层（content 给 LLM / data 给 trace） | **父 LLM 只看到 content；结构化结果如果会影响决策，必须经 `data_to_content()` 放进 content** |
-| 9 | REPL 显示 A2 + B2-lite + C2 | 缩进显示 + 无倒计时 + 错误 header |
+| 9 | REPL 显示 A2 + B2-lite + C2 | delegate 开始时显示 running；内部 tool events 作为 UI-only event 缩进显示；无倒计时 + 错误 header |
 | 10 | guarded catch + no automatic retry | Triage 校验 `recommended_specialist`；content ≤ 500 chars |
 | 11 | `/specialists` 3 命令 + in-memory deque(maxlen=10) | 不写盘；query/task 只存 preview/hash |
 | 12 | specialist 零 memory 访问（hard filter `memory_*`） | 父 LLM 想让 specialist 知道 memory 必须显式 recall → 塞 task |
@@ -148,7 +148,7 @@ config.yaml                          # 新增 specialists: 段
 9. **错误路径 `content` ≤ 500 chars**（不含 traceback / secrets）
 10. **parent_session.messages 永远不被 specialist runner 改写**
 11. **specialist 内部消息**（tool calls / assistant messages）**永远不进父 session**
-12. **specialist 内部消息可以显示在 REPL**（display events）但**不**进 parent context
+12. **specialist 内部 tool events 可以显示在 REPL**（`ToolResult.data.display_events` → `specialist_event`）但**不**进 parent context
 13. **specialist 不递归调用 specialist**（v1 max delegation depth = 1，hardcoded）
 
 ## 7. Configuration Schema
@@ -213,6 +213,20 @@ Configured specialists (3/3 enabled):
 
 **`/specialists status`**：deque(maxlen=10)，重启 REPL 清空。存：`{specialist, ok, error_type, duration_ms, content_preview, model, ts}`。query / task 只存短 preview 或 hash，**不**存原内容。
 
+**delegate 运行时显示**：
+
+```text
+▸ delegate_doc_reader(...)
+  ◐ doc_reader_specialist running...
+    ▸ read_file(...)
+      ✓ read 10 chars
+    ▸ rag_search(...)
+      ✓ 5 matches
+  ✓ 4 key points, 850 chars summarized
+```
+
+内部 `read_file` / `rag_search` 行来自 specialist sub-loop 的 display events。它们只给 REPL 展示，不写入父 session；父 LLM 仍只看到 delegate tool 的 `content`。
+
 ## 9. Testing Strategy
 
 v1 用 **boundary-first unit tests**，mock sub-AgentLoop，不测 LLM 智能质量。
@@ -241,11 +255,13 @@ v1 用 **boundary-first unit tests**，mock sub-AgentLoop，不测 LLM 智能质
 - system prompt 能 render，含 specialist name / role / 输出契约提示
 - content cap（集中测一次）
 - REPL 命令组（`/specialists` 三命令）
+- 真实 `AgentLoop.run_stream(task)` 调用契约
+- specialist display events 透传但不污染父 session
 
 **不测什么**：
 - LLM 生成 prose 质量（用 mock response）
 - 真实 MCP server 连接（mock transport）
-- 并发 / streaming / 跨 specialist 调用链
+- 并发 / 真实 LLM streaming / 跨 specialist 调用链
 - 端到端 routing（manual REPL smoke test 覆盖）
 
 ## 10. Non-Goals & v2 Extensions
@@ -258,7 +274,7 @@ v1 用 **boundary-first unit tests**，mock sub-AgentLoop，不测 LLM 智能质
 | 并行 specialist | runner 改用 `ThreadPoolExecutor` + 父 LLM 调多次 |
 | specialist 自动重试 | runner 接 `error_type=transient` → 重试 |
 | 跨失败转移 | runner 检测 specialist 失败 → 派 fallback specialist |
-| 完整 trace event 流 | 注入到 `AgentLoop.run_stream()` event 协议 |
+| 完整 trace event 流 | 在 UI-only `specialist_event` 之外，增加可重放、可断言的 trace 协议 |
 | 持久化 trace | `last_invocations` 写盘到 `.bobodan/agents/trace/` |
 | metrics 聚合 | 加 `agents/metrics.py` 跑 P50/P99 |
 | 用户自定义 specialist | 开放 `from_path()` loader 接受 `.py` specialist 文件 |

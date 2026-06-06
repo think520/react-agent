@@ -36,7 +36,7 @@ class TriageSpecialist(BaseSpecialist):
             '  "should_delegate": <true|false>\n'
             "}}\n\n"
             "Rules:\n"
-            "- If unsure, set should_delegate=false and recommended_specialist=none.\n"
+            "- If unsure, set should_delegate=false and recommended_specialist=(none).\n"
             "- Do NOT call delegate_* tools.\n"
             "- Do NOT call memory_* tools.\n"
             "- Allowed tools: {allowed_tools}\n\n"
@@ -78,10 +78,14 @@ class TriageSpecialist(BaseSpecialist):
         conf = result.get("confidence", 0)
         reason = result.get("reason", "")
         should = result.get("should_delegate", False)
+        try:
+            conf_text = f"{float(conf):.2f}"
+        except (TypeError, ValueError):
+            conf_text = str(conf)
         lines = [
             "**Triage decision**",
             f"- task_type: `{task_type}`",
-            f"- recommended_specialist: `{rec}` (confidence {conf:.2f})",
+            f"- recommended_specialist: `{rec}` (confidence {conf_text})",
             f"- should_delegate: `{should}`",
             f"- reason: {reason}",
         ]

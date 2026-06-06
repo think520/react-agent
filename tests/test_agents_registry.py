@@ -88,3 +88,36 @@ def test_register_builtin_specialists_loads_three():
     from agents.registry import register_builtin_specialists
     reg = register_builtin_specialists()
     assert sorted(reg.list_names()) == ["doc_reader", "planner", "triage"]
+
+
+def test_register_delegate_tools_skips_disabled_specialists():
+    """Disabled specialists should not be visible in the parent tool schema."""
+    from tools.agents import register_delegate_tools
+    from tools.base import TOOL_REGISTRY, TOOL_SCHEMAS
+
+    def clear_delegate_tools():
+        for key in list(TOOL_REGISTRY):
+            if key.startswith("delegate_"):
+                TOOL_REGISTRY.pop(key, None)
+        TOOL_SCHEMAS[:] = [
+            schema for schema in TOOL_SCHEMAS
+            if not schema.get("function", {}).get("name", "").startswith("delegate_")
+        ]
+
+    clear_delegate_tools()
+    try:
+        reg = SpecialistRegistry()
+        reg.register(TriageSpecialist(), yaml_overrides={"enabled": False})
+        reg.register(DocReaderSpecialist())
+
+        count = register_delegate_tools(reg, get_session=lambda: None, get_app_config=lambda: {})
+
+        delegate_names = {
+            schema["function"]["name"]
+            for schema in TOOL_SCHEMAS
+            if schema.get("function", {}).get("name", "").startswith("delegate_")
+        }
+        assert count == 1
+        assert delegate_names == {"delegate_doc_reader"}
+    finally:
+        clear_delegate_tools()

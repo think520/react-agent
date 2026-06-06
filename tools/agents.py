@@ -29,7 +29,7 @@ def register_delegate_tools(
         get_app_config: callable returning the current app config dict.
     """
     count = 0
-    for name in registry.list_names():
+    for name, _specialist, _cfg in registry.list_enabled():
         schema = _schema_for(name)
         func = _make_delegate_func(name, registry, get_session, get_app_config)
         register_tool(

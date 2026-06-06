@@ -142,6 +142,14 @@ class AgentLoop:
                         self._sync_session_state(tc.name, result)
                         self.session.add_tool_message(tc.id, result.content)
                         logger.info(f"[AgentLoop] tool result for id={tc.id!r}: {result.content[:200]!r}")
+                        for display_event in result.data.get("display_events", []):
+                            yield {
+                                **display_event,
+                                "type": "specialist_event",
+                                "event_type": display_event.get("type"),
+                                "parent_tool_call_id": tc.id,
+                                "parent_tool_name": tc.name,
+                            }
                         yield {
                             "type": "tool_end",
                             "tool_call_id": tc.id,

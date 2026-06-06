@@ -109,7 +109,9 @@ def _make_specialist_provider(
         )
     provider_config = dict(providers_cfg[provider_name])
     provider_config["model"] = model_name
-    agent_cfg = app_config.get("agent", {})
+    agent_cfg = dict(app_config.get("agent", {}))
+    base_timeout = int(agent_cfg.get("timeout", cfg.timeout_seconds))
+    agent_cfg["timeout"] = min(base_timeout, cfg.timeout_seconds)
     return ProviderFactory.create(provider_config, agent_cfg)
 
 
@@ -155,7 +157,6 @@ def run_specialist(
             allowed_tools=cfg.allowed_tools,
         )
         fresh.add_message("system", prompt)
-        fresh.add_message("user", task)
 
         # 4. Create sub-provider with capped timeout
         provider = _make_specialist_provider(cfg, specialist, app_config)
@@ -169,26 +170,34 @@ def run_specialist(
         )
 
         # 6. Run with timeout
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(sub_loop.run)
-            try:
-                result_text = future.result(timeout=cfg.timeout_seconds)
-            except concurrent.futures.TimeoutError:
-                duration = int((time.monotonic() - start) * 1000)
-                registry.record_invocation(name, ok=False, error_type="timeout",
-                                            duration_ms=duration, content="", model=cfg.model)
-                return _timeout_result(specialist, cfg, duration)
+        display_events: list[dict] = []
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        future = executor.submit(_run_sub_loop, sub_loop, task, display_events)
+        try:
+            result_text = future.result(timeout=cfg.timeout_seconds)
+        except concurrent.futures.TimeoutError:
+            future.cancel()
+            executor.shutdown(wait=False, cancel_futures=True)
+            duration = int((time.monotonic() - start) * 1000)
+            registry.record_invocation(name, ok=False, error_type="timeout",
+                                        duration_ms=duration, content="", model=_effective_model(cfg, specialist))
+            return _timeout_result(specialist, cfg, duration)
+        finally:
+            if future.done():
+                executor.shutdown(wait=True)
 
         # 7. Triage contract validation
         if specialist.name == "triage":
             try:
                 parsed = _parse_structured(result_text)
-                rec = parsed.get("recommended_specialist")
+                rec = _normalize_recommended_specialist(parsed.get("recommended_specialist"))
+                parsed["recommended_specialist"] = rec
                 valid = set(registry.list_names()) | {"(none)"}
                 if rec not in valid:
                     duration = int((time.monotonic() - start) * 1000)
                     registry.record_invocation(name, ok=False, error_type="contract_violation",
-                                                duration_ms=duration, content=result_text, model=cfg.model)
+                                                duration_ms=duration, content=result_text,
+                                                model=_effective_model(cfg, specialist))
                     return _contract_violation_result(specialist, parsed, registry)
             except ValueError:
                 pass  # If we can't parse JSON, treat as freeform triage output
@@ -199,17 +208,19 @@ def run_specialist(
 
         duration = int((time.monotonic() - start) * 1000)
         registry.record_invocation(name, ok=True, error_type=None,
-                                    duration_ms=duration, content=content, model=cfg.model)
+                                    duration_ms=duration, content=content,
+                                    model=_effective_model(cfg, specialist))
 
         return ToolResult(
             ok=True,
             content=content,
             data={
                 "specialist": specialist.name,
-                "model": cfg.model,
+                "model": _effective_model(cfg, specialist),
                 "iterations": cfg.max_iterations,
                 "duration_ms": duration,
                 "result": _try_parse(result_text),
+                "display_events": display_events,
             },
         )
 
@@ -217,7 +228,8 @@ def run_specialist(
         duration = int((time.monotonic() - start) * 1000)
         logger.exception("Specialist %s crashed", name)
         registry.record_invocation(name, ok=False, error_type="crash",
-                                    duration_ms=duration, content=str(e), model=cfg.model)
+                                    duration_ms=duration, content=str(e),
+                                    model=_effective_model(cfg, specialist))
         return _crash_result(specialist, cfg, e, duration)
 
 
@@ -228,6 +240,45 @@ def _cap_content(content: str, cap: int) -> str:
     if len(content) <= cap:
         return content
     return content[: cap - len(_TRUNCATION_NOTICE)] + _TRUNCATION_NOTICE
+
+
+def _run_sub_loop(sub_loop: AgentLoop, task: str, display_events: list[dict]) -> str:
+    """Run a sub-AgentLoop and collect display-only tool events."""
+    final_response = ""
+    for event in sub_loop.run_stream(task):
+        event_type = event.get("type")
+        if event_type == "assistant_done":
+            final_response = event.get("content", "")
+        elif event_type in {"tool_start", "tool_end"}:
+            display_events.append(_compact_display_event(event))
+    return final_response
+
+
+def _compact_display_event(event: dict) -> dict:
+    event_type = event.get("type")
+    compact = {
+        "type": event_type,
+        "tool_name": event.get("tool_name", "?"),
+    }
+    if event_type == "tool_start":
+        compact["args"] = event.get("args", {})
+    if event_type == "tool_end":
+        compact["ok"] = bool(event.get("ok", False))
+        compact["content"] = str(event.get("content", ""))[:200]
+    return compact
+
+
+def _effective_model(cfg: SpecialistConfig, specialist) -> str:
+    return cfg.model or specialist.default_model
+
+
+def _normalize_recommended_specialist(value: Any) -> str:
+    if value is None:
+        return "(none)"
+    text = str(value).strip()
+    if text.lower() in {"", "none", "(none)", "null"}:
+        return "(none)"
+    return text
 
 
 def _try_parse(text: str) -> dict | str:

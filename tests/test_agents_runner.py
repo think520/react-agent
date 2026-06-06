@@ -2,10 +2,13 @@
 contract validation. Covers Invariants 5, 6, 7."""
 from __future__ import annotations
 
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from core.session import Session
+from providers.types import LLMResponse
 from agents.config import SpecialistConfig
 from agents.registry import SpecialistRegistry
 from agents.runner import (
@@ -56,6 +59,10 @@ def _app_config() -> dict:
     }
 
 
+def _assistant_done(content: str) -> list[dict]:
+    return [{"type": "assistant_done", "content": content}]
+
+
 # --- Preflight errors ---
 
 def test_unknown_specialist_returns_preflight_error():
@@ -84,7 +91,9 @@ def test_success_records_invocation_and_returns_tool_result():
          patch("agents.runner.AgentLoop") as MockLoop:
         pf_create.return_value = MagicMock(timeout=30)
         mock_loop_instance = MagicMock()
-        mock_loop_instance.run.return_value = '{"task_type": "qa", "recommended_specialist": "(none)", "confidence": 0.3, "reason": "ok", "should_delegate": false}'
+        mock_loop_instance.run_stream.return_value = iter(_assistant_done(
+            '{"task_type": "qa", "recommended_specialist": "(none)", "confidence": 0.3, "reason": "ok", "should_delegate": false}'
+        ))
         MockLoop.return_value = mock_loop_instance
 
         result = run_specialist(reg, "triage", "is this about a doc?",
@@ -98,6 +107,27 @@ def test_success_records_invocation_and_returns_tool_result():
     assert rec[0].error_type is None
 
 
+def test_success_uses_real_agent_loop_run_contract():
+    """Regression: AgentLoop.run requires user_input; runner must pass the task."""
+    class FakeProvider:
+        def complete(self, messages, tools=None):
+            return LLMResponse(
+                content=(
+                    '{"task_type": "qa", "recommended_specialist": "(none)", '
+                    '"confidence": 0.3, "reason": "ok", "should_delegate": false}'
+                ),
+                tool_calls=[],
+            )
+
+    reg = _build_registry_with(TriageSpecialist())
+    parent = Session.new(".")
+    with patch("providers.factory.ProviderFactory.create", return_value=FakeProvider()):
+        result = run_specialist(reg, "triage", "classify this", parent, _app_config())
+
+    assert result.ok is True
+    assert "Triage decision" in result.content
+
+
 def test_long_content_truncated_to_2000():
     reg = _build_registry_with(DocReaderSpecialist())
     long_text = "x" * 5000
@@ -107,7 +137,7 @@ def test_long_content_truncated_to_2000():
         # doc_reader's data_to_content reads 'key_points' from the dict;
         # we pass a dict that has key_points with one huge bullet
         mock_loop_instance = MagicMock()
-        mock_loop_instance.run.return_value = '{"key_points": ["' + long_text + '"]}'
+        mock_loop_instance.run_stream.return_value = iter(_assistant_done('{"key_points": ["' + long_text + '"]}'))
         MockLoop.return_value = mock_loop_instance
 
         result = run_specialist(reg, "doc_reader", "summarize x",
@@ -127,22 +157,55 @@ def test_timeout_returns_error_type_timeout():
         pf_create.return_value = MagicMock(timeout=30)
         mock_loop_instance = MagicMock()
 
-        def slow_run():
+        def slow_stream(_task):
             import time
             time.sleep(5)
-            return "too late"
+            return iter(_assistant_done("too late"))
 
-        mock_loop_instance.run.side_effect = slow_run
+        mock_loop_instance.run_stream.side_effect = slow_stream
+        MockLoop.return_value = mock_loop_instance
+
+        start = time.monotonic()
+        result = run_specialist(reg, "triage", "anything",
+                                _mock_session(), _app_config())
+        elapsed = time.monotonic() - start
+
+    assert result.ok is False
+    assert result.data["error_type"] == "timeout"
+    assert "timed out" in result.content.lower()
+    assert elapsed < 2.0
+    # Invariant 9: error content <= 500 chars
+    assert len(result.content) <= CONTENT_CAP_ERROR
+
+
+def test_success_collects_specialist_display_events():
+    """Sub-AgentLoop tool events should be returned for REPL display."""
+    reg = _build_registry_with(TriageSpecialist())
+    with patch("providers.factory.ProviderFactory.create") as pf_create, \
+         patch("agents.runner.AgentLoop") as MockLoop:
+        pf_create.return_value = MagicMock(timeout=30)
+        mock_loop_instance = MagicMock()
+        mock_loop_instance.run_stream.return_value = iter([
+            {"type": "tool_start", "tool_name": "knowledge_status", "args": {}},
+            {"type": "tool_end", "tool_name": "knowledge_status", "ok": True, "content": "ok"},
+            {
+                "type": "assistant_done",
+                "content": (
+                    '{"task_type": "qa", "recommended_specialist": "(none)", '
+                    '"confidence": 0.3, "reason": "ok", "should_delegate": false}'
+                ),
+            },
+        ])
         MockLoop.return_value = mock_loop_instance
 
         result = run_specialist(reg, "triage", "anything",
                                 _mock_session(), _app_config())
 
-    assert result.ok is False
-    assert result.data["error_type"] == "timeout"
-    assert "timed out" in result.content.lower()
-    # Invariant 9: error content <= 500 chars
-    assert len(result.content) <= CONTENT_CAP_ERROR
+    assert result.ok is True
+    assert result.data["display_events"] == [
+        {"type": "tool_start", "tool_name": "knowledge_status", "args": {}},
+        {"type": "tool_end", "tool_name": "knowledge_status", "ok": True, "content": "ok"},
+    ]
 
 
 # --- Crash (Invariant 6) ---
@@ -153,7 +216,7 @@ def test_crash_returns_error_type_crash():
          patch("agents.runner.AgentLoop") as MockLoop:
         pf_create.return_value = MagicMock(timeout=30)
         mock_loop_instance = MagicMock()
-        mock_loop_instance.run.side_effect = KeyError("'description'")
+        mock_loop_instance.run_stream.side_effect = KeyError("'description'")
         MockLoop.return_value = mock_loop_instance
 
         result = run_specialist(reg, "triage", "anything",
@@ -175,10 +238,10 @@ def test_triage_invalid_recommendation_returns_contract_violation():
          patch("agents.runner.AgentLoop") as MockLoop:
         pf_create.return_value = MagicMock(timeout=30)
         mock_loop_instance = MagicMock()
-        mock_loop_instance.run.return_value = (
+        mock_loop_instance.run_stream.return_value = iter(_assistant_done(
             '{"task_type": "qa", "recommended_specialist": "unknown_specialist", '
             '"confidence": 0.9, "reason": "test", "should_delegate": true}'
-        )
+        ))
         MockLoop.return_value = mock_loop_instance
 
         result = run_specialist(reg, "triage", "classify",
@@ -200,10 +263,10 @@ def test_triage_valid_recommendation_passes():
          patch("agents.runner.AgentLoop") as MockLoop:
         pf_create.return_value = MagicMock(timeout=30)
         mock_loop_instance = MagicMock()
-        mock_loop_instance.run.return_value = (
+        mock_loop_instance.run_stream.return_value = iter(_assistant_done(
             '{"task_type": "summary", "recommended_specialist": "doc_reader", '
             '"confidence": 0.9, "reason": "long doc", "should_delegate": true}'
-        )
+        ))
         MockLoop.return_value = mock_loop_instance
 
         result = run_specialist(reg, "triage", "classify",
@@ -220,7 +283,7 @@ def test_triage_non_json_output_passes_through():
          patch("agents.runner.AgentLoop") as MockLoop:
         pf_create.return_value = MagicMock(timeout=30)
         mock_loop_instance = MagicMock()
-        mock_loop_instance.run.return_value = "I'm not sure what you mean"
+        mock_loop_instance.run_stream.return_value = iter(_assistant_done("I'm not sure what you mean"))
         MockLoop.return_value = mock_loop_instance
 
         result = run_specialist(reg, "triage", "classify",
@@ -241,7 +304,9 @@ def test_parent_session_messages_never_mutated():
          patch("agents.runner.AgentLoop") as MockLoop:
         pf_create.return_value = MagicMock(timeout=30)
         mock_loop_instance = MagicMock()
-        mock_loop_instance.run.return_value = '{"task_type": "qa", "recommended_specialist": "(none)", "confidence": 0.1, "reason": "x", "should_delegate": false}'
+        mock_loop_instance.run_stream.return_value = iter(_assistant_done(
+            '{"task_type": "qa", "recommended_specialist": "(none)", "confidence": 0.1, "reason": "x", "should_delegate": false}'
+        ))
         MockLoop.return_value = mock_loop_instance
 
         run_specialist(reg, "triage", "anything", parent, _app_config())
