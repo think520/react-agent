@@ -5,6 +5,7 @@ Called from REPL.initialize() after the SpecialistRegistry is built.
 """
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -51,9 +52,7 @@ def _make_delegate_func(
 ):
     """Build the callable that REPL's execute_tool() will invoke."""
     def delegate(**kwargs) -> ToolResult:
-        # The 'task' field is the curated context; specialist may accept
-        # additional structured fields per its schema.
-        task = kwargs.get("task") or kwargs.get("query") or kwargs.get("goal") or str(kwargs)
+        task = _build_task(name, kwargs)
         parent_session: Session = get_session()
         app_config = get_app_config()
         return run_specialist(registry, name, str(task), parent_session, app_config)
@@ -62,11 +61,40 @@ def _make_delegate_func(
     return delegate
 
 
+def _build_task(name: str, kwargs: dict[str, Any]) -> str:
+    """Build a specialist task string from delegate tool arguments."""
+    if name == "doc_reader":
+        source_paths = kwargs.get("source_paths") or []
+        lines = [
+            "Use each source path exactly as provided.",
+            "Do not shorten paths to basenames.",
+            "Call read_file with the exact path string from source_paths.",
+            "",
+            "source_paths:",
+        ]
+        if source_paths:
+            lines.extend(f"- {path}" for path in source_paths)
+        else:
+            lines.append("- (none provided)")
+        lines.extend([
+            "",
+            "structured_args:",
+            json.dumps(kwargs, ensure_ascii=False, indent=2),
+        ])
+        return "\n".join(lines)
+
+    if name in {"triage", "planner"}:
+        return json.dumps(kwargs, ensure_ascii=False, indent=2)
+
+    return kwargs.get("task") or json.dumps(kwargs, ensure_ascii=False, indent=2)
+
+
 def _description_for(name: str) -> str:
     return {
         "doc_reader": (
             "Read long documents or notes and return a concise digest. "
-            "Use when the user pastes a long file or asks for a summary of a specific source."
+            "Use when the user pastes a long file or asks for a summary of a specific source. "
+            "Prefer this over read_file for read-and-summarize tasks because it isolates context."
         ),
         "triage": (
             "Classify the user's query into a task_type and recommend a specialist. "

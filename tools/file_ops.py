@@ -75,7 +75,7 @@ def write_file(path: str, content: str, cwd: str = ".",
 # Register tools
 register_tool(
     "read_file",
-    "Read a file. Returns the file content as text.",
+    "Read a file and return raw text. For read-and-summarize tasks, prefer delegate_doc_reader to isolate context.",
     {
         "type": "object",
         "properties": {

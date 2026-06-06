@@ -65,6 +65,15 @@ def test_doc_reader_system_prompt_renders():
     assert "delegate" in rendered.lower()
 
 
+def test_doc_reader_prompt_requires_exact_source_paths():
+    sp = DocReaderSpecialist()
+    rendered = sp.system_prompt_template.format(
+        specialist_name=sp.name, task="summarize x", allowed_tools="read_file"
+    )
+    assert "Use each source path exactly as provided" in rendered
+    assert "Do NOT shorten paths to basenames" in rendered
+
+
 def test_triage_system_prompt_renders():
     sp = TriageSpecialist()
     rendered = sp.system_prompt_template.format(

@@ -46,7 +46,7 @@ Bobodan 当前是**单 AgentLoop** —— 一个 ReAct 循环跑完所有任务�
                             │  delegate_doc_reader(...) tool wrapper      │
                             │  validates schema → calls runner            │
                             └────────────────────┬────────────────────────┘
-                                                 │ runner.run("doc_reader", task_dict)
+                                                 │ runner.run("doc_reader", task_text)
                                                  ▼
                             ┌─────────────────────────────────────────────┐
                             │  agents/runner.py                           │
@@ -83,7 +83,9 @@ Bobodan 当前是**单 AgentLoop** —— 一个 ReAct 循环跑完所有任务�
 **关键观察**：
 - 主 AgentLoop 不知道 specialist 内部发生了什么
 - specialist 不知道父 session 发生过什么
-- 唯一数据流：`task` 进去，`content` 出来
+- 唯一决策数据流：`task_text` 进去，`content` 出来
+- delegate wrapper 负责把 tool schema 参数转成 specialist task；`doc_reader` 必须把 `source_paths` 原样列出，禁止缩短为 basename
+- v1 的自动触发是 LLM tool selection，不是硬编码路由；`delegate_doc_reader` 和 `read_file` 的 tool description 必须明确：读并总结文件时优先用 `delegate_doc_reader`
 
 ## 4. Module Layout
 
@@ -122,7 +124,7 @@ config.yaml                          # 新增 specialists: 段
 | 2 | v1 specialist：doc_reader / triage / planner | triage 窄合约（5 字段） |
 | 3 | 混合 Python + YAML 注册 | v1 YAML 不开"纯 YAML 新建 specialist" |
 | 4 | 每个 specialist 跑在 fresh session | parent.messages 永远不变 |
-| 5 | 每个 tool 自己的 schema（user_goal / source_paths / ...） | 不共享 `task: str` |
+| 5 | 每个 tool 自己的 schema（user_goal / source_paths / ...） | delegate wrapper 把结构化参数转成 task_text；`doc_reader.source_paths` 必须完整保真 |
 | 6 | 硬禁递归（code-level filter） | specialist 工具集永远无 `delegate_*` |
 | 7 | per-specialist wall-clock timeout（30/60/120s） | provider request timeout 也被 cap 到 `min(base, cfg)` |
 | 8 | ToolResult 双层（content 给 LLM / data 给 trace） | **父 LLM 只看到 content；结构化结果如果会影响决策，必须经 `data_to_content()` 放进 content** |
@@ -257,6 +259,7 @@ v1 用 **boundary-first unit tests**，mock sub-AgentLoop，不测 LLM 智能质
 - REPL 命令组（`/specialists` 三命令）
 - 真实 `AgentLoop.run_stream(task)` 调用契约
 - specialist display events 透传但不污染父 session
+- `delegate_doc_reader` 完整保留 `source_paths`，并提示 specialist 用 exact path 调 `read_file`
 
 **不测什么**：
 - LLM 生成 prose 质量（用 mock response）

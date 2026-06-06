@@ -12,13 +12,14 @@
   - `agents/config.py`: `SpecialistConfig` Python defaults + YAML merge，未知 key 报错。
   - `agents/registry.py`: `SpecialistRegistry` + `last_invocations` deque(maxlen=10)。
   - `agents/runner.py`: `run_specialist()` — fresh session 隔离，工具过滤（hard deny `delegate_*`/`memory_*`），per-specialist timeout（非阻塞返回，provider request timeout cap 到 specialist budget），guarded catch（无自动重试），triage 窄合约校验。content cap 2000 chars，error cap 500 chars，centralized。
-  - `agents/specialists/doc_reader.py` / `triage.py` / `planner.py`: 3 个 specialist 实现，documented return contracts。
+  - `agents/specialists/doc_reader.py` / `triage.py` / `planner.py`: 3 个 specialist 实现，documented return contracts。`doc_reader` 明确要求按 `source_paths` 原样调用 `read_file`，禁止缩短为 basename。
   - `agents/prompt.py`: system prompt 模板渲染。
-  - `tools/agents.py`: `register_delegate_tools(registry, get_session, get_app_config)` 只为 enabled specialists 注册 `delegate_*` tool（每个独立 schema）。
+  - `tools/agents.py`: `register_delegate_tools(registry, get_session, get_app_config)` 只为 enabled specialists 注册 `delegate_*` tool（每个独立 schema）；delegate wrapper 将结构化参数转换成 task text，并完整保留 `doc_reader.source_paths`。`delegate_doc_reader` description 明确要求读并总结文件时优先于 `read_file`。
+  - `tools/file_ops.py`: `read_file` description 明确 raw-text 定位，并提示 read-and-summarize 任务优先使用 `delegate_doc_reader`。
   - `core/agent_loop.py`: 新增 `tools_schema` 和 `max_iterations` 可选构造参数（specialist runner 用）；支持 UI-only `specialist_event`，用于展示 specialist 内部 tool events，且不写入父 session。
   - `cli/repl.py`: 新增 `/specialists` 命令组（list / status / tools），启动时 `register_builtin_specialists()` + `register_delegate_tools()`。delegate tool 运行时显示 specialist running header 和缩进内部 tool events。
   - `config.yaml`: 新增 `specialists:` section（3 个 specialist 各自 timeout/iter/allowed_tools/allow_mcp）。
-  - `tests/test_agents_*.py` + `tests/test_agent_loop.py`: 回归测试覆盖 7 条 runtime invariant、真实 `AgentLoop.run_stream(task)` 调用契约、非阻塞 timeout、disabled specialist 不暴露 delegate tool、triage `(none)` 契约、specialist display events 不污染父 session。
+  - `tests/test_agents_*.py` + `tests/test_agent_loop.py`: 回归测试覆盖 7 条 runtime invariant、真实 `AgentLoop.run_stream(task)` 调用契约、非阻塞 timeout、disabled specialist 不暴露 delegate tool、triage `(none)` 契约、`doc_reader.source_paths` 路径保真、specialist display events 不污染父 session。
   - `docs/agents_design.md`: 完整设计文档（14 决策 + 13 runtime invariant + 10 章）。
 
 - **Runtime model switch (`/model` command)**: REPL 启动后可切换 active provider 不重启会话。`AgentLoop.set_provider()` + `REPL._make_active_provider()` helper。详见 `feature/model-switch` 分支。

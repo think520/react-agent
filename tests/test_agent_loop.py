@@ -183,6 +183,16 @@ def test_agent_loop_yields_specialist_display_events_without_session_pollution(t
         ]
 
 
+def test_read_file_description_points_summary_tasks_to_delegate_doc_reader():
+    read_file_schema = next(
+        schema for schema in TOOL_SCHEMAS
+        if schema.get("function", {}).get("name") == "read_file"
+    )
+    desc = read_file_schema["function"]["description"]
+    assert "delegate_doc_reader" in desc
+    assert "summar" in desc.lower()
+
+
 def test_agent_loop_multi_tool_calls(tmp_path):
     """Multiple tool calls in one response are all executed."""
     (tmp_path / "a.txt").write_text("existing", encoding="utf-8")

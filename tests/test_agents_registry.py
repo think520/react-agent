@@ -121,3 +121,42 @@ def test_register_delegate_tools_skips_disabled_specialists():
         assert delegate_names == {"delegate_doc_reader"}
     finally:
         clear_delegate_tools()
+
+
+def test_doc_reader_delegate_preserves_exact_source_paths_in_task():
+    """delegate_doc_reader should pass exact source_paths to the specialist task."""
+    from unittest.mock import MagicMock, patch
+    from tools.agents import _make_delegate_func
+
+    reg = SpecialistRegistry()
+    reg.register(DocReaderSpecialist())
+    parent = MagicMock()
+    source_path = r"F:\claude projects\openclaw-main\project_class\docs\AGENT_HARNESS_IMPROVEMENT_PLAN.md"
+    delegate = _make_delegate_func(
+        "doc_reader",
+        reg,
+        get_session=lambda: parent,
+        get_app_config=lambda: {},
+    )
+
+    with patch("tools.agents.run_specialist") as mock_run:
+        mock_run.return_value = MagicMock(ok=True, content="ok", data={})
+        delegate(
+            user_goal="总结文档",
+            source_paths=[source_path],
+            desired_output="3-5 bullet points",
+        )
+
+    task = mock_run.call_args.args[2]
+    assert source_path in task
+    assert '"source_paths"' in task
+    assert "Use each source path exactly as provided" in task
+    assert "Do not shorten paths to basenames" in task
+
+
+def test_doc_reader_delegate_description_preferred_for_file_summary():
+    from tools.agents import _description_for
+
+    desc = _description_for("doc_reader")
+    assert "Prefer this over read_file" in desc
+    assert "summarize" in desc.lower()
