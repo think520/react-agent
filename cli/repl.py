@@ -43,7 +43,23 @@ except ImportError:
 
 THINK_START = "<think>"
 THINK_END = "</think>"
-THINK_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+
+from cli.tool_display import (
+    SPINNER_FRAMES as THINK_FRAMES,
+    THINK_VERBS,
+    spinner_frame_at,
+    think_verb_at,
+    summarize_tool_args,
+    CoalescerStack,
+)
+
+# Module-level ANSI palette for B-lite (class-level constants can't be
+# referenced inside instance method bodies in Python).
+_B_CYAN = "\033[38;5;39m"
+_B_GREEN = "\033[32m"
+_B_RED = "\033[31m"
+_B_DIM = "\033[2m"
+_B_RESET = "\033[0m"
 
 ALL_COMMANDS = ["help", "status", "cwd", "tools", "skill", "kb", "quiz", "learning", "memory", "wiki", "mcp", "ui", "model", "specialists", "exit", "quit", "session"]
 
@@ -148,6 +164,13 @@ class REPL:
         self.rag_backend_info = {}
         self.mcp_prompt = None
         self.agent_registry = None
+        # B-lite active-line state (reset per run_agent_streaming invocation)
+        self._active_line_kind: str = "none"  # "none" | "thinking" | "tool"
+        self._active_tool_name: str = ""
+        self._active_tool_summary: str = ""
+        self._active_tool_start_ts: float = 0.0
+        self._active_tool_indent: str = "  "  # 2 for main, 4 for specialist
+        self._coalescer_stack: CoalescerStack = CoalescerStack()
 
     def initialize(self):
         """Initialize the agent with config."""
@@ -433,15 +456,6 @@ class REPL:
             print(f"  \033[1;38;5;210m  {command:<24}\033[0m {meta}")
         print()
 
-    def _format_tool_args(self, args: dict, limit: int = 80) -> str:
-        try:
-            text = json.dumps(args, ensure_ascii=False, separators=(",", ":"))
-        except TypeError:
-            text = str(args)
-        if len(text) <= limit:
-            return text
-        return text[:limit - 3] + "..."
-
     def _visible_stream_text(self, text: str) -> str:
         """Hide completed or partial <think> blocks while streaming."""
         visible = []
@@ -579,72 +593,84 @@ class REPL:
         cyan = "\033[38;5;39m"
         dim = "\033[2m"
         reset = "\033[0m"
+        verb = think_verb_at(elapsed)
         if elapsed >= 1.0:
             timer = f" {dim}·{reset} {dim}{elapsed:.1f}s{reset}"
         else:
             timer = ""
-        return f"  {cyan}{frame}{reset} {dim}thinking{reset}{timer}"
+        return f"  {cyan}{frame}{reset} {dim}{verb}{reset}{timer}"
 
-    def _show_thinking_line(self, frame: str, elapsed: float = 0.0) -> None:
+    # --- B-lite active line helpers -----------------------------------------
+
+    _B_TOOL_INDENT_MAIN = "  "
+    _B_TOOL_INDENT_SPECIALIST = "    "
+
+    def _b_write_active_line(self, text: str) -> None:
+        """Rewrite the current active line in place (no trailing newline)."""
         out = rich_console().file
-        out.write(f"\r\033[2K{self._render_thinking_line(frame, elapsed)}")
+        out.write(f"\r\033[2K{text}")
         out.flush()
 
-    def _clear_thinking_line(self) -> None:
+    def _b_seal_active_line(self) -> None:
+        """Terminate the current active line with a newline (no-op if none)."""
+        if self._active_line_kind == "none":
+            return
         out = rich_console().file
-        out.write("\r\033[2K")
+        out.write("\n")
         out.flush()
+        self._active_line_kind = "none"
+        self._active_tool_name = ""
+        self._active_tool_summary = ""
+        self._active_tool_start_ts = 0.0
 
-    def _format_tool_display(self, tool_name: str, args: dict) -> str:
-        """Format tool call line like Claude Code style."""
-        cyan = "\033[38;5;39m"
-        dim = "\033[2m"
-        reset = "\033[0m"
-        args_str = self._format_tool_args(args, limit=60)
-        return f"  {cyan}▸{reset} {tool_name}({dim}{args_str}{reset})"
-
-    def _format_tool_result(self, ok: bool, content: str) -> str:
-        """Format tool result line."""
-        dim = "\033[2m"
-        reset = "\033[0m"
-        if ok:
-            icon = "\033[32m✓\033[0m"
+    def _b_render_thinking(self, elapsed: float) -> str:
+        verb = think_verb_at(elapsed)
+        if elapsed >= 1.0:
+            timer = f" {_B_DIM}·{_B_RESET} {_B_DIM}{elapsed:.1f}s{_B_RESET}"
         else:
-            icon = "\033[31m✗\033[0m"
-        preview = ""
-        if content:
-            preview = content[:100].replace("\n", " ").strip()
-            if len(content) > 100:
-                preview += "..."
-        if preview:
-            return f"    {icon} {dim}{preview}{reset}"
-        return f"    {icon}"
+            timer = ""
+        return f"  {_B_CYAN}{THINK_FRAMES[0]}{_B_RESET} {_B_DIM}{verb}{_B_RESET}{timer}"
 
-    def _format_specialist_running(self, delegate_tool: str) -> str:
-        """Format the immediate running line for a delegate_* tool."""
-        dim = "\033[2m"
-        reset = "\033[0m"
-        name = delegate_tool.removeprefix("delegate_")
-        return f"    {dim}◐ {name}_specialist running...{reset}"
+    def _b_render_tool_start(self, frame: str, name: str, summary: str, indent: str = _B_TOOL_INDENT_MAIN) -> str:
+        summary_part = f" {_B_DIM}{summary}{_B_RESET}" if summary else ""
+        return f"{indent}{_B_CYAN}{frame}{_B_RESET} {name}{summary_part}"
 
-    def _format_specialist_event(self, event: dict) -> str:
-        """Format display-only specialist internal tool events."""
-        dim = "\033[2m"
-        reset = "\033[0m"
-        tool_name = event.get("tool_name", "?")
-        if event.get("event_type") == "tool_start":
-            args_str = self._format_tool_args(event.get("args", {}), limit=50)
-            return f"    {dim}▸ {tool_name}({args_str}){reset}"
+    def _b_render_tool_success(self, name: str, summary: str, elapsed: float, indent: str = _B_TOOL_INDENT_MAIN) -> str:
+        summary_part = f" {_B_DIM}{summary}{_B_RESET}" if summary else ""
+        return f"{indent}{_B_GREEN}✓{_B_RESET} {name}{summary_part} {_B_DIM}({elapsed:.1f}s){_B_RESET}"
 
-        ok = event.get("ok", False)
-        icon = "✓" if ok else "✗"
-        content = str(event.get("content", "")).replace("\n", " ").strip()
-        if len(content) > 80:
-            content = content[:77] + "..."
-        return f"      {dim}{icon} {content}{reset}" if content else f"      {dim}{icon}{reset}"
+    def _b_render_coalesce_marker(self, name: str, count: int, indent: str = _B_TOOL_INDENT_MAIN) -> str:
+        return f"{indent}{_B_GREEN}✓{_B_RESET} {name} {_B_DIM}×{count}{_B_RESET}"
+
+    def _b_render_tool_error(self, name: str, msg: str, indent: str = _B_TOOL_INDENT_MAIN) -> str:
+        msg_part = f": {_B_DIM}{msg}{_B_RESET}" if msg else ""
+        return f"{indent}{_B_RED}✗{_B_RESET} {name}{msg_part}"
+
+    @staticmethod
+    def _b_short_error(content: str, limit: int = 60) -> str:
+        if not content:
+            return ""
+        first = content.replace("\n", " ").replace("\r", " ").strip()
+        if len(first) > limit:
+            return first[: max(0, limit - 1)] + "…"
+        return first
+
+    def _b_should_show(self, ok: bool) -> bool:
+        """Q7: in low-noise mode, hide success events but always show errors."""
+        return self.show_tool_calls or not ok
 
     def run_agent_streaming(self, user_input: str) -> None:
-        """Run agent with typewriter streaming, thinking animation, and compact tool display."""
+        """Run agent with B-lite single-active-line UI.
+
+        B-lite invariants:
+          - Only one active line at a time (thinking line OR tool spinner)
+          - Each tick (100ms) advances the in-place frame/verb on the active line
+          - Tool start: seal previous, write spinner (no newline)
+          - Tool end success: replace spinner with result line + newline
+          - Tool end error: replace spinner with error line + newline
+          - Errors always shown (low-noise mode keeps them per Q7)
+          - Coalesce tracks consecutive same-name success calls per visual scope
+        """
         import time
         from core.agent_loop import AgentLoop
 
@@ -673,22 +699,132 @@ class REPL:
         thread = threading.Thread(target=run_in_thread, daemon=True)
         thread.start()
 
-        # Simple user prefix, no panel
-        print(f"\n  \033[1;37m>\033[0m {user_input}\n")
-
         out = rich_console().file
+        # User input echo (separate from B-lite active line)
+        out.write(f"\n  \033[1;37m>\033[0m {user_input}\n")
+        out.flush()
+
+        # Reset B-lite per-turn state
+        self._active_line_kind = "thinking"
+        self._active_tool_name = ""
+        self._active_tool_summary = ""
+        self._active_tool_start_ts = 0.0
+        self._active_tool_indent = self._B_TOOL_INDENT_MAIN
+        self._coalescer_stack = CoalescerStack()
+
+        # Initial thinking line (B-lite: write without \n, cursor stays on line)
+        self._b_write_active_line(self._b_render_thinking(0.0))
+
         accumulated = ""
         rendered_text = ""
         stream_buffer = ""
         stream_wrote = False
-        thinking_visible = True
         response = ""
         start = time.monotonic()
         timed_out = False
-        last_thinking_frame = ""
+        last_tick_frame_index = -1
         self._stream_in_code_block = False
-        partial_written = 0  # terminal columns written as partial preview
+        partial_written = 0
         partial_preview = ""
+
+        def _flush_partial_stream() -> None:
+            nonlocal stream_buffer, partial_written, partial_preview
+            if partial_preview:
+                stream_buffer = partial_preview + stream_buffer
+                partial_preview = ""
+            if partial_written:
+                out.write(f"\033[{partial_written}D\033[K")
+                out.flush()
+                partial_written = 0
+            if stream_buffer:
+                stream_buffer, _ = self._flush_stream_buffer(stream_buffer, force=True)
+
+        def _handle_tool_start(tool_name: str, args: dict, indent: str) -> None:
+            nonlocal stream_buffer, partial_written, partial_preview, stream_wrote
+            nonlocal accumulated, rendered_text
+            _flush_partial_stream()
+            if stream_wrote and self._active_line_kind == "none":
+                out.write("\n")
+                out.flush()
+            stream_wrote = False
+            accumulated = ""
+            rendered_text = ""
+            self._stream_in_code_block = False
+            self._b_seal_active_line()
+            ts = time.monotonic()
+            flush_payload = self._coalescer_stack.record_start(tool_name, ts)
+            if tool_name.startswith("delegate_"):
+                self._coalescer_stack.push_scope()
+            summary = summarize_tool_args(tool_name, args)
+            self._active_tool_name = tool_name
+            self._active_tool_summary = summary
+            self._active_tool_start_ts = ts
+            self._active_tool_indent = indent
+            if self._b_should_show(True):
+                if flush_payload:
+                    out.write(f"{flush_payload}\n")
+                    out.flush()
+                self._active_line_kind = "tool"
+                self._b_write_active_line(
+                    self._b_render_tool_start(THINK_FRAMES[0], tool_name, summary, indent)
+                )
+
+        def _handle_tool_end(tool_name: str, ok: bool, elapsed_tool: float,
+                             result_summary: str | None, content: str,
+                             indent: str) -> None:
+            summary = result_summary or self._active_tool_summary
+            if ok:
+                show_inline, _count = self._coalescer_stack.record_success(elapsed_tool)
+                if not self._b_should_show(True):
+                    # Off mode: success hidden. If a spinner was on screen, seal it.
+                    if self._active_line_kind == "tool":
+                        out.write("\n")
+                        out.flush()
+                    self._active_line_kind = "none"
+                    self._active_tool_name = ""
+                    self._active_tool_summary = ""
+                    self._active_tool_start_ts = 0.0
+                elif show_inline:
+                    if _count <= 2:
+                        text = self._b_render_tool_success(tool_name, summary, elapsed_tool, indent)
+                    else:
+                        text = self._b_render_coalesce_marker(tool_name, _count, indent)
+                    self._b_write_active_line(text)
+                    out.write("\n")
+                    out.flush()
+                    self._active_line_kind = "none"
+                    self._active_tool_name = ""
+                    self._active_tool_summary = ""
+                    self._active_tool_start_ts = 0.0
+                # count >= 4 silent: spinner line stays for next event to seal
+            else:
+                flush_payload = self._coalescer_stack.record_error()
+                if flush_payload and self._b_should_show(True):
+                    out.write(f"{flush_payload}\n")
+                    out.flush()
+                if self._b_should_show(False):
+                    if self._active_line_kind == "tool":
+                        # Replace the in-place spinner with the error line
+                        msg = self._b_short_error(content)
+                        text = self._b_render_tool_error(tool_name, msg, indent)
+                        self._b_write_active_line(text)
+                        out.write("\n")
+                        out.flush()
+                        self._active_line_kind = "none"
+                        self._active_tool_name = ""
+                        self._active_tool_summary = ""
+                        self._active_tool_start_ts = 0.0
+                    else:
+                        # Off mode: no spinner on screen; write error on the
+                        # line the cursor is on (which may be the thinking
+                        # line). Seal first.
+                        self._b_seal_active_line()
+                        msg = self._b_short_error(content)
+                        text = self._b_render_tool_error(tool_name, msg, indent)
+                        out.write(f"{text}\n")
+                        out.flush()
+                else:
+                    self._b_seal_active_line()
 
         try:
             while not done_event.is_set() or not events.empty():
@@ -698,20 +834,28 @@ class REPL:
                     timed_out = True
                     break
 
-                # Thinking animation with timer
-                if thinking_visible:
-                    frame_index = int(elapsed * 10) % len(THINK_FRAMES)
-                    frame = THINK_FRAMES[frame_index]
-                    if frame != last_thinking_frame:
-                        self._show_thinking_line(frame, elapsed)
-                        last_thinking_frame = frame
+                # B-lite tick: rewrite the active line in place
+                tick_frame_index = int(elapsed / 0.1)
+                if tick_frame_index != last_tick_frame_index:
+                    last_tick_frame_index = tick_frame_index
+                    if self._active_line_kind == "tool":
+                        frame = spinner_frame_at(elapsed - self._active_tool_start_ts)
+                        self._b_write_active_line(
+                            self._b_render_tool_start(
+                                frame,
+                                self._active_tool_name,
+                                self._active_tool_summary,
+                                self._active_tool_indent,
+                            )
+                        )
+                    elif self._active_line_kind == "thinking":
+                        self._b_write_active_line(self._b_render_thinking(elapsed))
 
                 try:
                     event = events.get(timeout=0.03)
                 except queue.Empty:
                     continue
 
-                # Drain all pending events
                 batch = [event]
                 while True:
                     try:
@@ -723,10 +867,8 @@ class REPL:
                     event_type = event.get("type")
 
                     if event_type == "assistant_delta":
-                        # Clear thinking before writing content
-                        if thinking_visible:
-                            self._clear_thinking_line()
-                            thinking_visible = False
+                        # Seal any active line before streaming text
+                        self._b_seal_active_line()
                         if partial_preview:
                             stream_buffer = partial_preview + stream_buffer
                             partial_preview = ""
@@ -746,62 +888,40 @@ class REPL:
                         continue
 
                     if event_type == "tool_start":
-                        # Flush any pending stream content
-                        if partial_preview:
-                            stream_buffer = partial_preview + stream_buffer
-                            partial_preview = ""
-                        if partial_written:
-                            out.write(f"\033[{partial_written}D\033[K")
-                            out.flush()
-                            partial_written = 0
-                        if stream_buffer:
-                            stream_buffer, _ = self._flush_stream_buffer(stream_buffer, force=True)
-                        if stream_wrote:
-                            self._clear_thinking_line()
-                            out.write("\n")
-                            out.flush()
-                        accumulated = ""
-                        rendered_text = ""
-                        partial_preview = ""
-                        self._stream_in_code_block = False
-                        if self.show_tool_calls:
-                            tool_name = event.get("tool_name", "?")
-                            line = self._format_tool_display(tool_name, event.get("args", {}))
-                            self._clear_thinking_line()
-                            out.write(f"{line}\n")
-                            if tool_name.startswith("delegate_"):
-                                out.write(f"{self._format_specialist_running(tool_name)}\n")
-                            out.flush()
-                        stream_wrote = False
-                        # Keep thinking_visible — re-show thinking after tool display
-                        thinking_visible = True
-                        last_thinking_frame = ""
+                        tool_name = event.get("tool_name", "?")
+                        _handle_tool_start(tool_name, event.get("args", {}), self._B_TOOL_INDENT_MAIN)
                         continue
 
                     if event_type == "tool_end":
-                        if self.show_tool_calls:
-                            ok = event.get("ok", False)
-                            line = self._format_tool_result(ok, event.get("content", ""))
-                            self._clear_thinking_line()
-                            out.write(f"{line}\n")
-                            out.flush()
-                        # Thinking stays visible for next LLM call
-                        last_thinking_frame = ""
+                        tool_name = event.get("tool_name", "?")
+                        ok = event.get("ok", False)
+                        elapsed_tool = event.get("elapsed", 0.0)
+                        result_summary = event.get("result_summary")
+                        content = event.get("content", "")
+                        _handle_tool_end(tool_name, ok, elapsed_tool, result_summary, content, self._B_TOOL_INDENT_MAIN)
+                        if tool_name.startswith("delegate_"):
+                            pop_payload = self._coalescer_stack.pop_scope()
+                            if pop_payload and self._b_should_show(True):
+                                out.write(f"{pop_payload}\n")
+                                out.flush()
                         continue
 
                     if event_type == "specialist_event":
-                        if self.show_tool_calls:
-                            line = self._format_specialist_event(event)
-                            self._clear_thinking_line()
-                            out.write(f"{line}\n")
-                            out.flush()
-                        last_thinking_frame = ""
+                        sub = event.get("event_type")
+                        tool_name = event.get("tool_name", "?")
+                        if sub == "tool_start":
+                            _handle_tool_start(tool_name, event.get("args", {}), self._B_TOOL_INDENT_SPECIALIST)
+                        elif sub == "tool_end":
+                            ok = event.get("ok", False)
+                            elapsed_tool = event.get("elapsed", 0.0)
+                            result_summary = event.get("result_summary")
+                            content = event.get("content", "")
+                            _handle_tool_end(tool_name, ok, elapsed_tool, result_summary, content, self._B_TOOL_INDENT_SPECIALIST)
                         continue
 
-                # Flush complete lines with typewriter effect
-                if thinking_visible and stream_buffer:
-                    self._clear_thinking_line()
-                    thinking_visible = False
+                # After processing all events in the batch
+                if self._active_line_kind == "thinking" and stream_buffer:
+                    self._b_seal_active_line()
                 clear_partial = partial_written if stream_buffer else 0
                 stream_buffer, wrote = self._flush_stream_buffer(
                     stream_buffer, clear_partial=clear_partial
@@ -812,24 +932,20 @@ class REPL:
                 if wrote:
                     stream_wrote = True
 
-                # Write partial line as preview (no typewriter, cleared later)
-                if stream_buffer and not thinking_visible:
+                if stream_buffer and self._active_line_kind == "none":
                     out.write(stream_buffer)
                     out.flush()
                     partial_preview = stream_buffer
                     partial_written = self._terminal_cell_width(stream_buffer)
                     stream_buffer = ""
 
-                # Re-show thinking if buffer is empty and we had content before
-                if not stream_buffer and stream_wrote and not thinking_visible:
-                    thinking_visible = True
-                    last_thinking_frame = ""
+                if not stream_buffer and stream_wrote and self._active_line_kind == "none":
+                    self._active_line_kind = "thinking"
+                    self._b_write_active_line(self._b_render_thinking(elapsed))
 
-                # Force flush large partial buffer
                 if len(stream_buffer) >= 120:
-                    if thinking_visible:
-                        self._clear_thinking_line()
-                        thinking_visible = False
+                    if self._active_line_kind == "thinking":
+                        self._b_seal_active_line()
                     if partial_preview:
                         stream_buffer = partial_preview + stream_buffer
                         partial_preview = ""
@@ -839,9 +955,9 @@ class REPL:
             if not timed_out:
                 thread.join(timeout=1)
         finally:
-            self._clear_thinking_line()
+            self._b_seal_active_line()
 
-        # Final flush
+        # Final stream flush
         if partial_preview:
             stream_buffer = partial_preview + stream_buffer
             partial_preview = ""
@@ -852,6 +968,12 @@ class REPL:
         stream_buffer, _ = self._flush_stream_buffer(stream_buffer, force=True)
         if stream_wrote:
             out.write("\n")
+            out.flush()
+
+        # Flush any pending coalesce at turn end
+        final_flush = self._coalescer_stack.flush_current()
+        if final_flush and self._b_should_show(True):
+            out.write(f"{final_flush}\n")
             out.flush()
 
         if timed_out:

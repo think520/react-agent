@@ -1,4 +1,14 @@
+import re
 import time
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+
+
+def _plain(text: str) -> str:
+    """Strip ANSI SGR sequences for substring assertions."""
+    return _ANSI_RE.sub("", text)
+
+
 from cli.repl import REPL, SlashCommandCompleter
 from core.session import Session
 from providers.types import LLMResponse, LLMStreamChunk, ToolCallDelta
@@ -380,7 +390,7 @@ def test_repl_streaming_does_not_leak_prompt_into_body(monkeypatch, capsys):
     assert "first line" in output
     assert "second line" in output
     assert "bobodan:" not in output
-    assert "thinking" in output
+    assert "Thinking" in output
 
 
 def test_repl_streaming_preserves_lines_split_across_chunks(monkeypatch, capsys):
@@ -603,3 +613,174 @@ def test_repl_print_response_renders_markdown(capsys):
     assert "```" not in output
     assert "标题" in output
     assert "rag_search" in output
+
+
+# --- L3: B-lite active-line structure (Q8) ----------------------------------
+#
+# These tests assert structural properties of the B-lite state machine:
+#   - the active line is sealed on interrupt events
+#   - the spinner frame is rewritten in place on each tick
+#   - the low-noise mode (`show_tool_calls=False`) hides success events but
+#     still surfaces errors
+# They do NOT call a real LLM, do NOT sleep, and do NOT assert on the full
+# stdout string — only on substring presence and ordering.
+
+
+def _make_repl_for_tool_event(monkeypatch, provider):
+    """Create a REPL wired to a mock streaming provider for tool-event tests."""
+    config = {
+        "llm": {
+            "default_provider": "minimax",
+            "providers": {
+                "minimax": {
+                    "model": "MiniMax-Text-01",
+                    "api_key_env": "MINIMAX_API_KEY",
+                }
+            },
+        },
+        "session": {"save_dir": ".session-test"},
+        "agent": {"timeout": 30},
+    }
+    monkeypatch.setattr("cli.repl.ProviderFactory.load_config", lambda path: config)
+    monkeypatch.setattr("cli.repl.ProviderFactory.create", lambda provider_config, agent_config: provider)
+    monkeypatch.setattr("cli.repl.get_tools_schema", lambda: [{"function": {"name": "read_file"}}])
+    repl = REPL(config_path="config.yaml")
+    repl.initialize()
+    return repl
+
+
+def test_b_lite_seal_on_assistant_delta(monkeypatch, capsys, tmp_path):
+    """A tool call followed by a text delta must put the result and the text
+    on separate lines (the active line is sealed when the text arrives)."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "hi.txt").write_text("hi", encoding="utf-8")
+    provider = StreamingProvider([
+        [
+            LLMStreamChunk(tool_call_deltas=[
+                ToolCallDelta(index=0, id="c1", name="read_file", arguments='{"path":"hi.txt"}'),
+            ]),
+        ],
+        [LLMStreamChunk(content_delta="after-text")],
+    ])
+    repl = _make_repl_for_tool_event(monkeypatch, provider)
+    capsys.readouterr()
+
+    repl.run_agent("read hi")
+
+    output = _plain(capsys.readouterr().out)
+    # Tool result line with the elapsed marker is present
+    assert "✓ read_file" in output
+    # The assistant text after the tool call is present (not concatenated to the
+    # active line)
+    assert "after-text" in output
+    # The success line comes before the streamed text
+    assert output.index("✓ read_file") < output.index("after-text")
+
+
+def test_b_lite_seal_on_new_tool_start(monkeypatch, capsys, tmp_path):
+    """Two consecutive tool calls in one turn each get their own result line."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "a.txt").write_text("a", encoding="utf-8")
+    (tmp_path / "b.txt").write_text("b", encoding="utf-8")
+    provider = StreamingProvider([
+        [
+            LLMStreamChunk(tool_call_deltas=[
+                ToolCallDelta(index=0, id="c1", name="read_file", arguments='{"path":"a.txt"}'),
+                ToolCallDelta(index=1, id="c2", name="read_file", arguments='{"path":"b.txt"}'),
+            ]),
+        ],
+        [LLMStreamChunk(content_delta="done")],
+    ])
+    repl = _make_repl_for_tool_event(monkeypatch, provider)
+    capsys.readouterr()
+
+    repl.run_agent("read both")
+
+    output = _plain(capsys.readouterr().out)
+    # Two distinct success lines (each on its own line)
+    occurrences = output.count("✓ read_file")
+    assert occurrences >= 2, f"expected ≥2 success lines, got {occurrences}"
+    # The streamed text comes after both result lines
+    first = output.index("✓ read_file")
+    second = output.index("✓ read_file", first + 1)
+    assert output.index("done") > second
+
+
+def test_b_lite_active_line_in_place_update(capsys):
+    """The active line is rewritten in place: each call uses the same
+    carriage-return + clear-line escape sequence, so the spinner frame on
+    the visible line changes while only one line of terminal real estate
+    is used."""
+    repl = REPL()
+    # Manually drive the active line state machine without a real run.
+    repl._active_line_kind = "tool"
+    repl._active_tool_name = "read_file"
+    repl._active_tool_summary = "/path/to/file.md"
+    repl._active_tool_start_ts = 0.0
+    repl._active_tool_indent = "  "
+
+    from cli.tool_display import SPINNER_FRAMES
+
+    seen_frames: list[str] = []
+    for i, frame in enumerate(SPINNER_FRAMES[:4]):
+        text = repl._b_render_tool_start(frame, "read_file", "/path/to/file.md", "  ")
+        repl._b_write_active_line(text)
+        seen_frames.append(frame)
+
+    output = capsys.readouterr().out
+    # The in-place rewrite sequence (\r\033[2K) appears for every update
+    rewrite_count = output.count("\r\033[2K")
+    assert rewrite_count >= len(seen_frames), (
+        f"expected ≥{len(seen_frames)} rewrite sequences, got {rewrite_count}"
+    )
+    # All four frames appear in the (ANSI-stripped) output
+    plain = _plain(output)
+    for f in seen_frames:
+        assert f in plain
+
+
+def test_b_lite_off_mode_hides_success_keeps_error(monkeypatch, capsys, tmp_path):
+    """In low-noise mode (show_tool_calls=False), success tool events are
+    hidden but the error line (✗) is still surfaced for the user's safety."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "ok.txt").write_text("ok", encoding="utf-8")
+    # Two turns: first a successful read_file, then a failing read_file.
+    provider = StreamingProvider([
+        [
+            LLMStreamChunk(tool_call_deltas=[
+                ToolCallDelta(index=0, id="c1", name="read_file", arguments='{"path":"ok.txt"}'),
+            ]),
+        ],
+        [LLMStreamChunk(content_delta="ok-done")],
+        [
+            LLMStreamChunk(tool_call_deltas=[
+                ToolCallDelta(index=0, id="c2", name="read_file", arguments='{"path":"missing.md"}'),
+            ]),
+        ],
+        [LLMStreamChunk(content_delta="err-done")],
+    ])
+    repl = _make_repl_for_tool_event(monkeypatch, provider)
+    repl.show_tool_calls = False
+    capsys.readouterr()
+
+    repl.run_agent("read ok")
+    output_ok = _plain(capsys.readouterr().out)
+
+    repl.run_agent("read missing")
+    output_err = _plain(capsys.readouterr().out)
+
+    # Successful turn: the tool's args summary and ✓ marker are NOT in the
+    # output. The thinking line still shows but with no tool-specific text.
+    assert "ok.txt" not in output_ok
+    assert "✓" not in output_ok
+    # Streamed text is still shown
+    assert "ok-done" in output_ok
+    # Thinking line is still rendered (it is the only visible feedback in
+    # off mode between events).
+    assert "Thinking" in output_ok
+
+    # Error turn: ✗ marker and the file path are present even in off mode.
+    assert "✗ read_file" in output_err
+    assert "missing.md" in output_err
+    # Streamed text after the error is still shown
+    assert "err-done" in output_err
