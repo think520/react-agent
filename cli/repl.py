@@ -623,6 +623,18 @@ class REPL:
         self._active_tool_summary = ""
         self._active_tool_start_ts = 0.0
 
+    def _b_clear_active_line(self) -> None:
+        """Clear the current active line without leaving it in scrollback."""
+        if self._active_line_kind == "none":
+            return
+        out = rich_console().file
+        out.write("\r\033[2K")
+        out.flush()
+        self._active_line_kind = "none"
+        self._active_tool_name = ""
+        self._active_tool_summary = ""
+        self._active_tool_start_ts = 0.0
+
     def _b_render_thinking(self, elapsed: float) -> str:
         verb = think_verb_at(elapsed)
         if elapsed >= 1.0:
@@ -727,6 +739,7 @@ class REPL:
         partial_written = 0
         partial_preview = ""
         delegate_summaries_by_call: dict[str, str] = {}
+        assistant_stream_started = False
 
         def _flush_partial_stream() -> None:
             nonlocal stream_buffer, partial_written, partial_preview
@@ -741,13 +754,14 @@ class REPL:
                 stream_buffer, _ = self._flush_stream_buffer(stream_buffer, force=True)
 
         def _handle_tool_start(tool_name: str, args: dict, indent: str) -> str:
-            nonlocal stream_buffer, partial_written, partial_preview, stream_wrote
+            nonlocal stream_buffer, partial_written, partial_preview, stream_wrote, assistant_stream_started
             nonlocal accumulated, rendered_text
             _flush_partial_stream()
             if stream_wrote and self._active_line_kind == "none":
                 out.write("\n")
                 out.flush()
             stream_wrote = False
+            assistant_stream_started = False
             accumulated = ""
             rendered_text = ""
             self._stream_in_code_block = False
@@ -869,8 +883,13 @@ class REPL:
                     event_type = event.get("type")
 
                     if event_type == "assistant_delta":
-                        # Seal any active line before streaming text
-                        self._b_seal_active_line()
+                        # Assistant text owns the output once it starts. Clear
+                        # a thinking line instead of sealing it into scrollback.
+                        if self._active_line_kind == "thinking":
+                            self._b_clear_active_line()
+                        else:
+                            self._b_seal_active_line()
+                        assistant_stream_started = True
                         if partial_preview:
                             stream_buffer = partial_preview + stream_buffer
                             partial_preview = ""
@@ -935,7 +954,7 @@ class REPL:
 
                 # After processing all events in the batch
                 if self._active_line_kind == "thinking" and stream_buffer:
-                    self._b_seal_active_line()
+                    self._b_clear_active_line()
                 clear_partial = partial_written if stream_buffer else 0
                 stream_buffer, wrote = self._flush_stream_buffer(
                     stream_buffer, clear_partial=clear_partial
@@ -953,13 +972,18 @@ class REPL:
                     partial_written = self._terminal_cell_width(stream_buffer)
                     stream_buffer = ""
 
-                if not stream_buffer and stream_wrote and self._active_line_kind == "none":
+                if (
+                    not stream_buffer
+                    and stream_wrote
+                    and self._active_line_kind == "none"
+                    and not assistant_stream_started
+                ):
                     self._active_line_kind = "thinking"
                     self._b_write_active_line(self._b_render_thinking(elapsed))
 
                 if len(stream_buffer) >= 120:
                     if self._active_line_kind == "thinking":
-                        self._b_seal_active_line()
+                        self._b_clear_active_line()
                     if partial_preview:
                         stream_buffer = partial_preview + stream_buffer
                         partial_preview = ""

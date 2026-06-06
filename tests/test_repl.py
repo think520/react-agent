@@ -394,6 +394,50 @@ def test_repl_streaming_does_not_leak_prompt_into_body(monkeypatch, capsys):
     assert "Thinking" in output
 
 
+def test_repl_streaming_does_not_restart_thinking_after_text_starts(monkeypatch, capsys):
+    config = {
+        "llm": {
+            "default_provider": "minimax",
+            "providers": {
+                "minimax": {
+                    "model": "MiniMax-Text-01",
+                    "api_key_env": "MINIMAX_API_KEY",
+                }
+            },
+        },
+        "session": {"save_dir": ".session-test"},
+        "agent": {"timeout": 30},
+    }
+    provider = DelayedStreamingProvider([
+        [
+            LLMStreamChunk(content_delta="alpha\n"),
+            LLMStreamChunk(content_delta="beta\n"),
+            LLMStreamChunk(content_delta="gamma"),
+        ]
+    ], delay=1.3)
+
+    monkeypatch.setattr("cli.repl.ProviderFactory.load_config", lambda path: config)
+    monkeypatch.setattr("cli.repl.ProviderFactory.create", lambda provider_config, agent_config: provider)
+    monkeypatch.setattr("cli.repl.get_tools_schema", lambda: [{"function": {"name": "read_file"}}])
+
+    repl = REPL(config_path="config.yaml")
+    repl.initialize()
+    capsys.readouterr()
+
+    repl.run_agent("hello")
+
+    output = _plain(capsys.readouterr().out)
+    assert "alpha" in output
+    assert "beta" in output
+    assert "gamma" in output
+    after_text = output[output.index("alpha"):]
+    assert "Thinking" not in after_text
+    assert "Checking" not in after_text
+    assert "Working" not in after_text
+    assert "Drafting" not in after_text
+    assert "Polishing" not in after_text
+
+
 def test_repl_streaming_preserves_lines_split_across_chunks(monkeypatch, capsys):
     config = {
         "llm": {
