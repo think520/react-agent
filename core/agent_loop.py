@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import time
 from collections.abc import Iterator
 from core.memory import MEMORY_MARKER
 from core.skills import SKILLS_PROMPT_MARKER
@@ -9,6 +10,26 @@ from tools.base import ToolResult
 from providers.types import LLMResponse, ToolCall
 
 logger = logging.getLogger(__name__)
+
+
+def _compute_result_summary(tool_name: str, result: ToolResult) -> str | None:
+    """Return a short display string for a tool's success result, or None.
+
+    The whitelist intentionally lives here (not in cli/) so the AgentLoop can
+    attach a stable, display-friendly hint to the tool_end event without
+    inverting the core→cli dependency graph. Add new entries sparingly:
+    the summary must be derivable from the tool's own ToolResult.data and
+    must be safe to surface in scrollback and future trace events.
+    """
+    if tool_name == "change_dir":
+        cwd = result.data.get("cwd") if isinstance(result.data, dict) else None
+        if cwd:
+            return f"→ {cwd}"
+    if tool_name == "http_request":
+        status = result.data.get("status") if isinstance(result.data, dict) else None
+        if status:
+            return f"status {status}"
+    return None
 
 LEGACY_BASE_SYSTEM_PROMPT = (
     "You are bobodan, an AI assistant running inside the bobodan CLI.\n"
@@ -137,7 +158,9 @@ class AgentLoop:
                         "args": args,
                     }
 
+                    start_ts = time.monotonic()
                     result = execute_tool(tc.name, args, session=self.session)
+                    elapsed = time.monotonic() - start_ts
                     if isinstance(result, ToolResult):
                         self._sync_session_state(tc.name, result)
                         self.session.add_tool_message(tc.id, result.content)
@@ -156,6 +179,8 @@ class AgentLoop:
                             "tool_name": tc.name,
                             "ok": result.ok,
                             "content": result.content,
+                            "elapsed": elapsed,
+                            "result_summary": _compute_result_summary(tc.name, result),
                         }
                     else:
                         # Fallback for unknown tools returning plain string
@@ -167,6 +192,8 @@ class AgentLoop:
                             "tool_name": tc.name,
                             "ok": True,
                             "content": str(result),
+                            "elapsed": elapsed,
+                            "result_summary": None,
                         }
 
                 continue

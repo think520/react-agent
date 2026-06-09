@@ -265,6 +265,10 @@ def _compact_display_event(event: dict) -> dict:
     if event_type == "tool_end":
         compact["ok"] = bool(event.get("ok", False))
         compact["content"] = str(event.get("content", ""))[:200]
+        if "elapsed" in event:
+            compact["elapsed"] = event.get("elapsed")
+        if event.get("result_summary") is not None:
+            compact["result_summary"] = event.get("result_summary")
     return compact
 
 

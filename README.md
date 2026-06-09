@@ -192,7 +192,7 @@ v1 的主要价值是上下文隔离和工具沙箱：例如“阅读并总结�
 | `/specialists status` | 查看最近 specialist 调用结果（仅内存） |
 | `/specialists tools <name>` | 查看某个 specialist 的有效工具集 |
 
-设计边界详见 [`docs/agents_design.md`](docs/agents_design.md)。
+设计边界详见 [`docs/archive/agents_design.md`](docs/archive/agents_design.md)。
 
 ## 课程学习助手 MVP
 
@@ -344,7 +344,7 @@ mcp:
 > 用 GitHub MCP 工具列出我所有的 PR
 ```
 
-详见 [`docs/MCP.md`](docs/MCP.md) 和 [`docs/mcp_design.md`](docs/mcp_design.md)。
+详见 [`docs/MCP.md`](docs/MCP.md) 和归档设计文档 [`docs/archive/mcp_design.md`](docs/archive/mcp_design.md)。
 
 ## 题库系统
 
