@@ -7,6 +7,7 @@
 | 文档 | 用途 |
 |------|------|
 | [`NEXT_STEPS_EXECUTION_PLAN.md`](NEXT_STEPS_EXECUTION_PLAN.md) | 当前下一步执行顺序。排期和开新分支前先看它 |
+| [`DESIGN.md`](DESIGN.md) | Bobodan Web UI / TUI / 官网的长期视觉设计参考，后续设计默认先看它 |
 | [`LOCAL_KNOWLEDGE_LEARNING_AGENT_PLAN.md`](LOCAL_KNOWLEDGE_LEARNING_AGENT_PLAN.md) | Bobodan 作为本地知识学习助手的产品主线 |
 | [`BOBODAN_AGENT_FRAMEWORK_ARCHITECTURE.md`](BOBODAN_AGENT_FRAMEWORK_ARCHITECTURE.md) | 模块边界和架构规则 |
 | [`RAG_KNOWLEDGE_GRAPH_MVP.md`](RAG_KNOWLEDGE_GRAPH_MVP.md) | RAG + 知识图谱当前用法 |

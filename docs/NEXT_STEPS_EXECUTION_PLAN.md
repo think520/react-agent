@@ -99,6 +99,7 @@ P0 已落地到 `codex/cli-tool-display-ux` 分支：
 - specialist 内部 tool events 和主 agent tool events 分 visual scope。
 - `/ui tools off` 保留错误行，隐藏成功 tool 噪音。
 - `tool_end` event 增加 `elapsed` 和可选 `result_summary`。
+- 轻量状态行收尾：`Thinking` / `Checking` / `Working` / `Drafting` / `Polishing` 按 Bobodan 设计语言分色，spinner 和 elapsed 保持稳定低噪音显示。
 
 ### 已修复的 P0 细节
 
@@ -106,6 +107,7 @@ P0 已落地到 `codex/cli-tool-display-ux` 分支：
 - `delegate_*` 外层成功记在父 scope，不污染 specialist 内部工具统计。
 - specialist 内部 display events 透传 `elapsed` / `result_summary`。
 - thinking line spinner 和 tool spinner 都按 tick 切帧。
+- assistant 正文开始后清掉 thinking active line，不把状态行写入正文 scrollback；partial preview 做小段节流，减少当前行频繁重写的视觉疲劳。
 
 ### 目标
 

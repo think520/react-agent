@@ -7,6 +7,8 @@
 ## [未发布]
 
 ### 新增
+- **CLI 轻量状态行收尾**: `Thinking` / `Checking` / `Working` / `Drafting` / `Polishing` 状态词按 Bobodan 设计语言分色显示，spinner 保持稳定强调色，elapsed 保持 dim，减少单色刷新疲劳；tool running 行统一为 clay/orange，success/error 继续使用 green/red。覆盖 `cli/tool_display.py`、`cli/repl.py` 和对应回归测试。
+- **Bobodan 设计参考文档**: `docs/DESIGN.md` 作为后续 Web UI / TUI / 官网设计的长期视觉基准，收敛为 Warm Paper Knowledge Garden / Natural Editorial Zen 方向，并明确 ink blue、clay、sage、petal pink 等色彩角色。
 - **CLI Tool Display UX (P0)**: 工具调用显示更清晰，specialist 内部 tool events 较多时不刷屏。详见 `docs/NEXT_STEPS_EXECUTION_PLAN.md` P0 节。
   - **B-lite single-active-line UI**: 同一时刻只动画一行 —— thinking line 或 tool spinner 占据光标位置，每 100ms tick 原地切换帧。
   - **工具参数摘要** (`cli/tool_display.py: summarize_tool_args`): `read_file` / `write_file` / `list_dir` / `stat_path` 取路径尾部；`rag_search` / `graph_query` 取 query/concept；`delegate_doc_reader` 取 source_paths 尾 + goal；`delegate_triage` 取 query；`delegate_planner` 取 goal；`change_dir` / `http_request` 走特殊规则；MCP 和其他内置工具走 60 字符 short JSON fallback。

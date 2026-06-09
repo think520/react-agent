@@ -15,11 +15,14 @@ import pytest
 from cli.tool_display import (
     CoalescerStack,
     SPINNER_FRAME_S,
+    THINK_VERB_COLORS,
     THINK_VERB_DWELL_S,
     THINK_VERBS,
     ToolRunCoalescer,
     spinner_frame_at,
+    status_style_for_verb,
     summarize_tool_args,
+    think_verb_color_at,
     think_verb_at,
 )
 
@@ -116,6 +119,19 @@ def test_think_verb_at_advances_every_dwell():
     assert think_verb_at(THINK_VERB_DWELL_S * 4) == THINK_VERBS[4]
     # wraps
     assert think_verb_at(THINK_VERB_DWELL_S * 5) == THINK_VERBS[0]
+
+
+def test_think_verb_colors_are_stable_and_distinct():
+    assert set(THINK_VERB_COLORS) == set(THINK_VERBS)
+    assert len(set(THINK_VERB_COLORS.values())) == len(THINK_VERBS)
+    for verb in THINK_VERBS:
+        assert status_style_for_verb(verb) == THINK_VERB_COLORS[verb]
+
+
+def test_think_verb_color_at_follows_current_verb():
+    assert think_verb_color_at(0.0) == THINK_VERB_COLORS[THINK_VERBS[0]]
+    assert think_verb_color_at(THINK_VERB_DWELL_S) == THINK_VERB_COLORS[THINK_VERBS[1]]
+    assert think_verb_color_at(THINK_VERB_DWELL_S * 4) == THINK_VERB_COLORS[THINK_VERBS[4]]
 
 
 # --- L2: ToolRunCoalescer --------------------------------------------------

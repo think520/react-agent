@@ -43,6 +43,14 @@ THINK_VERBS: tuple[str, ...] = (
 )
 THINK_VERB_DWELL_S: float = 2.5
 
+THINK_VERB_COLORS: dict[str, str] = {
+    "Thinking": "\033[38;5;39m",   # ink blue / cyan
+    "Checking": "\033[38;5;75m",   # soft blue
+    "Working": "\033[38;5;209m",   # clay / orange
+    "Drafting": "\033[38;5;181m",  # muted petal
+    "Polishing": "\033[38;5;108m", # sage green
+}
+
 
 def spinner_frame_at(elapsed_s: float) -> str:
     """Return the spinner frame shown at the given elapsed time."""
@@ -54,6 +62,16 @@ def think_verb_at(elapsed_s: float) -> str:
     """Return the thinking verb shown at the given elapsed time."""
     idx = int(elapsed_s / THINK_VERB_DWELL_S) % len(THINK_VERBS)
     return THINK_VERBS[idx]
+
+
+def status_style_for_verb(verb: str) -> str:
+    """Return the ANSI color used for a status verb."""
+    return THINK_VERB_COLORS.get(verb, THINK_VERB_COLORS["Thinking"])
+
+
+def think_verb_color_at(elapsed_s: float) -> str:
+    """Return the ANSI color for the status verb at the given elapsed time."""
+    return status_style_for_verb(think_verb_at(elapsed_s))
 
 
 # --- Tool arg summarization (Q5 A3) -----------------------------------------

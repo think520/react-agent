@@ -10,6 +10,12 @@ def _plain(text: str) -> str:
 
 
 from cli.repl import REPL, SlashCommandCompleter
+from cli.tool_display import (
+    THINK_VERB_COLORS,
+    THINK_VERB_DWELL_S,
+    THINK_VERBS,
+    think_verb_color_at,
+)
 from core.session import Session
 from providers.types import LLMResponse, LLMStreamChunk, ToolCallDelta
 from tools.base import TOOL_REGISTRY, TOOL_SCHEMAS, ToolResult, register_tool
@@ -838,6 +844,30 @@ def test_b_lite_thinking_line_spinner_advances():
     second = _plain(repl._b_render_thinking(0.1))
 
     assert first != second
+
+
+def test_b_lite_thinking_line_colors_only_status_verb():
+    repl = REPL()
+
+    rendered = repl._b_render_thinking(1.2)
+    plain = _plain(rendered)
+
+    assert "Thinking" in plain
+    assert "1.2s" in plain
+    assert think_verb_color_at(1.2) in rendered
+    assert f"{THINK_VERB_COLORS[THINK_VERBS[0]]}{THINK_VERBS[0]}" in rendered
+    assert THINK_VERB_COLORS[THINK_VERBS[1]] not in rendered
+
+
+def test_b_lite_thinking_line_changes_verb_color_by_dwell():
+    repl = REPL()
+
+    rendered = repl._b_render_thinking(THINK_VERB_DWELL_S)
+    plain = _plain(rendered)
+
+    assert THINK_VERBS[1] in plain
+    assert THINK_VERBS[0] not in plain
+    assert f"{THINK_VERB_COLORS[THINK_VERBS[1]]}{THINK_VERBS[1]}" in rendered
 
 
 def test_b_lite_coalesce_summary_uses_wall_clock_not_tool_duration(monkeypatch, capsys, tmp_path):

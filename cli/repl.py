@@ -48,6 +48,7 @@ from cli.tool_display import (
     SPINNER_FRAMES as THINK_FRAMES,
     THINK_VERBS,
     spinner_frame_at,
+    think_verb_color_at,
     think_verb_at,
     summarize_tool_args,
     CoalescerStack,
@@ -56,6 +57,7 @@ from cli.tool_display import (
 # Module-level ANSI palette for B-lite (class-level constants can't be
 # referenced inside instance method bodies in Python).
 _B_CYAN = "\033[38;5;39m"
+_B_ORANGE = "\033[38;5;209m"
 _B_GREEN = "\033[32m"
 _B_RED = "\033[31m"
 _B_DIM = "\033[2m"
@@ -586,11 +588,12 @@ class REPL:
         dim = "\033[2m"
         reset = "\033[0m"
         verb = think_verb_at(elapsed)
+        verb_color = think_verb_color_at(elapsed)
         if elapsed >= 1.0:
             timer = f" {dim}·{reset} {dim}{elapsed:.1f}s{reset}"
         else:
             timer = ""
-        return f"  {cyan}{frame}{reset} {dim}{verb}{reset}{timer}"
+        return f"  {cyan}{frame}{reset} {verb_color}{verb}{reset}{timer}"
 
     # --- B-lite active line helpers -----------------------------------------
 
@@ -630,15 +633,16 @@ class REPL:
 
     def _b_render_thinking(self, elapsed: float) -> str:
         verb = think_verb_at(elapsed)
+        verb_color = think_verb_color_at(elapsed)
         if elapsed >= 1.0:
             timer = f" {_B_DIM}·{_B_RESET} {_B_DIM}{elapsed:.1f}s{_B_RESET}"
         else:
             timer = ""
-        return f"  {_B_CYAN}{spinner_frame_at(elapsed)}{_B_RESET} {_B_DIM}{verb}{_B_RESET}{timer}"
+        return f"  {_B_CYAN}{spinner_frame_at(elapsed)}{_B_RESET} {verb_color}{verb}{_B_RESET}{timer}"
 
     def _b_render_tool_start(self, frame: str, name: str, summary: str, indent: str = _B_TOOL_INDENT_MAIN) -> str:
         summary_part = f" {_B_DIM}{summary}{_B_RESET}" if summary else ""
-        return f"{indent}{_B_CYAN}{frame}{_B_RESET} {name}{summary_part}"
+        return f"{indent}{_B_ORANGE}{frame}{_B_RESET} {_B_ORANGE}{name}{_B_RESET}{summary_part}"
 
     def _b_render_tool_success(self, name: str, summary: str, elapsed: float, indent: str = _B_TOOL_INDENT_MAIN) -> str:
         summary_part = f" {_B_DIM}{summary}{_B_RESET}" if summary else ""
