@@ -349,6 +349,15 @@ def test_trace_writer_creates_file(tmp_path):
     assert r2["termination_reason"] == "final_answer"
 
 
+def test_trace_writer_uses_unique_path_per_run(tmp_path):
+    from core.trace import TraceWriter
+
+    w1 = TraceWriter("same-session-123", str(tmp_path))
+    w2 = TraceWriter("same-session-123", str(tmp_path))
+
+    assert w1.path != w2.path
+
+
 def test_trace_writer_filters_non_traced_events(tmp_path):
     from core.trace import TraceWriter
 

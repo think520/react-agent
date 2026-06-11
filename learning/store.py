@@ -1,6 +1,7 @@
 import json
 import os
 import sqlite3
+from contextlib import contextmanager
 from datetime import datetime, timezone
 
 from .schema import Mastery, LearningPlan
@@ -59,10 +60,18 @@ class LearningStore:
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         self._init_schema()
 
+    @contextmanager
     def _conn(self):
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
-        return conn
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     def _init_schema(self):
         with self._conn() as conn:

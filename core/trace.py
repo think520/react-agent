@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import threading
+import uuid
 from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
@@ -55,9 +56,10 @@ class TraceWriter:
     def __init__(self, session_id: str, workspace: str) -> None:
         trace_dir = os.path.join(workspace, ".bobodan", "traces")
         os.makedirs(trace_dir, exist_ok=True)
-        ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        run_suffix = uuid.uuid4().hex[:8]
         safe_id = session_id[:12] if len(session_id) > 12 else session_id
-        self._path = os.path.join(trace_dir, f"{safe_id}_{ts}.jsonl")
+        self._path = os.path.join(trace_dir, f"{safe_id}_{ts}_{run_suffix}.jsonl")
         self._lock = threading.Lock()
         logger.debug("[TraceWriter] trace file: %s", self._path)
 
@@ -131,20 +133,24 @@ def list_traces(workspace: str, limit: int = 10) -> list[dict]:
             stat = os.stat(full)
         except OSError:
             continue
-        # Filename format: {session_id}_{timestamp}.jsonl
-        # Timestamp is like 20260611T123456Z
+        # Filename format: {session_id}_{timestamp}_{run_suffix}.jsonl
+        # Older traces used {session_id}_{timestamp}.jsonl.
         stem = name[:-6]  # strip .jsonl
         parts = stem.split("_", 1)
         session_id = parts[0] if parts else stem
         ts_str = parts[1] if len(parts) > 1 else ""
+        ts_token = ts_str.split("_", 1)[0]
         # Parse timestamp from filename for reliable ordering
         started_at = ""
-        if ts_str and len(ts_str) >= 15:
+        for fmt in ("%Y%m%dT%H%M%S%fZ", "%Y%m%dT%H%M%SZ"):
+            if not ts_token:
+                break
             try:
-                dt = datetime.strptime(ts_str, "%Y%m%dT%H%M%SZ")
+                dt = datetime.strptime(ts_token, fmt)
                 started_at = dt.replace(tzinfo=timezone.utc).isoformat()
+                break
             except ValueError:
-                started_at = ""
+                continue
         if not started_at:
             started_at = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat()
         entries.append({

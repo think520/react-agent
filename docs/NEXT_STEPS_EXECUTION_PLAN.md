@@ -2,7 +2,7 @@
 
 > **目的**：把现有 docs 中的多个功能方向收敛成一个执行入口，明确"下一步先做什么、为什么、做到什么算完成"。
 >
-> **当前结论**：**P0-P3 全部完成**。下一步做 **P4 文档统一**，远期方向 **P5 Web UI / 前后端分离**。
+> **当前结论**：**P0-P4 全部完成**。下一步做 **P5 前置：service 层抽取**，远期方向 **Web UI / 前后端分离**。
 
 ## 1. 当前状态判断
 
@@ -17,7 +17,7 @@
 - MCP client（stdio / SSE / streamable_http）
 - Learning Agent Orchestrator v1：`doc_reader` / `triage` / `planner`
 - CLI Tool Display UX（B-lite 单活动行 UI）
-- 759 个测试，47 个测试文件
+- 769 个测试，47 个测试文件
 
 **所有核心断点已修复。**
 
@@ -28,6 +28,7 @@
 | `docs/NEXT_STEPS_EXECUTION_PLAN.md` | **当前执行入口**（本文件） |
 | `docs/DESIGN.md` | 长期视觉设计参考（Web UI / TUI / 官网） |
 | `docs/BOBODAN_AGENT_FRAMEWORK_ARCHITECTURE.md` | 模块边界规范 |
+| `docs/OPENAI_AGENT_CODEX_REFERENCE_FOR_BOBODAN.md` | OpenAI Agents SDK / Codex CLI 的工程边界借鉴（run state / trace / tool policy / handoff） |
 | `docs/LOCAL_KNOWLEDGE_LEARNING_AGENT_PLAN.md` | 学习助手主线愿景 |
 | `docs/RAG_KNOWLEDGE_GRAPH_MVP.md` | RAG + 图谱使用文档 |
 | `docs/MCP.md` | MCP 使用文档 |
@@ -47,8 +48,8 @@ P0. 学习闭环补全（已完成）
 P1. Obsidian 写回（已完成）
 P2. Event Trace（已完成）
 P3. Workflow Runtime（已完成）
-P4. 文档统一（下一步）
-P5. Web UI / 前后端分离（远期）
+P4. 文档统一（已完成）
+P5. service 层抽取 + Web UI / 前后端分离（下一阶段）
 ```
 
 ## 5. 已完成摘要
@@ -68,7 +69,7 @@ P5. Web UI / 前后端分离（远期）
 ### P2 Event Trace
 
 - `core/agent_loop.py`：`assistant_done` 事件增加 `termination_reason`（`final_answer` / `max_iter` / `error`）
-- `core/trace.py`：`TraceWriter` 写入 `.bobodan/traces/`，secret redact + content 截断 + 线程安全
+- `core/trace.py`：`TraceWriter` 写入 `.bobodan/traces/`，每次 run 独立文件，secret redact + content 截断 + 线程安全
 - `/trace` 命令：列出最近 run、查看 tool timeline
 - `run_stream` 异常时 yield `assistant_done(error)` 再 re-raise
 
@@ -79,7 +80,7 @@ P5. Web UI / 前后端分离（远期）
 - `learning/workflow.py`：`PlanWorkflowTracker` — 自动推断 step 完成 + 进度查询 + 追赶模式
 - `tools/learning_tools.py`：`learning_plan_progress` 工具（status / complete_task / complete_step / today）
 - `cli/repl.py`：`/learning today` 合并显示计划任务 + 到期复习
-- 自动推断：`update_from_quiz` → 检查 step topics mastery → 自动标记完成 → plan 完成时自动 status=completed
+- 自动推断：`update_from_quiz` 或手动 `mark mastered` → 检查 step topics mastery → 自动标记完成 → plan 完成时自动 status=completed
 
 ### CLI Tool Display UX
 
@@ -87,20 +88,21 @@ P5. Web UI / 前后端分离（远期）
 - 工具参数摘要、连续同名 tool call 合并、thinking 动词轮换
 - specialist 内部 tool events 分 visual scope
 
-## 6. P4：文档统一
+## 6. P4：文档统一（已完成）
 
 **目标**：让 `docs/DESIGN.md`（600 行设计系统）成为后续 UI 相关工作的参考基准。
 
 **具体任务**：
 
 - 在本文件的文档定位表中加入 DESIGN.md（已完成）
-- 在 README.md 中引用 DESIGN.md 作为视觉设计参考
+- 在本文件和 docs 索引中加入 `OPENAI_AGENT_CODEX_REFERENCE_FOR_BOBODAN.md`（已完成）
+- 在 README.md 中引用 DESIGN.md 作为视觉设计参考（已完成）
 
-**工作量**：0.5 小时
+**结论**：P4 已完成。后续 UI / TUI / Web 设计默认参考 `docs/DESIGN.md`；后续 runtime / trace / tool policy / handoff 设计默认参考 `docs/OPENAI_AGENT_CODEX_REFERENCE_FOR_BOBODAN.md`。
 
-## 7. P5 远期方向：Web UI / 前后端分离
+## 7. P5 下一阶段：service 层抽取 + Web UI / 前后端分离
 
-P0-P3 完成后，Bobodan 具备稳定的学习闭环、Obsidian 导出、event trace 和 workflow runtime，届时可以做前后端分离。
+P0-P4 完成后，Bobodan 具备稳定的学习闭环、Obsidian 导出、event trace、workflow runtime 和统一设计参考。下一阶段先抽 service 层，再接 FastAPI 和 Web。
 
 ### 技术栈（已定）
 
@@ -150,6 +152,7 @@ P0-P3 完成后，Bobodan 具备稳定的学习闭环、Obsidian 导出、event 
 - **复用现有 runtime** — `core/` / `tools/` / `learning/` / `memory/` 不重写。
 - **service 层是核心** — CLI `repl.py` 和 FastAPI routers 都调 service，不让业务逻辑长在任何 UI 层里。
 - **按 docs/DESIGN.md 做视觉** — Natural Editorial Zen，暖米色/墨蓝/植物绿。
+- **按 docs/OPENAI_AGENT_CODEX_REFERENCE_FOR_BOBODAN.md 做工程边界** — 吸收 run state、event trace、tool policy、handoff 协议，不把 Bobodan 改成通用 agent 框架。
 
 **前提条件**：P3 Workflow Runtime 已完成。Web 需要稳定的后端事件流、任务状态、workflow 状态、可恢复 run。
 
@@ -185,7 +188,8 @@ P0-P3 完成后，Bobodan 具备稳定的学习闭环、Obsidian 导出、event 
 
 ## 10. 立即行动
 
-**下一步：P4 文档统一。**
+**下一步：P5 前置，抽 service 层。**
 
-- 在 README.md 中引用 DESIGN.md 作为视觉设计参考
-- 工作量：0.5 小时
+- 从 `learning` / `quiz` / `memory` 中抽出 CLI 与 Web 都可复用的 service API
+- 先保持 CLI 行为不变，再接 FastAPI router
+- service 抽取时参考 `OPENAI_AGENT_CODEX_REFERENCE_FOR_BOBODAN.md` 的 run/event/tool policy 边界

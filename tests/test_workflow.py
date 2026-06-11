@@ -1,6 +1,8 @@
 """Tests for P3 Workflow Runtime: plan_progress, auto-inference, /learning today."""
 
 import os
+import shutil
+import tempfile
 import pytest
 
 from learning.schema import LearningPlan, Mastery
@@ -373,3 +375,41 @@ def test_update_from_quiz_triggers_auto_check(tmp_path):
     # Second correct → mastered (auto-complete kicks in)
     progress.update_from_quiz(["进程调度"], is_correct=True)
     assert store.is_task_done(plan.id, 1, 0)
+
+
+def test_manual_mark_mastered_triggers_auto_check(tmp_path):
+    from learning.scheduler import ReviewScheduler
+
+    store = LearningStore(str(tmp_path))
+    scheduler = ReviewScheduler(store)
+    plan = LearningPlan(
+        title="manual",
+        goal="test",
+        steps=[{"day": 1, "topics": ["A"], "tasks": ["task A"], "materials": [], "review": []}],
+    )
+    plan.id = store.save_plan(plan)
+
+    scheduler.mark_manual("A", "mastered")
+
+    assert store.is_task_done(plan.id, 1, 0)
+    assert store.get_plan(plan.id).status == "completed"
+
+
+def test_learning_store_closes_sqlite_connections_after_operations():
+    root = tempfile.mkdtemp()
+    workspace = os.path.join(root, "workspace")
+    try:
+        store = LearningStore(workspace)
+        plan = LearningPlan(
+            title="cleanup",
+            goal="test",
+            steps=[{"day": 1, "topics": ["A"], "tasks": ["task A"], "materials": [], "review": []}],
+        )
+        plan.id = store.save_plan(plan)
+        store.get_active_plans()
+        store.get_progress(plan.id)
+        del store
+
+        shutil.rmtree(workspace)
+    finally:
+        shutil.rmtree(root, ignore_errors=True)

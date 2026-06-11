@@ -8,12 +8,11 @@
 
 ### 新增
 - **P2 Event Trace 轻量版**: 每次 Agent run 记录关键事件到 JSONL trace 文件，支持事后查看"做了什么、花了多久、哪步失败"。
-  - `core/trace.py`（新）: `TraceWriter` 类写入 `.bobodan/traces/{session_id}_{timestamp}.jsonl`，只记录 `tool_start` / `tool_end` / `assistant_done` / `error` 事件（不含 `assistant_delta`）。Secret 字段自动 redact，content 超 500 字符截断。线程安全（`threading.Lock`）。
+  - `core/trace.py`（新）: `TraceWriter` 类写入 `.bobodan/traces/{session_id}_{timestamp}_{run_suffix}.jsonl`，只记录 `tool_start` / `tool_end` / `assistant_done` / `error` 事件（不含 `assistant_delta`）。Secret 字段自动 redact，content 超 500 字符截断。线程安全（`threading.Lock`）。
   - `core/agent_loop.py`: `assistant_done` 事件增加 `termination_reason` 字段（`final_answer` / `max_iter` / `error`）；`run_stream` 异常时 yield `assistant_done(termination_reason="error")` 再 re-raise；构造函数接受可选 `trace_writer` 参数，有则自动写入 trace。
-  - `cli/repl.py`: 启动时创建 `TraceWriter` 并注入 `AgentLoop`；新增 `/trace` 命令（列出最近 run、查看 tool timeline）。
+  - `cli/repl.py`: 每次 run 创建 `TraceWriter` 并注入 `AgentLoop`；新增 `/trace` 命令（列出最近 run、查看 tool timeline）。
   - `core/trace.py`: 新增 `list_traces` / `read_trace` / `summarize_trace` 读取函数。
-  - `tests/test_agent_loop.py`: 新增 19 个测试覆盖三种 `termination_reason`、`TraceWriter` 文件创建/过滤/截断/redact/错误事件、`AgentLoop` trace 集成、trace 读取/汇总。
-  - 736 测试全通过。
+  - `tests/test_agent_loop.py`: 覆盖三种 `termination_reason`、`TraceWriter` 文件创建/唯一 run 路径/过滤/截断/redact/错误事件、`AgentLoop` trace 集成、trace 读取/汇总。
 
 - **P3 Workflow Runtime**: 学习计划从"看一眼"变成"可以执行"——自动推断完成状态、追赶模式、手动标记、合并今日任务视图。
   - `learning/schema.py`: `LearningPlan` 增加 `status`（active/completed）和 `current_day` 字段。
@@ -22,8 +21,8 @@
   - `learning/progress.py`: `update_from_quiz` 在答对后自动调用 `check_plan_completion`。
   - `tools/learning_tools.py`: 新增 `learning_plan_progress` 工具（status / complete_task / complete_step / today）。
   - `cli/repl.py`: `/learning today` 合并显示未完成计划任务 + 到期复习清单。
-  - `tests/test_workflow.py`（新）: 23 个测试覆盖 plan_progress CRUD、自动推断、追赶模式、进度汇总、工具集成、ProgressTracker 联动。
-  - 759 测试全通过。
+  - `tests/test_workflow.py`（新）: 覆盖 plan_progress CRUD、自动推断、追赶模式、进度汇总、工具集成、ProgressTracker 联动、手动 mastery 标记联动和 SQLite 连接关闭。
+  - 769 测试全通过。
 
 - **P1 Obsidian 写回**: 学习计划和做题总结可导出为 Obsidian Markdown，兑现 README 承诺。
   - `tools/obsidian_export.py`（新）: `obsidian_export_plan` 从 LearningStore 读取计划，生成 YAML frontmatter + 按天 checkbox 任务 + `[[双链]]` 知识点引用的 Markdown，写入 `{vault}/学习计划/{title}.md`；`obsidian_export_quiz_summary` 从 QuizStore 读取错题和薄弱点分析，生成按概念分组错题本 + 薄弱点表格 + 掌握度概览的 Markdown，写入 `{vault}/做题总结/{date}.md`。
@@ -107,8 +106,13 @@
   - `cli/repl.py`: 新增 `/wiki init`、`/wiki ingest`、`/wiki lint`、`/wiki status` 命令。
   - `tests/test_wiki.py`: 23 个测试覆盖 schema、index、lint、compiler、REPL 命令。
 
+### 修复
+- **Trace per-run 文件碰撞**: `TraceWriter` 文件名增加微秒时间戳和短 run suffix，同一 session 在同一秒内连续 run 不再写入同一个 JSONL；`list_traces()` 兼容旧秒级文件名。
+- **Workflow 手动掌握度联动**: `ReviewScheduler.mark_manual(..., "mastered")` 后会触发 `PlanWorkflowTracker.check_plan_completion()`，手动标记已掌握后今日任务和计划状态会同步更新。
+- **LearningStore SQLite 文件锁**: `LearningStore._conn()` 改为真正关闭连接的 context manager，避免 Windows 上临时 workspace 或后续 Web runtime 遇到 `bobodan.db` 文件锁。
+
 ### 变更
-- **Docs cleanup**: 新增 `docs/README.md` 作为文档索引，新增 `docs/DESIGN.md` 作为长期视觉设计参考；将已实现或历史详细设计移入 `docs/archive/`，当前执行入口收敛到 `docs/NEXT_STEPS_EXECUTION_PLAN.md`。
+- **Docs cleanup**: 新增 `docs/README.md` 作为文档索引，新增 `docs/DESIGN.md` 作为长期视觉设计参考；将 `docs/OPENAI_AGENT_CODEX_REFERENCE_FOR_BOBODAN.md` 纳入当前工程边界参考；将已实现或历史详细设计移入 `docs/archive/`，当前执行入口收敛到 `docs/NEXT_STEPS_EXECUTION_PLAN.md`。
 - **REPL UI 改进**: thinking 动效增加实时计时器（`⠋ thinking · 3.2s`）。工具调用显示改为 Claude Code 风格（`▸ tool_name(args)` → `✓ preview`），消除多余空白行。thinking 动效在工具执行期间保持可见。
 
 ## [0.12.0] - 2026-05-20
