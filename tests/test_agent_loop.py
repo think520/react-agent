@@ -481,3 +481,114 @@ def test_agent_loop_no_trace_when_none():
     done = [e for e in events if e["type"] == "assistant_done"]
     assert len(done) == 1
     assert done[0]["termination_reason"] == "final_answer"
+
+
+# --- Trace reading tests ---
+
+def test_list_traces_empty(tmp_path):
+    from core.trace import list_traces
+    assert list_traces(str(tmp_path)) == []
+
+
+def test_list_traces_returns_sorted_entries(tmp_path):
+    import time
+    from core.trace import list_traces, TraceWriter
+    # Create two trace files with a small gap to ensure distinct mtimes
+    w1 = TraceWriter("sess-aaa", str(tmp_path))
+    w1.write({"type": "assistant_done", "content": "a", "termination_reason": "final_answer"})
+    time.sleep(0.05)
+    w2 = TraceWriter("sess-bbb", str(tmp_path))
+    w2.write({"type": "assistant_done", "content": "b", "termination_reason": "final_answer"})
+
+    traces = list_traces(str(tmp_path))
+    assert len(traces) == 2
+    ids = [t["session_id"] for t in traces]
+    assert "sess-aaa" in ids
+    assert "sess-bbb" in ids
+
+
+def test_list_traces_respects_limit(tmp_path):
+    from core.trace import list_traces, TraceWriter
+    for i in range(5):
+        w = TraceWriter(f"sess-{i}", str(tmp_path))
+        w.write({"type": "assistant_done", "content": "", "termination_reason": "final_answer"})
+
+    assert len(list_traces(str(tmp_path), limit=3)) == 3
+
+
+def test_read_trace(tmp_path):
+    from core.trace import TraceWriter, read_trace
+    import json
+
+    writer = TraceWriter("sess", str(tmp_path))
+    writer.write({"type": "tool_start", "tool_call_id": "c1", "tool_name": "read_file", "args": {}})
+    writer.write({"type": "tool_end", "tool_call_id": "c1", "tool_name": "read_file", "ok": True, "content": "ok", "elapsed": 0.1})
+    writer.write({"type": "assistant_done", "content": "done", "termination_reason": "final_answer"})
+
+    events = read_trace(writer.path)
+    assert len(events) == 3
+    assert events[0]["type"] == "tool_start"
+    assert events[1]["type"] == "tool_end"
+    assert events[2]["type"] == "assistant_done"
+
+
+def test_read_trace_skips_blank_lines(tmp_path):
+    from core.trace import read_trace
+    from pathlib import Path
+
+    path = tmp_path / "bad.jsonl"
+    Path(path).write_text('{"type":"tool_start","tool_call_id":"c1","tool_name":"x","args":{}}\n\n{"type":"assistant_done","content":"","termination_reason":"final_answer"}\n', encoding="utf-8")
+
+    events = read_trace(str(path))
+    assert len(events) == 2
+
+
+def test_summarize_trace(tmp_path):
+    from core.trace import TraceWriter, read_trace, summarize_trace
+
+    writer = TraceWriter("sess", str(tmp_path))
+    writer.write({"type": "tool_start", "tool_call_id": "c1", "tool_name": "read_file", "args": {}})
+    writer.write({"type": "tool_end", "tool_call_id": "c1", "tool_name": "read_file", "ok": True, "content": "ok", "elapsed": 0.5})
+    writer.write({"type": "tool_start", "tool_call_id": "c2", "tool_name": "write_file", "args": {}})
+    writer.write({"type": "tool_end", "tool_call_id": "c2", "tool_name": "write_file", "ok": False, "content": "err", "elapsed": 0.1})
+    writer.write({"type": "assistant_done", "content": "done", "termination_reason": "final_answer"})
+
+    events = read_trace(writer.path)
+    s = summarize_trace(events)
+
+    assert s["tool_count"] == 2
+    assert s["tools_ok"] == 1
+    assert s["tools_fail"] == 1
+    assert s["termination_reason"] == "final_answer"
+    assert len(s["tool_details"]) == 2
+    assert s["tool_details"][0]["tool_name"] == "read_file"
+    assert s["tool_details"][0]["ok"] is True
+    assert s["tool_details"][1]["tool_name"] == "write_file"
+    assert s["tool_details"][1]["ok"] is False
+
+
+def test_summarize_trace_max_iter(tmp_path):
+    from core.trace import TraceWriter, read_trace, summarize_trace
+
+    writer = TraceWriter("sess", str(tmp_path))
+    writer.write({"type": "assistant_done", "content": "loop", "termination_reason": "max_iter"})
+
+    events = read_trace(writer.path)
+    s = summarize_trace(events)
+
+    assert s["tool_count"] == 0
+    assert s["termination_reason"] == "max_iter"
+
+
+def test_summarize_trace_error(tmp_path):
+    from core.trace import TraceWriter, read_trace, summarize_trace
+
+    writer = TraceWriter("sess", str(tmp_path))
+    writer.write({"type": "error", "error": "connection timeout"})
+
+    events = read_trace(writer.path)
+    s = summarize_trace(events)
+
+    assert s["tool_count"] == 1
+    assert s["tools_fail"] == 1
+    assert s["tool_details"][0]["tool_name"] == "(error)"

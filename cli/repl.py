@@ -63,7 +63,7 @@ _B_RED = "\033[31m"
 _B_DIM = "\033[2m"
 _B_RESET = "\033[0m"
 
-ALL_COMMANDS = ["help", "status", "cwd", "tools", "skill", "kb", "quiz", "learning", "memory", "wiki", "mcp", "ui", "model", "specialists", "exit", "quit", "session"]
+ALL_COMMANDS = ["help", "status", "cwd", "tools", "skill", "kb", "quiz", "learning", "memory", "wiki", "mcp", "ui", "model", "specialists", "trace", "exit", "quit", "session"]
 
 COMMAND_HINTS = [
     ("/help", "显示命令帮助"),
@@ -114,6 +114,8 @@ COMMAND_HINTS = [
     ("/session save ", "保存会话（可选命名）"),
     ("/session resume", "选择会话恢复"),
     ("/session load ", "加载会话（ID/名称）"),
+    ("/trace", "最近 agent run 记录"),
+    ("/trace last", "最近一次 run 详情"),
     ("/exit", "退出"),
 ]
 
@@ -448,6 +450,10 @@ class REPL:
 
         if cmd == "specialists":
             self.handle_specialists_command(cmd_line[len("specialists"):].strip())
+            return
+
+        if cmd == "trace":
+            self.handle_trace_command(cmd_line[len("trace"):].strip())
             return
 
         print(f"  \033[1;38;5;208mUnknown command: {cmd}\033[0m")
@@ -1133,6 +1139,11 @@ class REPL:
         print("  \033[1;38;5;210m  /model\033[0m              当前激活的 provider / 模型")
         print("  \033[1;38;5;210m  /model list\033[0m         列出所有可用的 provider")
         print("  \033[1;38;5;210m  /model use <name>\033[0m   切换到指定 provider（不写入 config.yaml）")
+        print()
+        print("  \033[1;37mTrace:\033[0m")
+        print("  \033[1;38;5;210m  /trace\033[0m              最近 agent run 记录")
+        print("  \033[1;38;5;210m  /trace last\033[0m         最近一次 run 详情")
+        print("  \033[1;38;5;210m  /trace <n>\033[0m           第 n 次 run 详情")
         print()
         print("  \033[1;37mAgent 工具:\033[0m")
         schemas = get_tools_schema()
@@ -2009,6 +2020,83 @@ class REPL:
         if not cfg.allow_mcp:
             print("  \033[90mNote: MCP tools excluded (allow_mcp=false).\033[0m")
         print()
+
+    # --- Trace commands ---
+
+    def handle_trace_command(self, cmd: str):
+        """Dispatch /trace [last|<n>]."""
+        from core.trace import list_traces, read_trace, summarize_trace
+
+        parts = cmd.strip().split()
+        traces = list_traces(self.session.workspace_root, limit=10)
+
+        if not traces:
+            print_notice("No trace files found. Traces are written to .bobodan/traces/")
+            return
+
+        # /trace — list recent runs
+        if not parts:
+            print()
+            print("  \033[1;37mRecent agent runs:\033[0m")
+            for i, t in enumerate(traces):
+                events = read_trace(t["path"])
+                summary = summarize_trace(events)
+                term = summary["termination_reason"] or "?"
+                tools = summary["tool_count"]
+                dur = summary["duration"]
+                ok_icon = "\033[32m✓\033[0m" if term == "final_answer" else "\033[31m✗\033[0m"
+                ts_short = t["started_at"][:16].replace("T", " ")
+                print(
+                    f"  {ok_icon} [{i + 1}] {ts_short}  "
+                    f"{tools} tools  {dur:.1f}s  \033[2m{term}\033[0m  "
+                    f"\033[2m({t['session_id']})\033[0m"
+                )
+            print()
+            print("  \033[90m/trace last — show details of most recent run\033[0m")
+            print("  \033[90m/trace <n>  — show details of run #n\033[0m")
+            print()
+            return
+
+        # /trace last or /trace <n>
+        target = parts[0]
+        if target == "last":
+            idx = 0
+        elif target.isdigit():
+            idx = int(target) - 1
+        else:
+            print_error(f"Usage: /trace [last|<n>]")
+            return
+
+        if idx < 0 or idx >= len(traces):
+            print_error(f"Run #{idx + 1} not found. Have {len(traces)} traces.")
+            return
+
+        t = traces[idx]
+        events = read_trace(t["path"])
+        summary = summarize_trace(events)
+
+        print()
+        print(f"  \033[1;37mTrace: {os.path.basename(t['path'])}\033[0m")
+        print(f"  session:  {t['session_id']}")
+        print(f"  started:  {t['started_at'][:19].replace('T', ' ')}")
+        print(f"  duration: {summary['duration']:.1f}s")
+        print(f"  tools:    {summary['tool_count']} ({summary['tools_ok']} ok, {summary['tools_fail']} fail)")
+        print(f"  ended:    {summary['termination_reason']}")
+        print()
+
+        if summary["tool_details"]:
+            print("  \033[1;37mTool timeline:\033[0m")
+            for td in summary["tool_details"]:
+                icon = "\033[32m✓\033[0m" if td["ok"] else "\033[31m✗\033[0m"
+                elapsed = f"{td['elapsed']:.2f}s"
+                name = td["tool_name"]
+                extra = ""
+                if td.get("result_summary"):
+                    extra = f" \033[2m{td['result_summary']}\033[0m"
+                elif not td["ok"] and td.get("result_summary"):
+                    extra = f" \033[31m{td['result_summary']}\033[0m"
+                print(f"    {icon} {name:<28} {elapsed:>8}{extra}")
+            print()
 
     def normalize_session_id(self, session_id: str) -> str:
         return session_id[:-5] if session_id.endswith(".json") else session_id

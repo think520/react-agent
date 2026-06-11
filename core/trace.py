@@ -109,3 +109,135 @@ class TraceWriter:
                     f.write(line + "\n")
             except OSError:
                 logger.warning("[TraceWriter] failed to write trace event")
+
+
+# --- Trace reading ---
+
+def list_traces(workspace: str, limit: int = 10) -> list[dict]:
+    """List recent trace files, newest first.
+
+    Returns list of {path, session_id, started_at, file_size} dicts.
+    """
+    trace_dir = os.path.join(workspace, ".bobodan", "traces")
+    if not os.path.isdir(trace_dir):
+        return []
+
+    entries = []
+    for name in os.listdir(trace_dir):
+        if not name.endswith(".jsonl"):
+            continue
+        full = os.path.join(trace_dir, name)
+        try:
+            stat = os.stat(full)
+        except OSError:
+            continue
+        # Filename format: {session_id}_{timestamp}.jsonl
+        # Timestamp is like 20260611T123456Z
+        stem = name[:-6]  # strip .jsonl
+        parts = stem.split("_", 1)
+        session_id = parts[0] if parts else stem
+        ts_str = parts[1] if len(parts) > 1 else ""
+        # Parse timestamp from filename for reliable ordering
+        started_at = ""
+        if ts_str and len(ts_str) >= 15:
+            try:
+                dt = datetime.strptime(ts_str, "%Y%m%dT%H%M%SZ")
+                started_at = dt.replace(tzinfo=timezone.utc).isoformat()
+            except ValueError:
+                started_at = ""
+        if not started_at:
+            started_at = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat()
+        entries.append({
+            "path": full,
+            "session_id": session_id,
+            "started_at": started_at,
+            "file_size": stat.st_size,
+        })
+
+    entries.sort(key=lambda e: e["started_at"], reverse=True)
+    return entries[:limit]
+
+
+def read_trace(path: str) -> list[dict]:
+    """Parse a JSONL trace file into a list of event dicts."""
+    events = []
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                events.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    return events
+
+
+def summarize_trace(events: list[dict]) -> dict:
+    """Compute summary stats from a list of trace events.
+
+    Returns {tool_count, tools_ok, tools_fail, duration, termination_reason,
+             first_ts, last_ts, tool_details}.
+    """
+    tool_starts: dict[str, dict] = {}  # tool_call_id -> start event
+    tool_details: list[dict] = []
+    termination_reason = ""
+    first_ts = ""
+    last_ts = ""
+
+    for ev in events:
+        ev_type = ev.get("type", "")
+        ts = ev.get("ts", "")
+        if ts:
+            if not first_ts:
+                first_ts = ts
+            last_ts = ts
+
+        if ev_type == "tool_start":
+            tcid = ev.get("tool_call_id", "")
+            tool_starts[tcid] = ev
+
+        elif ev_type == "tool_end":
+            tcid = ev.get("tool_call_id", "")
+            start = tool_starts.pop(tcid, None)
+            tool_details.append({
+                "tool_name": ev.get("tool_name", "?"),
+                "ok": ev.get("ok", False),
+                "elapsed": ev.get("elapsed", 0.0),
+                "result_summary": ev.get("result_summary"),
+            })
+
+        elif ev_type == "assistant_done":
+            termination_reason = ev.get("termination_reason", "")
+
+        elif ev_type == "error":
+            tool_details.append({
+                "tool_name": "(error)",
+                "ok": False,
+                "elapsed": 0.0,
+                "result_summary": ev.get("error", ""),
+            })
+
+    tools_ok = sum(1 for t in tool_details if t["ok"])
+    tools_fail = sum(1 for t in tool_details if not t["ok"])
+
+    # Compute wall-clock duration from first to last timestamp
+    duration = 0.0
+    if first_ts and last_ts:
+        try:
+            t0 = datetime.fromisoformat(first_ts)
+            t1 = datetime.fromisoformat(last_ts)
+            duration = (t1 - t0).total_seconds()
+        except (ValueError, TypeError):
+            pass
+
+    return {
+        "tool_count": len(tool_details),
+        "tools_ok": tools_ok,
+        "tools_fail": tools_fail,
+        "duration": round(duration, 1),
+        "termination_reason": termination_reason,
+        "first_ts": first_ts,
+        "last_ts": last_ts,
+        "tool_details": tool_details,
+    }
