@@ -7,6 +7,12 @@
 ## [未发布]
 
 ### 新增
+- **P1 Obsidian 写回**: 学习计划和做题总结可导出为 Obsidian Markdown，兑现 README 承诺。
+  - `tools/obsidian_export.py`（新）: `obsidian_export_plan` 从 LearningStore 读取计划，生成 YAML frontmatter + 按天 checkbox 任务 + `[[双链]]` 知识点引用的 Markdown，写入 `{vault}/学习计划/{title}.md`；`obsidian_export_quiz_summary` 从 QuizStore 读取错题和薄弱点分析，生成按概念分组错题本 + 薄弱点表格 + 掌握度概览的 Markdown，写入 `{vault}/做题总结/{date}.md`。
+  - 路径安全检查：`_is_within_workspace` 防止写入 workspace 外路径。
+  - `tests/test_obsidian_export.py`（新）: 16 个测试覆盖文件生成、frontmatter、checkbox、wikilink、错题分组、薄弱点表格、掌握度概览、空数据、路径越界、plan 不存在。
+  - 716 测试全通过。
+
 - **P0 学习闭环补全**: quiz_submit 自动写每日记忆 + 更新掌握度 + session 完成汇总，做题→记忆→掌握度链路真正跑通。
   - `learning/quiz_integration.py`（新）: `record_quiz_learning_effect` 做题后自动写每日记忆（tags: quiz + 概念）并更新掌握度；`record_quiz_session_summary` 全部答完后写汇总记忆并标记 session 完成。
   - `tools/quiz_tools.py`: `quiz_submit` 在 `store.record_attempt()` 后调用集成函数，失败只 warning 不阻塞返回。返回 data 新增 `session_completed` 字段。

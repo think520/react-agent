@@ -10,6 +10,7 @@ from .knowledge_status import knowledge_status
 from .quiz_tools import question_generate, quiz_start, quiz_submit
 from .learning_tools import learning_path, learning_progress, learning_review
 from .wiki_tools import wiki_ingest, wiki_lint
+from .obsidian_export import obsidian_export_plan, obsidian_export_quiz_summary
 
 __all__ = ["TOOL_REGISTRY", "get_tools_schema", "execute_tool", "ToolResult",
            "read_file", "write_file", "list_dir", "change_dir", "stat_path",
@@ -17,4 +18,5 @@ __all__ = ["TOOL_REGISTRY", "get_tools_schema", "execute_tool", "ToolResult",
            "memory_save", "memory_recall", "memory_daily_save", "memory_daily_read", "memory_promote",
            "knowledge_status", "question_generate", "quiz_start", "quiz_submit",
            "learning_path", "learning_progress", "learning_review",
-           "wiki_ingest", "wiki_lint"]
+           "wiki_ingest", "wiki_lint",
+           "obsidian_export_plan", "obsidian_export_quiz_summary"]

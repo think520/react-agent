@@ -37,7 +37,7 @@ rag/           # 文档导入、切块、向量索引、检索路由
 graph/         # 知识图谱（本地 JSON + 可选 Neo4j）
 wiki/          # LLM Wiki 编译层
 skills/        # Skills 定义目录
-tests/         # 单元测试（700+）
+tests/         # 单元测试（716+）
 ```
 
 运行时数据（`.gitignore` 已排除）：
@@ -57,6 +57,15 @@ quiz_submit          → 自动批改 + 写记忆 + 更新掌握度
 ```
 
 掌握度规则：连续答对 2 次 → mastered，答错 → needs_review。间隔复习 1/3/7/14 天。
+
+### Obsidian 写回
+
+学习计划和做题总结可导出为 Obsidian Markdown：
+
+- `obsidian_export_plan` — 学习计划导出为 checkbox 任务 + `[[双链]]` 知识点引用
+- `obsidian_export_quiz_summary` — 做题总结导出为错题本 + 薄弱点分析 + 掌握度概览
+
+对话中直接说"把学习计划导出到 Obsidian"即可触发。
 
 ### 知识库
 

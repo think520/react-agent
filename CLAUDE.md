@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview 
 
-波波蛋 (Bobodan) is a Python-based ReAct agent with multiple LLM provider support, session persistence, a skills system, a persistent memory system with daily memory and FTS5 search, a local knowledge base with RAG and knowledge graph, a wiki compilation layer, a quiz system, a learning path system, and a CLI REPL interface. Users chat with the agent which reasons and calls tools (read_file, write_file, list_dir, change_dir, stat_path, memory_save, memory_recall, memory_daily_save, memory_daily_read, memory_promote, knowledge_status, question_generate, quiz_start, quiz_submit, learning_path, learning_progress, learning_review, wiki_ingest, wiki_lint) in a loop until it produces a response.
+波波蛋 (Bobodan) is a Python-based ReAct agent with multiple LLM provider support, session persistence, a skills system, a persistent memory system with daily memory and FTS5 search, a local knowledge base with RAG and knowledge graph, a wiki compilation layer, a quiz system, a learning path system, and a CLI REPL interface. Users chat with the agent which reasons and calls tools (read_file, write_file, list_dir, change_dir, stat_path, memory_save, memory_recall, memory_daily_save, memory_daily_read, memory_promote, knowledge_status, question_generate, quiz_start, quiz_submit, learning_path, learning_progress, learning_review, wiki_ingest, wiki_lint, obsidian_export_plan, obsidian_export_quiz_summary) in a loop until it produces a response.
 
 ## Commands
 
@@ -125,6 +125,7 @@ tools/
   dir_ops.py      # list_dir, change_dir, stat_path tools
   http_req.py     # http_request tool (GET/POST/etc.)
   obsidian_tool.py # obsidian_sync tool (syncs vault to .knowledge/)
+  obsidian_export.py # obsidian_export_plan, obsidian_export_quiz_summary (Obsidian writeback)
   rag_search.py   # rag_search tool (local RAG retrieval)
   graph_query.py  # graph_query tool (knowledge graph relationships)
   memory_tools.py # memory_save, memory_recall, memory_daily_save, memory_daily_read, memory_promote

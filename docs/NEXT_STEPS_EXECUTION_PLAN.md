@@ -2,7 +2,7 @@
 
 > **目的**：把现有 docs 中的多个功能方向收敛成一个执行入口，明确"下一步先做什么、为什么、做到什么算完成"。
 >
-> **当前结论**：**CLI Tool Display UX 已完成**，**P0 学习闭环补全已完成**。下一步做 **P1 Obsidian 写回**——学习计划和做题总结导出为 Obsidian Markdown。
+> **当前结论**：**CLI Tool Display UX 已完成**，**P0 学习闭环补全已完成**，**P1 Obsidian 写回已完成**。下一步做 **P2 Event Trace 轻量版**。
 
 ## 1. 当前状态判断
 
@@ -17,12 +17,12 @@ Bobodan 已经具备完整的功能骨架，但核心学习链路存在断点。
 - MCP client（stdio / SSE / streamable_http）
 - Learning Agent Orchestrator v1：`doc_reader` / `triage` / `planner`
 - CLI Tool Display UX（B-lite 单活动行 UI）
-- 687 个测试，44 个测试文件
+- 716 个测试，45 个测试文件
 
 **核心断点**：
 
 1. ~~**quiz_submit 不写记忆、不更新掌握度**~~ — **已修复 (P0)**
-2. **Obsidian 写回不存在** — README 承诺"学习计划可导出为 Obsidian Markdown"，无任何实现。
+2. ~~**Obsidian 写回不存在**~~ — **已修复 (P1)**：`tools/obsidian_export.py` 提供 `obsidian_export_plan` 和 `obsidian_export_quiz_summary` 两个 Agent 工具。
 3. **Workflow runtime 不存在** — 学习计划只存 SQLite、只返回纯文本，无法执行和跟踪进度。
 4. **Agent loop 无 termination reason** — `assistant_done` 事件无结构化终止原因。
 
@@ -79,15 +79,25 @@ P4. 文档统一
 - 掌握度规则：连续答对 2 次 → mastered，答错 → needs_review
 - 13 个测试覆盖，700 测试全通过
 
-## 6. 当前下一步：P1 Obsidian 写回
+## 5c. 已完成：P1 Obsidian 写回
+
+已落地，包含：
+
+- `tools/obsidian_export.py`：`obsidian_export_plan` + `obsidian_export_quiz_summary`
+- 学习计划导出：YAML frontmatter + 按天拆分 checkbox 任务 + `[[双链]]` 知识点引用
+- 做题总结导出：按概念分组错题本 + 薄弱点分析表格 + 掌握度概览
+- 路径安全检查（workspace 边界）
+- 16 个测试覆盖，716 测试全通过
+
+## 6. 当前下一步：P2 Event Trace 轻量版
 
 ### 目标
 
-让"做题→写记忆→更新掌握度→晋升评分"这条链路真正跑通。
+每次 Agent run 记录关键事件，支持事后查看"做了什么、花了多久、哪步失败"。
 
 ### 为什么最优先
 
-这是学习助手的核心价值闭环。现在用户做 100 道题，记忆系统和掌握度追踪是空的，晋升评分永远是 0。产品承诺的功能实际不工作。
+P0/P1 完成后，用户的学习闭环已经完整。trace 是调试和改进的基础，是后续 Web UI、workflow 可视化的前提。
 
 ### 任务 P0-1：quiz_submit 自动写每日记忆 + 更新掌握度
 
