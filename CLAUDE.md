@@ -158,6 +158,7 @@ learning/         # Learning path and progress tracking
   scheduler.py    # ReviewScheduler: simple spaced repetition (1/3/7/14 days)
   progress.py     # ProgressTracker: mastery overview, auto-infer from quiz
   path.py         # LearningPathGenerator: LLM-based personalized learning plans
+  quiz_integration.py # record_quiz_learning_effect + session_summary (quiz→memory→mastery bridge)
 memory/           # Memory upgrade: daily memory, FTS5 index, promotion
   store.py        # MemoryIndexStore: SQLite + FTS5 full-text search (chunks, recall_log, promotion_log)
   daily.py        # DailyMemoryManager: daily memory files in .bobodan/daily/

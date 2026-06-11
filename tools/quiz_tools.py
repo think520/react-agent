@@ -186,6 +186,31 @@ def quiz_submit(
         )
         store.record_attempt(attempt_record)
 
+        # Record learning effect (daily memory + mastery update)
+        try:
+            from learning.quiz_integration import record_quiz_learning_effect, record_quiz_session_summary
+            record_quiz_learning_effect(
+                workspace=workspace,
+                question_concepts=question.concepts,
+                is_correct=is_correct,
+                feedback=feedback,
+            )
+        except Exception as e:
+            logger.warning("Failed to record quiz learning effect: %s", e)
+
+        # Check session completion
+        session_completed = False
+        try:
+            attempts = store.get_attempts_for_session(session_id)
+            session_completed = record_quiz_session_summary(
+                workspace=workspace,
+                session_id=session_id,
+                question_ids=session.question_ids,
+                attempts=attempts,
+            )
+        except Exception as e:
+            logger.warning("Failed to check session completion: %s", e)
+
         # Format result
         status = "✓ 正确" if is_correct else "✗ 错误"
         lines = [
@@ -202,6 +227,7 @@ def quiz_submit(
                 "is_correct": is_correct,
                 "feedback": feedback,
                 "correct_answer": question.answer,
+                "session_completed": session_completed,
             },
         )
     except Exception as e:

@@ -7,7 +7,7 @@
 | 文档 | 用途 |
 |------|------|
 | [`NEXT_STEPS_EXECUTION_PLAN.md`](NEXT_STEPS_EXECUTION_PLAN.md) | 当前下一步执行顺序。排期和开新分支前先看它 |
-| [`DESIGN.md`](DESIGN.md) | Bobodan Web UI / TUI / 官网的长期视觉设计参考，后续设计默认先看它 |
+| [`DESIGN.md`](DESIGN.md) | Web UI / TUI / 官网的长期视觉设计参考（Natural Editorial Zen），后续 UI 相关工作默认先看它 |
 | [`LOCAL_KNOWLEDGE_LEARNING_AGENT_PLAN.md`](LOCAL_KNOWLEDGE_LEARNING_AGENT_PLAN.md) | Bobodan 作为本地知识学习助手的产品主线 |
 | [`BOBODAN_AGENT_FRAMEWORK_ARCHITECTURE.md`](BOBODAN_AGENT_FRAMEWORK_ARCHITECTURE.md) | 模块边界和架构规则 |
 | [`RAG_KNOWLEDGE_GRAPH_MVP.md`](RAG_KNOWLEDGE_GRAPH_MVP.md) | RAG + 知识图谱当前用法 |
@@ -26,5 +26,7 @@
 
 - 想知道现在做什么：看 `NEXT_STEPS_EXECUTION_PLAN.md`。
 - 想确认模块边界：看 `BOBODAN_AGENT_FRAMEWORK_ARCHITECTURE.md`。
+- 想了解产品方向：看 `LOCAL_KNOWLEDGE_LEARNING_AGENT_PLAN.md`。
+- 想参考 UI 设计：看 `DESIGN.md`。
 - 想使用现有能力：看 `RAG_KNOWLEDGE_GRAPH_MVP.md` 或 `MCP.md`。
 - 想查历史设计：看 `archive/`。

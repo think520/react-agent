@@ -1,508 +1,469 @@
 # Bobodan 下一步执行计划
 
-> **目的**：把现有 docs 中的多个功能方向收敛成一个执行入口，明确“下一步先做什么、为什么、做到什么算完成”。
+> **目的**：把现有 docs 中的多个功能方向收敛成一个执行入口，明确"下一步先做什么、为什么、做到什么算完成"。
 >
-> **当前结论**：**CLI Tool Display UX（P0）已完成**。下一步做 **Termination reason + Event trace（P1）**。不要先做 Web UI、完整 TUI、Plan mode、递归 specialist 或新的大型学习功能。
+> **当前结论**：**CLI Tool Display UX 已完成**，**P0 学习闭环补全已完成**。下一步做 **P1 Obsidian 写回**——学习计划和做题总结导出为 Obsidian Markdown。
 
 ## 1. 当前状态判断
 
-Bobodan 现在已经不是“缺功能”的阶段，而是进入了“需要稳定 runtime 和执行体验”的阶段。
+Bobodan 已经具备完整的功能骨架，但核心学习链路存在断点。
 
 已具备：
 
-- ReAct AgentLoop
-- 多 Provider
-- tools / skills / memory
-- RAG + 知识图谱
-- quiz / learning
-- MCP client
+- ReAct AgentLoop + 多 Provider
+- tools / skills / memory（永久 + 每日 + FTS5 + 晋升）
+- RAG + 知识图谱 + Ollama embedding
+- quiz / learning / review / mastery
+- MCP client（stdio / SSE / streamable_http）
 - Learning Agent Orchestrator v1：`doc_reader` / `triage` / `planner`
-- `/specialists` inspection 命令
+- CLI Tool Display UX（B-lite 单活动行 UI）
+- 687 个测试，44 个测试文件
 
-当前主要问题：
+**核心断点**：
 
-- Agent run 没有统一 termination reason。
-- 没有可回放 event trace。
-- 工具风险等级和 approval gate 还没落地。
-- 多个 docs 都在提后续功能，但没有一个明确执行顺序。
+1. ~~**quiz_submit 不写记忆、不更新掌握度**~~ — **已修复 (P0)**
+2. **Obsidian 写回不存在** — README 承诺"学习计划可导出为 Obsidian Markdown"，无任何实现。
+3. **Workflow runtime 不存在** — 学习计划只存 SQLite、只返回纯文本，无法执行和跟踪进度。
+4. **Agent loop 无 termination reason** — `assistant_done` 事件无结构化终止原因。
 
 ## 2. 文档定位
 
-| 文档 | 当前用途 | 执行判断 |
-|------|----------|----------|
-| `docs/NEXT_STEPS_EXECUTION_PLAN.md` | 当前执行入口 | **以后先看这个** |
-| `docs/archive/agents_design.md` | Learning Agent Orchestrator v1 边界 | 已实现，后续只按 v2 扩展点增量推进 |
-| `docs/archive/AGENT_HARNESS_IMPROVEMENT_PLAN.md` | runtime 可观测性、安全、plan mode 路线 | 历史详细设计；当前执行顺序以本文为准 |
-| `docs/BOBODAN_AGENT_FRAMEWORK_ARCHITECTURE.md` | 模块边界规范 | 长期有效 |
-| `docs/LOCAL_KNOWLEDGE_LEARNING_AGENT_PLAN.md` | 学习助手主线愿景 | 作为产品方向，不直接当下一步任务 |
-| `docs/RAG_KNOWLEDGE_GRAPH_MVP.md` | 当前 RAG + 图谱使用说明 | 保留为使用文档 |
-| `docs/archive/OLLAMA_RAG_EMBEDDING_PLAN.md` | Ollama embedding 接入方案 | 已实现，不再作为下一步 |
-| `docs/MCP.md` / `docs/archive/mcp_design.md` | MCP 使用与设计 | MCP 方向暂不继续扩展 |
+| 文档 | 用途 |
+|------|------|
+| `docs/NEXT_STEPS_EXECUTION_PLAN.md` | **当前执行入口**（本文件） |
+| `docs/DESIGN.md` | 长期视觉设计参考（Web UI / TUI / 官网） |
+| `docs/BOBODAN_AGENT_FRAMEWORK_ARCHITECTURE.md` | 模块边界规范 |
+| `docs/LOCAL_KNOWLEDGE_LEARNING_AGENT_PLAN.md` | 学习助手主线愿景 |
+| `docs/RAG_KNOWLEDGE_GRAPH_MVP.md` | RAG + 图谱使用文档 |
+| `docs/MCP.md` | MCP 使用文档 |
+| `docs/archive/*` | 历史设计文档，仅供参考 |
 
-## 3. 参考 OpenSquilla 后的判断
+## 3. 设计原则
 
-OpenSquilla 的 CLI/TUI 值得借鉴，但不能整体照搬。
-
-可吸收：
-
-- thinking 动词轮换和 elapsed time
-- tool args 摘要
-- 连续同名 tool call 合并
-- tool error 显示工具名
-- 大块 paste 折叠
-- renderer adapter 作为未来多 UI 入口的参考
-
-暂不吸收：
-
-- long-lived prompt-toolkit Application
-- 完整 TerminalRenderer 抽象
-- Web UI / chat channel 共用 turn loop
-- token/cost footer，除非 provider usage 数据已统一
-
-原因：
-
-- Bobodan 当前 REPL 已经有 streaming/typewriter/thinking/specialist event，先做显示层小改收益最高。
-- 完整 TUI 会牵扯输入循环、取消语义、output lock、approval surface，应该等 event trace / approval gate 之后再考虑。
+1. **学习闭环完整性是第一优先级** — 做题→记忆→掌握度→复习的链路断了，其他都是空的。
+2. **兑现已有承诺** — README 和 CHANGELOG 白纸黑字写了 Obsidian 写回和 quiz 自动写记忆，不做就是产品债。
+3. **Workflow 是产品核心** — 学习计划的"执行"和"跟踪"需要 workflow，不是 runtime 优化。
+4. **Event trace / approval gate / prompt cache / plan mode** 低于学习闭环优先级；其中 Event Trace 是后续 Web UI、调试和 workflow 可视化的基础，保留为 P2 轻量版。
 
 ## 4. 总优先级
 
 ```text
-P0. CLI Tool Display UX（已完成）
+P0. 学习闭环补全（当前下一步）
     ↓
-P1. Termination reason + Event trace（当前下一步）
+P1. Obsidian 写回
     ↓
-P2. Tool risk class + Approval gate
+P2. Event Trace 轻量版
     ↓
-P3. Prompt cache / usage plumbing / footer
+P3. Workflow Runtime 最小版
     ↓
-P4. Plan mode
-    ↓
-P5. Workflow runtime / Web UI / full TUI
+P4. 文档统一
 ```
 
-核心理由：
+## 5. 已完成：CLI Tool Display UX
 
-- P0 已经直接改善 specialist 工具调用显示，作为后续 trace UI 的显示样板。
-- P1 是后续 approval、plan mode、cost footer、debug 的基础。
-- P2 需要 P1 的事件面，否则 CLI 审批会继续堆在 `repl.py` 里。
-- P4 依赖 P1/P2，否则 plan mode 只是“更复杂的 ReAct”，不可控。
+已落地，包含：
 
-## 5. 已完成：P0 CLI Tool Display UX
+- B-lite 单活动行 UI：thinking line 和 tool spinner 只占用当前 active line
+- 工具参数摘要：高频工具走专门摘要，其他走短 JSON fallback
+- 连续同名 tool call 合并：1-2 次正常，第 3 次显示 `×3`，4+ 静默计数
+- specialist 内部 tool events 和主 agent tool events 分 visual scope
+- thinking 动词轮换：`Thinking` / `Checking` / `Working` / `Drafting` / `Polishing`
 
-### 当前状态
+## 5b. 已完成：P0 学习闭环补全
 
-P0 已落地到 `codex/cli-tool-display-ux` 分支：
+已落地，包含：
 
-- B-lite single-active-line UI：thinking line 和 tool spinner 只占用当前 active line。
-- 工具参数摘要：高频工具走专门摘要，其他内置工具和 MCP 工具走短 JSON fallback。
-- 连续同名 tool call 合并：第 1-2 次正常显示，第 3 次显示 `×3`，4+ 静默计数，flush 时显示 `×N total`。
-- specialist 内部 tool events 和主 agent tool events 分 visual scope。
-- `/ui tools off` 保留错误行，隐藏成功 tool 噪音。
-- `tool_end` event 增加 `elapsed` 和可选 `result_summary`。
-- 轻量状态行收尾：`Thinking` / `Checking` / `Working` / `Drafting` / `Polishing` 按 Bobodan 设计语言分色，spinner 和 elapsed 保持稳定低噪音显示。
+- `learning/quiz_integration.py`：`record_quiz_learning_effect` + `record_quiz_session_summary`
+- `quiz_submit` 每次提交自动写每日记忆 + 更新掌握度
+- 全部答完自动写汇总记忆 + 标记 session 完成
+- 掌握度规则：连续答对 2 次 → mastered，答错 → needs_review
+- 13 个测试覆盖，700 测试全通过
 
-### 已修复的 P0 细节
-
-- coalesce summary 使用 wall-clock，不再把 per-tool elapsed 当 absolute timestamp。
-- `delegate_*` 外层成功记在父 scope，不污染 specialist 内部工具统计。
-- specialist 内部 display events 透传 `elapsed` / `result_summary`。
-- thinking line spinner 和 tool spinner 都按 tick 切帧。
-- assistant 正文开始后清掉 thinking active line，不把状态行写入正文 scrollback；partial preview 做小段节流，减少当前行频繁重写的视觉疲劳。
+## 6. 当前下一步：P1 Obsidian 写回
 
 ### 目标
 
-让 Bobodan 的工具调用显示更清晰，尤其是 specialist 内部 tool event 较多时不刷屏、不丢关键信息。
+让"做题→写记忆→更新掌握度→晋升评分"这条链路真正跑通。
 
-### 不改变的行为
+### 为什么最优先
 
-- 不改变 AgentLoop 语义。
-- 不改变 ToolResult。
-- 不改变 session 写入规则。
-- 不改变 specialist 的隔离边界。
-- 不新增完整 renderer 抽象。
+这是学习助手的核心价值闭环。现在用户做 100 道题，记忆系统和掌握度追踪是空的，晋升评分永远是 0。产品承诺的功能实际不工作。
 
-### 建议文件
+### 任务 P0-1：quiz_submit 自动写每日记忆 + 更新掌握度
 
-| 文件 | 操作 |
-|------|------|
-| `cli/repl.py` | 最小改动：thinking 文案、tool display、specialist event display |
-| `tests/test_repl.py` 或新增 `tests/test_repl_display.py` | 测格式化函数 |
-| `README.md` | 如输出形态变化明显，补一句说明 |
-| `CHANGELOG.md` | 记录 CLI UX 改进 |
+**新增文件**：`learning/quiz_integration.py`
 
-### 具体任务
+**修改文件**：`tools/quiz_tools.py`
 
-1. 新增工具参数摘要函数
+**当前断点**：`tools/quiz_tools.py` 第 187 行 `store.record_attempt(attempt_record)` 之后，直接跳到格式化返回。既不写每日记忆，也不更新掌握度。
 
-   建议接口：
+**设计**：业务逻辑不直接写在 tool 里，抽到 `learning/quiz_integration.py` 以便 CLI、Web API、workflow runtime 都能复用。
 
-   ```python
-   def _summarize_tool_args(self, tool_name: str, args: dict, limit: int = 60) -> str:
-       ...
-   ```
+`learning/quiz_integration.py` 新增函数：
 
-   行为：
+```python
+def record_quiz_learning_effect(
+    workspace: str,
+    question_concepts: list[str],
+    is_correct: bool,
+    feedback: str,
+) -> list[Mastery]:
+    """做题后自动写每日记忆 + 更新掌握度。
 
-   | tool | 显示 |
-   |------|------|
-   | `read_file` / `write_file` / `list_dir` | path 尾部 |
-   | `rag_search` / `graph_query` | query / concept |
-   | `delegate_doc_reader` | `source_paths` 尾部 + goal 摘要 |
-   | `delegate_triage` | query 摘要 |
-   | `delegate_planner` | goal 摘要 |
-   | MCP tool | 保留短 JSON，最多 60 字符 |
+    1. 写入 daily memory（tags: quiz + concepts）
+    2. 调用 ProgressTracker.update_from_quiz 更新掌握度
+    3. 返回更新后的 mastery 列表
+    """
+```
 
-2. 调整 tool start 显示
+`tools/quiz_tools.py` 改动：在 `store.record_attempt()` 之后调用 `record_quiz_learning_effect(workspace, question.concepts, is_correct, feedback)`。
 
-   当前形态：
+**验收标准**：
 
-   ```text
-   ▸ read_file({"path":"F:\\...long..."})
-   ```
+- 做题后 `.bobodan/daily/` 下出现当日记忆文件，包含做题记录
+- 做题后 `ProgressTracker.get_overview()` 返回非空掌握度数据
+- 连续答对 2 次同一概念，掌握度变为 `mastered`
+- 答错后掌握度变为 `needs_review`
+- `record_quiz_learning_effect` 可独立调用，不依赖 Agent tool 上下文
+- 现有 687 个测试全部通过
 
-   目标形态：
+**工作量**：0.5 天
 
-   ```text
-   ▸ read_file ...\docs\NEXT_STEPS_EXECUTION_PLAN.md
-   ▸ rag_search transformer attention
-   ▸ delegate_doc_reader ...\NEXT_STEPS_EXECUTION_PLAN.md
-   ```
+**提交建议**：`feat(quiz): auto-write daily memory and update mastery on submit`
 
-3. 连续同名 tool call 合并
+### 任务 P0-2：批量做题汇总写入每日记忆
 
-   只在显示层合并，不影响真实事件。
+**修改文件**：`tools/quiz_tools.py`、`learning/quiz_integration.py`
 
-   规则：
+**依赖**：P0-1
 
-   ```text
-   第 1 次：正常显示
-   第 2 次：正常显示
-   第 3 次：显示 read_file ×3
-   第 4 次以后：静默计数
-   tool name 变化或 turn 结束：如 count > 3，显示 read_file ×8 total 3.4s
-   ```
+**具体改动**：在 `quiz_submit` 中检测 session 是否所有题目都已作答：
 
-   注意：
+```python
+attempts = store.get_attempts_for_session(session_id)
+answered_ids = {a.question_id for a in attempts}
+completed = set(session.question_ids).issubset(answered_ids)
+```
 
-   - 未来 event trace 必须记录所有真实 tool events。
-   - 合并只影响 REPL 输出。
-
-4. 错误显示带工具名
-
-   当前 specialist 内部错误可能只显示内容摘要。
-
-   目标：
-
-   ```text
-   ✗ read_file: File not found: docs\missing.md
-   ```
-
-5. thinking 动效改为动词轮换
-
-   建议词表：
-
-   ```python
-   THINK_VERBS = ["thinking", "reading", "searching", "planning", "summarizing"]
-   ```
-
-   规则：
-
-   - spinner frame 仍然 0.1s 切换。
-   - verb 每 2.5s 切换。
-   - 可以显示 elapsed time。
-   - 暂时不要写 `Ctrl+C cancels`，除非真正实现取消语义。
-
-### 验收标准
-
-手动验证：
+如果 `completed`，追加汇总记忆并调用 `store.complete_session(session_id)`：
 
 ```text
-请阅读 docs\NEXT_STEPS_EXECUTION_PLAN.md 并总结当前下一步。
+练习完成: {session_id}，共 {n} 题，正确 {m} 题，正确率 {rate}
+薄弱点: {weak_concepts}
 ```
 
-预期：
+**注意**：`QuizSession` 没有 `current_index` 字段，必须通过 `get_attempts_for_session` 反推已答题数。
 
-```text
-▸ delegate_doc_reader ...\docs\NEXT_STEPS_EXECUTION_PLAN.md
-  ◐ doc_reader_specialist running...
-    ▸ read_file ...\docs\NEXT_STEPS_EXECUTION_PLAN.md
-    ✓ ...
-```
+**验收标准**：一轮 5 题练习结束后，每日记忆中有逐题记录和一条汇总，session 状态变为 completed。
 
-连续 tool 场景预期：
+**工作量**：0.5 天
 
-```text
-▸ read_file ...\chapter1.md
-▸ read_file ...\chapter2.md
-▸ read_file ×3
-▸ read_file ×8 total 3.4s
-```
+**提交建议**：`feat(quiz): add session summary to daily memory`
 
-最终测试：
-
-```powershell
-.venv\Scripts\python.exe -m pytest tests/test_repl_display.py tests/test_repl.py tests/test_agents_repl.py tests/test_agent_loop.py tests/test_agents_runner.py
-```
-
-提交建议：
-
-```text
-fix(cli): improve tool call display
-```
-
-## 6. 当前下一步：P1 Termination reason + Event trace
+## 7. P1：Obsidian 写回
 
 ### 目标
 
-让每次 Agent run 都能回答：
+学习计划、做题总结、薄弱点分析可导出为 Obsidian Markdown 文件。
 
-- 为什么结束？
-- 跑了几轮？
-- 调了哪些工具？
-- 哪一步失败？
-- 后续能否回放？
+### 为什么第二优先
 
-### 依赖
+README 已经承诺了这个功能。Obsidian 是学习者的核心工具，写回能力让 Bobodan 真正融入学习工作流。
 
-- P0 已完成，显示层已经有可复用的 tool event 表达。
-- P1 完成后，P0 的显示事件应该尽量复用 trace event schema。
+### 任务 P1-1：学习计划导出为 Obsidian Markdown
 
-### 建议文件
+**新增文件**：`tools/obsidian_export.py`
 
-| 文件 | 操作 |
-|------|------|
-| `core/agent_loop.py` | 输出 termination reason 和标准事件 |
-| `core/trace.py` | 新增 trace writer / event schema |
-| `tools/trace_view.py` | 新增 trace 回放工具 |
-| `cli/repl.py` | turn 结束显示 termination reason |
-| `tests/test_termination_reason.py` | 新增 |
-| `tests/test_event_trace.py` | 新增 |
+**具体改动**：
 
-### 最小事件类型
+1. 新增 `obsidian_export_plan(plan_id, vault_path, session)` 工具函数：
+   - 从 `LearningStore` 读取 `LearningPlan`
+   - 生成 Obsidian 格式 Markdown：YAML frontmatter + 按天拆分的 checkbox 任务列表 + `[[双链]]` 知识点引用
+   - 写入 `{vault_path}/学习计划/{plan.title}.md`
+   - 路径安全检查参照 `tools/obsidian_tool.py` 的 `_is_within_workspace`
 
-```text
-turn_start
-assistant_delta
-tool_start
-tool_end
-specialist_event
-assistant_done
-turn_end
-error
-```
+2. 注册为 Agent 工具 `obsidian_export_plan`
 
-### termination reason
+**验收标准**：
 
-```text
-final_answer
-max_iter
-timeout
-error
-cancelled
-```
+- 生成的 Markdown 有正确的 frontmatter
+- 知识点用 `[[concept]]` 双链格式
+- 任务用 checkbox 格式，可在 Obsidian 中勾选
+- 文件写入路径在 workspace 内
+- 现有测试通过
 
-### 验收标准
+**工作量**：1 天
 
-- 每个 turn 结束都有 `termination_reason`。
-- `.bobodan/traces/` 下生成 jsonl。
-- trace 不写 secrets。
-- trace 能包含 specialist display events，但不改变 parent session。
-- 单元测试覆盖 final / max_iter / timeout / error。
+**提交建议**：`feat(export): learning plan to Obsidian markdown`
 
-提交建议：
+### 任务 P1-2：做题总结导出
 
-```text
-feat(agent): add termination reason and event trace
-```
+**修改文件**：`tools/obsidian_export.py`（同 P1-1）
 
-## 7. P2：Tool risk class + Approval gate
+**具体改动**：新增 `obsidian_export_quiz_summary(course, vault_path, session)` 工具函数：
+
+- 从 `QuizStore` 读取做题记录和薄弱点分析
+- 生成包含错题本（按知识点分组）+ 薄弱点分析（错误率排序）+ 掌握度概览的 Markdown
+- 写入 `{vault_path}/做题总结/{date}.md`
+
+**验收标准**：按知识点分组的错题本、错误率统计、正确的 frontmatter。
+
+**工作量**：0.5 天
+
+**提交建议**：`feat(export): quiz summary to Obsidian markdown`
+
+## 8. P2：Event Trace 轻量版
 
 ### 目标
 
-高风险工具执行前必须用户确认。
+每次 Agent run 记录关键事件，支持事后查看"做了什么、花了多久、哪步失败"。
 
-### 为什么不能先做
+### 为什么排第三
 
-approval gate 需要稳定的事件面，否则 REPL 交互会变成特殊分支堆叠。
+trace 是调试和改进的基础，但不影响核心学习功能。做好 P0/P1 后，用户的学习闭环已经完整，trace 是锦上添花。
 
-### 建议 risk class
+### 任务 P2-1：结构化 termination reason
 
-```text
-read
-draft
-write
-external
-destructive
-privileged
-```
+**修改文件**：`core/agent_loop.py`
 
-### 初始策略
+**当前断点**：第 204 行和第 210 行的 `assistant_done` 事件无 `termination_reason` 字段。
 
-| 工具 | 风险 |
-|------|------|
-| `read_file` / `list_dir` / `rag_search` / `graph_query` | `read` |
-| `write_file overwrite=false` | `write` |
-| `write_file overwrite=true` | `destructive` |
-| `http_request GET` | `read` 或 `external`，按配置决定 |
-| `http_request POST/PUT/DELETE` | `external` |
-| `memory_forget` | `destructive` |
+**具体改动**：在 `assistant_done` 事件中增加 `termination_reason` 字段：
 
-### 验收标准
+- 正常回答（第 204 行）：`final_answer`
+- 达到 max_iterations（第 210 行）：`max_iter`
+- 异常：`error`
 
-- 风险等级进入 tool registry。
-- REPL 收到 approval request 事件并询问用户。
-- 用户拒绝后，LLM 收到拒绝原因。
-- 拒绝不写入危险操作。
+**验收标准**：
 
-提交建议：
+- 每个 `assistant_done` 事件都有 `termination_reason` 字段
+- 单元测试覆盖 `final_answer`、`max_iter`、`error` 三种情况
 
-```text
-feat(tools): add risk class and approval gate
-```
+**工作量**：0.5 天
 
-## 8. P3：Prompt cache / Usage plumbing / Footer
+**提交建议**：`feat(agent): add structured termination reason`
 
-### 目标
+### 任务 P2-2：JSONL trace 写入
 
-为成本透明和 prompt cache 优化打基础。
+**新增文件**：`core/trace.py`
 
-### 为什么排在 P2 后
+**修改文件**：`core/agent_loop.py`（可选注入 trace writer）
 
-footer 需要稳定 usage 数据；prompt cache 需要 provider 返回 usage 或 cache fields，否则只能做“看起来像优化”的改动。
+**具体改动**：
 
-### 范围
+1. `core/trace.py`：`TraceWriter` 类
+   - 写入 `.bobodan/traces/{session_id}_{timestamp}.jsonl`
+   - 每个事件一行 JSON
+   - 不写 secrets（过滤 api_key 等字段）
+   - 只写 tool_start / tool_end / assistant_done / error（不写 assistant_delta 的逐 token 流）
 
-- provider 统一 usage 字段
-- system prompt 稳定前缀整理
-- turn footer 显示 model / elapsed / tokens / cached / cost
+2. `core/agent_loop.py`：构造函数增加可选 `trace_writer` 参数，有则同时写入 trace
 
-### 验收标准
+3. `cli/repl.py`：启动时创建 TraceWriter，注入 AgentLoop
 
-- provider response 有统一 usage 结构。
-- 没有 usage 的 provider 不显示假数据。
-- footer 在 80-100 列中文终端不明显换行。
+**验收标准**：
 
-提交建议：
+- `.bobodan/traces/` 下生成 jsonl 文件
+- 每行是合法 JSON
+- 不包含 api_key 等敏感信息
+- 不注入 trace_writer 时行为不变
 
-```text
-feat(runtime): add usage summary plumbing
-```
+**工作量**：1 天
 
-## 9. P4：Plan mode
+**提交建议**：`feat(agent): add JSONL trace writer`
+
+## 9. P3：Workflow Runtime 最小版
 
 ### 目标
 
-复杂任务先生成计划，用户确认后执行。
+学习计划不只是"看一下"，而是可以"执行"——按天推进、跟踪完成状态、到期提醒。
 
-### 为什么不能提前做
+### 为什么排第四
 
-Plan mode 会放大两个问题：
+这是产品核心差异化功能。没有 workflow，学习计划只是一段文本；有了 workflow，Bobodan 才是真正的"学习助手"而不是"学习文档生成器"。
 
-- 没 trace：不知道执行到哪一步。
-- 没 approval：高风险步骤无法拦截。
+### 任务 P3-1：学习计划执行状态追踪
 
-### 最小版本
+**修改文件**：`learning/schema.py`、`learning/store.py`、`tools/learning_tools.py`
+
+**具体改动**：
+
+1. `learning/schema.py`：`LearningPlan` 增加 `status`（`active` / `completed` / `paused`）和 `current_day` 字段
+2. `learning/store.py`：增加 `update_plan_progress(plan_id, day, status)` 方法
+3. `tools/learning_tools.py`：新增 `learning_plan_progress(plan_id, day, completed_tasks)` 工具
+4. `cli/repl.py`：新增 `/learning progress <plan_id>` 命令
+
+**验收标准**：
+
+- 可以标记某天的任务为完成
+- 进度百分比显示
+- 计划状态正确更新
+
+**工作量**：1 天
+
+**提交建议**：`feat(learning): plan execution progress tracking`
+
+### 任务 P3-2：到期提醒与复习调度集成
+
+**修改文件**：`cli/repl.py`
+
+**具体改动**：
+
+- REPL 启动时检查：是否有到期的学习计划天数、是否有到期的复习知识点
+- 如果有，在启动面板显示一行提醒（不阻塞）
+- 新增 `/learning today` 命令：合并显示今天的学习计划 + 复习清单
+
+**验收标准**：
+
+- 启动时如果有到期任务，显示一行提醒
+- `/learning today` 显示合并后的今日任务清单
+
+**工作量**：0.5 天
+
+**提交建议**：`feat(learning): daily reminder and /learning today`
+
+## 10. P4：文档统一
+
+**目标**：让 `docs/DESIGN.md`（600 行设计系统）成为后续 UI 相关工作的参考基准。
+
+**具体任务**：
+
+- 在本文件的文档定位表中加入 DESIGN.md（已完成）
+- 在 README.md 中引用 DESIGN.md 作为视觉设计参考
+
+**工作量**：0.5 小时
+
+## 11. P5 远期方向：Web UI / 前后端分离
+
+P0-P3 完成后，Bobodan 具备稳定的学习闭环、Obsidian 导出、event trace 和 workflow runtime，届时可以做前后端分离。
+
+### 技术栈（已定）
+
+| 层 | 选型 |
+|----|------|
+| 后端 | FastAPI |
+| 前端 | React + Vite + TypeScript + Tailwind + shadcn/ui |
+| AI UI 组件 | assistant-ui 可评估，不强依赖 Vercel AI SDK 协议 |
+| 通信 | SSE 优先，WebSocket 后置 |
+
+### 架构顺序（关键）
+
+**先抽 app service，再上 FastAPI，再上 Web。** 不直接在 FastAPI 里写业务逻辑。
 
 ```text
-/plan <task>
-  -> LLM 生成 steps
-  -> REPL 展示
-  -> 用户确认
-  -> 按步骤执行
-  -> 每步写 trace
+第一步：app service 层
+  service/
+    quiz_service.py       # 封装 quiz 相关业务（已在 P0 的 quiz_integration.py 开始）
+    learning_service.py   # 封装 learning 相关业务
+    memory_service.py     # 封装 memory 相关业务
+    kb_service.py         # 封装知识库相关业务
+    agent_service.py      # 封装 agent run 相关业务
+  ↓ CLI 和 Web API 都调用 service，不直接调 tool/store
+
+第二步：FastAPI 层
+  web/backend/
+    routers/chat.py       # /api/chat/runs, /api/chat/runs/{id}/events (SSE)
+    routers/quiz.py       # /api/quiz/*
+    routers/learning.py   # /api/learning/*
+    routers/memory.py     # /api/memory/*
+    routers/kb.py         # /api/kb/*
+    routers/settings.py   # /api/settings/*
+  ↓ FastAPI 路由只做 HTTP 协议转换，业务全在 service
+
+第三步：React 前端
+  web/frontend/
+    src/
+      components/         # shadcn/ui + DESIGN.md 定制
+      pages/
+      hooks/              # SSE streaming、agent events
+  ↓ 按 DESIGN.md 做视觉，Natural Editorial Zen
 ```
 
-### 验收标准
+### 关键约束
 
-- `/plan` 不影响普通 ReAct。
-- 计划可拒绝。
-- 每步有 trace。
-- 高风险步骤走 approval gate。
+- **SSE 优先** — Bobodan 的主要流是"后端向前端持续吐事件"，SSE 更简单更稳定。只有需要浏览器实时取消、多用户协作时再上 WebSocket。
+- **复用现有 runtime** — `core/` / `tools/` / `learning/` / `memory/` 不重写。
+- **service 层是核心** — CLI `repl.py` 和 FastAPI routers 都调 service，不让业务逻辑长在任何 UI 层里。
+- **assistant-ui 评估但不绑定** — 如果它的协议跟 Bobodan 的 event schema 不兼容，自己写 SSE consumer 也行。
+- **按 docs/DESIGN.md 做视觉** — Natural Editorial Zen，暖米色/墨蓝/植物绿。
 
-提交建议：
+**前提条件**：P3 Workflow Runtime 完成后再做。Web 需要稳定的后端事件流、任务状态、workflow 状态、可恢复 run。
 
-```text
-feat(agent): add plan mode
-```
-
-## 10. 暂缓事项
-
-这些方向不是不要做，而是现在不要先做：
+## 12. 暂缓事项
 
 | 方向 | 暂缓原因 |
 |------|----------|
-| 完整 TUI / long-lived Application | 牵扯输入循环、取消、approval surface，当前收益不如 P0/P1 |
-| Web UI | 需要稳定 event stream 和 workflow runtime |
-| 递归 specialist | 明确违反 v1 边界 |
+| Tool risk class / Approval gate | 单用户本地工具，write_file 已有 overwrite 保护，够用 |
+| Plan mode | LLM 在 ReAct 循环内可自行规划，不需要独立 plan mode |
+| Prompt cache 优化 | 取决于 provider 是否返回 cache 字段，投入产出比低 |
+| Usage plumbing / Footer | 等 provider 统一返回 usage 数据后再做 |
+| 完整 TUI / long-lived Application | 当前 REPL + B-lite 已经够用 |
+| Web UI | 需要 workflow runtime 稳定后再考虑 |
+| 递归 specialist | 违反 v1 边界，需要 v2 设计 |
 | specialist 并行 | 需要 budget / trace / cancellation 基础 |
-| Workflow runtime | 应该等 event trace 基础完成后再抽 |
-| Wiki 编译层继续扩展 | 当前更缺 runtime 可观测性和执行体验 |
 | MCP specialist 默认开放 | v1 已明确默认关闭 |
-| 新增更多 specialist | 先证明 3 个现有 specialist 的 UX 和 trace 稳定 |
+| 新增更多 specialist | 先证明现有 3 个 specialist 的价值 |
+| Ebbinghaus 遗忘曲线 | 当前简单间隔重复（1/3/7/14 天）够用 |
 
-## 11. 立即行动清单
+## 13. 执行顺序与工作量
 
-从这里开始：
+```text
+P0-1 (quiz_submit 写记忆+掌握度)  ──┐
+                                     ├── P0-2 (批量做题汇总)
+                                     │
+P1-1 (学习计划导出 Obsidian)  ───────┤
+                                     ├── P1-2 (做题总结导出)
+                                     │
+P2-1 (termination reason)  ─────────┤
+                                     ├── P2-2 (JSONL trace)
+                                     │
+P3-1 (计划执行状态追踪)  ───────────┤
+                                     └── P3-2 (到期提醒)
+```
 
-1. 开一个新分支：
+| 阶段 | 任务数 | 估计工作量 |
+|------|--------|-----------|
+| P0 学习闭环补全 | 2 | 1 天 |
+| P1 Obsidian 写回 | 2 | 1.5 天 |
+| P2 Event Trace | 2 | 1.5 天 |
+| P3 Workflow Runtime | 2 | 1.5 天 |
+| P4 文档统一 | 1 | 0.5 小时 |
+| **总计** | **9** | **~5.5 天** |
 
-   ```powershell
-   git checkout -b codex/cli-tool-display-ux
-   ```
+## 14. 判断规则
 
-2. 只做 P0：
+新增功能提案时，先问三件事：
 
-   ```text
-   CLI Tool Display UX
-   ```
-
-3. 不碰：
-
-   ```text
-   Event trace
-   Approval gate
-   Plan mode
-   Web UI
-   Full TUI
-   New specialist
-   ```
-
-4. 验证：
-
-   ```powershell
-   .venv\Scripts\python.exe -m pytest tests/test_repl.py tests/test_agents_repl.py
-   .venv\Scripts\python.exe -m pytest
-   ```
-
-5. 手动 REPL 验证：
-
-   ```text
-   请阅读 docs\NEXT_STEPS_EXECUTION_PLAN.md 并总结当前下一步。
-   帮我读一下 docs\RAG_KNOWLEDGE_GRAPH_MVP.md，并输出 5 个要点。
-    直接读取 docs\MCP.md 的原文前 200 字。
-    ```
-
-## 12. 判断规则
-
-以后新增 docs 或功能提案时，先问三件事：
-
-1. 它是否改善当前学习助手主线？
-2. 它是否依赖 event trace / approval gate / usage plumbing？
-3. 它是否会破坏 `archive/agents_design.md` 里的 v1 边界？
+1. 它是否直接改善学习闭环（做题→记忆→掌握度→复习→导出）？
+2. 它是否需要 workflow runtime 支持？
+3. 它是否破坏 v1 specialist 边界？
 
 如果答案是：
 
-- 不改善主线：不做。
-- 依赖基础设施：先做基础设施。
-- 破坏 v1 边界：写 v2 design，不直接改代码。
+- 不改善学习闭环：不做。
+- 需要 workflow：先做 P3。
+- 破坏 v1 边界：写 v2 设计，不直接改代码。
 
-## 13. 当前唯一下一步
+## 15. 立即行动
 
-**下一步只做：P1 Termination reason + Event trace。**
+**下一步只做：P0-1 quiz_submit 自动写每日记忆 + 更新掌握度。**
 
-P0 已经完成。现在继续做 P1，因为它是后续 approval gate、plan mode、usage footer、debug 回放的基础：
+开分支：
 
-- 给每次 run 明确 termination reason。
-- 让 tool_start / tool_end / specialist_event 有统一事件 schema。
-- 写入 `.bobodan/traces/*.jsonl`，支持回放和调试。
-- 为 P2 approval gate 提供可靠事件面。
+```powershell
+git checkout -b feature/learning-loop-close
+```
+
+新增文件：`learning/quiz_integration.py`
+
+修改文件：`tools/quiz_tools.py`
+
+关键依赖：`memory/daily.py`（DailyMemoryManager）、`learning/progress.py`（ProgressTracker.update_from_quiz）
+
+验证：
+
+```powershell
+.venv\Scripts\python.exe -m pytest
+```
+
+手动验证：做题后检查 `.bobodan/daily/` 有当日记忆，`/learning progress` 显示掌握度数据。
