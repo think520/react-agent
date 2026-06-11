@@ -7,6 +7,14 @@
 ## [未发布]
 
 ### 新增
+- **P0 学习闭环补全**: quiz_submit 自动写每日记忆 + 更新掌握度 + session 完成汇总，做题→记忆→掌握度链路真正跑通。
+  - `learning/quiz_integration.py`（新）: `record_quiz_learning_effect` 做题后自动写每日记忆（tags: quiz + 概念）并更新掌握度；`record_quiz_session_summary` 全部答完后写汇总记忆并标记 session 完成。
+  - `tools/quiz_tools.py`: `quiz_submit` 在 `store.record_attempt()` 后调用集成函数，失败只 warning 不阻塞返回。返回 data 新增 `session_completed` 字段。
+  - `learning/__init__.py`: 导出 `record_quiz_learning_effect`、`record_quiz_session_summary`。
+  - `tests/test_quiz_integration.py`（新）: 13 个测试覆盖正确/错误/连续答对→mastered/记忆写入/标签/独立调用/累积状态/未完成不触发汇总/完成触发汇总/弱概念/全对。
+  - 掌握度规则：连续答对 2 次 → `mastered`，答对 1 次 → `learning`，答错 → `needs_review`。
+  - 700 测试全通过。
+
 - **CLI 轻量状态行收尾**: `Thinking` / `Checking` / `Working` / `Drafting` / `Polishing` 状态词按 Bobodan 设计语言分色显示，spinner 保持稳定强调色，elapsed 保持 dim，减少单色刷新疲劳；tool running 行统一为 clay/orange，success/error 继续使用 green/red。覆盖 `cli/tool_display.py`、`cli/repl.py` 和对应回归测试。
 - **Bobodan 设计参考文档**: `docs/DESIGN.md` 作为后续 Web UI / TUI / 官网设计的长期视觉基准，收敛为 Warm Paper Knowledge Garden / Natural Editorial Zen 方向，并明确 ink blue、clay、sage、petal pink 等色彩角色。
 - **CLI Tool Display UX (P0)**: 工具调用显示更清晰，specialist 内部 tool events 较多时不刷屏。详见 `docs/NEXT_STEPS_EXECUTION_PLAN.md` P0 节。
