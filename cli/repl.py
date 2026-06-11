@@ -92,6 +92,7 @@ COMMAND_HINTS = [
     ("/learning review", "今日复习清单"),
     ("/learning mark <concept> <status>", "手动设置掌握度"),
     ("/learning plans", "已保存的学习计划"),
+    ("/learning today", "今日任务 + 复习"),
     ("/memory list", "已保存的记忆"),
     ("/memory search ", "搜索记忆"),
     ("/memory show ", "查看记忆详情"),
@@ -168,7 +169,6 @@ class REPL:
         self.rag_backend_info = {}
         self.mcp_prompt = None
         self.agent_registry = None
-        self.trace_writer = None
         # B-lite active-line state (reset per run_agent_streaming invocation)
         self._active_line_kind: str = "none"  # "none" | "thinking" | "tool"
         self._active_tool_name: str = ""
@@ -267,20 +267,12 @@ class REPL:
             else:
                 self.set_session(self.session)
 
-            # Trace writer (optional — records agent events to JSONL)
-            try:
-                from core.trace import TraceWriter
-                self.trace_writer = TraceWriter(self.session.session_id, os.getcwd())
-            except Exception:
-                self.trace_writer = None
-
             self.agent = AgentLoop(
                 self._make_active_provider(),
                 self.session,
                 skills_prompt=self.skills_prompt,
                 memory_prompt=self.memory_prompt,
                 mcp_prompt=self.mcp_prompt,
-                trace_writer=self.trace_writer,
             )
             self.tool_count = len(get_tools_schema())
             self.setup_prompt_session()
@@ -697,15 +689,24 @@ class REPL:
         """
         import time
         from core.agent_loop import AgentLoop
+        from core.trace import TraceWriter
 
         session_copy = copy.deepcopy(self.session)
+
+        # Per-run trace writer: each user input gets its own trace file
+        run_trace = None
+        try:
+            run_trace = TraceWriter(session_copy.session_id, session_copy.workspace_root)
+        except Exception:
+            pass
+
         agent_copy = AgentLoop(
             self._make_active_provider(),
             session_copy,
             skills_prompt=self.skills_prompt,
             memory_prompt=self.memory_prompt,
             mcp_prompt=self.mcp_prompt,
-            trace_writer=self.trace_writer,
+            trace_writer=run_trace,
         )
 
         events: queue.Queue[dict] = queue.Queue()

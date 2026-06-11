@@ -143,7 +143,7 @@ def learning_review(
 
 
 def learning_plan_progress(
-    plan_id: int,
+    plan_id: int | None = None,
     action: str = "status",
     day: int | None = None,
     task_index: int | None = None,
@@ -188,6 +188,10 @@ def learning_plan_progress(
 
             return ToolResult(ok=True, content="\n".join(lines), data=today)
 
+        # Actions below require plan_id
+        if plan_id is None:
+            return ToolResult(ok=False, content=f"action='{action}' 需要 plan_id 参数。")
+
         if action == "status":
             summary = tracker.get_plan_progress_summary(plan_id)
             if not summary:
@@ -211,7 +215,27 @@ def learning_plan_progress(
         if action == "complete_task":
             if day is None or task_index is None:
                 return ToolResult(ok=False, content="complete_task 需要 day 和 task_index 参数。")
+            plan = store.get_plan(plan_id)
+            if not plan:
+                return ToolResult(ok=False, content=f"未找到计划 #{plan_id}。")
+            # Validate day and task_index
+            target_tasks = []
+            for step in plan.steps:
+                if step.get("day") == day:
+                    target_tasks = step.get("tasks", [])
+                    break
+            if not target_tasks:
+                return ToolResult(ok=False, content=f"计划 #{plan_id} 没有第 {day} 天的任务。")
+            if task_index < 0 or task_index >= len(target_tasks):
+                return ToolResult(ok=False, content=f"第 {day} 天只有 {len(target_tasks)} 个任务，task_index={task_index} 越界。")
             store.mark_task_done(plan_id, day, task_index, source="manual")
+
+            # Check if plan is now fully complete
+            progress = store.get_progress(plan_id)
+            tracker_check = PlanWorkflowTracker(store)
+            if tracker_check._all_steps_done(plan, progress):
+                store.update_plan_status(plan_id, status="completed")
+
             return ToolResult(ok=True, content=f"已标记计划 #{plan_id} 第 {day} 天第 {task_index + 1} 个任务完成。")
 
         if action == "complete_step":
@@ -290,12 +314,13 @@ register_tool(
     description=(
         "Manage learning plan execution progress. "
         "Use 'status' to view progress, 'complete_task' to mark a single task done, "
-        "'complete_step' to mark a whole day done, 'today' to see all pending tasks + due reviews."
+        "'complete_step' to mark a whole day done, 'today' to see all pending tasks + due reviews. "
+        "plan_id is required for status/complete_task/complete_step but not for 'today'."
     ),
     params_schema={
         "type": "object",
         "properties": {
-            "plan_id": {"type": "integer", "description": "The learning plan ID"},
+            "plan_id": {"type": "integer", "description": "The learning plan ID (required for status/complete_task/complete_step)"},
             "action": {
                 "type": "string",
                 "enum": ["status", "complete_task", "complete_step", "today"],
@@ -304,7 +329,7 @@ register_tool(
             "day": {"type": "integer", "description": "Day number (for complete_task/complete_step)"},
             "task_index": {"type": "integer", "description": "Task index within the day, 0-based (for complete_task)"},
         },
-        "required": ["plan_id"],
+        "required": [],
     },
     func=learning_plan_progress,
 )

@@ -96,16 +96,22 @@ class PlanWorkflowTracker:
         return m is not None and m.status == "mastered"
 
     def _all_steps_done(self, plan: LearningPlan, progress: dict) -> bool:
-        """Check if every task in every step is completed."""
+        """Check if every task in every step is completed.
+
+        Returns False if the plan has no trackable tasks (empty steps or
+        missing tasks) — such plans should not be auto-completed.
+        """
+        has_any_task = False
         for step in plan.steps:
             day = step.get("day")
             tasks = step.get("tasks", [])
             if day is None or not tasks:
                 continue
+            has_any_task = True
             for i in range(len(tasks)):
                 if (day, i) not in progress:
                     return False
-        return True
+        return has_any_task
 
     def get_plan_progress_summary(self, plan_id: int) -> dict | None:
         """Get progress summary for a plan."""

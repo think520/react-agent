@@ -273,6 +273,81 @@ def test_learning_plan_progress_unknown_action(store):
     assert "未知" in result.content
 
 
+def test_complete_task_validates_plan_id(store):
+    from tools.learning_tools import learning_plan_progress
+    ws = os.path.dirname(os.path.dirname(store.db_path))
+    result = learning_plan_progress(plan_id=999, action="complete_task", day=1, task_index=0, workspace=ws)
+    assert not result.ok
+    assert "未找到" in result.content
+
+
+def test_complete_task_validates_day(store):
+    from tools.learning_tools import learning_plan_progress
+    plan = _make_plan(store)
+    ws = os.path.dirname(os.path.dirname(store.db_path))
+    result = learning_plan_progress(plan_id=plan.id, action="complete_task", day=99, task_index=0, workspace=ws)
+    assert not result.ok
+    assert "没有第 99 天" in result.content
+
+
+def test_complete_task_validates_task_index(store):
+    from tools.learning_tools import learning_plan_progress
+    plan = _make_plan(store)
+    ws = os.path.dirname(os.path.dirname(store.db_path))
+    result = learning_plan_progress(plan_id=plan.id, action="complete_task", day=1, task_index=99, workspace=ws)
+    assert not result.ok
+    assert "越界" in result.content
+
+
+def test_complete_task_marks_plan_completed_on_last_task(store):
+    from tools.learning_tools import learning_plan_progress
+    plan = _make_plan(store)
+    ws = os.path.dirname(os.path.dirname(store.db_path))
+
+    # Complete all tasks one by one
+    store.mark_task_done(plan.id, 1, 0, source="manual")
+    store.mark_task_done(plan.id, 1, 1, source="manual")
+    store.mark_task_done(plan.id, 2, 0, source="manual")
+    # Last task
+    result = learning_plan_progress(plan_id=plan.id, action="complete_task", day=2, task_index=1, workspace=ws)
+    assert result.ok
+
+    updated = store.get_plan(plan.id)
+    assert updated.status == "completed"
+
+
+def test_empty_plan_not_auto_completed(store, tracker):
+    """Plans with empty steps should not be auto-completed."""
+    plan = LearningPlan(title="empty", goal="test", steps=[])
+    plan.id = store.save_plan(plan)
+
+    tracker.check_plan_completion()
+
+    updated = store.get_plan(plan.id)
+    assert updated.status == "active"
+
+
+def test_plan_with_missing_tasks_not_auto_completed(store, tracker):
+    """Plans with steps that have no tasks should not be auto-completed."""
+    plan = LearningPlan(title="no tasks", goal="test", steps=[
+        {"day": 1, "topics": ["A"], "tasks": [], "materials": [], "review": []},
+    ])
+    plan.id = store.save_plan(plan)
+    store.upsert_mastery(Mastery(concept="A", status="mastered", score=1.0))
+
+    tracker.check_plan_completion()
+
+    updated = store.get_plan(plan.id)
+    assert updated.status == "active"
+
+
+def test_today_action_does_not_require_plan_id(tmp_path):
+    from tools.learning_tools import learning_plan_progress
+    # Should not raise for missing plan_id
+    result = learning_plan_progress(action="today", workspace=str(tmp_path))
+    assert result.ok
+
+
 # --- ProgressTracker integration ---
 
 def test_update_from_quiz_triggers_auto_check(tmp_path):
