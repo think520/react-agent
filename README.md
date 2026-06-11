@@ -2,21 +2,145 @@
 
 Python ReAct Agent，支持多 LLM Provider、工具调用、Session 持久化、Skills 注入、持久化记忆、本地知识库（RAG + 知识图谱）、题库系统、学习路线与复习、MCP 客户端、多 agent 编排、CLI REPL 交互。
 
-## 运行
+## 快速开始
 
-```bash
-# 1. 激活虚拟环境
-.venv\Scripts\activate          # Windows
-# source .venv/bin/activate     # Linux / macOS
+```powershell
+# 1. 创建并激活虚拟环境
+python -m venv .venv
+.\.venv\Scripts\activate
 
-# 2. 配置 API key
-cp .env.example .env
+# 2. 安装依赖
+python -m pip install -r requirements.txt
 
-# 3. 启动
+# 3. 复制并填写环境变量
+Copy-Item .env.example .env
+notepad .env
+
+# 4. 启动
 python agent.py
 python agent.py --session-id my-session  # 恢复 session
 python agent.py -v                       # 调试模式
 ```
+
+Linux / macOS 激活虚拟环境使用：
+
+```bash
+source .venv/bin/activate
+```
+
+## 配置说明
+
+Bobodan 的配置分两层：
+
+- `.env`：只放 API key，不提交到 Git。
+- `config.yaml`：选择 provider、模型、RAG、MCP、specialist 等行为。
+
+### 1. 配置 LLM Provider
+
+默认 provider 在 `config.yaml` 中配置：
+
+```yaml
+llm:
+  default_provider: "deepseek"
+```
+
+默认使用 DeepSeek，因此 `.env` 至少需要填写：
+
+```env
+DEEPSEEK_API_KEY=your_deepseek_api_key_here
+```
+
+也可以切换到 MiniMax 或 OpenAI：
+
+```yaml
+llm:
+  default_provider: "openai"   # deepseek | minimax | openai
+```
+
+对应 `.env`：
+
+```env
+MINIMAX_API_KEY=your_minimax_api_key_here
+DEEPSEEK_API_KEY=your_deepseek_api_key_here
+OPENAI_API_KEY=your_openai_api_key_here
+```
+
+REPL 启动后也可以临时切换：
+
+```text
+/model list
+/model use openai
+```
+
+### 2. 配置本地知识库 / RAG
+
+默认 RAG embedding 后端是 `auto`：
+
+```yaml
+rag:
+  embedding_backend: auto      # auto | local | ollama
+  ollama_url: "http://localhost:11434"
+  ollama_model: "qwen3-embedding:0.6b"
+```
+
+- 不装 Ollama 也能用：会走本地 sparse/local 检索。
+- 想用 Ollama dense embedding：先启动 Ollama，并准备 `qwen3-embedding:0.6b`。
+- 想强制不用 Ollama：把 `embedding_backend` 改成 `local`。
+
+同步资料到知识库：
+
+```text
+/kb sync <你的 Obsidian vault 路径>
+/kb status
+/kb search <问题>
+```
+
+### 3. 配置 MCP（可选）
+
+MCP 默认关闭：
+
+```yaml
+mcp:
+  enabled: false
+  servers: {}
+```
+
+需要接入外部 MCP server 时再打开，例如：
+
+```yaml
+mcp:
+  enabled: true
+  servers:
+    context7:
+      command: uvx
+      args: ["context7-mcp"]
+```
+
+启动后可用：
+
+```text
+/mcp status
+/mcp tools
+/mcp reload
+```
+
+### 4. Specialist 配置（通常不用改）
+
+Bobodan 默认启用 3 个 specialist：
+
+- `doc_reader`：读文档和总结。
+- `triage`：任务分流。
+- `planner`：学习计划。
+
+配置在 `config.yaml` 的 `specialists:` 下。v1 只允许覆盖 Python 已定义 specialist 的行为，不支持只靠 YAML 新增 specialist。
+
+### 5. 运行时数据
+
+运行后会产生这些本地目录，已被 `.gitignore` 排除：
+
+- `.session/`：会话存档。
+- `.bobodan/`：记忆、每日记忆、trace。
+- `.knowledge/`：RAG 索引、图谱、题库 SQLite。
 
 ## 项目结构
 
@@ -37,12 +161,8 @@ rag/           # 文档导入、切块、向量索引、检索路由
 graph/         # 知识图谱（本地 JSON + 可选 Neo4j）
 wiki/          # LLM Wiki 编译层
 skills/        # Skills 定义目录
-tests/         # 单元测试（716+）
+tests/         # 单元测试（769+）
 ```
-
-运行时数据（`.gitignore` 已排除）：
-- `.bobodan/` — 记忆文件、每日记忆、SQLite 索引
-- `.knowledge/` — RAG 索引、图谱、题库 SQLite
 
 ## 核心功能
 
