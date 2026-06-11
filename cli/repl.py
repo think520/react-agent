@@ -2657,6 +2657,8 @@ class REPL:
             self.handle_learning_mark(args)
         elif action == "plans":
             self.handle_learning_plans()
+        elif action == "today":
+            self.handle_learning_today()
         else:
             print(f"  \033[1;38;5;208mUnknown /learning command: {action}\033[0m")
             self.print_learning_help()
@@ -2669,6 +2671,7 @@ class REPL:
         print("  \033[1;38;5;210m  /learning review\033[0m                                       今日复习清单")
         print("  \033[1;38;5;210m  /learning mark <concept> mastered|learning|needs_review\033[0m  手动设置")
         print("  \033[1;38;5;210m  /learning plans\033[0m                                         已保存计划")
+        print("  \033[1;38;5;210m  /learning today\033[0m                                        今日任务 + 复习")
         print()
 
     def handle_learning_plan(self, args: list[str]):
@@ -2715,6 +2718,36 @@ class REPL:
             print_markdown(result.content)
         else:
             print_error(result.content)
+
+    def handle_learning_today(self):
+        from learning.store import LearningStore
+        from learning.workflow import PlanWorkflowTracker
+
+        store = LearningStore(self.session.workspace_root)
+        tracker = PlanWorkflowTracker(store)
+        today = tracker.get_today_tasks(self.session.workspace_root)
+
+        if not today["plans"] and not today["reviews"]:
+            print_notice("没有待完成的学习任务或复习。")
+            return
+
+        print()
+        for p in today["plans"]:
+            print(f"  \033[1;37m学习计划: {p['title']}\033[0m")
+            if p.get("deadline"):
+                print(f"  \033[2m截止: {p['deadline']}\033[0m")
+            for step in p["steps"]:
+                topics = ", ".join(step["topics"])
+                print(f"    第 {step['day']} 天: {topics}")
+                for task in step["tasks"]:
+                    print(f"      [ ] {task}")
+            print()
+
+        if today["reviews"]:
+            print(f"  \033[1;37m复习清单 ({len(today['reviews'])} 个知识点):\033[0m")
+            for i, r in enumerate(today["reviews"], 1):
+                print(f"    {i}. {r['concept']} — 掌握度 {r['score']:.0%} ({r['status']})")
+            print()
 
     def handle_learning_mark(self, args: list[str]):
         if len(args) < 2:

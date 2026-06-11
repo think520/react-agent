@@ -27,11 +27,23 @@ CREATE TABLE IF NOT EXISTS learning_plans (
     steps TEXT NOT NULL DEFAULT '[]',
     course TEXT,
     created_at TEXT NOT NULL,
-    deadline TEXT
+    deadline TEXT,
+    status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'completed')),
+    current_day INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS plan_progress (
+    plan_id INTEGER NOT NULL,
+    day INTEGER NOT NULL,
+    task_index INTEGER NOT NULL,
+    completed_at TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'auto' CHECK(source IN ('auto', 'manual')),
+    PRIMARY KEY (plan_id, day, task_index)
 );
 
 CREATE INDEX IF NOT EXISTS idx_mastery_status ON mastery(status);
 CREATE INDEX IF NOT EXISTS idx_mastery_next_review ON mastery(next_review);
+CREATE INDEX IF NOT EXISTS idx_plan_progress_plan ON plan_progress(plan_id);
 """
 
 
@@ -55,6 +67,15 @@ class LearningStore:
     def _init_schema(self):
         with self._conn() as conn:
             conn.executescript(_LEARNING_SCHEMA_SQL)
+            # Migrate: add status and current_day columns to existing learning_plans
+            try:
+                conn.execute("ALTER TABLE learning_plans ADD COLUMN status TEXT NOT NULL DEFAULT 'active'")
+            except sqlite3.OperationalError:
+                pass  # column already exists
+            try:
+                conn.execute("ALTER TABLE learning_plans ADD COLUMN current_day INTEGER")
+            except sqlite3.OperationalError:
+                pass
 
     # --- Mastery ---
 
@@ -154,10 +175,10 @@ class LearningStore:
         now = _now_iso()
         with self._conn() as conn:
             cursor = conn.execute(
-                """INSERT INTO learning_plans (title, goal, steps, course, created_at, deadline)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
+                """INSERT INTO learning_plans (title, goal, steps, course, created_at, deadline, status, current_day)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (plan.title, plan.goal, json.dumps(plan.steps, ensure_ascii=False),
-                 plan.course, now, plan.deadline),
+                 plan.course, now, plan.deadline, plan.status, plan.current_day),
             )
             return cursor.lastrowid
 
@@ -172,6 +193,8 @@ class LearningStore:
             id=row["id"], title=row["title"], goal=row["goal"],
             steps=json.loads(row["steps"]), course=row["course"],
             created_at=row["created_at"], deadline=row["deadline"],
+            status=row["status"] if "status" in row.keys() else "active",
+            current_day=row["current_day"] if "current_day" in row.keys() else None,
         )
 
     def list_plans(self, limit: int = 10) -> list[LearningPlan]:
@@ -185,6 +208,82 @@ class LearningStore:
                 id=r["id"], title=r["title"], goal=r["goal"],
                 steps=json.loads(r["steps"]), course=r["course"],
                 created_at=r["created_at"], deadline=r["deadline"],
+                status=r["status"] if "status" in r.keys() else "active",
+                current_day=r["current_day"] if "current_day" in r.keys() else None,
+            )
+            for r in rows
+        ]
+
+    # --- Plan Progress ---
+
+    def mark_task_done(self, plan_id: int, day: int, task_index: int, source: str = "manual") -> None:
+        """Mark a specific task as completed."""
+        with self._conn() as conn:
+            conn.execute(
+                """INSERT OR REPLACE INTO plan_progress (plan_id, day, task_index, completed_at, source)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (plan_id, day, task_index, _now_iso(), source),
+            )
+
+    def mark_step_done(self, plan_id: int, day: int, task_count: int, source: str = "manual") -> None:
+        """Mark all tasks in a step as completed."""
+        now = _now_iso()
+        with self._conn() as conn:
+            for i in range(task_count):
+                conn.execute(
+                    """INSERT OR REPLACE INTO plan_progress (plan_id, day, task_index, completed_at, source)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (plan_id, day, i, now, source),
+                )
+
+    def get_progress(self, plan_id: int) -> dict[tuple[int, int], dict]:
+        """Get all progress records for a plan. Key: (day, task_index)."""
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT day, task_index, completed_at, source FROM plan_progress WHERE plan_id = ?",
+                (plan_id,),
+            ).fetchall()
+        return {(r["day"], r["task_index"]): {"completed_at": r["completed_at"], "source": r["source"]} for r in rows}
+
+    def is_task_done(self, plan_id: int, day: int, task_index: int) -> bool:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM plan_progress WHERE plan_id = ? AND day = ? AND task_index = ?",
+                (plan_id, day, task_index),
+            ).fetchone()
+        return row is not None
+
+    def update_plan_status(self, plan_id: int, status: str | None = None, current_day: int | None = None) -> None:
+        """Update plan status and/or current_day."""
+        clauses = []
+        params = []
+        if status is not None:
+            clauses.append("status = ?")
+            params.append(status)
+        if current_day is not None:
+            clauses.append("current_day = ?")
+            params.append(current_day)
+        if not clauses:
+            return
+        params.append(plan_id)
+        with self._conn() as conn:
+            conn.execute(
+                f"UPDATE learning_plans SET {', '.join(clauses)} WHERE id = ?",
+                params,
+            )
+
+    def get_active_plans(self) -> list[LearningPlan]:
+        """Get all plans with status='active'."""
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM learning_plans WHERE status = 'active' ORDER BY created_at DESC"
+            ).fetchall()
+        return [
+            LearningPlan(
+                id=r["id"], title=r["title"], goal=r["goal"],
+                steps=json.loads(r["steps"]), course=r["course"],
+                created_at=r["created_at"], deadline=r["deadline"],
+                status=r["status"], current_day=r["current_day"],
             )
             for r in rows
         ]

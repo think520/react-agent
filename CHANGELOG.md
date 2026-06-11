@@ -10,9 +10,20 @@
 - **P2 Event Trace 轻量版**: 每次 Agent run 记录关键事件到 JSONL trace 文件，支持事后查看"做了什么、花了多久、哪步失败"。
   - `core/trace.py`（新）: `TraceWriter` 类写入 `.bobodan/traces/{session_id}_{timestamp}.jsonl`，只记录 `tool_start` / `tool_end` / `assistant_done` / `error` 事件（不含 `assistant_delta`）。Secret 字段自动 redact，content 超 500 字符截断。线程安全（`threading.Lock`）。
   - `core/agent_loop.py`: `assistant_done` 事件增加 `termination_reason` 字段（`final_answer` / `max_iter` / `error`）；`run_stream` 异常时 yield `assistant_done(termination_reason="error")` 再 re-raise；构造函数接受可选 `trace_writer` 参数，有则自动写入 trace。
-  - `cli/repl.py`: 启动时创建 `TraceWriter` 并注入 `AgentLoop`。
-  - `tests/test_agent_loop.py`: 新增 12 个测试覆盖三种 `termination_reason`、`TraceWriter` 文件创建/过滤/截断/redact/错误事件、`AgentLoop` trace 集成。
-  - 728 测试全通过。
+  - `cli/repl.py`: 启动时创建 `TraceWriter` 并注入 `AgentLoop`；新增 `/trace` 命令（列出最近 run、查看 tool timeline）。
+  - `core/trace.py`: 新增 `list_traces` / `read_trace` / `summarize_trace` 读取函数。
+  - `tests/test_agent_loop.py`: 新增 19 个测试覆盖三种 `termination_reason`、`TraceWriter` 文件创建/过滤/截断/redact/错误事件、`AgentLoop` trace 集成、trace 读取/汇总。
+  - 736 测试全通过。
+
+- **P3 Workflow Runtime**: 学习计划从"看一眼"变成"可以执行"——自动推断完成状态、追赶模式、手动标记、合并今日任务视图。
+  - `learning/schema.py`: `LearningPlan` 增加 `status`（active/completed）和 `current_day` 字段。
+  - `learning/store.py`: 新增 `plan_progress` 表（plan_id, day, task_index, source）+ 迁移逻辑 + CRUD 方法（`mark_task_done` / `mark_step_done` / `get_progress` / `get_active_plans` / `update_plan_status`）。
+  - `learning/workflow.py`（新）: `PlanWorkflowTracker` — 自动推断 step 完成（所有 topics mastered → 标记完成）、plan 完成时自动 status=completed、进度查询、追赶模式今日任务。
+  - `learning/progress.py`: `update_from_quiz` 在答对后自动调用 `check_plan_completion`。
+  - `tools/learning_tools.py`: 新增 `learning_plan_progress` 工具（status / complete_task / complete_step / today）。
+  - `cli/repl.py`: `/learning today` 合并显示未完成计划任务 + 到期复习清单。
+  - `tests/test_workflow.py`（新）: 23 个测试覆盖 plan_progress CRUD、自动推断、追赶模式、进度汇总、工具集成、ProgressTracker 联动。
+  - 759 测试全通过。
 
 - **P1 Obsidian 写回**: 学习计划和做题总结可导出为 Obsidian Markdown，兑现 README 承诺。
   - `tools/obsidian_export.py`（新）: `obsidian_export_plan` 从 LearningStore 读取计划，生成 YAML frontmatter + 按天 checkbox 任务 + `[[双链]]` 知识点引用的 Markdown，写入 `{vault}/学习计划/{title}.md`；`obsidian_export_quiz_summary` 从 QuizStore 读取错题和薄弱点分析，生成按概念分组错题本 + 薄弱点表格 + 掌握度概览的 Markdown，写入 `{vault}/做题总结/{date}.md`。
