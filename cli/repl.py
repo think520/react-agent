@@ -166,6 +166,7 @@ class REPL:
         self.rag_backend_info = {}
         self.mcp_prompt = None
         self.agent_registry = None
+        self.trace_writer = None
         # B-lite active-line state (reset per run_agent_streaming invocation)
         self._active_line_kind: str = "none"  # "none" | "thinking" | "tool"
         self._active_tool_name: str = ""
@@ -264,12 +265,20 @@ class REPL:
             else:
                 self.set_session(self.session)
 
+            # Trace writer (optional — records agent events to JSONL)
+            try:
+                from core.trace import TraceWriter
+                self.trace_writer = TraceWriter(self.session.session_id, os.getcwd())
+            except Exception:
+                self.trace_writer = None
+
             self.agent = AgentLoop(
                 self._make_active_provider(),
                 self.session,
                 skills_prompt=self.skills_prompt,
                 memory_prompt=self.memory_prompt,
                 mcp_prompt=self.mcp_prompt,
+                trace_writer=self.trace_writer,
             )
             self.tool_count = len(get_tools_schema())
             self.setup_prompt_session()
@@ -690,6 +699,7 @@ class REPL:
             skills_prompt=self.skills_prompt,
             memory_prompt=self.memory_prompt,
             mcp_prompt=self.mcp_prompt,
+            trace_writer=self.trace_writer,
         )
 
         events: queue.Queue[dict] = queue.Queue()

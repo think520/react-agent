@@ -7,6 +7,13 @@
 ## [未发布]
 
 ### 新增
+- **P2 Event Trace 轻量版**: 每次 Agent run 记录关键事件到 JSONL trace 文件，支持事后查看"做了什么、花了多久、哪步失败"。
+  - `core/trace.py`（新）: `TraceWriter` 类写入 `.bobodan/traces/{session_id}_{timestamp}.jsonl`，只记录 `tool_start` / `tool_end` / `assistant_done` / `error` 事件（不含 `assistant_delta`）。Secret 字段自动 redact，content 超 500 字符截断。线程安全（`threading.Lock`）。
+  - `core/agent_loop.py`: `assistant_done` 事件增加 `termination_reason` 字段（`final_answer` / `max_iter` / `error`）；`run_stream` 异常时 yield `assistant_done(termination_reason="error")` 再 re-raise；构造函数接受可选 `trace_writer` 参数，有则自动写入 trace。
+  - `cli/repl.py`: 启动时创建 `TraceWriter` 并注入 `AgentLoop`。
+  - `tests/test_agent_loop.py`: 新增 12 个测试覆盖三种 `termination_reason`、`TraceWriter` 文件创建/过滤/截断/redact/错误事件、`AgentLoop` trace 集成。
+  - 728 测试全通过。
+
 - **P1 Obsidian 写回**: 学习计划和做题总结可导出为 Obsidian Markdown，兑现 README 承诺。
   - `tools/obsidian_export.py`（新）: `obsidian_export_plan` 从 LearningStore 读取计划，生成 YAML frontmatter + 按天 checkbox 任务 + `[[双链]]` 知识点引用的 Markdown，写入 `{vault}/学习计划/{title}.md`；`obsidian_export_quiz_summary` 从 QuizStore 读取错题和薄弱点分析，生成按概念分组错题本 + 薄弱点表格 + 掌握度概览的 Markdown，写入 `{vault}/做题总结/{date}.md`。
   - 路径安全检查：`_is_within_workspace` 防止写入 workspace 外路径。

@@ -47,7 +47,8 @@ class AgentLoop:
     def __init__(self, llm_provider, session, skills_prompt: str | None = None,
                  memory_prompt: str | None = None, mcp_prompt: str | None = None,
                  tools_schema: list[dict] | None = None,
-                 max_iterations: int | None = None):
+                 max_iterations: int | None = None,
+                 trace_writer=None):
         self.llm = llm_provider
         self.session = session
         self.tools_schema = tools_schema if tools_schema is not None else get_tools_schema()
@@ -55,6 +56,7 @@ class AgentLoop:
         self.skills_prompt = skills_prompt
         self.memory_prompt = memory_prompt
         self.mcp_prompt = mcp_prompt
+        self.trace_writer = trace_writer
 
     def set_session(self, session) -> None:
         self.session = session
@@ -127,87 +129,122 @@ class AgentLoop:
 
     def run_stream(self, user_input: str) -> Iterator[dict]:
         """Run one turn and yield UI-friendly progress events."""
-        self._remove_legacy_base_prompt()
-        self._inject_skills_prompt()
-        self._inject_memory_prompt()
-        self._inject_mcp_prompt()
-        self.session.add_message("user", user_input)
+        try:
+            self._remove_legacy_base_prompt()
+            self._inject_skills_prompt()
+            self._inject_memory_prompt()
+            self._inject_mcp_prompt()
+            self.session.add_message("user", user_input)
 
-        for iteration in range(self.max_iterations):
-            response = yield from self._complete_with_events()
+            for iteration in range(self.max_iterations):
+                response = yield from self._complete_with_events()
 
-            if response.tool_calls:
-                # Add assistant(tool_calls) FIRST — providers require this
-                # before the corresponding tool result messages.
-                tool_calls_data = [tc.to_dict() for tc in response.tool_calls]
-                self.session.add_message_with_tool_calls("assistant", response.content, tool_calls_data)
+                if response.tool_calls:
+                    # Add assistant(tool_calls) FIRST — providers require this
+                    # before the corresponding tool result messages.
+                    tool_calls_data = [tc.to_dict() for tc in response.tool_calls]
+                    self.session.add_message_with_tool_calls("assistant", response.content, tool_calls_data)
 
-                # Now execute tools and add tool messages
-                for tc in response.tool_calls:
-                    logger.info(f"[AgentLoop] calling tool — id={tc.id!r} name={tc.name!r}")
+                    # Now execute tools and add tool messages
+                    for tc in response.tool_calls:
+                        logger.info(f"[AgentLoop] calling tool — id={tc.id!r} name={tc.name!r}")
 
-                    try:
-                        args = json.loads(tc.arguments) if isinstance(tc.arguments, str) else tc.arguments
-                    except json.JSONDecodeError:
-                        args = {}
+                        try:
+                            args = json.loads(tc.arguments) if isinstance(tc.arguments, str) else tc.arguments
+                        except json.JSONDecodeError:
+                            args = {}
 
-                    yield {
-                        "type": "tool_start",
-                        "tool_call_id": tc.id,
-                        "tool_name": tc.name,
-                        "args": args,
-                    }
+                        tool_start_event = {
+                            "type": "tool_start",
+                            "tool_call_id": tc.id,
+                            "tool_name": tc.name,
+                            "args": args,
+                        }
+                        yield tool_start_event
+                        if self.trace_writer:
+                            self.trace_writer.write(tool_start_event)
 
-                    start_ts = time.monotonic()
-                    result = execute_tool(tc.name, args, session=self.session)
-                    elapsed = time.monotonic() - start_ts
-                    if isinstance(result, ToolResult):
-                        self._sync_session_state(tc.name, result)
-                        self.session.add_tool_message(tc.id, result.content)
-                        logger.info(f"[AgentLoop] tool result for id={tc.id!r}: {result.content[:200]!r}")
-                        for display_event in result.data.get("display_events", []):
-                            yield {
-                                **display_event,
-                                "type": "specialist_event",
-                                "event_type": display_event.get("type"),
-                                "parent_tool_call_id": tc.id,
-                                "parent_tool_name": tc.name,
+                        start_ts = time.monotonic()
+                        result = execute_tool(tc.name, args, session=self.session)
+                        elapsed = time.monotonic() - start_ts
+                        if isinstance(result, ToolResult):
+                            self._sync_session_state(tc.name, result)
+                            self.session.add_tool_message(tc.id, result.content)
+                            logger.info(f"[AgentLoop] tool result for id={tc.id!r}: {result.content[:200]!r}")
+                            for display_event in result.data.get("display_events", []):
+                                yield {
+                                    **display_event,
+                                    "type": "specialist_event",
+                                    "event_type": display_event.get("type"),
+                                    "parent_tool_call_id": tc.id,
+                                    "parent_tool_name": tc.name,
+                                }
+                            tool_end_event = {
+                                "type": "tool_end",
+                                "tool_call_id": tc.id,
+                                "tool_name": tc.name,
+                                "ok": result.ok,
+                                "content": result.content,
+                                "elapsed": elapsed,
+                                "result_summary": _compute_result_summary(tc.name, result),
                             }
-                        yield {
-                            "type": "tool_end",
-                            "tool_call_id": tc.id,
-                            "tool_name": tc.name,
-                            "ok": result.ok,
-                            "content": result.content,
-                            "elapsed": elapsed,
-                            "result_summary": _compute_result_summary(tc.name, result),
-                        }
-                    else:
-                        # Fallback for unknown tools returning plain string
-                        self.session.add_tool_message(tc.id, str(result))
-                        logger.info(f"[AgentLoop] tool result for id={tc.id!r}: {str(result)[:200]!r}")
-                        yield {
-                            "type": "tool_end",
-                            "tool_call_id": tc.id,
-                            "tool_name": tc.name,
-                            "ok": True,
-                            "content": str(result),
-                            "elapsed": elapsed,
-                            "result_summary": None,
-                        }
+                            yield tool_end_event
+                            if self.trace_writer:
+                                self.trace_writer.write(tool_end_event)
+                        else:
+                            # Fallback for unknown tools returning plain string
+                            self.session.add_tool_message(tc.id, str(result))
+                            logger.info(f"[AgentLoop] tool result for id={tc.id!r}: {str(result)[:200]!r}")
+                            fallback_end_event = {
+                                "type": "tool_end",
+                                "tool_call_id": tc.id,
+                                "tool_name": tc.name,
+                                "ok": True,
+                                "content": str(result),
+                                "elapsed": elapsed,
+                                "result_summary": None,
+                            }
+                            yield fallback_end_event
+                            if self.trace_writer:
+                                self.trace_writer.write(fallback_end_event)
 
-                continue
+                    continue
 
-            if response.content:
-                self.session.add_message("assistant", response.content)
+                if response.content:
+                    self.session.add_message("assistant", response.content)
 
-            yield {"type": "assistant_done", "content": response.content}
-            return response.content
+                done_event = {
+                    "type": "assistant_done",
+                    "content": response.content,
+                    "termination_reason": "final_answer",
+                }
+                yield done_event
+                if self.trace_writer:
+                    self.trace_writer.write(done_event)
+                return response.content
 
-        fallback = "Agent stopped after too many tool iterations."
-        self.session.add_message("assistant", fallback)
-        yield {"type": "assistant_delta", "content": fallback}
-        yield {"type": "assistant_done", "content": fallback}
+            fallback = "Agent stopped after too many tool iterations."
+            self.session.add_message("assistant", fallback)
+            yield {"type": "assistant_delta", "content": fallback}
+            max_iter_event = {
+                "type": "assistant_done",
+                "content": fallback,
+                "termination_reason": "max_iter",
+            }
+            yield max_iter_event
+            if self.trace_writer:
+                self.trace_writer.write(max_iter_event)
+        except Exception as exc:
+            error_done = {
+                "type": "assistant_done",
+                "content": "",
+                "termination_reason": "error",
+            }
+            yield error_done
+            if self.trace_writer:
+                self.trace_writer.write(error_done)
+                self.trace_writer.write({"type": "error", "error": str(exc)})
+            raise
 
     def _complete_with_events(self) -> Iterator[dict]:
         complete_stream = getattr(self.llm, "complete_stream", None)

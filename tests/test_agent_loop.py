@@ -86,7 +86,9 @@ def test_agent_loop_streams_text_events():
     events = list(agent.run_stream("hi"))
 
     assert [event["content"] for event in events if event["type"] == "assistant_delta"] == ["hel", "lo"]
-    assert events[-1] == {"type": "assistant_done", "content": "hello"}
+    assert events[-1]["type"] == "assistant_done"
+    assert events[-1]["content"] == "hello"
+    assert events[-1]["termination_reason"] == "final_answer"
     assert session.messages[-1]["content"] == "hello"
 
 
@@ -112,7 +114,9 @@ def test_agent_loop_streams_tool_events_and_accumulates_arguments(tmp_path):
     assert (tmp_path / "stream.txt").read_text(encoding="utf-8") == "ok"
     assert any(event["type"] == "tool_start" and event["tool_name"] == "write_file" for event in events)
     assert any(event["type"] == "tool_end" and event["ok"] for event in events)
-    assert events[-1] == {"type": "assistant_done", "content": "done"}
+    assert events[-1]["type"] == "assistant_done"
+    assert events[-1]["content"] == "done"
+    assert events[-1]["termination_reason"] == "final_answer"
 
 
 def test_agent_loop_tool_call_then_text(tmp_path):
@@ -267,3 +271,213 @@ def test_agent_loop_stops_after_max_iterations(tmp_path):
     result = agent.run("loop forever")
 
     assert result == "Agent stopped after too many tool iterations."
+
+
+# --- P2-1: termination_reason tests ---
+
+def test_termination_reason_final_answer():
+    session = Session.new("/test")
+    llm = MockLLMProvider([LLMResponse(content="answer")])
+    agent = AgentLoop(llm, session)
+
+    events = list(agent.run_stream("question"))
+    done = [e for e in events if e["type"] == "assistant_done"]
+
+    assert len(done) == 1
+    assert done[0]["termination_reason"] == "final_answer"
+
+
+def test_termination_reason_max_iter(tmp_path):
+    session = Session.new(str(tmp_path))
+    llm = MockLLMProvider([
+        _tool_response([{"name": "read_file", "args": {"path": "missing.txt"}}])
+    ])
+    agent = AgentLoop(llm, session)
+    agent.max_iterations = 1
+
+    events = list(agent.run_stream("loop"))
+    done = [e for e in events if e["type"] == "assistant_done"]
+
+    assert len(done) == 1
+    assert done[0]["termination_reason"] == "max_iter"
+
+
+def test_termination_reason_error():
+    class BrokenProvider:
+        def complete(self, messages, tools=None):
+            raise RuntimeError("LLM exploded")
+        def get_name(self):
+            return "broken"
+
+    session = Session.new("/test")
+    agent = AgentLoop(BrokenProvider(), session)
+
+    events = []
+    try:
+        for event in agent.run_stream("crash"):
+            events.append(event)
+    except RuntimeError:
+        pass
+
+    done = [e for e in events if e["type"] == "assistant_done"]
+    assert len(done) == 1
+    assert done[0]["termination_reason"] == "error"
+
+
+# --- P2-2: TraceWriter tests ---
+
+def test_trace_writer_creates_file(tmp_path):
+    from core.trace import TraceWriter
+
+    writer = TraceWriter("test-session-123", str(tmp_path))
+    writer.write({"type": "tool_start", "tool_call_id": "c1", "tool_name": "read_file", "args": {"path": "x.txt"}})
+    writer.write({"type": "assistant_done", "content": "hi", "termination_reason": "final_answer"})
+
+    assert writer.path.endswith(".jsonl")
+    assert (tmp_path / ".bobodan" / "traces").is_dir()
+
+    import json
+    from pathlib import Path
+    lines = Path(writer.path).read_text(encoding="utf-8").strip().split("\n")
+    assert len(lines) == 2
+    r1 = json.loads(lines[0])
+    assert r1["type"] == "tool_start"
+    assert r1["tool_name"] == "read_file"
+    assert r1["tool_call_id"] == "c1"
+    r2 = json.loads(lines[1])
+    assert r2["type"] == "assistant_done"
+    assert r2["termination_reason"] == "final_answer"
+
+
+def test_trace_writer_filters_non_traced_events(tmp_path):
+    from core.trace import TraceWriter
+
+    writer = TraceWriter("sess", str(tmp_path))
+    writer.write({"type": "assistant_delta", "content": "chunk"})
+    writer.write({"type": "tool_start", "tool_call_id": "c1", "tool_name": "x", "args": {}})
+    writer.write({"type": "specialist_event", "event_type": "tool_start"})
+
+    import json
+    from pathlib import Path
+    lines = Path(writer.path).read_text(encoding="utf-8").strip().split("\n")
+    assert len(lines) == 1
+    assert json.loads(lines[0])["type"] == "tool_start"
+
+
+def test_trace_writer_redacts_secrets(tmp_path):
+    from core.trace import TraceWriter
+    import json
+
+    writer = TraceWriter("sess", str(tmp_path))
+    writer.write({
+        "type": "tool_start",
+        "tool_call_id": "c1",
+        "tool_name": "http_request",
+        "args": {"url": "https://api.example.com", "api_key": "sk-secret-123", "password": "hunter2"},
+    })
+
+    from pathlib import Path
+    lines = Path(writer.path).read_text(encoding="utf-8").strip().split("\n")
+    record = json.loads(lines[0])
+    assert record["args"]["api_key"] == "***"
+    assert record["args"]["password"] == "***"
+    assert record["args"]["url"] == "https://api.example.com"
+
+
+def test_trace_writer_truncates_long_content(tmp_path):
+    from core.trace import TraceWriter, _MAX_CONTENT_LEN
+    import json
+
+    writer = TraceWriter("sess", str(tmp_path))
+    long_text = "x" * 1000
+    writer.write({"type": "tool_end", "tool_call_id": "c1", "tool_name": "x", "ok": True,
+                  "content": long_text, "elapsed": 0.1})
+
+    from pathlib import Path
+    lines = Path(writer.path).read_text(encoding="utf-8").strip().split("\n")
+    record = json.loads(lines[0])
+    assert len(record["content"]) == _MAX_CONTENT_LEN
+    assert record["content"].endswith("...")
+
+
+def test_trace_writer_tool_end_event(tmp_path):
+    from core.trace import TraceWriter
+    import json
+
+    writer = TraceWriter("sess", str(tmp_path))
+    writer.write({"type": "tool_end", "tool_call_id": "c1", "tool_name": "read_file",
+                  "ok": True, "content": "read 100 chars", "elapsed": 0.5,
+                  "result_summary": "→ /some/path"})
+
+    from pathlib import Path
+    lines = Path(writer.path).read_text(encoding="utf-8").strip().split("\n")
+    record = json.loads(lines[0])
+    assert record["type"] == "tool_end"
+    assert record["ok"] is True
+    assert record["elapsed"] == 0.5
+    assert record["result_summary"] == "→ /some/path"
+
+
+def test_trace_writer_error_event(tmp_path):
+    from core.trace import TraceWriter
+    import json
+
+    writer = TraceWriter("sess", str(tmp_path))
+    writer.write({"type": "error", "error": "connection timeout"})
+
+    from pathlib import Path
+    lines = Path(writer.path).read_text(encoding="utf-8").strip().split("\n")
+    record = json.loads(lines[0])
+    assert record["type"] == "error"
+    assert record["error"] == "connection timeout"
+
+
+def test_agent_loop_writes_trace(tmp_path):
+    from core.trace import TraceWriter
+
+    session = Session.new(str(tmp_path))
+    llm = MockLLMProvider([LLMResponse(content="done")])
+    writer = TraceWriter("test-sess", str(tmp_path))
+    agent = AgentLoop(llm, session, trace_writer=writer)
+
+    list(agent.run_stream("hi"))
+
+    import json
+    from pathlib import Path
+    lines = Path(writer.path).read_text(encoding="utf-8").strip().split("\n")
+    types = [json.loads(l)["type"] for l in lines]
+    assert "assistant_done" in types
+
+
+def test_agent_loop_trace_includes_tool_events(tmp_path):
+    from core.trace import TraceWriter
+    import json
+
+    (tmp_path / "a.txt").write_text("content", encoding="utf-8")
+    session = Session.new(str(tmp_path))
+    llm = MockLLMProvider([
+        _tool_response([{"name": "read_file", "args": {"path": "a.txt"}}]),
+        LLMResponse(content="read done"),
+    ])
+    writer = TraceWriter("test-sess", str(tmp_path))
+    agent = AgentLoop(llm, session, trace_writer=writer)
+
+    list(agent.run_stream("read"))
+
+    from pathlib import Path
+    lines = Path(writer.path).read_text(encoding="utf-8").strip().split("\n")
+    types = [json.loads(l)["type"] for l in lines]
+    assert "tool_start" in types
+    assert "tool_end" in types
+    assert "assistant_done" in types
+
+
+def test_agent_loop_no_trace_when_none():
+    session = Session.new("/test")
+    llm = MockLLMProvider([LLMResponse(content="ok")])
+    agent = AgentLoop(llm, session, trace_writer=None)
+
+    events = list(agent.run_stream("hi"))
+    done = [e for e in events if e["type"] == "assistant_done"]
+    assert len(done) == 1
+    assert done[0]["termination_reason"] == "final_answer"

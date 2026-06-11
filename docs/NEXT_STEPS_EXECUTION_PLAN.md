@@ -2,7 +2,7 @@
 
 > **目的**：把现有 docs 中的多个功能方向收敛成一个执行入口，明确"下一步先做什么、为什么、做到什么算完成"。
 >
-> **当前结论**：**CLI Tool Display UX 已完成**，**P0 学习闭环补全已完成**，**P1 Obsidian 写回已完成**。下一步做 **P2 Event Trace 轻量版**。
+> **当前结论**：**CLI Tool Display UX 已完成**，**P0 学习闭环补全已完成**，**P1 Obsidian 写回已完成**，**P2 Event Trace 轻量版已完成**。下一步做 **P3 Workflow Runtime 最小版**。
 
 ## 1. 当前状态判断
 
@@ -24,7 +24,7 @@ Bobodan 已经具备完整的功能骨架，但核心学习链路存在断点。
 1. ~~**quiz_submit 不写记忆、不更新掌握度**~~ — **已修复 (P0)**
 2. ~~**Obsidian 写回不存在**~~ — **已修复 (P1)**：`tools/obsidian_export.py` 提供 `obsidian_export_plan` 和 `obsidian_export_quiz_summary` 两个 Agent 工具。
 3. **Workflow runtime 不存在** — 学习计划只存 SQLite、只返回纯文本，无法执行和跟踪进度。
-4. **Agent loop 无 termination reason** — `assistant_done` 事件无结构化终止原因。
+4. ~~**Agent loop 无 termination reason**~~ — **已修复 (P2)**：`assistant_done` 事件增加 `termination_reason` 字段，`TraceWriter` 写入 JSONL trace。
 
 ## 2. 文档定位
 
@@ -48,13 +48,13 @@ Bobodan 已经具备完整的功能骨架，但核心学习链路存在断点。
 ## 4. 总优先级
 
 ```text
-P0. 学习闭环补全（当前下一步）
+P0. 学习闭环补全（已完成）
     ↓
-P1. Obsidian 写回
+P1. Obsidian 写回（已完成）
     ↓
-P2. Event Trace 轻量版
+P2. Event Trace 轻量版（已完成）
     ↓
-P3. Workflow Runtime 最小版
+P3. Workflow Runtime 最小版（当前下一步）
     ↓
 P4. 文档统一
 ```
@@ -89,86 +89,30 @@ P4. 文档统一
 - 路径安全检查（workspace 边界）
 - 16 个测试覆盖，716 测试全通过
 
-## 6. 当前下一步：P2 Event Trace 轻量版
+## 5d. 已完成：P2 Event Trace 轻量版
+
+已落地，包含：
+
+- `core/agent_loop.py`：`assistant_done` 事件增加 `termination_reason` 字段（`final_answer` / `max_iter` / `error`）
+- `core/trace.py`：`TraceWriter` 类，写入 `.bobodan/traces/{session_id}_{timestamp}.jsonl`
+- Trace 事件过滤：只写 `tool_start` / `tool_end` / `assistant_done` / `error`（不含 `assistant_delta`）
+- Secret 过滤：`api_key` / `token` / `password` 等字段自动 redact
+- Content 截断：超过 500 字符截断，避免 trace 文件过大
+- 线程安全：`threading.Lock` 保护文件写入
+- `AgentLoop` 接受可选 `trace_writer` 参数，有则同时写入 trace
+- REPL 启动时自动创建 `TraceWriter`，注入 `AgentLoop`
+- `run_stream` 异常时 yield `assistant_done(termination_reason="error")` 再 re-raise
+- 12 个新测试覆盖，728 测试全通过
+
+## 6. 当前下一步：P3 Workflow Runtime 最小版
 
 ### 目标
 
-每次 Agent run 记录关键事件，支持事后查看"做了什么、花了多久、哪步失败"。
+学习计划不只是"看一下"，而是可以"执行"——按天推进、跟踪完成状态、到期提醒。
 
 ### 为什么最优先
 
-P0/P1 完成后，用户的学习闭环已经完整。trace 是调试和改进的基础，是后续 Web UI、workflow 可视化的前提。
-
-### 任务 P0-1：quiz_submit 自动写每日记忆 + 更新掌握度
-
-**新增文件**：`learning/quiz_integration.py`
-
-**修改文件**：`tools/quiz_tools.py`
-
-**当前断点**：`tools/quiz_tools.py` 第 187 行 `store.record_attempt(attempt_record)` 之后，直接跳到格式化返回。既不写每日记忆，也不更新掌握度。
-
-**设计**：业务逻辑不直接写在 tool 里，抽到 `learning/quiz_integration.py` 以便 CLI、Web API、workflow runtime 都能复用。
-
-`learning/quiz_integration.py` 新增函数：
-
-```python
-def record_quiz_learning_effect(
-    workspace: str,
-    question_concepts: list[str],
-    is_correct: bool,
-    feedback: str,
-) -> list[Mastery]:
-    """做题后自动写每日记忆 + 更新掌握度。
-
-    1. 写入 daily memory（tags: quiz + concepts）
-    2. 调用 ProgressTracker.update_from_quiz 更新掌握度
-    3. 返回更新后的 mastery 列表
-    """
-```
-
-`tools/quiz_tools.py` 改动：在 `store.record_attempt()` 之后调用 `record_quiz_learning_effect(workspace, question.concepts, is_correct, feedback)`。
-
-**验收标准**：
-
-- 做题后 `.bobodan/daily/` 下出现当日记忆文件，包含做题记录
-- 做题后 `ProgressTracker.get_overview()` 返回非空掌握度数据
-- 连续答对 2 次同一概念，掌握度变为 `mastered`
-- 答错后掌握度变为 `needs_review`
-- `record_quiz_learning_effect` 可独立调用，不依赖 Agent tool 上下文
-- 现有 687 个测试全部通过
-
-**工作量**：0.5 天
-
-**提交建议**：`feat(quiz): auto-write daily memory and update mastery on submit`
-
-### 任务 P0-2：批量做题汇总写入每日记忆
-
-**修改文件**：`tools/quiz_tools.py`、`learning/quiz_integration.py`
-
-**依赖**：P0-1
-
-**具体改动**：在 `quiz_submit` 中检测 session 是否所有题目都已作答：
-
-```python
-attempts = store.get_attempts_for_session(session_id)
-answered_ids = {a.question_id for a in attempts}
-completed = set(session.question_ids).issubset(answered_ids)
-```
-
-如果 `completed`，追加汇总记忆并调用 `store.complete_session(session_id)`：
-
-```text
-练习完成: {session_id}，共 {n} 题，正确 {m} 题，正确率 {rate}
-薄弱点: {weak_concepts}
-```
-
-**注意**：`QuizSession` 没有 `current_index` 字段，必须通过 `get_attempts_for_session` 反推已答题数。
-
-**验收标准**：一轮 5 题练习结束后，每日记忆中有逐题记录和一条汇总，session 状态变为 completed。
-
-**工作量**：0.5 天
-
-**提交建议**：`feat(quiz): add session summary to daily memory`
+P0/P1/P2 完成后，学习闭环和调试基础设施已就绪。Workflow 是产品核心差异化功能——没有它，学习计划只是一段文本。
 
 ## 7. P1：Obsidian 写回
 
@@ -418,27 +362,27 @@ P0-P3 完成后，Bobodan 具备稳定的学习闭环、Obsidian 导出、event 
 ## 13. 执行顺序与工作量
 
 ```text
-P0-1 (quiz_submit 写记忆+掌握度)  ──┐
-                                     ├── P0-2 (批量做题汇总)
+P0-1 (quiz_submit 写记忆+掌握度)  ──┐  ✓ done
+                                     ├── P0-2 (批量做题汇总)  ✓ done
                                      │
-P1-1 (学习计划导出 Obsidian)  ───────┤
-                                     ├── P1-2 (做题总结导出)
+P1-1 (学习计划导出 Obsidian)  ───────┤  ✓ done
+                                     ├── P1-2 (做题总结导出)  ✓ done
                                      │
-P2-1 (termination reason)  ─────────┤
-                                     ├── P2-2 (JSONL trace)
+P2-1 (termination reason)  ─────────┤  ✓ done
+                                     ├── P2-2 (JSONL trace)  ✓ done
                                      │
-P3-1 (计划执行状态追踪)  ───────────┤
+P3-1 (计划执行状态追踪)  ───────────┤  ← next
                                      └── P3-2 (到期提醒)
 ```
 
-| 阶段 | 任务数 | 估计工作量 |
-|------|--------|-----------|
-| P0 学习闭环补全 | 2 | 1 天 |
-| P1 Obsidian 写回 | 2 | 1.5 天 |
-| P2 Event Trace | 2 | 1.5 天 |
-| P3 Workflow Runtime | 2 | 1.5 天 |
-| P4 文档统一 | 1 | 0.5 小时 |
-| **总计** | **9** | **~5.5 天** |
+| 阶段 | 任务数 | 估计工作量 | 状态 |
+|------|--------|-----------|------|
+| P0 学习闭环补全 | 2 | 1 天 | ✓ 完成 |
+| P1 Obsidian 写回 | 2 | 1.5 天 | ✓ 完成 |
+| P2 Event Trace | 2 | 1.5 天 | ✓ 完成 |
+| P3 Workflow Runtime | 2 | 1.5 天 | 下一步 |
+| P4 文档统一 | 1 | 0.5 小时 | — |
+| **总计** | **9** | **~5.5 天** | **4.5 天 done** |
 
 ## 14. 判断规则
 
