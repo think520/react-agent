@@ -8,9 +8,13 @@ Auto-infers mastery from quiz attempts:
 Also supports manual overrides via scheduler.mark_manual().
 """
 
+import logging
+
 from .schema import Mastery
 from .store import LearningStore
 from .scheduler import ReviewScheduler
+
+logger = logging.getLogger(__name__)
 
 
 class ProgressTracker:
@@ -19,11 +23,24 @@ class ProgressTracker:
         self.scheduler = scheduler
 
     def update_from_quiz(self, concepts: list[str], is_correct: bool) -> list[Mastery]:
-        """Update mastery for each concept based on quiz result."""
+        """Update mastery for each concept based on quiz result.
+
+        After updating, auto-checks if any active plan steps are now fully mastered.
+        """
         results = []
         for concept in concepts:
             m = self.scheduler.record_review(concept, is_correct)
             results.append(m)
+
+        # Auto-infer plan step completion
+        if is_correct:
+            try:
+                from .workflow import PlanWorkflowTracker
+                tracker = PlanWorkflowTracker(self.store)
+                tracker.check_plan_completion()
+            except Exception as e:
+                logger.warning("[ProgressTracker] plan completion check failed: %s", e)
+
         return results
 
     def get_overview(self) -> dict:

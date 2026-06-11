@@ -7,12 +7,15 @@ On wrong answer: reset to first interval.
 Future upgrade path: Ebbinghaus forgetting curve + mastery-weighted intervals.
 """
 
+import logging
 from datetime import datetime, timezone, timedelta
 
 from .schema import Mastery
 from .store import LearningStore
 
 INTERVALS_DAYS = [1, 3, 7, 14]
+
+logger = logging.getLogger(__name__)
 
 
 class ReviewScheduler:
@@ -74,4 +77,10 @@ class ReviewScheduler:
             m.next_review = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
 
         self.store.upsert_mastery(m)
+        if status == "mastered":
+            try:
+                from .workflow import PlanWorkflowTracker
+                PlanWorkflowTracker(self.store).check_plan_completion()
+            except Exception as e:
+                logger.warning("[ReviewScheduler] plan completion check failed: %s", e)
         return m

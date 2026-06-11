@@ -25,3 +25,5 @@ class LearningPlan:
     course: str | None = None
     created_at: str = ""
     deadline: str | None = None
+    status: str = "active"          # active | completed
+    current_day: int | None = None

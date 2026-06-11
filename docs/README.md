@@ -10,6 +10,7 @@
 | [`DESIGN.md`](DESIGN.md) | Web UI / TUI / 官网的长期视觉设计参考（Natural Editorial Zen），后续 UI 相关工作默认先看它 |
 | [`LOCAL_KNOWLEDGE_LEARNING_AGENT_PLAN.md`](LOCAL_KNOWLEDGE_LEARNING_AGENT_PLAN.md) | Bobodan 作为本地知识学习助手的产品主线 |
 | [`BOBODAN_AGENT_FRAMEWORK_ARCHITECTURE.md`](BOBODAN_AGENT_FRAMEWORK_ARCHITECTURE.md) | 模块边界和架构规则 |
+| [`OPENAI_AGENT_CODEX_REFERENCE_FOR_BOBODAN.md`](OPENAI_AGENT_CODEX_REFERENCE_FOR_BOBODAN.md) | OpenAI Agents SDK / Codex CLI 的工程边界借鉴：run state、event trace、tool policy、handoff，不作为产品方向替代 |
 | [`RAG_KNOWLEDGE_GRAPH_MVP.md`](RAG_KNOWLEDGE_GRAPH_MVP.md) | RAG + 知识图谱当前用法 |
 | [`MCP.md`](MCP.md) | MCP 用户文档 |
 
@@ -26,6 +27,7 @@
 
 - 想知道现在做什么：看 `NEXT_STEPS_EXECUTION_PLAN.md`。
 - 想确认模块边界：看 `BOBODAN_AGENT_FRAMEWORK_ARCHITECTURE.md`。
+- 想参考 OpenAI Agents SDK / Codex CLI 的运行时边界：看 `OPENAI_AGENT_CODEX_REFERENCE_FOR_BOBODAN.md`。
 - 想了解产品方向：看 `LOCAL_KNOWLEDGE_LEARNING_AGENT_PLAN.md`。
 - 想参考 UI 设计：看 `DESIGN.md`。
 - 想使用现有能力：看 `RAG_KNOWLEDGE_GRAPH_MVP.md` 或 `MCP.md`。
