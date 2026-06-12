@@ -1,8 +1,6 @@
 import json
 import os
 
-from obsidian.sync import sync_sources
-
 from .base import ToolResult, _is_within_workspace, _resolve_path, register_tool
 
 _config_cache = None
@@ -45,20 +43,27 @@ def obsidian_sync(
         if not os.path.isdir(resolved_course):
             return ToolResult(ok=False, content=f"Course directory not found: {course_dir}")
 
-    config = _load_config()
-    summary = sync_sources(
-        workspace=os.path.abspath(workspace),
-        vault_path=resolved_vault,
-        course_dir=resolved_course,
-        mode=mode,
-        config=config,
-    )
-    data = summary.to_dict()
-    return ToolResult(
-        ok=True,
-        content=json.dumps(data, ensure_ascii=False, indent=2),
-        data=data,
-    )
+    try:
+        from service.kb_service import KBService
+        svc = KBService(workspace)
+        config = _load_config()
+        result = svc.sync(
+            vault_path=resolved_vault,
+            course_dir=resolved_course,
+            mode=mode,
+            config=config,
+        )
+        if not result["ok"]:
+            return ToolResult(ok=False, content=result["error"])
+
+        data = {k: v for k, v in result.items() if k != "ok"}
+        return ToolResult(
+            ok=True,
+            content=json.dumps(data, ensure_ascii=False, indent=2),
+            data=data,
+        )
+    except Exception as e:
+        return ToolResult(ok=False, content=f"Error syncing knowledge base: {e}")
 
 
 register_tool(

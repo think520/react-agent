@@ -3,7 +3,6 @@ import json
 import os
 import queue
 import shlex
-import shutil
 import sys
 import threading
 import time
@@ -27,9 +26,6 @@ from core.session import Session
 from core.skills import build_skills_system_prompt, list_skills, find_skill_by_name
 from providers.factory import ProviderFactory
 from tools import get_tools_schema
-from tools.graph_query import graph_query
-from tools.obsidian_tool import obsidian_sync
-from tools.rag_search import rag_search
 
 try:
     from prompt_toolkit import PromptSession
@@ -2292,7 +2288,7 @@ class REPL:
             print("  \033[1;38;5;210mUsage:\033[0m /kb sync <vault> [course_dir] [--full]")
             return
 
-        from obsidian.sync import sync_sources
+        from service.kb_service import KBService
         from tools.base import _resolve_path
 
         mode = "full" if "--full" in args else "incremental"
@@ -2304,8 +2300,8 @@ class REPL:
         resolved_course = _resolve_path(course_dir, self.session.cwd) if course_dir else None
 
         try:
-            summary = sync_sources(
-                workspace=os.path.abspath(self.session.workspace_root),
+            svc = KBService(self.session.workspace_root)
+            result = svc.sync(
                 vault_path=resolved_vault,
                 course_dir=resolved_course,
                 mode=mode,
@@ -2315,12 +2311,16 @@ class REPL:
             print_error(str(e))
             return
 
+        if not result["ok"]:
+            print_error(result["error"])
+            return
+
         print_success("Knowledge base synced")
         panel_items = [
-            ("files", f"{summary.scanned_files} scanned, {summary.updated_files} updated"),
-            ("chunks", summary.chunk_count),
-            ("relations", summary.relationship_count),
-            ("graph", summary.graph_backend),
+            ("files", f"{result.get('scanned_files', 0)} scanned, {result.get('updated_files', 0)} updated"),
+            ("chunks", result.get("chunk_count", 0)),
+            ("relations", result.get("relationship_count", 0)),
+            ("graph", result.get("graph_backend", "unknown")),
         ]
         # Show embedding backend info
         info = self.rag_backend_info or {}
@@ -2332,28 +2332,26 @@ class REPL:
         print_kv_panel("Sync Summary", panel_items)
 
     def print_kb_status(self):
-        knowledge_dir = os.path.join(self.session.workspace_root, ".knowledge")
+        from service.kb_service import KBService
 
-        if not os.path.exists(knowledge_dir):
-            print_notice("No knowledge base found. Run /kb sync <vault> first.")
+        svc = KBService(self.session.workspace_root)
+        result = svc.status()
+
+        if not result["ok"]:
+            print_notice(result["error"])
             return
 
-        from knowledge.library import build_library_summary, format_library_summary
-        from knowledge.import_report import load_import_report
-
-        summary = build_library_summary(self.session.workspace_root)
-        report = load_import_report(self.session.workspace_root)
-
+        total_errors = result.get("total_errors", 0)
         print_kv_panel(
             "Knowledge Base Status",
             [
-                ("files", summary.total_files),
-                ("chunks", summary.total_chunks),
-                ("errors", summary.total_errors) if summary.total_errors else ("errors", "0"),
-                ("graph nodes", summary.graph_nodes),
-                ("graph relations", summary.graph_relationships),
-                ("graph backend", summary.graph_backend),
-                ("last sync", summary.last_sync or "never"),
+                ("files", result.get("total_files", 0)),
+                ("chunks", result.get("total_chunks", 0)),
+                ("errors", total_errors) if total_errors else ("errors", "0"),
+                ("graph nodes", result.get("graph_nodes", 0)),
+                ("graph relations", result.get("graph_relationships", 0)),
+                ("graph backend", result.get("graph_backend", "unknown")),
+                ("last sync", result.get("last_sync") or "never"),
             ],
         )
 
@@ -2377,30 +2375,36 @@ class REPL:
         print_kv_panel("Embedding", embedding_items)
 
         # Show per-course breakdown
-        if summary.courses and len(summary.courses) > 1:
+        courses = result.get("courses", [])
+        if courses and len(courses) > 1:
             print()
             print("  \033[1;37mCourses:\033[0m")
-            for cs in sorted(summary.courses, key=lambda c: c.name):
-                err = f" \033[1;31m({cs.error_count} errors)\033[0m" if cs.error_count else ""
-                print(f"    {cs.name}: {cs.file_count} files, {cs.chunk_count} chunks{err}")
+            for cs in sorted(courses, key=lambda c: c["name"]):
+                err = f" \033[1;31m({cs['error_count']} errors)\033[0m" if cs.get("error_count") else ""
+                print(f"    {cs['name']}: {cs['file_count']} files, {cs['chunk_count']} chunks{err}")
 
         # Show graph node types
-        if summary.graph_nodes_by_type:
+        graph_nodes_by_type = result.get("graph_nodes_by_type", {})
+        if graph_nodes_by_type:
             print()
             print("  \033[1;37mGraph node types:\033[0m")
-            for label, count in sorted(summary.graph_nodes_by_type.items()):
+            for label, count in sorted(graph_nodes_by_type.items()):
                 print(f"    {label}: {count}")
 
         # Show errors from last import
-        if report and report.errors:
+        last_import = result.get("last_import", {})
+        errors = last_import.get("errors", [])
+        if errors:
             print()
-            print(f"  \033[1;31mImport errors ({len(report.errors)}):\033[0m")
-            for err in report.errors[:5]:
+            print(f"  \033[1;31mImport errors ({len(errors)}):\033[0m")
+            for err in errors[:5]:
                 print(f"    {err.get('source', '?')}: {err.get('error', '?')}")
-            if len(report.errors) > 5:
-                print(f"    ... and {len(report.errors) - 5} more")
+            if len(errors) > 5:
+                print(f"    ... and {len(errors) - 5} more")
 
     def handle_kb_search(self, args: list[str]):
+        from service.kb_service import KBService
+
         query_tokens, options = self._parse_kb_options(args, {"--course", "--top-k"})
         query = " ".join(query_tokens).strip()
         if not query:
@@ -2408,17 +2412,18 @@ class REPL:
             return
 
         top_k = self._parse_int_option(options.get("--top-k"), default=5, minimum=1, maximum=20)
-        result = rag_search(
+        svc = KBService(self.session.workspace_root)
+        result = svc.search(
             query=query,
             course=options.get("--course"),
             top_k=top_k,
-            workspace=self.session.workspace_root,
+            config=self.config,
         )
-        if not result.ok:
-            print_error(result.content)
+        if not result["ok"]:
+            print_error(result["error"])
             return
 
-        results = result.data.get("results", [])
+        results = result.get("results", [])
         if not results:
             print_notice("No matching knowledge chunks found.")
             return
@@ -2426,6 +2431,8 @@ class REPL:
         print_search_table(results)
 
     def handle_kb_graph(self, args: list[str]):
+        from service.kb_service import KBService
+
         concept_tokens, options = self._parse_kb_options(args, {"--intent", "--limit"})
         concept = " ".join(concept_tokens).strip()
         if not concept:
@@ -2434,25 +2441,24 @@ class REPL:
 
         limit = self._parse_int_option(options.get("--limit"), default=20, minimum=1, maximum=50)
         intent = options.get("--intent", "related")
-        result = graph_query(
+        svc = KBService(self.session.workspace_root)
+        result = svc.graph_query(
             concept=concept,
             intent=intent,
             limit=limit,
-            workspace=self.session.workspace_root,
         )
-        if not result.ok:
-            print_error(result.content)
+        if not result["ok"]:
+            print_error(result["error"])
             return
 
-        data = result.data
-        relationships = data.get("relationships", [])
-        nodes_by_id = {node.get("id"): node for node in data.get("nodes", [])}
+        relationships = result.get("relationships", [])
+        nodes_by_id = {node.get("id"): node for node in result.get("nodes", [])}
         if not relationships:
             print_notice("No graph relationships found.")
             return
 
         print()
-        print(f"  \033[1;37mGraph Query:\033[0m {data.get('concept', concept)}  intent={data.get('intent', intent)}  source={data.get('source', 'unknown')}")
+        print(f"  \033[1;37mGraph Query:\033[0m {result.get('concept', concept)}  intent={result.get('intent', intent)}  source={result.get('source', 'unknown')}")
         for rel in relationships:
             start = nodes_by_id.get(rel.get("start"), {})
             end = nodes_by_id.get(rel.get("end"), {})
@@ -2467,9 +2473,9 @@ class REPL:
             print("  This deletes generated .knowledge indexes only.")
             return
 
-        knowledge_dir = os.path.join(self.session.workspace_root, ".knowledge")
-        if os.path.exists(knowledge_dir):
-            shutil.rmtree(knowledge_dir)
+        from service.kb_service import KBService
+        svc = KBService(self.session.workspace_root)
+        svc.reset()
         print_success("Knowledge base reset")
 
     def _parse_kb_options(self, args: list[str], option_names: set[str]) -> tuple[list[str], dict[str, str]]:

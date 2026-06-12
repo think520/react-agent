@@ -1,25 +1,25 @@
 import json
-import os
-
-from graph.store import get_graph_store
 
 from .base import ToolResult, register_tool
 
 
 def graph_query(concept: str, intent: str = "related", limit: int = 20, workspace: str = ".") -> ToolResult:
     """Query concept relationships from Neo4j or the local graph fallback."""
-    store = get_graph_store(os.path.abspath(workspace))
     try:
-        data = store.query(concept=concept, intent=intent, limit=max(1, min(int(limit), 50)))
-    finally:
-        if hasattr(store, "close"):
-            store.close()
+        from service.kb_service import KBService
+        svc = KBService(workspace)
+        result = svc.graph_query(concept=concept, intent=intent, limit=limit)
+        if not result["ok"]:
+            return ToolResult(ok=False, content=result["error"])
 
-    return ToolResult(
-        ok=True,
-        content=json.dumps(data, ensure_ascii=False, indent=2),
-        data=data,
-    )
+        data = {k: v for k, v in result.items() if k != "ok"}
+        return ToolResult(
+            ok=True,
+            content=json.dumps(data, ensure_ascii=False, indent=2),
+            data=data,
+        )
+    except Exception as e:
+        return ToolResult(ok=False, content=f"Error querying graph: {e}")
 
 
 register_tool(
