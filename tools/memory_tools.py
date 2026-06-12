@@ -1,13 +1,10 @@
 """Agent tools for memory save, recall, daily memory, and promotion."""
 
-from core.memory import MemoryManager
+import logging
+
 from tools.base import register_tool, ToolResult
 
-
-def _get_memory_manager(session=None) -> MemoryManager:
-    """Get a MemoryManager instance using the session's workspace root."""
-    workspace = getattr(session, "workspace_root", None) or "."
-    return MemoryManager(workspace)
+logger = logging.getLogger(__name__)
 
 
 def _get_workspace(session=None) -> str:
@@ -17,27 +14,16 @@ def _get_workspace(session=None) -> str:
 def memory_save(name: str, description: str, content: str,
                 entry_type: str = "user", session=None) -> ToolResult:
     """Save a persistent memory for future sessions."""
-    if not name or not name.strip():
-        return ToolResult(ok=False, content="Error: name is required")
-    if not content or not content.strip():
-        return ToolResult(ok=False, content="Error: content is required")
-
-    valid_types = {"user", "feedback", "project", "reference"}
-    if entry_type not in valid_types:
-        entry_type = "user"
-
     try:
-        manager = _get_memory_manager(session)
-        entry = manager.save(
-            name=name.strip(),
-            description=description.strip() if description else "",
-            content=content.strip(),
-            entry_type=entry_type,
-        )
+        from service.memory_service import MemoryService
+        svc = MemoryService(_get_workspace(session))
+        result = svc.save(name=name, description=description, content=content, entry_type=entry_type)
+        if not result["ok"]:
+            return ToolResult(ok=False, content=f"Error: {result['error']}")
         return ToolResult(
             ok=True,
-            content=f"Memory saved: {entry.name} ({entry.type})",
-            data={"name": entry.name, "type": entry.type},
+            content=f"Memory saved: {result['name']} ({result['type']})",
+            data={"name": result["name"], "type": result["type"]},
         )
     except Exception as e:
         return ToolResult(ok=False, content=f"Error saving memory: {e}")
@@ -45,31 +31,26 @@ def memory_save(name: str, description: str, content: str,
 
 def memory_recall(query: str, top_k: int = 5, session=None) -> ToolResult:
     """Search saved memories by FTS5 keyword search with vector fallback."""
-    if not query or not query.strip():
-        return ToolResult(ok=False, content="Error: query is required")
-
     try:
-        manager = _get_memory_manager(session)
-        results = manager.search(query.strip(), top_k=max(1, min(top_k, 10)))
+        from service.memory_service import MemoryService
+        svc = MemoryService(_get_workspace(session))
+        result = svc.recall(query=query, top_k=top_k)
+        if not result["ok"]:
+            return ToolResult(ok=False, content=f"Error: {result['error']}")
 
-        if not results:
-            # Fall back to listing all memories
-            entries = manager.list_entries()
-            if entries:
+        if not result["results"]:
+            fallback = result.get("fallback", [])
+            if fallback:
                 lines = ["No matching memories found. Here are all saved memories:"]
-                for entry in entries:
-                    lines.append(f"- [{entry.type}] {entry.name}: {entry.description}")
+                for entry in fallback:
+                    lines.append(f"- [{entry['type']}] {entry['name']}: {entry['description']}")
                 return ToolResult(ok=True, content="\n".join(lines))
             return ToolResult(ok=True, content="No memories saved yet.")
 
-        lines = [f"Found {len(results)} relevant memories:"]
-        for i, result in enumerate(results, 1):
-            source = result.get("source", "").replace("memory://", "").replace("permanent://", "")
-            score = result.get("score", 0)
-            text = result.get("text", "")[:200]
-            method = result.get("metadata", {}).get("method", "")
-            method_tag = f" [{method}]" if method else ""
-            lines.append(f"{i}. [{source}]{method_tag} (score: {score:.3f}) {text}")
+        lines = [f"Found {len(result['results'])} relevant memories:"]
+        for i, r in enumerate(result["results"], 1):
+            method_tag = f" [{r['method']}]" if r["method"] else ""
+            lines.append(f"{i}. [{r['source']}]{method_tag} (score: {r['score']:.3f}) {r['text']}")
 
         return ToolResult(ok=True, content="\n".join(lines))
     except Exception as e:
@@ -79,34 +60,16 @@ def memory_recall(query: str, top_k: int = 5, session=None) -> ToolResult:
 def memory_daily_save(content: str, tags: list[str] | None = None,
                       session=None) -> ToolResult:
     """Save content to today's daily memory file."""
-    if not content or not content.strip():
-        return ToolResult(ok=False, content="Error: content is required")
-
     try:
-        from memory.daily import DailyMemoryManager
-        workspace = _get_workspace(session)
-        daily = DailyMemoryManager(workspace)
-        filepath = daily.append(content.strip(), tags=tags)
-
-        # Also index in FTS5
-        try:
-            from memory.store import MemoryIndexStore
-            import datetime as dt
-            today = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d")
-            idx = MemoryIndexStore(workspace)
-            idx.index_text(
-                path=filepath,
-                source="daily",
-                text=content.strip(),
-                date=today,
-            )
-        except Exception:
-            pass  # FTS indexing is best-effort
-
+        from service.memory_service import MemoryService
+        svc = MemoryService(_get_workspace(session))
+        result = svc.daily_save(content=content, tags=tags)
+        if not result["ok"]:
+            return ToolResult(ok=False, content=f"Error: {result['error']}")
         return ToolResult(
             ok=True,
-            content=f"Daily memory saved to {filepath}",
-            data={"path": filepath, "date": daily._today_str()},
+            content=f"Daily memory saved to {result['path']}",
+            data={"path": result["path"], "date": result["date"]},
         )
     except Exception as e:
         return ToolResult(ok=False, content=f"Error saving daily memory: {e}")
@@ -115,47 +78,37 @@ def memory_daily_save(content: str, tags: list[str] | None = None,
 def memory_daily_read(date: str | None = None, session=None) -> ToolResult:
     """Read a daily memory file. Defaults to today if no date given."""
     try:
-        from memory.daily import DailyMemoryManager
-        workspace = _get_workspace(session)
-        daily = DailyMemoryManager(workspace)
+        from service.memory_service import MemoryService
+        svc = MemoryService(_get_workspace(session))
+        result = svc.daily_read(date=date)
+        if not result["ok"]:
+            return ToolResult(ok=False, content=f"Error: {result['error']}")
 
-        if not date:
-            content = daily.get_today()
-            date_label = "today"
-        else:
-            content = daily.read(date)
-            date_label = date
-
-        if not content.strip():
+        if not result["content"].strip():
+            date_label = "today" if not date else date
             return ToolResult(ok=True, content=f"No daily memory for {date_label}.")
 
         return ToolResult(
             ok=True,
-            content=content,
-            data={"date": date or daily._today_str()},
+            content=result["content"],
+            data={"date": result["date"]},
         )
     except Exception as e:
         return ToolResult(ok=False, content=f"Error reading daily memory: {e}")
 
 
 def memory_promote(dry_run: bool = False, session=None) -> ToolResult:
-    """Check and execute promotion of daily memories to permanent memory.
-
-    If dry_run=True, only shows candidates without promoting.
-    """
+    """Check and execute promotion of daily memories to permanent memory."""
     try:
-        from memory.promotion import PromotionEngine
-        workspace = _get_workspace(session)
-        engine = PromotionEngine(workspace)
+        from service.memory_service import MemoryService
+        svc = MemoryService(_get_workspace(session))
+        result = svc.promote(dry_run=dry_run)
 
-        candidates = engine.run_promotion_check()
-
+        candidates = result["candidates"]
         if not candidates:
             return ToolResult(ok=True, content="No daily memories are ready for promotion yet.")
 
         lines = [f"Found {len(candidates)} daily memory candidates:\n"]
-
-        promoted_count = 0
         for c in candidates:
             status = "✓ eligible" if c["eligible"] else "✗ not ready"
             lines.append(
@@ -163,25 +116,19 @@ def memory_promote(dry_run: bool = False, session=None) -> ToolResult:
                 f"(freq={c['frequency']:.1f}, quiz={c['quiz']:.1f}, recency={c['recency']:.1f}) "
                 f"recalls={c['recall_count']} — {status}"
             )
-
-            if c["eligible"] and not dry_run:
-                result = engine.promote(c["path"])
-                if result["promoted"]:
-                    promoted_count += 1
-                    lines.append(f"    → {result['details']}")
+            if c.get("promoted"):
+                lines.append(f"    → {c['details']}")
 
         if dry_run:
             lines.append("\n(Dry run — no memories were promoted)")
-        elif promoted_count > 0:
-            lines.append(f"\nPromoted {promoted_count} daily memories to permanent.")
+        elif result["promoted"] > 0:
+            lines.append(f"\nPromoted {result['promoted']} daily memories to permanent.")
         else:
             lines.append("\nNo memories met the promotion threshold (score ≥ 0.6, recalls ≥ 2).")
 
-        return ToolResult(
-            ok=True,
-            content="\n".join(lines),
-            data={"candidates": len(candidates), "promoted": promoted_count},
-        )
+        return ToolResult(ok=True, content="\n".join(lines), data={
+            "candidates": len(candidates), "promoted": result["promoted"],
+        })
     except Exception as e:
         return ToolResult(ok=False, content=f"Error checking promotions: {e}")
 

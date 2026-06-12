@@ -1181,10 +1181,6 @@ class REPL:
         print()
 
     def handle_memory_command(self, cmd: str):
-        if not self.memory_manager:
-            print_error("Memory system is not enabled. Set memory.enabled in config.yaml")
-            return
-
         parts = cmd.strip().split()
         if not parts:
             self.print_memory_help()
@@ -1193,52 +1189,61 @@ class REPL:
         action = parts[0]
 
         if action == "list":
-            entries = self.memory_manager.list_entries()
+            from service.memory_service import MemoryService
+            svc = MemoryService(self.session.workspace_root)
+            result = svc.list_entries()
+            entries = result["entries"]
             if not entries:
                 print_notice("No memories saved yet.")
                 return
             print()
             print("  \033[1;37mSaved memories:\033[0m")
-            for entry in entries:
-                print(f"    \033[1;38;5;147m{entry.name}\033[0m [{entry.type}]  {entry.description}")
+            for e in entries:
+                print(f"    \033[1;38;5;147m{e['name']}\033[0m [{e['type']}]  {e['description']}")
             print()
 
         elif action == "show" and len(parts) > 1:
-            name = parts[1]
-            entry = self.memory_manager.get_entry(name)
-            if not entry:
-                print_error(f"Memory not found: {name}")
+            from service.memory_service import MemoryService
+            svc = MemoryService(self.session.workspace_root)
+            result = svc.get_entry(parts[1])
+            if not result["ok"]:
+                print_error(result["error"])
                 return
             print_kv_panel(
-                f"Memory: {name}",
+                f"Memory: {result['name']}",
                 [
-                    ("type", entry.type),
-                    ("description", entry.description),
-                    ("created", entry.created),
-                    ("updated", entry.updated),
-                    ("file", entry.file_path),
+                    ("type", result["type"]),
+                    ("description", result["description"]),
+                    ("created", result["created"]),
+                    ("updated", result["updated"]),
+                    ("file", result["file_path"]),
                 ],
             )
             print()
-            print_markdown(entry.content)
+            print_markdown(result["content"])
             print()
 
         elif action == "search" and len(parts) > 1:
-            query = " ".join(parts[1:])
-            results = self.memory_manager.search(query, top_k=5)
-            if not results:
+            from service.memory_service import MemoryService
+            svc = MemoryService(self.session.workspace_root)
+            result = svc.recall(query=" ".join(parts[1:]), top_k=5)
+            if not result["results"]:
                 print_notice("No matching memories found.")
                 return
-            print_search_table(results)
+            print_search_table(result["results"])
 
         elif action == "forget" and len(parts) > 1:
-            name = parts[1]
-            if self.memory_manager.forget(name):
-                print_success(f"Memory forgotten: {name}")
-                self.memory_count = len(self.memory_manager.list_entries())
-                self.memory_prompt = self.memory_manager.build_memory_prompt()
+            from service.memory_service import MemoryService
+            svc = MemoryService(self.session.workspace_root)
+            result = svc.forget(parts[1])
+            if result["ok"]:
+                print_success(f"Memory forgotten: {parts[1]}")
+                if self.memory_manager:
+                    self.memory_manager.load_entries()
+                    self.memory_count = len(self.memory_manager.list_entries())
+                    self.memory_prompt = self.memory_manager.build_memory_prompt()
             else:
-                print_error(f"Memory not found: {name}")
+                print_error(result["error"])
 
         elif action == "daily":
             self.handle_memory_daily(parts[1:])
@@ -1250,20 +1255,22 @@ class REPL:
             self.handle_memory_review()
 
         elif action == "stats":
-            stats = self.memory_manager.get_stats()
-            fts_info = stats.get("fts", {})
+            from service.memory_service import MemoryService
+            svc = MemoryService(self.session.workspace_root)
+            result = svc.get_stats()
+            fts_info = result.get("fts", {})
             print_kv_panel(
                 "Memory Statistics",
                 [
-                    ("total memories", stats["total"]),
-                    ("by type", stats.get("by_type", {})),
-                    ("vector chunks", stats.get("vector_chunks", 0)),
+                    ("total memories", result["total"]),
+                    ("by type", result.get("by_type", {})),
+                    ("vector chunks", result.get("vector_chunks", 0)),
                     ("FTS5 chunks", fts_info.get("total_chunks", "N/A")),
                     ("daily chunks", fts_info.get("daily_chunks", "N/A")),
                     ("permanent chunks", fts_info.get("permanent_chunks", "N/A")),
                     ("recalls", fts_info.get("total_recalls", "N/A")),
                     ("promotions", fts_info.get("total_promotions", "N/A")),
-                    ("base dir", stats.get("base_dir", "")),
+                    ("base dir", result.get("base_dir", "")),
                 ],
             )
 
@@ -1273,56 +1280,49 @@ class REPL:
 
     def handle_memory_daily(self, args: list[str]):
         """Handle /memory daily [content | YYYY-MM-DD]"""
-        from memory.daily import DailyMemoryManager
-        daily = DailyMemoryManager(self.session.workspace_root)
+        from service.memory_service import MemoryService
+        svc = MemoryService(self.session.workspace_root)
 
         if not args:
-            # Show today's daily memory
-            content = daily.get_today()
-            if not content:
+            result = svc.daily_read()
+            if not result["content"].strip():
                 print_notice("今日暂无每日记忆。使用 /memory daily <content> 写入。")
                 return
             print()
             print("  \033[1;37m今日记忆:\033[0m")
-            print_markdown(content)
+            print_markdown(result["content"])
             print()
             return
 
         # Check if it's a date string
         if len(args) == 1 and len(args[0]) == 10 and args[0][4] == "-":
-            content = daily.read(args[0])
-            if not content:
+            result = svc.daily_read(date=args[0])
+            if not result["content"].strip():
                 print_notice(f"{args[0]} 没有记忆记录。")
                 return
             print()
             print(f"  \033[1;37m{args[0]} 记忆:\033[0m")
-            print_markdown(content)
+            print_markdown(result["content"])
             print()
             return
 
         # Otherwise treat as content to save
         text = " ".join(args)
-        filepath = daily.append(text)
-
-        # Index in FTS5
-        try:
-            from memory.store import MemoryIndexStore
-            from datetime import datetime, timezone
-            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-            idx = MemoryIndexStore(self.session.workspace_root)
-            idx.index_text(path=filepath, source="daily", text=text, date=today)
-        except Exception:
-            pass
-
-        print_success(f"每日记忆已保存: {filepath}")
+        result = svc.daily_save(content=text)
+        if result["ok"]:
+            print_success(f"每日记忆已保存: {result['path']}")
+        else:
+            print_error(result["error"])
 
     def handle_memory_promote(self, args: list[str]):
         """Handle /memory promote [--dry-run]"""
-        from memory.promotion import PromotionEngine
-        engine = PromotionEngine(self.session.workspace_root)
+        from service.memory_service import MemoryService
+        svc = MemoryService(self.session.workspace_root)
         dry_run = "--dry-run" in args
 
-        candidates = engine.run_promotion_check()
+        result = svc.promote(dry_run=dry_run)
+        candidates = result["candidates"]
+
         if not candidates:
             print_notice("没有待晋升的每日记忆。")
             return
@@ -1336,11 +1336,8 @@ class REPL:
                 f"(freq={c['frequency']:.1f}, quiz={c['quiz']:.1f}, recency={c['recency']:.1f}) "
                 f"recalls={c['recall_count']} — {status}"
             )
-
-            if c["eligible"] and not dry_run:
-                result = engine.promote(c["path"])
-                if result["promoted"]:
-                    print(f"      → {result['details']}")
+            if c.get("promoted"):
+                print(f"      → {c['details']}")
 
         if dry_run:
             print("\n  (Dry run — 未执行晋升)")
@@ -1349,23 +1346,18 @@ class REPL:
     def handle_memory_review(self):
         """Show today's review list from learning scheduler."""
         try:
-            from learning.store import LearningStore
-            from learning.scheduler import ReviewScheduler
-            store = LearningStore(self.session.workspace_root)
-            scheduler = ReviewScheduler(store)
-            due = scheduler.get_due_reviews()
+            from service.learning_service import LearningService
+            svc = LearningService(self.session.workspace_root)
+            result = svc.get_due_reviews()
 
-            if not due:
+            if result["count"] == 0:
                 print_notice("今日没有需要复习的知识点。")
                 return
 
             print()
             print("  \033[1;37m今日复习清单:\033[0m")
-            for item in due:
-                concept = item.get("concept", "?")
-                status = item.get("status", "?")
-                score = item.get("score", 0)
-                print(f"    [{status}] {concept} (score: {score:.1f})")
+            for item in result["concepts"]:
+                print(f"    [{item['status']}] {item['concept']} (score: {item['score']:.1f})")
             print()
         except Exception as e:
             print_error(f"获取复习清单失败: {e}")
