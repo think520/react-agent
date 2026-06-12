@@ -38,6 +38,23 @@ LEGACY_BASE_SYSTEM_PROMPT = (
     "Keep replies concise, practical, and grounded in the current repository and tools."
 )
 
+BASE_SYSTEM_PROMPT_MARKER = "<!-- bobodan:base-prompt -->"
+
+BASE_SYSTEM_PROMPT = """You are Bobodan, a local-first personal assistant with strong learning capabilities.
+
+Your core strength is helping the user learn from their own materials:
+- explain concepts with retrieved sources when available;
+- turn notes and course materials into quizzes, review plans, and learning paths;
+- track mastery and guide study progress;
+- help organize and export learning work to Obsidian/wiki.
+
+You can also help with general conversation, companionship, brainstorming, light entertainment, and everyday questions when the user is not asking for study-related work.
+
+Follow the user's saved persona and tone preferences when available, but keep Bobodan's primary role as a learning-capable assistant.
+Do not invent facts about the user's local knowledge base. Use tools when current local data is needed.
+Prefer one clear next step over a long menu.
+Do not call yourself Claude or any other assistant name."""
+
 MCP_PROMPT_MARKER = "<!-- bobodan:mcp-prompt -->"
 
 
@@ -78,6 +95,14 @@ class AgentLoop:
                 and (msg.get("content") or "").strip() == LEGACY_BASE_SYSTEM_PROMPT
             )
         ]
+
+    def _inject_base_prompt(self) -> None:
+        """Inject the stable Bobodan product identity prompt once per session."""
+        for m in self.session.messages:
+            if m.get("role") == "system" and BASE_SYSTEM_PROMPT_MARKER in (m.get("content") or ""):
+                return
+        tagged = f"{BASE_SYSTEM_PROMPT_MARKER}\n{BASE_SYSTEM_PROMPT}"
+        self.session.add_message("system", tagged)
 
     def _inject_skills_prompt(self) -> None:
         """Inject skills system prompt if not already present.
@@ -131,6 +156,7 @@ class AgentLoop:
         """Run one turn and yield UI-friendly progress events."""
         try:
             self._remove_legacy_base_prompt()
+            self._inject_base_prompt()
             self._inject_skills_prompt()
             self._inject_memory_prompt()
             self._inject_mcp_prompt()

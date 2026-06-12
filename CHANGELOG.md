@@ -7,6 +7,19 @@
 ## [未发布]
 
 ### 新增
+- **Bobodan base system prompt**: `core/agent_loop.py` 新增稳定的 Bobodan 基础 system prompt，用 marker 幂等注入。
+  - 定位从通用 CLI assistant 收敛为 "local-first personal assistant with strong learning capabilities"。
+  - 学习能力仍是核心强项，但允许普通聊天、陪伴、头脑风暴、轻娱乐和日常问题。
+  - 人设和语气继续由 memory / persona 偏好提供，base prompt 只固定产品主线和事实边界。
+  - 保留 `LEGACY_BASE_SYSTEM_PROMPT` 清理逻辑，旧 session 会移除旧提示词并注入新提示词。
+  - `tests/test_agent_loop.py`: 覆盖 base prompt 注入、幂等、防重复和 legacy prompt 清理。
+
+- **内置 skills 调整**: 删除与学习助手主线无关的 `weather` 示例 skill，新增并收敛 Bobodan 学习场景内置 skill。
+  - `skills/study-loop/SKILL.md`: 学习闭环引导，负责知识库检查、学习计划、今日任务、练习、进度和导出。
+  - `skills/exam-prep/SKILL.md`: 考前冲刺和薄弱点训练，基于 `learning_progress` / `learning_review` / `quiz_start` / `question_generate`，不再引用不存在的 `quiz_weak` / `quiz_wrong` / `quiz_stats` 工具。
+  - `skills/obsidian-workspace/SKILL.md`: Obsidian / 本地知识库工作区管理，负责同步资料、知识库状态、导出学习计划/做题总结和 wiki 整理。
+  - 当前内置 skill 集合：`aihot` / `course-learning` / `study-loop` / `exam-prep` / `obsidian-workspace`。
+
 - **P5 Service 层抽取**: 5 个 service 模块提取完成，CLI 和 tools 统一委托 service 层，为 FastAPI/Web 前后端分离做准备。
   - `service/learning_service.py`（新）: `LearningService` — 学习计划、进度、复习、掌握度（9 个方法）。
   - `service/quiz_service.py`（新）: `QuizService` — 出题、做题、批改、错题本、薄弱点（6 个方法）。

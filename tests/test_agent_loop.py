@@ -1,4 +1,9 @@
-from core.agent_loop import AgentLoop, LEGACY_BASE_SYSTEM_PROMPT
+from core.agent_loop import (
+    AgentLoop,
+    BASE_SYSTEM_PROMPT,
+    BASE_SYSTEM_PROMPT_MARKER,
+    LEGACY_BASE_SYSTEM_PROMPT,
+)
 from core.session import Session
 from providers.types import LLMResponse, LLMStreamChunk, ToolCall, ToolCallDelta
 from tools.base import TOOL_REGISTRY, TOOL_SCHEMAS, ToolResult, register_tool
@@ -71,6 +76,36 @@ def test_agent_loop_removes_legacy_base_system_prompt():
 
     system_messages = [m for m in session.messages if m["role"] == "system"]
     assert all(m["content"] != LEGACY_BASE_SYSTEM_PROMPT for m in system_messages)
+    assert any(BASE_SYSTEM_PROMPT_MARKER in m["content"] for m in system_messages)
+
+
+def test_agent_loop_injects_base_system_prompt():
+    session = Session.new("/test")
+    llm = MockLLMProvider([LLMResponse(content="direct response")])
+    agent = AgentLoop(llm, session)
+
+    agent.run("hello")
+
+    system_messages = [m for m in session.messages if m["role"] == "system"]
+    assert len([m for m in system_messages if BASE_SYSTEM_PROMPT_MARKER in m["content"]]) == 1
+    assert BASE_SYSTEM_PROMPT in system_messages[0]["content"]
+    assert "local-first personal assistant" in system_messages[0]["content"]
+    assert "primary role as a learning-capable assistant" in system_messages[0]["content"]
+
+
+def test_agent_loop_does_not_duplicate_base_system_prompt():
+    session = Session.new("/test")
+    llm = MockLLMProvider([
+        LLMResponse(content="first"),
+        LLMResponse(content="second"),
+    ])
+    agent = AgentLoop(llm, session)
+
+    agent.run("hello")
+    agent.run("again")
+
+    system_messages = [m for m in session.messages if m["role"] == "system"]
+    assert len([m for m in system_messages if BASE_SYSTEM_PROMPT_MARKER in m["content"]]) == 1
 
 
 def test_agent_loop_streams_text_events():

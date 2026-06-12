@@ -201,7 +201,11 @@ wiki/             # LLM wiki compilation layer (Karpathy pattern)
 tools/
   mcp.py          # register_mcp_tools: REPL integration entry point for MCP
 skills/           # Skills directory (configurable via config.yaml)
-  weather/        # Example skill: weather queries via wttr.in
+  aihot/          # AI news skill
+  course-learning/ # RAG + graph course-learning Q&A
+  study-loop/     # learning workflow guidance
+  exam-prep/      # exam prep and weak-concept practice
+  obsidian-workspace/ # Obsidian / knowledge base sync and export
     SKILL.md      # YAML frontmatter (name, description) + Markdown instructions
 ```
 
@@ -250,6 +254,8 @@ tools/           # Agent-facing wrappers for sync, RAG search, and graph query
 **ReAct loop**: `AgentLoop.run_stream(user_input)` (or the convenience wrapper `run()`) adds the user message, calls the LLM, executes each `ToolCall`, and loops until the LLM returns text instead of tool calls (max 8 iterations). The REPL calls `run_stream()` in a background thread and renders events (`assistant_delta`, `tool_start`, `tool_end`, `assistant_done`) in real time. Message ordering is always: `user → assistant(tool_calls) → tool → assistant`. The REPL deep-copies the session before each turn so timeouts don't pollute state.
 
 **Skills system**: Skills are loaded from `skills/` directory (configurable). Each skill is a subdirectory containing a `SKILL.md` file with YAML frontmatter (`name`, `description`) and Markdown body (instructions). At startup, `build_skills_system_prompt()` scans the directory, parses frontmatter, and formats an XML catalog into a system message. The model reads the catalog and autonomously decides which skill to load via `read_file`. `/skill run <name>` strips frontmatter and sends the body as a user message prefixed with `[Skill: name]`. A stable `SKILLS_PROMPT_MARKER` in the injected system message prevents duplicate injection on session restore. System messages are protected from trimming in `_trim_messages()`.
+
+**Base system prompt**: `core/agent_loop.py` injects a stable Bobodan base prompt once per session using `BASE_SYSTEM_PROMPT_MARKER`. It defines Bobodan as a local-first personal assistant with strong learning capabilities, while leaving persona/tone customization to memory or future user instructions. The legacy base prompt string is retained only as a cleanup sentinel for old saved sessions.
 
 **Memory system**: Two-tier memory with lifecycle management.
 
