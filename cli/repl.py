@@ -1797,17 +1797,11 @@ class REPL:
         Used by both initialize() and run_agent_streaming() so that
         /model use takes effect on the next turn.
         """
-        provider_config = (
-            self.config.get("llm", {}).get("providers", {}).get(self.active_provider)
-        )
-        if not provider_config:
-            available = sorted((self.config.get("llm", {}).get("providers") or {}).keys())
-            raise ValueError(
-                f"Active provider '{self.active_provider}' not found in "
-                f"{self.config_path}. Available: {', '.join(available) or '(none)'}"
-            )
-        agent_config = self.config.get("agent", {})
-        return ProviderFactory.create(provider_config, agent_config)
+        from service.agent_service import AgentService
+        result = AgentService.create_provider(self.config, self.active_provider)
+        if not result["ok"]:
+            raise ValueError(result["error"])
+        return result["provider"]
 
     def set_provider(self, provider_name: str) -> tuple[bool, str]:
         """Switch the active LLM provider at runtime.
@@ -1816,23 +1810,18 @@ class REPL:
         unchanged. Does not modify config.yaml — to persist, edit the file
         and restart the REPL.
         """
+        from service.agent_service import AgentService
+        result = AgentService.create_provider(self.config, provider_name)
+        if not result["ok"]:
+            return False, result["error"]
+
         providers = self.config.get("llm", {}).get("providers") or {}
-        if provider_name not in providers:
-            available = ", ".join(sorted(providers.keys())) or "(none)"
-            return False, f"Unknown provider '{provider_name}'. Available: {available}"
-
         provider_config = providers[provider_name]
-        agent_config = self.config.get("agent", {})
-        try:
-            new_provider = ProviderFactory.create(provider_config, agent_config)
-        except Exception as e:
-            return False, f"Failed to create provider: {e}"
-
         previous = f"{self.active_provider}/{self.active_model}"
         self.active_provider = provider_name
         self.active_model = provider_config.get("model", "?")
         if self.agent is not None:
-            self.agent.set_provider(new_provider)
+            self.agent.set_provider(result["provider"])
         new_label = f"{self.active_provider}/{self.active_model}"
         return True, f"Switched: {previous} → {new_label}"
 
@@ -2091,28 +2080,23 @@ class REPL:
                 print(f"    {icon} {name:<28} {elapsed:>8}{extra}")
             print()
 
-    def normalize_session_id(self, session_id: str) -> str:
-        return session_id[:-5] if session_id.endswith(".json") else session_id
-
-    def get_session_path(self, session_id: str) -> str:
-        normalized = self.normalize_session_id(session_id)
-        return os.path.join(self.session_save_dir, f"{normalized}.json")
-
     def save_session(self, name: str = "") -> str:
-        os.makedirs(self.session_save_dir, exist_ok=True)
-        if name:
-            self.session.name = name
-        save_path = self.get_session_path(self.session.session_id)
-        self.session.save_to_file(save_path)
-        return save_path
+        from service.agent_service import AgentService
+        result = AgentService.save_session(self.session, self.session_save_dir, name)
+        if not result["ok"]:
+            raise RuntimeError(result["error"])
+        return result["path"]
 
     def load_session(self, session_id: str, announce: bool = True) -> Session:
-        normalized = self.resolve_session_id(session_id)
-        load_path = self.get_session_path(normalized)
-        session = Session.load_from_file(load_path)
+        from service.agent_service import AgentService
+        result = AgentService.load_session(session_id, self.session_save_dir)
+        if not result["ok"]:
+            raise FileNotFoundError(result["error"])
+
+        session = result["session"]
         self.set_session(session, resumed=True)
         if announce:
-            label = f"{session.name} ({normalized})" if session.name else normalized
+            label = f"{session.name} ({session.session_id[:8]})" if session.name else session.session_id[:8]
             print(f"  \033[1;32m[OK]\033[0m Session loaded: {label}")
             print(f"  \033[1;32m[OK]\033[0m Working directory: {self.session.cwd}")
             self.print_session_history(session)
@@ -2149,37 +2133,6 @@ class REPL:
         print(f"  \033[90m---\033[0m")
         print()
 
-    def resolve_session_id(self, query: str) -> str:
-        """Resolve a session ID by exact match, prefix match, or name match."""
-        query = query.strip()
-        if query.endswith(".json"):
-            query = query[:-5]
-
-        summaries = Session.list_session_summaries(self.session_save_dir)
-        if not summaries:
-            raise FileNotFoundError(f"No saved sessions found")
-
-        # Exact match
-        for s in summaries:
-            if s["session_id"] == query:
-                return s["session_id"]
-
-        # Prefix match
-        matches = [s for s in summaries if s["session_id"].startswith(query)]
-        if len(matches) == 1:
-            return matches[0]["session_id"]
-        if len(matches) > 1:
-            raise ValueError(f"Ambiguous session ID prefix '{query}', matches {len(matches)} sessions")
-
-        # Name match (case-insensitive)
-        name_matches = [s for s in summaries if query.lower() in s["name"].lower()]
-        if len(name_matches) == 1:
-            return name_matches[0]["session_id"]
-        if len(name_matches) > 1:
-            raise ValueError(f"Ambiguous name '{query}', matches {len(name_matches)} sessions")
-
-        raise FileNotFoundError(f"Session not found: {query}")
-
     def handle_session_command(self, cmd: str):
         parts = cmd.strip().split()
         if not parts:
@@ -2205,7 +2158,9 @@ class REPL:
             print("  \033[1;38;5;210mUsage:\033[0m /session <list|save [name]|resume|load <id>>")
 
     def print_session_list(self):
-        summaries = Session.list_session_summaries(self.session_save_dir)
+        from service.agent_service import AgentService
+        result = AgentService.list_sessions(self.session_save_dir)
+        summaries = result.get("sessions", [])
         if not summaries:
             print("  \033[1;38;5;210mNo saved sessions.\033[0m")
             return
@@ -2218,7 +2173,9 @@ class REPL:
             print(f"    \033[90m{i}.\033[0m{name_part} \033[1;38;5;147m{short_id}...\033[0m  \033[90m{msgs} msgs, {time_str}\033[0m")
 
     def handle_session_resume(self):
-        summaries = Session.list_session_summaries(self.session_save_dir)
+        from service.agent_service import AgentService
+        result = AgentService.list_sessions(self.session_save_dir)
+        summaries = result.get("sessions", [])
         if not summaries:
             print("  \033[1;38;5;210mNo saved sessions to resume.\033[0m")
             return
