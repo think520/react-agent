@@ -108,7 +108,7 @@ P0-P4 完成后，Bobodan 具备稳定的学习闭环、Obsidian 导出、event 
 
 - [x] `service/learning_service.py` — LearningService 提取完成（generate_path / get_progress / get_due_reviews / mark_mastery / list_plans / get_today_tasks / get_plan_progress / complete_task / complete_step）
 - [x] `service/quiz_service.py` — QuizService 提取完成（generate_questions / start_quiz / submit_answer / get_wrong_answer_book / get_weakness_analysis / get_stats）
-- [ ] `service/memory_service.py`
+- [x] `service/memory_service.py` — MemoryService 提取完成（save / recall / list_entries / get_entry / forget / daily_save / daily_read / promote / get_stats）
 - [ ] `service/kb_service.py`
 - [ ] `service/agent_service.py`
 - [ ] FastAPI 层
@@ -132,7 +132,7 @@ P0-P4 完成后，Bobodan 具备稳定的学习闭环、Obsidian 导出、event 
   service/
     learning_service.py   # ✅ 已完成：封装 learning 相关业务
     quiz_service.py       # ✅ 已完成：封装 quiz 相关业务
-    memory_service.py     # 封装 memory 相关业务
+    memory_service.py     # ✅ 已完成：封装 memory 相关业务
     kb_service.py         # 封装知识库相关业务
     agent_service.py      # 封装 agent run 相关业务
   ↓ CLI 和 Web API 都调用 service，不直接调 tool/store
