@@ -1,0 +1,205 @@
+"""LearningService — business logic for learning plans, progress, and reviews.
+
+Used by both cli/repl.py and tools/learning_tools.py.
+Returns structured dicts, no ANSI/HTML formatting.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from learning.store import LearningStore
+from learning.scheduler import ReviewScheduler
+from learning.progress import ProgressTracker
+from learning.path import LearningPathGenerator
+from learning.workflow import PlanWorkflowTracker
+
+logger = logging.getLogger(__name__)
+
+
+def _ok(**kwargs: Any) -> dict[str, Any]:
+    return {"ok": True, **kwargs}
+
+
+def _err(error: str) -> dict[str, Any]:
+    return {"ok": False, "error": error}
+
+
+def _get_llm_provider():
+    from providers.factory import ProviderFactory
+    return ProviderFactory.create_from_config()
+
+
+class LearningService:
+    """Stateless service: each method creates its own store/scheduler instances."""
+
+    def __init__(self, workspace: str = "."):
+        self.workspace = workspace
+
+    # --- Plan generation ---
+
+    def generate_path(
+        self,
+        goal: str,
+        course: str | None = None,
+        deadline: str | None = None,
+    ) -> dict[str, Any]:
+        store = LearningStore(self.workspace)
+        progress = ProgressTracker(store, ReviewScheduler(store))
+        try:
+            llm = _get_llm_provider()
+        except Exception:
+            llm = None
+
+        generator = LearningPathGenerator(store, progress, llm)
+        plan = generator.generate_path(
+            goal=goal, course=course, deadline=deadline, workspace=self.workspace,
+        )
+        if not plan.steps:
+            return _err("未能生成学习计划。请确保知识库中有相关资料。")
+
+        steps = []
+        for step in plan.steps:
+            steps.append({
+                "day": step.get("day", "?"),
+                "topics": step.get("topics", []),
+                "tasks": step.get("tasks", []),
+                "review": step.get("review", []),
+            })
+
+        return _ok(
+            plan_id=plan.id,
+            title=plan.title,
+            total_days=len(plan.steps),
+            course=plan.course,
+            deadline=plan.deadline,
+            steps=steps,
+        )
+
+    # --- Progress ---
+
+    def get_progress(self, concept: str | None = None) -> dict[str, Any]:
+        store = LearningStore(self.workspace)
+        scheduler = ReviewScheduler(store)
+        progress = ProgressTracker(store, scheduler)
+
+        if concept:
+            detail = progress.get_concept_detail(concept)
+            if not detail:
+                return _err(f"未找到知识点 '{concept}' 的掌握度记录。")
+            return _ok(**detail)
+
+        overview = progress.get_overview()
+        return _ok(**overview)
+
+    # --- Reviews ---
+
+    def get_due_reviews(self, limit: int = 20) -> dict[str, Any]:
+        store = LearningStore(self.workspace)
+        scheduler = ReviewScheduler(store)
+        due = scheduler.get_due_concepts(limit=limit)
+        concepts = []
+        for m in due:
+            concepts.append({
+                "concept": m.concept,
+                "status": m.status,
+                "score": m.score,
+                "consecutive_correct": m.consecutive_correct,
+            })
+        return _ok(count=len(due), concepts=concepts)
+
+    # --- Manual mastery ---
+
+    def mark_mastery(self, concept: str, status: str) -> dict[str, Any]:
+        store = LearningStore(self.workspace)
+        scheduler = ReviewScheduler(store)
+        m = scheduler.mark_manual(concept, status)
+        return _ok(
+            concept=m.concept,
+            status=m.status,
+            score=m.score,
+        )
+
+    # --- Plans ---
+
+    def list_plans(self, limit: int = 10) -> dict[str, Any]:
+        store = LearningStore(self.workspace)
+        plans = store.list_plans(limit=limit)
+        result = []
+        for p in plans:
+            result.append({
+                "id": p.id,
+                "title": p.title,
+                "days": len(p.steps),
+                "course": p.course,
+                "deadline": p.deadline,
+                "status": p.status,
+            })
+        return _ok(plans=result)
+
+    # --- Today tasks (catch-up mode) ---
+
+    def get_today_tasks(self) -> dict[str, Any]:
+        store = LearningStore(self.workspace)
+        tracker = PlanWorkflowTracker(store)
+        today = tracker.get_today_tasks(self.workspace)
+        return _ok(**today)
+
+    # --- Plan progress ---
+
+    def get_plan_progress(self, plan_id: int) -> dict[str, Any]:
+        store = LearningStore(self.workspace)
+        tracker = PlanWorkflowTracker(store)
+        summary = tracker.get_plan_progress_summary(plan_id)
+        if not summary:
+            return _err(f"未找到计划 #{plan_id}。")
+        return _ok(**summary)
+
+    def complete_task(self, plan_id: int, day: int, task_index: int) -> dict[str, Any]:
+        store = LearningStore(self.workspace)
+        plan = store.get_plan(plan_id)
+        if not plan:
+            return _err(f"未找到计划 #{plan_id}。")
+
+        target_tasks = []
+        for step in plan.steps:
+            if step.get("day") == day:
+                target_tasks = step.get("tasks", [])
+                break
+        if not target_tasks:
+            return _err(f"计划 #{plan_id} 没有第 {day} 天的任务。")
+        if task_index < 0 or task_index >= len(target_tasks):
+            return _err(f"第 {day} 天只有 {len(target_tasks)} 个任务，task_index={task_index} 越界。")
+
+        store.mark_task_done(plan_id, day, task_index, source="manual")
+
+        tracker = PlanWorkflowTracker(store)
+        progress = store.get_progress(plan_id)
+        if tracker._all_steps_done(plan, progress):
+            store.update_plan_status(plan_id, status="completed")
+
+        return _ok(message=f"已标记计划 #{plan_id} 第 {day} 天第 {task_index + 1} 个任务完成。")
+
+    def complete_step(self, plan_id: int, day: int) -> dict[str, Any]:
+        store = LearningStore(self.workspace)
+        plan = store.get_plan(plan_id)
+        if not plan:
+            return _err(f"未找到计划 #{plan_id}。")
+
+        tasks = []
+        for step in plan.steps:
+            if step.get("day") == day:
+                tasks = step.get("tasks", [])
+                break
+        if not tasks:
+            return _err(f"计划 #{plan_id} 没有第 {day} 天的任务。")
+
+        store.mark_step_done(plan_id, day, len(tasks), source="manual")
+
+        tracker = PlanWorkflowTracker(store)
+        progress = store.get_progress(plan_id)
+        if tracker._all_steps_done(plan, progress):
+            store.update_plan_status(plan_id, status="completed")
+
+        return _ok(message=f"已标记计划 #{plan_id} 第 {day} 天全部完成。")

@@ -1,19 +1,9 @@
 import json
 import logging
 
-from learning.store import LearningStore
-from learning.scheduler import ReviewScheduler
-from learning.progress import ProgressTracker
-from learning.path import LearningPathGenerator
-
 from .base import register_tool, ToolResult
 
 logger = logging.getLogger(__name__)
-
-
-def _get_llm_provider():
-    from providers.factory import ProviderFactory
-    return ProviderFactory.create_from_config()
 
 
 def learning_path(
@@ -24,25 +14,18 @@ def learning_path(
 ) -> ToolResult:
     """Generate a personalized learning plan based on goal, mastery state, and course materials."""
     try:
-        store = LearningStore(workspace)
-        progress = ProgressTracker(store, ReviewScheduler(store))
+        from service.learning_service import LearningService
+        svc = LearningService(workspace)
+        result = svc.generate_path(goal=goal, course=course, deadline=deadline)
 
-        try:
-            llm = _get_llm_provider()
-        except Exception:
-            llm = None
+        if not result["ok"]:
+            return ToolResult(ok=False, content=result["error"])
 
-        generator = LearningPathGenerator(store, progress, llm)
-        plan = generator.generate_path(goal=goal, course=course, deadline=deadline, workspace=workspace)
-
-        if not plan.steps:
-            return ToolResult(ok=False, content="未能生成学习计划。请确保知识库中有相关资料。")
-
-        lines = [f"学习计划: {plan.title}\n"]
-        for step in plan.steps:
-            day = step.get("day", "?")
-            topics = ", ".join(step.get("topics", []))
-            tasks = step.get("tasks", [])
+        lines = [f"学习计划: {result['title']}\n"]
+        for step in result["steps"]:
+            day = step["day"]
+            topics = ", ".join(step["topics"])
+            tasks = step["tasks"]
             lines.append(f"第 {day} 天: {topics}")
             for t in tasks:
                 lines.append(f"  - {t}")
@@ -51,11 +34,11 @@ def learning_path(
             lines.append("")
 
         data = {
-            "plan_id": plan.id,
-            "title": plan.title,
-            "total_days": len(plan.steps),
-            "course": plan.course,
-            "deadline": plan.deadline,
+            "plan_id": result["plan_id"],
+            "title": result["title"],
+            "total_days": result["total_days"],
+            "course": result["course"],
+            "deadline": result["deadline"],
         }
 
         return ToolResult(ok=True, content="\n".join(lines), data=data)
@@ -71,49 +54,47 @@ def learning_progress(
 ) -> ToolResult:
     """Show learning progress: overall mastery overview or details for a specific concept."""
     try:
-        store = LearningStore(workspace)
-        scheduler = ReviewScheduler(store)
-        progress = ProgressTracker(store, scheduler)
+        from service.learning_service import LearningService
+        svc = LearningService(workspace)
+        result = svc.get_progress(concept=concept)
+
+        if not result["ok"]:
+            return ToolResult(ok=False, content=result["error"])
 
         if concept:
-            detail = progress.get_concept_detail(concept)
-            if not detail:
-                return ToolResult(ok=False, content=f"未找到知识点 '{concept}' 的掌握度记录。")
-
             lines = [
-                f"知识点: {detail['concept']}",
-                f"状态: {detail['status']}",
-                f"掌握度: {detail['score']:.0%}",
-                f"复习次数: {detail['review_count']}",
-                f"连续正确: {detail['consecutive_correct']}",
-                f"来源: {detail['source']}",
+                f"知识点: {result['concept']}",
+                f"状态: {result['status']}",
+                f"掌握度: {result['score']:.0%}",
+                f"复习次数: {result['review_count']}",
+                f"连续正确: {result['consecutive_correct']}",
+                f"来源: {result['source']}",
             ]
-            if detail["next_review"]:
-                lines.append(f"下次复习: {detail['next_review'][:16]}")
-            return ToolResult(ok=True, content="\n".join(lines), data=detail)
+            if result.get("next_review"):
+                lines.append(f"下次复习: {result['next_review'][:16]}")
+            return ToolResult(ok=True, content="\n".join(lines), data=result)
 
-        overview = progress.get_overview()
-        if overview["total_concepts"] == 0:
-            return ToolResult(ok=True, content="暂无学习进度记录。开始做题后会自动追踪掌握度。", data=overview)
+        if result["total_concepts"] == 0:
+            return ToolResult(ok=True, content="暂无学习进度记录。开始做题后会自动追踪掌握度。", data=result)
 
         lines = [
             f"学习进度概览",
-            f"已跟踪知识点: {overview['total_concepts']}",
-            f"平均掌握度: {overview['average_score']:.0%}",
-            f"状态分布: {json.dumps(overview['by_status'], ensure_ascii=False)}",
+            f"已跟踪知识点: {result['total_concepts']}",
+            f"平均掌握度: {result['average_score']:.0%}",
+            f"状态分布: {json.dumps(result['by_status'], ensure_ascii=False)}",
         ]
 
-        if overview["weakest"]:
+        if result.get("weakest"):
             lines.append("\n最薄弱知识点:")
-            for w in overview["weakest"]:
+            for w in result["weakest"]:
                 lines.append(f"  - {w['concept']}: {w['score']:.0%} ({w['status']})")
 
-        if overview["strongest"]:
+        if result.get("strongest"):
             lines.append("\n掌握最好:")
-            for s in overview["strongest"]:
+            for s in result["strongest"]:
                 lines.append(f"  - {s['concept']}: {s['score']:.0%} ({s['status']})")
 
-        return ToolResult(ok=True, content="\n".join(lines), data=overview)
+        return ToolResult(ok=True, content="\n".join(lines), data=result)
     except Exception as e:
         logger.error("Learning progress failed: %s", e)
         return ToolResult(ok=False, content=f"查询学习进度失败: {e}")
@@ -124,19 +105,19 @@ def learning_review(
 ) -> ToolResult:
     """Get concepts due for review today."""
     try:
-        store = LearningStore(workspace)
-        scheduler = ReviewScheduler(store)
-        due = scheduler.get_due_concepts(limit=20)
+        from service.learning_service import LearningService
+        svc = LearningService(workspace)
+        result = svc.get_due_reviews()
 
-        if not due:
+        if result["count"] == 0:
             return ToolResult(ok=True, content="今天没有需要复习的知识点！", data={"due_count": 0})
 
-        lines = [f"今日复习清单 ({len(due)} 个知识点):\n"]
-        for i, m in enumerate(due, 1):
-            lines.append(f"{i}. {m.concept} — 掌握度 {m.score:.0%}, 连续正确 {m.consecutive_correct}")
+        lines = [f"今日复习清单 ({result['count']} 个知识点):\n"]
+        for i, r in enumerate(result["concepts"], 1):
+            lines.append(f"{i}. {r['concept']} — 掌握度 {r['score']:.0%}, 连续正确 {r['consecutive_correct']}")
 
         lines.append("\n使用 quiz_start 开始针对性练习。")
-        return ToolResult(ok=True, content="\n".join(lines), data={"due_count": len(due), "concepts": [m.concept for m in due]})
+        return ToolResult(ok=True, content="\n".join(lines), data={"due_count": result["count"], "concepts": [r["concept"] for r in result["concepts"]]})
     except Exception as e:
         logger.error("Learning review failed: %s", e)
         return ToolResult(ok=False, content=f"获取复习清单失败: {e}")
@@ -158,18 +139,17 @@ def learning_plan_progress(
       - today: show today's tasks + due reviews (catch-up mode)
     """
     try:
-        from learning.workflow import PlanWorkflowTracker
-
-        store = LearningStore(workspace)
-        tracker = PlanWorkflowTracker(store)
+        from service.learning_service import LearningService
+        svc = LearningService(workspace)
 
         if action == "today":
-            today = tracker.get_today_tasks(workspace)
-            lines = []
+            result = svc.get_today_tasks()
+            today = {k: v for k, v in result.items() if k != "ok"}
 
             if not today["plans"] and not today["reviews"]:
                 return ToolResult(ok=True, content="没有待完成的学习任务或复习。", data=today)
 
+            lines = []
             for p in today["plans"]:
                 lines.append(f"学习计划: {p['title']}")
                 if p.get("deadline"):
@@ -193,10 +173,11 @@ def learning_plan_progress(
             return ToolResult(ok=False, content=f"action='{action}' 需要 plan_id 参数。")
 
         if action == "status":
-            summary = tracker.get_plan_progress_summary(plan_id)
-            if not summary:
-                return ToolResult(ok=False, content=f"未找到计划 #{plan_id}。")
+            result = svc.get_plan_progress(plan_id)
+            if not result["ok"]:
+                return ToolResult(ok=False, content=result["error"])
 
+            summary = {k: v for k, v in result.items() if k != "ok"}
             lines = [
                 f"计划: {summary['title']}",
                 f"状态: {summary['status']}",
@@ -215,51 +196,18 @@ def learning_plan_progress(
         if action == "complete_task":
             if day is None or task_index is None:
                 return ToolResult(ok=False, content="complete_task 需要 day 和 task_index 参数。")
-            plan = store.get_plan(plan_id)
-            if not plan:
-                return ToolResult(ok=False, content=f"未找到计划 #{plan_id}。")
-            # Validate day and task_index
-            target_tasks = []
-            for step in plan.steps:
-                if step.get("day") == day:
-                    target_tasks = step.get("tasks", [])
-                    break
-            if not target_tasks:
-                return ToolResult(ok=False, content=f"计划 #{plan_id} 没有第 {day} 天的任务。")
-            if task_index < 0 or task_index >= len(target_tasks):
-                return ToolResult(ok=False, content=f"第 {day} 天只有 {len(target_tasks)} 个任务，task_index={task_index} 越界。")
-            store.mark_task_done(plan_id, day, task_index, source="manual")
-
-            # Check if plan is now fully complete
-            progress = store.get_progress(plan_id)
-            tracker_check = PlanWorkflowTracker(store)
-            if tracker_check._all_steps_done(plan, progress):
-                store.update_plan_status(plan_id, status="completed")
-
-            return ToolResult(ok=True, content=f"已标记计划 #{plan_id} 第 {day} 天第 {task_index + 1} 个任务完成。")
+            result = svc.complete_task(plan_id, day, task_index)
+            if not result["ok"]:
+                return ToolResult(ok=False, content=result["error"])
+            return ToolResult(ok=True, content=result["message"])
 
         if action == "complete_step":
             if day is None:
                 return ToolResult(ok=False, content="complete_step 需要 day 参数。")
-            plan = store.get_plan(plan_id)
-            if not plan:
-                return ToolResult(ok=False, content=f"未找到计划 #{plan_id}。")
-            tasks = []
-            for step in plan.steps:
-                if step.get("day") == day:
-                    tasks = step.get("tasks", [])
-                    break
-            if not tasks:
-                return ToolResult(ok=False, content=f"计划 #{plan_id} 没有第 {day} 天的任务。")
-            store.mark_step_done(plan_id, day, len(tasks), source="manual")
-
-            # Check if plan is now fully complete
-            progress = store.get_progress(plan_id)
-            tracker_check = PlanWorkflowTracker(store)
-            if tracker_check._all_steps_done(plan, progress):
-                store.update_plan_status(plan_id, status="completed")
-
-            return ToolResult(ok=True, content=f"已标记计划 #{plan_id} 第 {day} 天全部完成。")
+            result = svc.complete_step(plan_id, day)
+            if not result["ok"]:
+                return ToolResult(ok=False, content=result["error"])
+            return ToolResult(ok=True, content=result["message"])
 
         return ToolResult(ok=False, content=f"未知 action: {action}。支持: status, complete_task, complete_step, today")
 

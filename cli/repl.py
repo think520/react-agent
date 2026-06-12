@@ -2685,48 +2685,89 @@ class REPL:
         course = options.get("--course")
         deadline = options.get("--deadline")
 
-        from tools.learning_tools import learning_path
-        result = learning_path(
-            goal=goal, course=course, deadline=deadline,
-            workspace=self.session.workspace_root,
-        )
-        if result.ok:
-            print_success(f"Plan generated: {result.data.get('title', '')}")
+        from service.learning_service import LearningService
+        svc = LearningService(self.session.workspace_root)
+        result = svc.generate_path(goal=goal, course=course, deadline=deadline)
+        if result["ok"]:
+            print_success(f"Plan generated: {result.get('title', '')}")
             print()
-            print_markdown(result.content)
+            # Format steps for display
+            lines = []
+            for step in result["steps"]:
+                day = step["day"]
+                topics = ", ".join(step["topics"])
+                lines.append(f"第 {day} 天: {topics}")
+                for t in step["tasks"]:
+                    lines.append(f"  - {t}")
+                if step.get("review"):
+                    lines.append(f"  复习: {', '.join(step['review'])}")
+                lines.append("")
+            print_markdown("\n".join(lines))
         else:
-            print_error(result.content)
+            print_error(result["error"])
 
     def handle_learning_progress(self, args: list[str]):
         concept = " ".join(args).strip() if args else None
 
-        from tools.learning_tools import learning_progress
-        result = learning_progress(
-            concept=concept,
-            workspace=self.session.workspace_root,
-        )
-        if result.ok:
-            print()
-            print_markdown(result.content)
+        from service.learning_service import LearningService
+        svc = LearningService(self.session.workspace_root)
+        result = svc.get_progress(concept=concept)
+        if not result["ok"]:
+            print_error(result["error"])
+            return
+
+        if concept:
+            lines = [
+                f"知识点: {result['concept']}",
+                f"状态: {result['status']}",
+                f"掌握度: {result['score']:.0%}",
+                f"复习次数: {result['review_count']}",
+                f"连续正确: {result['consecutive_correct']}",
+                f"来源: {result['source']}",
+            ]
+            if result.get("next_review"):
+                lines.append(f"下次复习: {result['next_review'][:16]}")
         else:
-            print_error(result.content)
+            if result["total_concepts"] == 0:
+                print_notice("暂无学习进度记录。开始做题后会自动追踪掌握度。")
+                return
+            lines = [
+                f"学习进度概览",
+                f"已跟踪知识点: {result['total_concepts']}",
+                f"平均掌握度: {result['average_score']:.0%}",
+                f"状态分布: {json.dumps(result['by_status'], ensure_ascii=False)}",
+            ]
+            if result.get("weakest"):
+                lines.append("\n最薄弱知识点:")
+                for w in result["weakest"]:
+                    lines.append(f"  - {w['concept']}: {w['score']:.0%} ({w['status']})")
+            if result.get("strongest"):
+                lines.append("\n掌握最好:")
+                for s in result["strongest"]:
+                    lines.append(f"  - {s['concept']}: {s['score']:.0%} ({s['status']})")
+
+        print()
+        print_markdown("\n".join(lines))
 
     def handle_learning_review(self):
-        from tools.learning_tools import learning_review
-        result = learning_review(workspace=self.session.workspace_root)
-        if result.ok:
-            print()
-            print_markdown(result.content)
-        else:
-            print_error(result.content)
+        from service.learning_service import LearningService
+        svc = LearningService(self.session.workspace_root)
+        result = svc.get_due_reviews()
+        if result["count"] == 0:
+            print_notice("今天没有需要复习的知识点！")
+            return
+
+        print()
+        print(f"  \033[1;37m今日复习清单 ({result['count']} 个知识点):\033[0m\n")
+        for i, r in enumerate(result["concepts"], 1):
+            print(f"  {i}. {r['concept']} — 掌握度 {r['score']:.0%}, 连续正确 {r['consecutive_correct']}")
+        print("\n  使用 quiz_start 开始针对性练习。")
 
     def handle_learning_today(self):
-        from learning.store import LearningStore
-        from learning.workflow import PlanWorkflowTracker
-
-        store = LearningStore(self.session.workspace_root)
-        tracker = PlanWorkflowTracker(store)
-        today = tracker.get_today_tasks(self.session.workspace_root)
+        from service.learning_service import LearningService
+        svc = LearningService(self.session.workspace_root)
+        result = svc.get_today_tasks()
+        today = {k: v for k, v in result.items() if k != "ok"}
 
         if not today["plans"] and not today["reviews"]:
             print_notice("没有待完成的学习任务或复习。")
@@ -2763,31 +2804,31 @@ class REPL:
             print_error(f"Invalid status: {status}. Use: mastered, learning, needs_review")
             return
 
-        from learning.store import LearningStore
-        from learning.scheduler import ReviewScheduler
+        from service.learning_service import LearningService
         try:
-            store = LearningStore(self.session.workspace_root)
-            scheduler = ReviewScheduler(store)
-            m = scheduler.mark_manual(concept, status)
-            print_success(f"Marked '{concept}' as {m.status} (score: {m.score:.0%})")
+            svc = LearningService(self.session.workspace_root)
+            result = svc.mark_mastery(concept, status)
+            print_success(f"Marked '{result['concept']}' as {result['status']} (score: {result['score']:.0%})")
         except Exception as e:
             print_error(f"Failed to mark concept: {e}")
 
     def handle_learning_plans(self):
-        from learning.store import LearningStore
+        from service.learning_service import LearningService
         try:
-            store = LearningStore(self.session.workspace_root)
-            plans = store.list_plans(limit=10)
+            svc = LearningService(self.session.workspace_root)
+            result = svc.list_plans()
+            plans = result["plans"]
             if not plans:
                 print_notice("No learning plans yet. Use /learning plan <goal> to create one.")
                 return
 
             print(f"  \033[1;37mLearning plans ({len(plans)}):\033[0m")
             for p in plans:
-                days = len(p.steps)
-                deadline = f", deadline: {p.deadline}" if p.deadline else ""
-                course = f", course: {p.course}" if p.course else ""
-                print(f"    \033[1;38;5;147m#{p.id}\033[0m {p.title} ({days} days{course}{deadline})")
+                days = p["days"]
+                deadline = f", deadline: {p['deadline']}" if p["deadline"] else ""
+                course = f", course: {p['course']}" if p["course"] else ""
+                status = f" [{p['status']}]" if p["status"] != "active" else ""
+                print(f"    \033[1;38;5;147m#{p['id']}\033[0m {p['title']} ({days} days{course}{deadline}){status}")
         except Exception as e:
             print_error(f"Failed to list plans: {e}")
 
