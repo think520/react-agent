@@ -111,7 +111,11 @@ class LearningService:
 
     # --- Manual mastery ---
 
+    _VALID_STATUSES = {"mastered", "learning", "needs_review"}
+
     def mark_mastery(self, concept: str, status: str) -> dict[str, Any]:
+        if status not in self._VALID_STATUSES:
+            return _err(f"Invalid status: {status}. Use: {', '.join(sorted(self._VALID_STATUSES))}")
         store = LearningStore(self.workspace)
         scheduler = ReviewScheduler(store)
         m = scheduler.mark_manual(concept, status)

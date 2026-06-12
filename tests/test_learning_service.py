@@ -110,6 +110,12 @@ def test_mark_mastery_learning(svc):
     assert result["status"] == "learning"
 
 
+def test_mark_mastery_invalid_status(svc):
+    result = svc.mark_mastery("X", "invalid")
+    assert not result["ok"]
+    assert "Invalid status" in result["error"]
+
+
 # --- list_plans ---
 
 def test_list_plans_empty(svc):
