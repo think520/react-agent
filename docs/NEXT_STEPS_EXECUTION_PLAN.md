@@ -100,9 +100,19 @@ P5. service 层抽取 + Web UI / 前后端分离（下一阶段）
 
 **结论**：P4 已完成。后续 UI / TUI / Web 设计默认参考 `docs/DESIGN.md`；后续 runtime / trace / tool policy / handoff 设计默认参考 `docs/OPENAI_AGENT_CODEX_REFERENCE_FOR_BOBODAN.md`。
 
-## 7. P5 下一阶段：service 层抽取 + Web UI / 前后端分离
+## 7. P5：service 层抽取 + Web UI / 前后端分离
 
-P0-P4 完成后，Bobodan 具备稳定的学习闭环、Obsidian 导出、event trace、workflow runtime 和统一设计参考。下一阶段先抽 service 层，再接 FastAPI 和 Web。
+P0-P4 完成后，Bobodan 具备稳定的学习闭环、Obsidian 导出、event trace、workflow runtime 和统一设计参考。P5 先抽 service 层，再接 FastAPI 和 Web。
+
+### P5 进度
+
+- [x] `service/learning_service.py` — LearningService 提取完成（generate_path / get_progress / get_due_reviews / mark_mastery / list_plans / get_today_tasks / get_plan_progress / complete_task / complete_step）
+- [ ] `service/quiz_service.py`
+- [ ] `service/memory_service.py`
+- [ ] `service/kb_service.py`
+- [ ] `service/agent_service.py`
+- [ ] FastAPI 层
+- [ ] React 前端
 
 ### 技术栈（已定）
 
@@ -120,8 +130,8 @@ P0-P4 完成后，Bobodan 具备稳定的学习闭环、Obsidian 导出、event 
 ```text
 第一步：app service 层
   service/
+    learning_service.py   # ✅ 已完成：封装 learning 相关业务
     quiz_service.py       # 封装 quiz 相关业务（已在 P0 的 quiz_integration.py 开始）
-    learning_service.py   # 封装 learning 相关业务
     memory_service.py     # 封装 memory 相关业务
     kb_service.py         # 封装知识库相关业务
     agent_service.py      # 封装 agent run 相关业务
