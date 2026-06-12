@@ -73,6 +73,7 @@ class QuizService:
         saved_ids = []
         for q in questions:
             qid = store.add_question(q)
+            q.id = qid
             saved_ids.append(qid)
 
         question_list = []
@@ -164,6 +165,9 @@ class QuizService:
         question = store.get_question(question_id)
         if not question:
             return _err(f"题目 {question_id} 不存在。")
+
+        if question_id not in session.question_ids:
+            return _err(f"题目 {question_id} 不属于练习 session {session_id}。")
 
         try:
             llm = _get_llm_provider()

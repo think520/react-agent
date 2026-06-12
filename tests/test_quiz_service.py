@@ -118,6 +118,16 @@ def test_submit_answer_invalid_question(store, svc):
     assert "不存在" in result["error"]
 
 
+def test_submit_answer_question_not_in_session(store, svc):
+    q1 = _make_question(store, qtype="single_choice")
+    q2 = _make_question(store, qtype="single_choice")
+    session = store.create_session([q1.id])
+
+    result = svc.submit_answer(session.id, q2.id, "B")
+    assert not result["ok"]
+    assert "不属于" in result["error"]
+
+
 # --- get_wrong_answer_book ---
 
 def test_get_wrong_answer_book_empty(svc):

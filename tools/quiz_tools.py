@@ -5,13 +5,6 @@ from .base import register_tool, ToolResult
 logger = logging.getLogger(__name__)
 
 
-_TYPE_LABELS = {
-    "single_choice": "单选",
-    "true_false": "判断",
-    "short_answer": "简答",
-}
-
-
 def question_generate(
     query: str,
     course: str | None = None,
