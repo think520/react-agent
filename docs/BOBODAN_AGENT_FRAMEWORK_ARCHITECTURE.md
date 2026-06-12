@@ -25,6 +25,11 @@ Bobodan 不应该继续按“功能不断堆进 CLI/工具文件”的方式扩�
 UI Layer
   CLI / future Web UI
 
+Service Layer
+  service/learning_service  service/quiz_service  service/memory_service
+  service/kb_service        service/agent_service
+  ↓ CLI and tools both delegate here; returns {"ok": bool, ...} dicts
+
 Agent Runtime Layer
   core / providers / session / event stream
 

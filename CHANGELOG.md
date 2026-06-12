@@ -7,6 +7,18 @@
 ## [未发布]
 
 ### 新增
+- **P5 Service 层抽取**: 5 个 service 模块提取完成，CLI 和 tools 统一委托 service 层，为 FastAPI/Web 前后端分离做准备。
+  - `service/learning_service.py`（新）: `LearningService` — 学习计划、进度、复习、掌握度（9 个方法）。
+  - `service/quiz_service.py`（新）: `QuizService` — 出题、做题、批改、错题本、薄弱点（6 个方法）。
+  - `service/memory_service.py`（新）: `MemoryService` — 永久记忆、每日记忆、晋升（9 个方法）。
+  - `service/kb_service.py`（新）: `KBService` — 知识库同步、状态、RAG 检索、图谱查询、重置（5 个方法）。`sync()` 内置 workspace 路径安全边界。
+  - `service/agent_service.py`（新）: `AgentService` — provider 创建/列表、session 持久化、agent 事件流（6 个方法）。`create_provider` 返回 LLMProvider 实例，`list_providers` 包含 `configured` 状态但不暴露 API key。
+  - 所有 service 方法返回 `{"ok": bool, ...}` dict，无 ANSI/HTML 格式。
+  - `cli/repl.py`: `/learning`、`/quiz`、`/memory`、`/kb`、`/model`、`/session` 命令全部委托对应 service。删除 `normalize_session_id`、`get_session_path`、`resolve_session_id` 等已迁移方法。
+  - `tools/learning_tools.py`、`tools/quiz_tools.py`、`tools/memory_tools.py`、`tools/rag_search.py`、`tools/graph_query.py`、`tools/knowledge_status.py`、`tools/obsidian_tool.py`: 全部委托对应 service，保留 ToolResult 包装。
+  - `tests/test_learning_service.py`（新，27）、`tests/test_quiz_service.py`（新，16）、`tests/test_memory_service.py`（新，21）、`tests/test_kb_service.py`（新，17）、`tests/test_agent_service.py`（新，19）: 共 100 个新测试。
+  - 869 测试全通过。
+
 - **P2 Event Trace 轻量版**: 每次 Agent run 记录关键事件到 JSONL trace 文件，支持事后查看"做了什么、花了多久、哪步失败"。
   - `core/trace.py`（新）: `TraceWriter` 类写入 `.bobodan/traces/{session_id}_{timestamp}_{run_suffix}.jsonl`，只记录 `tool_start` / `tool_end` / `assistant_done` / `error` 事件（不含 `assistant_delta`）。Secret 字段自动 redact，content 超 500 字符截断。线程安全（`threading.Lock`）。
   - `core/agent_loop.py`: `assistant_done` 事件增加 `termination_reason` 字段（`final_answer` / `max_iter` / `error`）；`run_stream` 异常时 yield `assistant_done(termination_reason="error")` 再 re-raise；构造函数接受可选 `trace_writer` 参数，有则自动写入 trace。

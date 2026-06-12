@@ -142,6 +142,12 @@ agents/           # Learning Agent Orchestrator v1 (multi-agent skeleton)
     doc_reader.py # DocReaderSpecialist — long doc → digest (context isolation)
     triage.py     # TriageSpecialist — JSON decision (model substitution + sandbox)
     planner.py    # PlannerSpecialist — learning plan (state-write orchestration)
+service/          # Business logic layer (CLI and tools delegate here)
+  learning_service.py  # LearningService: plans, progress, reviews, mastery
+  quiz_service.py      # QuizService: generate, start, submit, wrong book, weakness
+  memory_service.py    # MemoryService: permanent memory, daily memory, promotion
+  kb_service.py        # KBService: sync, status, RAG search, graph query, reset
+  agent_service.py     # AgentService: provider mgmt, session persistence, agent run
 knowledge/        # Knowledge base management
   documents.py    # DocumentRecord, build_document_records (per-file import tracking)
   manifest.py     # .knowledge/manifest.json read/write
@@ -229,7 +235,9 @@ tools/           # Agent-facing wrappers for sync, RAG search, and graph query
 
 ### Key patterns
 
-**Provider creation**: `ProviderFactory.create_from_config(config.yaml)` reads `llm.default_provider` from config and instantiates the matching provider class. For runtime switching, `ProviderFactory.create(provider_config, agent_config)` takes a single provider's config dict (used by `REPL._make_active_provider()` after `/model use`).
+**Service layer**: Business logic lives in `service/` — CLI `repl.py` and agent tools both delegate to service methods. Each service is stateless: methods take parameters, return `{"ok": bool, ...}` dicts. `AgentService.create_provider()` returns live LLMProvider instances (not JSON DTOs); `AgentService.load_session()` returns Session objects. FastAPI routers should convert these to JSON summaries themselves. Session ownership: service methods mutate the session passed in — callers needing rollback must pass a copy.
+
+**Provider creation**: `ProviderFactory.create_from_config(config.yaml)` reads `llm.default_provider` from config and instantiates the matching provider class. For runtime switching, `AgentService.create_provider(config, provider_name)` (called by REPL after `/model use`) takes the full config and provider name.
 
 **Provider types**: All providers return `LLMResponse(content: str, tool_calls: list[ToolCall])`. `ToolCall` has `id`, `name`, `arguments` fields. `LLMProvider` protocol: `complete(messages, tools=None) -> LLMResponse`. Providers also implement `complete_stream()` returning `Iterator[LLMStreamChunk]` for streaming; `AgentLoop._complete_with_events()` auto-detects streaming support via `getattr(self.llm, "complete_stream")`. `AgentLoop.set_provider(llm_provider)` swaps the active provider mid-session; previous turns remain in the session as context for the new model.
 
