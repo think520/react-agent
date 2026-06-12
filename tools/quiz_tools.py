@@ -1,20 +1,15 @@
 import logging
-from datetime import datetime, timezone
-
-from quiz.store import QuizStore
-from quiz.generator import QuestionGenerator
-from quiz.evaluator import QuizEvaluator
-from quiz.schema import Question
 
 from .base import register_tool, ToolResult
 
 logger = logging.getLogger(__name__)
 
 
-def _get_llm_provider():
-    """Create LLM provider from config."""
-    from providers.factory import ProviderFactory
-    return ProviderFactory.create_from_config()
+_TYPE_LABELS = {
+    "single_choice": "单选",
+    "true_false": "判断",
+    "short_answer": "简答",
+}
 
 
 def question_generate(
@@ -25,50 +20,27 @@ def question_generate(
 ) -> ToolResult:
     """Generate quiz questions from knowledge base content based on a topic or query."""
     try:
-        llm = _get_llm_provider()
-    except Exception as e:
-        return ToolResult(ok=False, content=f"LLM provider not available: {e}")
+        from service.quiz_service import QuizService
+        svc = QuizService(workspace)
+        result = svc.generate_questions(query=query, course=course, count=count)
 
-    try:
-        store = QuizStore(workspace)
-        generator = QuestionGenerator(workspace, llm)
-        questions = generator.generate_from_query(query, course=course, count=count)
+        if not result["ok"]:
+            return ToolResult(ok=False, content=result["error"])
 
-        if not questions:
-            return ToolResult(
-                ok=False,
-                content=(
-                    "未能生成题目。可能原因：\n"
-                    "1. 知识库中没有与该主题相关的资料（先用 /kb search 验证）\n"
-                    "2. 相关材料内容太少，不足以出题\n"
-                    "3. LLM 返回格式异常（已记录日志）\n"
-                    f"搜索主题: {query}"
-                ),
-            )
-
-        # Save to store
-        saved_ids = []
-        for q in questions:
-            qid = store.add_question(q)
-            saved_ids.append(qid)
-
-        summary = {
-            "question_ids": saved_ids,
-            "count": len(saved_ids),
-            "types": {q.type: sum(1 for x in questions if x.type == q.type) for q in questions},
-        }
-
-        # Format for display
-        lines = [f"已生成 {len(questions)} 道题目：\n"]
-        for i, q in enumerate(questions, 1):
-            lines.append(f"{i}. [{_type_label(q.type)}] {q.question}")
-            if q.options:
-                for opt in q.options:
+        lines = [f"已生成 {result['count']} 道题目：\n"]
+        for q in result["questions"]:
+            lines.append(f"{q['id']}. [{q['type_label']}] {q['question']}")
+            if q.get("options"):
+                for opt in q["options"]:
                     lines.append(f"   {opt}")
-            lines.append(f"   知识点: {', '.join(q.concepts)}")
+            lines.append(f"   知识点: {', '.join(q['concepts'])}")
             lines.append("")
 
-        return ToolResult(ok=True, content="\n".join(lines), data=summary)
+        return ToolResult(ok=True, content="\n".join(lines), data={
+            "question_ids": result["question_ids"],
+            "count": result["count"],
+            "types": result["types"],
+        })
     except Exception as e:
         logger.error("Question generation failed: %s", e)
         return ToolResult(ok=False, content=f"题目生成失败: {e}")
@@ -82,51 +54,24 @@ def quiz_start(
 ) -> ToolResult:
     """Start a quiz session. Returns questions without answers for the user to answer."""
     try:
-        store = QuizStore(workspace)
-    except Exception as e:
-        return ToolResult(ok=False, content=f"Failed to open quiz store: {e}")
+        from service.quiz_service import QuizService
+        svc = QuizService(workspace)
+        result = svc.start_quiz(count=count, course=course, question_type=question_type)
 
-    try:
-        # Try to find existing questions
-        questions = store.list_questions(course=course, qtype=question_type, limit=count)
+        if not result["ok"]:
+            return ToolResult(ok=False, content=result["error"])
 
-        if len(questions) < count:
-            # Generate more
-            try:
-                llm = _get_llm_provider()
-                generator = QuestionGenerator(workspace, llm)
-                query = course or "课程重点知识"
-                new_questions = generator.generate_from_query(
-                    query, course=course, count=count - len(questions)
-                )
-                for q in new_questions:
-                    qid = store.add_question(q)
-                    q.id = qid
-                questions.extend(new_questions)
-            except Exception as e:
-                logger.warning("Could not generate more questions: %s", e)
-
-        if not questions:
-            return ToolResult(
-                ok=False,
-                content="题库为空。请先使用 question_generate 生成题目，或确保知识库中有资料。",
-            )
-
-        # Create session
-        question_ids = [q.id for q in questions if q.id is not None]
-        session = store.create_session(question_ids)
-
-        # Format questions (without answers)
-        lines = [f"练习开始！共 {len(questions)} 道题，session_id={session.id}\n"]
+        questions = result["questions"]
+        lines = [f"练习开始！共 {len(questions)} 道题，session_id={result['session_id']}\n"]
         for i, q in enumerate(questions, 1):
-            lines.append(f"第 {i} 题 (id={q.id}) [{_type_label(q.type)}] 难度: {q.difficulty}")
-            lines.append(f"  {q.question}")
-            if q.options:
-                for opt in q.options:
+            lines.append(f"第 {i} 题 (id={q['id']}) [{q['type_label']}] 难度: {q['difficulty']}")
+            lines.append(f"  {q['question']}")
+            if q.get("options"):
+                for opt in q["options"]:
                     lines.append(f"  {opt}")
-            if q.type == "true_false":
+            if q["type"] == "true_false":
                 lines.append("  （请回答：true / false 或 对 / 错）")
-            elif q.type == "single_choice":
+            elif q["type"] == "single_choice":
                 lines.append("  （请回答选项字母，如 A）")
             lines.append("")
 
@@ -135,7 +80,7 @@ def quiz_start(
         return ToolResult(
             ok=True,
             content="\n".join(lines),
-            data={"session_id": session.id, "question_ids": question_ids},
+            data={"session_id": result["session_id"], "question_ids": result["question_ids"]},
         )
     except Exception as e:
         logger.error("Quiz start failed: %s", e)
@@ -150,97 +95,34 @@ def quiz_submit(
 ) -> ToolResult:
     """Submit an answer for a quiz question. Returns grading and feedback."""
     try:
-        store = QuizStore(workspace)
-    except Exception as e:
-        return ToolResult(ok=False, content=f"Failed to open quiz store: {e}")
+        from service.quiz_service import QuizService
+        svc = QuizService(workspace)
+        result = svc.submit_answer(session_id=session_id, question_id=question_id, answer=answer)
 
-    try:
-        # Validate session
-        session = store.get_session(session_id)
-        if not session:
-            return ToolResult(ok=False, content=f"练习 session {session_id} 不存在。")
+        if not result["ok"]:
+            return ToolResult(ok=False, content=result["error"])
 
-        # Get question
-        question = store.get_question(question_id)
-        if not question:
-            return ToolResult(ok=False, content=f"题目 {question_id} 不存在。")
-
-        # Evaluate
-        try:
-            llm = _get_llm_provider()
-            evaluator = QuizEvaluator(llm)
-        except Exception:
-            evaluator = QuizEvaluator()
-
-        is_correct, feedback = evaluator.evaluate(question, answer)
-
-        # Record attempt
-        from quiz.schema import QuizAttempt
-        attempt_record = QuizAttempt(
-            session_id=session_id,
-            question_id=question_id,
-            user_answer=answer,
-            is_correct=is_correct,
-            feedback=feedback,
-            answered_at=datetime.now(timezone.utc).isoformat(),
-        )
-        store.record_attempt(attempt_record)
-
-        # Record learning effect (daily memory + mastery update)
-        try:
-            from learning.quiz_integration import record_quiz_learning_effect, record_quiz_session_summary
-            record_quiz_learning_effect(
-                workspace=workspace,
-                question_concepts=question.concepts,
-                is_correct=is_correct,
-                feedback=feedback,
-            )
-        except Exception as e:
-            logger.warning("Failed to record quiz learning effect: %s", e)
-
-        # Check session completion
-        session_completed = False
-        try:
-            attempts = store.get_attempts_for_session(session_id)
-            session_completed = record_quiz_session_summary(
-                workspace=workspace,
-                session_id=session_id,
-                question_ids=session.question_ids,
-                attempts=attempts,
-            )
-        except Exception as e:
-            logger.warning("Failed to check session completion: %s", e)
-
-        # Format result
-        status = "✓ 正确" if is_correct else "✗ 错误"
+        status = "✓ 正确" if result["is_correct"] else "✗ 错误"
         lines = [
             f"{status}\n",
-            f"反馈: {feedback}",
+            f"反馈: {result['feedback']}",
         ]
-        if not is_correct and question.explanation:
-            lines.append(f"解析: {question.explanation}")
+        if not result["is_correct"] and result.get("explanation"):
+            lines.append(f"解析: {result['explanation']}")
 
         return ToolResult(
             ok=True,
             content="\n".join(lines),
             data={
-                "is_correct": is_correct,
-                "feedback": feedback,
-                "correct_answer": question.answer,
-                "session_completed": session_completed,
+                "is_correct": result["is_correct"],
+                "feedback": result["feedback"],
+                "correct_answer": result["correct_answer"],
+                "session_completed": result["session_completed"],
             },
         )
     except Exception as e:
         logger.error("Quiz submit failed: %s", e)
         return ToolResult(ok=False, content=f"提交答案失败: {e}")
-
-
-def _type_label(qtype: str) -> str:
-    return {
-        "single_choice": "单选",
-        "true_false": "判断",
-        "short_answer": "简答",
-    }.get(qtype, qtype)
 
 
 # Register tools

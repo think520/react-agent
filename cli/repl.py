@@ -2557,17 +2557,23 @@ class REPL:
         count = self._parse_int_option(options.get("--count"), default=5, minimum=1, maximum=20)
         course = options.get("--course")
 
-        from tools.quiz_tools import question_generate
-        result = question_generate(
-            query=query, course=course, count=count,
-            workspace=self.session.workspace_root,
-        )
-        if result.ok:
-            print_success(f"Generated {result.data.get('count', 0)} questions")
+        from service.quiz_service import QuizService
+        svc = QuizService(self.session.workspace_root)
+        result = svc.generate_questions(query=query, course=course, count=count)
+        if result["ok"]:
+            print_success(f"Generated {result['count']} questions")
             print()
-            print_markdown(result.content)
+            lines = []
+            for q in result["questions"]:
+                lines.append(f"{q['id']}. [{q['type_label']}] {q['question']}")
+                if q.get("options"):
+                    for opt in q["options"]:
+                        lines.append(f"   {opt}")
+                lines.append(f"   知识点: {', '.join(q['concepts'])}")
+                lines.append("")
+            print_markdown("\n".join(lines))
         else:
-            print_error(result.content)
+            print_error(result["error"])
 
     def handle_quiz_start(self, args: list[str]):
         _, options = self._parse_kb_options(args, {"--course", "--type"})
@@ -2575,60 +2581,73 @@ class REPL:
         if args and not args[0].startswith("--"):
             count = self._parse_int_option(args[0], default=5, minimum=1, maximum=20)
 
-        from tools.quiz_tools import quiz_start
-        result = quiz_start(
+        from service.quiz_service import QuizService
+        svc = QuizService(self.session.workspace_root)
+        result = svc.start_quiz(
             count=count,
             course=options.get("--course"),
             question_type=options.get("--type"),
-            workspace=self.session.workspace_root,
         )
-        if result.ok:
+        if not result["ok"]:
+            print_error(result["error"])
+            return
+
+        questions = result["questions"]
+        print()
+        print(f"  \033[1;37m练习开始！共 {len(questions)} 道题，session_id={result['session_id']}\033[0m\n")
+        for i, q in enumerate(questions, 1):
+            print(f"  第 {i} 题 (id={q['id']}) [{q['type_label']}] 难度: {q['difficulty']}")
+            print(f"    {q['question']}")
+            if q.get("options"):
+                for opt in q["options"]:
+                    print(f"    {opt}")
+            if q["type"] == "true_false":
+                print("    （请回答：true / false 或 对 / 错）")
+            elif q["type"] == "single_choice":
+                print("    （请回答选项字母，如 A）")
             print()
-            print_markdown(result.content)
-        else:
-            print_error(result.content)
+
+        print("  请使用 quiz_submit 提交答案，格式：quiz_submit(session_id, question_id, answer)")
 
     def handle_quiz_wrong(self):
-        from quiz.store import QuizStore
-        from quiz.review import QuizReviewer
+        from service.quiz_service import QuizService
+        from quiz.review import format_wrong_answer_book
 
         try:
-            store = QuizStore(self.session.workspace_root)
-            reviewer = QuizReviewer(store)
-            entries = reviewer.get_wrong_answer_book()
+            svc = QuizService(self.session.workspace_root)
+            result = svc.get_wrong_answer_book()
             print()
-            print_markdown(reviewer.format_wrong_answer_book(entries))
+            print_markdown(format_wrong_answer_book(result["entries"]))
         except Exception as e:
             print_error(f"Failed to load wrong answers: {e}")
 
     def handle_quiz_weak(self):
-        from quiz.store import QuizStore
-        from quiz.review import QuizReviewer
+        from service.quiz_service import QuizService
+        from quiz.review import format_weakness_analysis
 
         try:
-            store = QuizStore(self.session.workspace_root)
-            reviewer = QuizReviewer(store)
-            analysis = reviewer.get_weakness_analysis()
+            svc = QuizService(self.session.workspace_root)
+            result = svc.get_weakness_analysis()
             print()
-            print_markdown(reviewer.format_weakness_analysis(analysis))
+            print_markdown(format_weakness_analysis(result["analysis"]))
         except Exception as e:
             print_error(f"Failed to analyze weaknesses: {e}")
 
     def handle_quiz_stats(self):
-        from quiz.store import QuizStore
+        from service.quiz_service import QuizService
 
         try:
-            store = QuizStore(self.session.workspace_root)
-            counts = store.count_questions()
-            if not counts:
+            svc = QuizService(self.session.workspace_root)
+            result = svc.get_stats()
+            if result["total"] == 0:
                 print_notice("题库为空。使用 /quiz generate <topic> 生成题目。")
                 return
 
-            total = sum(counts.values())
+            counts = result["counts"]
             print_kv_panel(
                 "Quiz Statistics",
                 [
-                    ("total questions", total),
+                    ("total questions", result["total"]),
                     ("single_choice", counts.get("single_choice", 0)),
                     ("true_false", counts.get("true_false", 0)),
                     ("short_answer", counts.get("short_answer", 0)),
