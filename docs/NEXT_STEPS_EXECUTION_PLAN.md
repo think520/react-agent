@@ -198,8 +198,11 @@ P0-P4 完成后，Bobodan 具备稳定的学习闭环、Obsidian 导出、event 
 
 ## 10. 立即行动
 
-**下一步：P5 前置，抽 service 层。**
+**P5 前置进展**：learning / quiz / memory 三个 service 已完成。
 
-- 从 `learning` / `quiz` / `memory` 中抽出 CLI 与 Web 都可复用的 service API
-- 先保持 CLI 行为不变，再接 FastAPI router
-- service 抽取时参考 `OPENAI_AGENT_CODEX_REFERENCE_FOR_BOBODAN.md` 的 run/event/tool policy 边界
+**下一步二选一**：
+
+- **A. 抽 `kb_service.py`** — 封装知识库状态、RAG 搜索、图谱查询。Web UI 一定需要这些。
+- **B. 做 FastAPI skeleton** — 接已完成的 learning / quiz / memory 三个 service，跑通 SSE 事件流。
+
+`agent_service.py` 可以等 SSE/chat router 前再做。

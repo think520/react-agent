@@ -388,10 +388,8 @@ def test_memory_command_empty(tmp_path, capsys):
 def test_memory_command_disabled(capsys):
     from cli.repl import REPL
     repl = REPL()
-    repl.session = type("Session", (), {"workspace_root": "."})()
+    repl.memory_manager = None
 
     repl.handle_memory_command("list")
     output = capsys.readouterr().out
-    # MemoryService creates its own manager, so "disabled" no longer applies
-    # Just verify it doesn't crash
-    assert isinstance(output, str)
+    assert "not enabled" in output.lower()

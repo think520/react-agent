@@ -1181,6 +1181,10 @@ class REPL:
         print()
 
     def handle_memory_command(self, cmd: str):
+        if not self.memory_manager:
+            print_error("Memory system is not enabled. Set memory.enabled in config.yaml")
+            return
+
         parts = cmd.strip().split()
         if not parts:
             self.print_memory_help()

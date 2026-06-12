@@ -1,10 +1,6 @@
 """Agent tools for memory save, recall, daily memory, and promotion."""
 
-import logging
-
 from tools.base import register_tool, ToolResult
-
-logger = logging.getLogger(__name__)
 
 
 def _get_workspace(session=None) -> str:
