@@ -107,7 +107,7 @@ P0-P4 完成后，Bobodan 具备稳定的学习闭环、Obsidian 导出、event 
 ### P5 进度
 
 - [x] `service/learning_service.py` — LearningService 提取完成（generate_path / get_progress / get_due_reviews / mark_mastery / list_plans / get_today_tasks / get_plan_progress / complete_task / complete_step）
-- [ ] `service/quiz_service.py`
+- [x] `service/quiz_service.py` — QuizService 提取完成（generate_questions / start_quiz / submit_answer / get_wrong_answer_book / get_weakness_analysis / get_stats）
 - [ ] `service/memory_service.py`
 - [ ] `service/kb_service.py`
 - [ ] `service/agent_service.py`
@@ -131,7 +131,7 @@ P0-P4 完成后，Bobodan 具备稳定的学习闭环、Obsidian 导出、event 
 第一步：app service 层
   service/
     learning_service.py   # ✅ 已完成：封装 learning 相关业务
-    quiz_service.py       # 封装 quiz 相关业务（已在 P0 的 quiz_integration.py 开始）
+    quiz_service.py       # ✅ 已完成：封装 quiz 相关业务
     memory_service.py     # 封装 memory 相关业务
     kb_service.py         # 封装知识库相关业务
     agent_service.py      # 封装 agent run 相关业务
