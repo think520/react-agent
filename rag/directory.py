@@ -113,6 +113,7 @@ class DirectoryRetriever:
             title = (doc or {}).get("title") or meta.get("title", "")
             source = (doc or {}).get("source") or meta.get("source", "")
             doc_course = (doc or {}).get("course") or meta.get("course")
+            real_path = (doc or {}).get("path") or ""
 
             # Sort top chunks by score
             top_chunks = sorted(agg_hits, key=lambda h: h.score, reverse=True)[:top_chunks_per_doc]
@@ -127,6 +128,7 @@ class DirectoryRetriever:
                 reason=reason,
                 chunk_count=meta.get("chunk_count", len(agg_hits)),
                 top_chunks=top_chunks,
+                path=real_path,
                 debug={
                     "metadata_score": meta_score,
                     "chunk_aggregate_score": chunk_score,

@@ -299,6 +299,27 @@ def sync_sources(
     if mode == "full":
         updated_files = len(new_state)
 
+    # Merge doc_records: keep existing records for unchanged files
+    from knowledge.manifest import load_manifest
+    existing_manifest = load_manifest(workspace)
+    existing_docs = {d["source"]: d for d in existing_manifest.get("documents", [])}
+    changed_sources_set = {s for s, _, _, _ in changed_sources}
+    deleted_set = set(deleted_sources)
+    new_sources_set = {r.source for r in doc_records}
+
+    # Add existing records for files that weren't changed or deleted
+    for src, doc_dict in existing_docs.items():
+        if src not in changed_sources_set and src not in deleted_set and src not in new_sources_set:
+            doc_records.append(DocumentRecord(
+                source=doc_dict.get("source", src),
+                kind=doc_dict.get("kind", ""),
+                title=doc_dict.get("title", ""),
+                course=doc_dict.get("course"),
+                status=doc_dict.get("status", "ok"),
+                chunk_count=doc_dict.get("chunk_count", 0),
+                content_hash=doc_dict.get("content_hash", ""),
+            ))
+
     # Save manifest and import report
     sync_summary_dict = {
         "scanned_files": len(new_state),

@@ -202,7 +202,7 @@ def _hard_split(chunk: dict, cfg: ChunkingConfig) -> list[dict]:
         if sub_text:
             new_chunk = dict(chunk)
             new_chunk["text"] = sub_text
-            new_chunk["chunk_id"] = _make_chunk_id(chunk["source"], idx, sub_text)
+            new_chunk["id"] = _make_chunk_id(chunk["source"], idx, sub_text)
             new_chunk["chunk_index_in_section"] = idx
             new_chunk["char_start"] = start
             new_chunk["char_end"] = end

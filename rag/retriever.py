@@ -74,8 +74,10 @@ def _search_v2(
     orch = RetrievalOrchestrator(hybrid, directory, grep, config)
     result = orch.search(query=query, mode=mode, top_k=top_k, course=course)
 
-    # Convert RetrievalHits to dicts for backward compatibility
+    # Convert results to dicts for backward compatibility
     output = []
+
+    # Chunk-level hits (hybrid, directory_grep)
     for hit in result.hits:
         d = {
             "text": hit.text,
@@ -94,6 +96,32 @@ def _search_v2(
             "debug": hit.debug,
         }
         output.append(d)
+
+    # Document-level hits (directory mode)
+    if result.document_hits:
+        for doc in result.document_hits:
+            d = {
+                "type": "document",
+                "document_id": doc.document_id,
+                "source": doc.source,
+                "title": doc.title,
+                "course": doc.course,
+                "score": doc.score,
+                "reason": doc.reason,
+                "chunk_count": doc.chunk_count,
+                "heading_path": doc.heading_path,
+                "top_chunks": [
+                    {
+                        "text": c.text,
+                        "source": c.source,
+                        "score": c.score,
+                        "heading_text": c.heading_text,
+                    }
+                    for c in doc.top_chunks
+                ],
+                "debug": doc.debug,
+            }
+            output.append(d)
 
     # Log retrieval
     sqlite.log_retrieval(query, result.mode, len(output))

@@ -55,6 +55,7 @@ class DocumentHit:
     score: float = 0.0
     reason: str = ""  # "chunks matched '激活函数', 'ReLU'"
     chunk_count: int = 0
+    path: str = ""  # real filesystem path (may differ from source)
     top_chunks: list[RetrievalHit] = field(default_factory=list)
     debug: dict = field(default_factory=dict)  # {"metadata_score": 0.42, "chunk_aggregate_score": 0.68}
 

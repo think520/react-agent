@@ -638,9 +638,11 @@ CREATE TABLE IF NOT EXISTS directory_entries (
     chunk_count INTEGER
 );
 
--- Directory FTS5 (standalone)
+-- Directory FTS5 (content-synced with directory_entries)
 CREATE VIRTUAL TABLE IF NOT EXISTS directory_entries_fts USING fts5(
-    title, summary, keywords_json, source
+    title, summary, keywords_json, source,
+    content='directory_entries',
+    content_rowid='rowid'
 );
 
 -- Retrieval log
@@ -672,5 +674,13 @@ END;
 CREATE TRIGGER IF NOT EXISTS dir_ad AFTER DELETE ON directory_entries BEGIN
     INSERT INTO directory_entries_fts(directory_entries_fts, rowid, title, summary, keywords_json, source)
     VALUES ('delete', old.rowid, old.title, old.summary, old.keywords_json, old.source);
+END;
+
+-- FTS5 triggers for directory_entries (update)
+CREATE TRIGGER IF NOT EXISTS dir_au AFTER UPDATE ON directory_entries BEGIN
+    INSERT INTO directory_entries_fts(directory_entries_fts, rowid, title, summary, keywords_json, source)
+    VALUES ('delete', old.rowid, old.title, old.summary, old.keywords_json, old.source);
+    INSERT INTO directory_entries_fts(rowid, title, summary, keywords_json, source)
+    VALUES (new.rowid, new.title, new.summary, new.keywords_json, new.source);
 END;
 """

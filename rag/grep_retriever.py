@@ -102,8 +102,11 @@ class GrepRetriever:
         matches: list[GrepMatch] = []
 
         for doc in documents:
-            # Resolve file path
-            file_path = self.workspace / doc.source
+            # Resolve file path — prefer real path, fall back to source
+            if doc.path and Path(doc.path).is_absolute():
+                file_path = Path(doc.path)
+            else:
+                file_path = self.workspace / doc.source
             if not file_path.exists():
                 continue
 

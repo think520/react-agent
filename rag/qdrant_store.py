@@ -7,6 +7,7 @@ Supports switching to server mode via config.
 from __future__ import annotations
 
 import logging
+import uuid
 from pathlib import Path
 
 from rag.schema import RetrievalHit
@@ -16,6 +17,17 @@ logger = logging.getLogger(__name__)
 # Default config
 DEFAULT_COLLECTION = "bobodan_chunks"
 DEFAULT_DISTANCE = "cosine"
+_UUID_NS = uuid.UUID("a1b2c3d4-e5f6-7890-abcd-ef1234567890")  # fixed namespace for deterministic UUIDs
+
+
+def _chunk_id_to_uuid(chunk_id: str) -> str:
+    """Convert a chunk_id hash to a deterministic UUID5 string.
+
+    Qdrant requires point IDs to be unsigned integers or UUIDs.
+    We use UUID5 (deterministic from chunk_id) so the same chunk
+    always maps to the same point.
+    """
+    return str(uuid.uuid5(_UUID_NS, chunk_id))
 
 
 class QdrantStore:
@@ -104,7 +116,7 @@ class QdrantStore:
 
         client = self._get_client()
         points = [
-            PointStruct(id=cid, vector=vec, payload=pl)
+            PointStruct(id=_chunk_id_to_uuid(cid), vector=vec, payload=pl)
             for cid, vec, pl in zip(chunk_ids, vectors, payloads)
         ]
 
