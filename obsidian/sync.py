@@ -189,6 +189,7 @@ def sync_sources(
                 content_hash=content_hash,
                 kind=kind,
                 title=title,
+                path=abs_path,
                 course=course,
                 tags=tags,
                 summary=summary_text,

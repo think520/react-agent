@@ -134,6 +134,28 @@ class TestFix2GrepUsesRealPath:
 
         sqlite.close()
 
+    def test_sync_writes_path_to_sqlite(self, tmp_path):
+        """obsidian/sync should write abs_path to documents.path."""
+        from tools.obsidian_tool import obsidian_sync
+        from rag.sqlite_store import KBSQLiteStore
+
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        (vault / "note.md").write_text("# Title\n\nBody text.\n", encoding="utf-8")
+
+        result = obsidian_sync("vault", cwd=str(tmp_path), workspace=str(tmp_path))
+        assert result.ok
+
+        sqlite = KBSQLiteStore(str(tmp_path))
+        sqlite.init_db()
+        docs = sqlite.list_documents()
+        assert len(docs) == 1
+        # path should be populated with real filesystem path
+        assert docs[0]["path"] is not None
+        assert docs[0]["path"] != ""
+        assert "note.md" in docs[0]["path"]
+        sqlite.close()
+
 
 # ── Fix 3: sync preserves manifest documents ────────────────────────────
 
