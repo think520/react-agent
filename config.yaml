@@ -37,6 +37,51 @@ rag:
   probe_timeout: 3
   request_timeout: 10
 
+  storage:
+    metadata_db: sqlite
+    sqlite_path: ".knowledge/knowledge.db"
+
+  vector_db:
+    backend: qdrant
+    mode: local
+    local_path: ".knowledge/qdrant"
+    url: "http://localhost:6333"
+    collection: "bobodan_chunks"
+    distance: cosine
+
+  chunking:
+    strategy: heading_aware
+    target_chars: 1800
+    max_chars: 2600
+    overlap_chars: 350
+    min_chars: 400
+    pdf:
+      page_aware: true
+      max_pages_per_chunk: 3
+    ppt:
+      slide_aware: true
+      max_slides_per_chunk: 3
+
+  retrieval:
+    default_mode: hybrid
+    rrf:
+      k: 60
+      weights:
+        vector: 1.0
+        fts5: 1.0
+    vector_top_k: 30
+    fts_top_k: 30
+    directory_top_k: 8
+    directory_top_chunks: 3
+    directory:
+      metadata_weight: 0.4
+      chunk_aggregate_weight: 0.6
+    grep:
+      window_chars: 500
+      expand_chars: 1000
+      max_candidate_docs: 15
+    max_context_chars: 6000
+
 memory:
   enabled: true
   dir: ".bobodan"

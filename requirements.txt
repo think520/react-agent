@@ -5,3 +5,7 @@ pypdf>=4.0
 prompt_toolkit>=3.0
 rich>=13.0
 mcp>=1.0
+qdrant-client>=1.12
+python-docx>=1.1
+python-pptx>=1.0
+pymupdf>=1.25

@@ -20,13 +20,19 @@ def _load_config() -> dict:
     return _config_cache
 
 
-def rag_search(query: str, course: str | None = None, top_k: int = 5, workspace: str = ".") -> ToolResult:
+def rag_search(
+    query: str,
+    course: str | None = None,
+    top_k: int = 5,
+    mode: str = "auto",
+    workspace: str = ".",
+) -> ToolResult:
     """Search the workspace-local knowledge index."""
     try:
         from service.kb_service import KBService
         svc = KBService(workspace)
         config = _load_config()
-        result = svc.search(query=query, course=course, top_k=top_k, config=config)
+        result = svc.search(query=query, course=course, top_k=top_k, mode=mode, config=config)
         if not result["ok"]:
             return ToolResult(ok=False, content=result["error"], data={"results": []})
 
@@ -43,13 +49,19 @@ def rag_search(query: str, course: str | None = None, top_k: int = 5, workspace:
 
 register_tool(
     "rag_search",
-    "Search course materials and Obsidian notes in the local RAG index. Returns source-grounded snippets.",
+    "Search course materials and Obsidian notes in the local RAG index. Returns source-grounded snippets. "
+    "mode is optional: auto (default), hybrid (vector+FTS5), directory (document routing), directory_grep (exact source lookup).",
     {
         "type": "object",
         "properties": {
             "query": {"type": "string", "description": "Search query or question"},
             "course": {"type": "string", "description": "Optional exact course filter"},
             "top_k": {"type": "integer", "description": "Maximum number of chunks to return, default 5"},
+            "mode": {
+                "type": "string",
+                "description": "Retrieval mode: auto (default), hybrid, directory, directory_grep",
+                "enum": ["auto", "hybrid", "directory", "directory_grep"],
+            },
         },
         "required": ["query"],
     },

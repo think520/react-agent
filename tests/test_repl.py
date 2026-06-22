@@ -629,7 +629,8 @@ Dijkstra solves shortest path problems with [[图]] and [[优先队列]].
     repl.handle_kb_command("sync vault")
     sync_output = capsys.readouterr().out
     assert "Knowledge base synced" in sync_output
-    assert (tmp_path / ".knowledge" / "rag_index.json").exists()
+    # RAG v2 uses SQLite + Qdrant instead of JSON index
+    assert (tmp_path / ".knowledge" / "knowledge.db").exists()
 
     repl.handle_kb_command("status")
     status_output = capsys.readouterr().out

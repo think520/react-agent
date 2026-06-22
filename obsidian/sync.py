@@ -1,3 +1,15 @@
+"""Sync source files to knowledge base.
+
+RAG v2 pipeline:
+1. Scan vault → ScannedNote list
+2. Parse each file → SourceSection list (via rag/parsers)
+3. Chunk sections → TextChunk list (via rag/chunker_v2)
+4. Write to SQLite (KBSQLiteStore) + Qdrant (QdrantStore)
+5. Build graph (unchanged)
+6. Save manifest + import report
+"""
+
+import hashlib
 import json
 import logging
 import os
@@ -7,12 +19,8 @@ from graph.store import get_graph_store
 from knowledge.documents import DocumentRecord, build_document_records
 from knowledge.import_report import ImportReport, save_import_report
 from knowledge.manifest import save_manifest
-from rag.chunker import TextChunk, chunk_text
-from rag.ingest import iter_documents
-from rag.router import VectorStoreRouter
-from rag.vector_store import LocalVectorStore
-
-from .vault import scan_vault
+from rag.source_section import SourceSection
+from rag.parsers import parse_document, SUPPORTED_EXTENSIONS
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +74,11 @@ def _save_state(workspace: str, files: dict) -> None:
         json.dump({"version": 1, "files": files}, f, ensure_ascii=False, indent=2)
 
 
+def _stable_hash(text: str) -> str:
+    """Stable hash for document_id (source path)."""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
 def sync_sources(
     workspace: str,
     vault_path: str,
@@ -73,110 +86,224 @@ def sync_sources(
     mode: str = "incremental",
     config: dict | None = None,
 ) -> SyncSummary:
-    """Parse source files, rebuild the local RAG index, and sync graph relations."""
+    """Parse source files, rebuild RAG index (SQLite + Qdrant), and sync graph."""
+    config = config or {}
     knowledge_dir = _knowledge_dir(workspace)
     old_state = _load_state(workspace).get("files", {})
     new_state: dict[str, str] = {}
     errors: list[dict] = []
 
+    # ── Step 1: Scan vault ──────────────────────────────────────────────
+    from .vault import scan_vault
     notes = scan_vault(vault_path)
-    chunks: list[TextChunk] = []
-    doc_records: list[DocumentRecord] = []
+
+    # ── Step 2: Determine which files changed ───────────────────────────
+    changed_sources: list[tuple[str, str, str, str]] = []  # (source, abs_path, content_hash, kind)
+    deleted_sources: list[str] = []
 
     for scanned in notes:
         source = f"obsidian/{scanned.rel_path}"
+        new_state[source] = scanned.content_hash
+        if mode == "full" or old_state.get(source) != scanned.content_hash:
+            changed_sources.append((source, scanned.abs_path, scanned.content_hash, "obsidian_note"))
+
+    if course_dir:
+        from rag.ingest import iter_documents
+        for document in iter_documents(course_dir):
+            source = f"course/{document.source}"
+            new_state[source] = document.content_hash
+            if mode == "full" or old_state.get(source) != document.content_hash:
+                changed_sources.append((source, document.path, document.content_hash, "course_document"))
+
+    deleted_sources = [s for s in old_state if s not in new_state]
+
+    # ── Step 3: Initialize stores ───────────────────────────────────────
+    from rag.sqlite_store import KBSQLiteStore
+    from rag.qdrant_store import QdrantStore
+    from rag.chunker_v2 import chunk_sections, ChunkingConfig
+    from rag.embedding_service import EmbeddingService
+
+    sqlite = KBSQLiteStore(workspace)
+    sqlite.init_db()
+
+    rag_cfg = config.get("rag", {})
+    chunk_cfg_dict = rag_cfg.get("chunking", {})
+    chunk_cfg = ChunkingConfig(
+        target_chars=chunk_cfg_dict.get("target_chars", 1800),
+        max_chars=chunk_cfg_dict.get("max_chars", 2600),
+        overlap_chars=chunk_cfg_dict.get("overlap_chars", 350),
+        min_chars=chunk_cfg_dict.get("min_chars", 400),
+    )
+
+    qdrant = QdrantStore(workspace, config)
+    embedding = EmbeddingService(config)
+
+    # Initialize Qdrant collection if embedding is available
+    embedding_dim = None
+    if embedding.is_available():
         try:
-            new_state[source] = scanned.content_hash
-            file_chunks = chunk_text(
-                scanned.note.body,
+            model_info = embedding.get_model_info()
+            embedding_dim = model_info.get("dim")
+            if embedding_dim:
+                qdrant.init_collection(embedding_dim)
+        except Exception as e:
+            logger.warning("Failed to init Qdrant: %s", e)
+
+    # ── Step 4: Process changed files ───────────────────────────────────
+    total_chunks = 0
+    doc_records: list[DocumentRecord] = []
+
+    # Collect all notes for graph building
+    all_notes = notes
+
+    for source, abs_path, content_hash, kind in changed_sources:
+        try:
+            # Parse document into sections
+            sections = parse_document(abs_path, workspace)
+            if not sections:
+                # Fallback: use legacy chunker for simple text
+                sections = _fallback_parse(source, abs_path, kind)
+
+            # Override source path to use our canonical source prefix
+            for section in sections:
+                section.source = source
+
+            # Chunk sections
+            chunks = chunk_sections(sections, chunk_cfg)
+            if not chunks:
+                continue
+
+            # Derive document metadata
+            document_id = _stable_hash(source)
+            title = _extract_title(source, sections, kind)
+            course = _extract_course(source, sections, kind)
+            tags = _extract_tags(sections)
+
+            # Build summary (first 500 chars of clean text)
+            summary_text = " ".join(c["text"] for c in chunks[:3])[:500]
+
+            # SQLite: upsert document + chunks
+            sqlite.upsert_document(
+                document_id=document_id,
                 source=source,
-                metadata={
-                    "kind": "obsidian_note",
-                    "title": scanned.note.title,
-                    "tags": scanned.note.tags,
-                    "course": scanned.note.course,
-                    "chapter": scanned.note.chapter,
-                    "path": scanned.rel_path,
-                },
+                content_hash=content_hash,
+                kind=kind,
+                title=title,
+                course=course,
+                tags=tags,
+                summary=summary_text,
+                vector_status="pending",
             )
-            chunks.extend(file_chunks)
+            sqlite.delete_chunks_by_document(document_id)
+
+            # Enrich chunks with document metadata
+            for i, chunk in enumerate(chunks):
+                chunk["document_id"] = document_id
+                chunk["title"] = title
+                chunk["course"] = course or ""
+                chunk["chunk_index"] = i
+
+            sqlite.insert_chunks(chunks)
+
+            # Directory entry
+            keywords = list(set(tags + _extract_keywords(chunks)))
+            sqlite.upsert_directory_entry(
+                document_id=document_id,
+                title=title,
+                summary=summary_text,
+                keywords=keywords,
+                source=source,
+                course=course,
+                chunk_count=len(chunks),
+            )
+
+            # Qdrant: upsert vectors
+            if embedding.is_available() and embedding_dim:
+                try:
+                    texts_to_embed = [c.get("embedding_text", c["text"]) for c in chunks]
+                    vectors = embedding.embed_texts(texts_to_embed)
+                    if vectors and len(vectors) == len(chunks):
+                        chunk_ids = [c["id"] for c in chunks]
+                        payloads = [
+                            {
+                                "chunk_id": c["id"],
+                                "document_id": document_id,
+                                "source": source,
+                                "title": title,
+                                "course": course or "",
+                                "heading_path": c.get("heading_path", []),
+                                "heading_text": c.get("heading_text", ""),
+                                "section_id": c.get("section_id", ""),
+                                "chunk_index_in_section": c.get("chunk_index_in_section", 0),
+                                "page_start": c.get("page_start"),
+                                "page_end": c.get("page_end"),
+                                "slide_start": c.get("slide_start"),
+                                "slide_end": c.get("slide_end"),
+                            }
+                            for c in chunks
+                        ]
+                        # Delete old vectors first
+                        qdrant.delete_by_filter(document_id)
+                        qdrant.upsert(chunk_ids, vectors, payloads)
+                        sqlite.mark_vector_indexed(document_id, content_hash)
+                    else:
+                        sqlite.mark_vector_error(document_id, "embedding count mismatch")
+                except Exception as e:
+                    logger.warning("Qdrant upsert failed for %s: %s", source, e)
+                    sqlite.mark_vector_error(document_id, str(e))
+
+            total_chunks += len(chunks)
             doc_records.append(DocumentRecord(
                 source=source,
-                kind="obsidian_note",
-                title=scanned.note.title or scanned.rel_path,
-                course=scanned.note.course,
+                kind=kind,
+                title=title,
+                course=course,
                 status="ok",
-                chunk_count=len(file_chunks),
-                content_hash=scanned.content_hash,
+                chunk_count=len(chunks),
+                content_hash=content_hash,
             ))
+
         except Exception as e:
             logger.warning("Failed to process %s: %s", source, e)
             errors.append({"source": source, "error": str(e)})
             doc_records.append(DocumentRecord(
                 source=source,
-                kind="obsidian_note",
-                title=scanned.rel_path,
+                kind=kind,
+                title=os.path.basename(source),
                 status="error",
                 error=str(e),
-                content_hash=scanned.content_hash,
+                content_hash=content_hash,
             ))
 
-    course_docs_list = []
-    if course_dir:
-        for document in iter_documents(course_dir):
-            source = f"course/{document.source}"
+    # ── Step 5: Delete removed documents ────────────────────────────────
+    for source in deleted_sources:
+        doc_id = sqlite.get_document_id_by_source(source)
+        if doc_id:
+            sqlite.delete_document(doc_id)  # cascades to chunks, directory
             try:
-                new_state[source] = document.content_hash
-                metadata = dict(document.metadata)
-                metadata["path"] = document.source
-                file_chunks = chunk_text(document.text, source=source, metadata=metadata)
-                chunks.extend(file_chunks)
-                title = document.metadata.get("title", document.source)
-                doc_records.append(DocumentRecord(
-                    source=source,
-                    kind="course_document",
-                    title=title,
-                    course=document.metadata.get("course"),
-                    status="ok",
-                    chunk_count=len(file_chunks),
-                    content_hash=document.content_hash,
-                ))
-            except Exception as e:
-                logger.warning("Failed to process %s: %s", source, e)
-                errors.append({"source": source, "error": str(e)})
-                doc_records.append(DocumentRecord(
-                    source=source,
-                    kind="course_document",
-                    title=document.source,
-                    status="error",
-                    error=str(e),
-                ))
+                qdrant.delete_by_filter(doc_id)
+            except Exception:
+                pass
 
-    # Write RAG index — router handles dual-write (dense + sparse) in auto mode
-    if config and config.get("rag"):
-        router = VectorStoreRouter(workspace, config)
-        router.replace(chunks)
-        index_path = os.path.join(knowledge_dir, "rag_index.json")
-    else:
-        index_path = os.path.join(knowledge_dir, "rag_index.json")
-        LocalVectorStore(index_path).replace(chunks)
-
+    # ── Step 6: Build graph ─────────────────────────────────────────────
     graph_store = get_graph_store(workspace)
-    relationship_count = graph_store.replace_from_notes(notes)
+    relationship_count = graph_store.replace_from_notes(all_notes)
     graph_store_path = getattr(graph_store, "graph_path", None)
     if hasattr(graph_store, "close"):
         graph_store.close()
 
-    updated_files = sum(1 for path, digest in new_state.items() if old_state.get(path) != digest)
+    # ── Step 7: Save state ──────────────────────────────────────────────
+    _save_state(workspace, new_state)
+
+    updated_files = len(changed_sources) + len(deleted_sources)
     if mode == "full":
         updated_files = len(new_state)
-    _save_state(workspace, new_state)
 
     # Save manifest and import report
     sync_summary_dict = {
         "scanned_files": len(new_state),
         "updated_files": updated_files,
-        "chunk_count": len(chunks),
+        "chunk_count": total_chunks,
         "relationship_count": relationship_count,
         "graph_backend": graph_store.backend_name,
         "mode": mode,
@@ -187,16 +314,19 @@ def sync_sources(
         scanned_files=len(new_state),
         updated_files=updated_files,
         error_files=len(errors),
-        chunk_count=len(chunks),
+        chunk_count=total_chunks,
         relationship_count=relationship_count,
         graph_backend=graph_store.backend_name,
         errors=errors,
     ))
 
+    sqlite.close()
+
+    index_path = os.path.join(knowledge_dir, "knowledge.db")
     return SyncSummary(
         scanned_files=len(new_state),
         updated_files=updated_files,
-        chunk_count=len(chunks),
+        chunk_count=total_chunks,
         relationship_count=relationship_count,
         graph_backend=graph_store.backend_name,
         rag_index_path=index_path,
@@ -204,3 +334,57 @@ def sync_sources(
         error_files=len(errors),
         errors=errors,
     )
+
+
+def _fallback_parse(source: str, abs_path: str, kind: str) -> list[SourceSection]:
+    """Fallback parser for when rag/parsers returns empty."""
+    try:
+        with open(abs_path, "r", encoding="utf-8") as f:
+            text = f.read()
+    except (UnicodeDecodeError, FileNotFoundError):
+        return []
+
+    doc_title = os.path.splitext(os.path.basename(abs_path))[0]
+    return [SourceSection(
+        source=source,
+        doc_title=doc_title,
+        unit_type="paragraph",
+        unit_range="",
+        heading_path=[],
+        text=text.strip(),
+        metadata={"file_type": "txt"},
+    )]
+
+
+def _extract_title(source: str, sections: list[SourceSection], kind: str) -> str:
+    """Extract document title from sections or source path."""
+    if sections and sections[0].doc_title:
+        return sections[0].doc_title
+    return os.path.splitext(os.path.basename(source))[0]
+
+
+def _extract_course(source: str, sections: list[SourceSection], kind: str) -> str | None:
+    """Extract course from sections metadata."""
+    if sections and sections[0].metadata.get("course"):
+        return sections[0].metadata["course"]
+    return None
+
+
+def _extract_tags(sections: list[SourceSection]) -> list[str]:
+    """Extract tags from sections metadata."""
+    tags = set()
+    for s in sections:
+        for tag in s.metadata.get("tags", []):
+            tags.add(tag)
+    return sorted(tags)
+
+
+def _extract_keywords(chunks: list[dict]) -> list[str]:
+    """Extract keywords from chunk headings."""
+    keywords = set()
+    for c in chunks:
+        heading_path = c.get("heading_path", [])
+        for h in heading_path:
+            if len(h) > 1:
+                keywords.add(h)
+    return sorted(keywords)[:20]
