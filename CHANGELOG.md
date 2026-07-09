@@ -7,6 +7,14 @@
 ## [未发布]
 
 ### 新增
+- **Bobodan 当前阶段收尾**: 完成产品定位、文档合并、设计规范补强和 FastAPI skeleton，Web UI 留到下一阶段实现。
+  - `docs/PROJECT_GUIDE.md`（新）: 作为后续给人和 AI 看的唯一主入口，整理产品定位、当前阶段、下一步路线、练习系统、功能分层和架构边界。
+  - `docs/DESIGN.md`: 补充 Bobodan Web UI 设计硬约束，包括轻纸面质感、Study / Workbench 分区、阅读优先的中等密度、移动端 Chat / Practice / Review 优先、Tailwind / shadcn 语义 token、核心组件规范、来源 chip、Practice 一题一卡、温和状态反馈、用户可配置人设和硬性反模式清单。
+  - `web/backend/`（新）: FastAPI skeleton，包含 app/deps/sse 以及 chat、kb、quiz、learning、memory、settings 路由，先完成后端协议边界，不实现 Web UI。
+  - `tests/test_web_backend.py`（新）: 覆盖 Web backend health、路由协议、SSE 包装和 service 委托边界。
+  - 文档整理：收敛旧架构、旧计划和 archive 文档，更新 `CLAUDE.md`、`README.md`、`docs/README.md`、`docs/MCP.md`、`docs/tools/skills.md`，强调后续 UI / 设计必须先读 `docs/DESIGN.md`。
+  - 验证：最近一次全量测试 `998 passed`，2 个既有 warning。
+
 - **RAG v2 — Qdrant + SQLite + Hybrid Retrieval**: 知识库检索升级为完整 RAG 基础设施。
   - `rag/schema.py`（新）: `RetrievalHit`、`DocumentHit`、`RetrievalResult`、`HybridResult` 统一结果 schema。
   - `rag/sqlite_store.py`（新）: `KBSQLiteStore` — SQLite + FTS5 存储层（documents, chunks, chunks_fts, directory_entries, retrieval_runs）。FTS5 content-synced triggers 自动同步。

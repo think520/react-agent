@@ -9,3 +9,5 @@ qdrant-client>=1.12
 python-docx>=1.1
 python-pptx>=1.0
 pymupdf>=1.25
+fastapi>=0.115
+uvicorn>=0.30

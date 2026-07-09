@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+Before product, planning, architecture, or Web UI work, read `docs/PROJECT_GUIDE.md` first. It is the current source of truth for Bobodan's product positioning, current stage, next steps, feature priority, and architecture boundaries.
+
+Before any Web UI, page, component, prototype, TUI, or visual design work, also read `docs/DESIGN.md`. It defines Bobodan's required theme colors and visual direction; do not invent a different palette or generic SaaS/AI-gradient style.
+
 ## Overview 
 
 波波蛋 (Bobodan) is a Python-based ReAct agent with multiple LLM provider support, session persistence, a skills system, a persistent memory system with daily memory and FTS5 search, a local knowledge base with RAG and knowledge graph, a wiki compilation layer, a quiz system, a learning path system, and a CLI REPL interface. Users chat with the agent which reasons and calls tools (read_file, write_file, list_dir, change_dir, stat_path, memory_save, memory_recall, memory_daily_save, memory_daily_read, memory_promote, knowledge_status, question_generate, quiz_start, quiz_submit, learning_path, learning_progress, learning_review, wiki_ingest, wiki_lint, obsidian_export_plan, obsidian_export_quiz_summary) in a loop until it produces a response.

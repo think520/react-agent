@@ -1,34 +1,21 @@
-# Bobodan Docs Index
+# Bobodan 文档
 
-这个目录只保留当前日常需要读取的文档。已实现方案、历史设计和调研材料放在 `archive/`。
-
-## 当前入口
+文档已经收敛，日常只读一个主入口：
 
 | 文档 | 用途 |
-|------|------|
-| [`NEXT_STEPS_EXECUTION_PLAN.md`](NEXT_STEPS_EXECUTION_PLAN.md) | 当前下一步执行顺序。排期和开新分支前先看它 |
-| [`DESIGN.md`](DESIGN.md) | Web UI / TUI / 官网的长期视觉设计参考（Natural Editorial Zen），后续 UI 相关工作默认先看它 |
-| [`LOCAL_KNOWLEDGE_LEARNING_AGENT_PLAN.md`](LOCAL_KNOWLEDGE_LEARNING_AGENT_PLAN.md) | Bobodan 作为本地知识学习助手的产品主线 |
-| [`BOBODAN_AGENT_FRAMEWORK_ARCHITECTURE.md`](BOBODAN_AGENT_FRAMEWORK_ARCHITECTURE.md) | 模块边界和架构规则 |
-| [`OPENAI_AGENT_CODEX_REFERENCE_FOR_BOBODAN.md`](OPENAI_AGENT_CODEX_REFERENCE_FOR_BOBODAN.md) | OpenAI Agents SDK / Codex CLI 的工程边界借鉴：run state、event trace、tool policy、handoff，不作为产品方向替代 |
-| [`RAG_KNOWLEDGE_GRAPH_MVP.md`](RAG_KNOWLEDGE_GRAPH_MVP.md) | RAG + 知识图谱当前用法 |
-| [`MCP.md`](MCP.md) | MCP 用户文档 |
+|---|---|
+| [`PROJECT_GUIDE.md`](PROJECT_GUIDE.md) | 项目主指南：产品定位、当前阶段、下一步、功能分层、架构边界 |
+| [`DESIGN.md`](DESIGN.md) | Web / TUI / 官网视觉硬约束，界面设计开工前必须先读 |
+| [`rag_design.md`](rag_design.md) | RAG v2 详细设计 |
+| [`MCP.md`](MCP.md) | MCP 客户端使用说明 |
+| [`tools/skills.md`](tools/skills.md) | Skills 系统说明 |
 
-## 归档文档
+使用规则：
 
-| 文档 | 用途 |
-|------|------|
-| [`archive/agents_design.md`](archive/agents_design.md) | Learning Agent Orchestrator v1 详细设计 |
-| [`archive/AGENT_HARNESS_IMPROVEMENT_PLAN.md`](archive/AGENT_HARNESS_IMPROVEMENT_PLAN.md) | Agent harness 历史详细计划 |
-| [`archive/mcp_design.md`](archive/mcp_design.md) | MCP 客户端详细设计 |
-| [`archive/OLLAMA_RAG_EMBEDDING_PLAN.md`](archive/OLLAMA_RAG_EMBEDDING_PLAN.md) | 已实现的 Ollama RAG embedding 方案 |
+- 想知道项目是什么、现在到哪、下一步做什么：看 `PROJECT_GUIDE.md`。
+- 想做 Web UI、页面、组件、原型或任何视觉设计：先看 `PROJECT_GUIDE.md`，再必须看 `DESIGN.md`。
+- 想改 RAG：看 `rag_design.md`。
+- 想配置 MCP：看 `MCP.md`。
+- 想改 skills：看 `tools/skills.md`。
 
-## 使用规则
-
-- 想知道现在做什么：看 `NEXT_STEPS_EXECUTION_PLAN.md`。
-- 想确认模块边界：看 `BOBODAN_AGENT_FRAMEWORK_ARCHITECTURE.md`。
-- 想参考 OpenAI Agents SDK / Codex CLI 的运行时边界：看 `OPENAI_AGENT_CODEX_REFERENCE_FOR_BOBODAN.md`。
-- 想了解产品方向：看 `LOCAL_KNOWLEDGE_LEARNING_AGENT_PLAN.md`。
-- 想参考 UI 设计：看 `DESIGN.md`。
-- 想使用现有能力：看 `RAG_KNOWLEDGE_GRAPH_MVP.md` 或 `MCP.md`。
-- 想查历史设计：看 `archive/`。
+旧的产品计划、架构计划、阶段计划和历史调研已从当前文档集中移除，避免 AI 和人读到过时方向。
