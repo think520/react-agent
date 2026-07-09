@@ -1,15 +1,20 @@
 # 波波蛋 (Bobodan)
 
-Bobodan 是一个 **chat-first、local-first 的个人学习 AI 助手**。
+Bobodan 是一个本地优先的 Python AI 学习助手。它把 ReAct Agent、本地知识库、RAG 检索、题库练习、学习路线、复习计划、长期记忆、Obsidian 写回、MCP 客户端和多 agent 编排放在同一个工作流里。
 
-它的主入口应该像 ChatGPT / Gemini 一样自然对话：用户可以提问、上传资料、生成练习、安排复习；系统在背后调用本地知识库、RAG、题库、掌握度、记忆、Obsidian 和 Agent 能力，把每次对话沉淀成可追踪的学习进度。
+你可以用它同步自己的学习资料、基于资料提问、生成练习题、自动批改、追踪掌握度、安排复习，并把学习计划或做题总结导出到 Obsidian。
 
-当前阶段已经收尾：CLI / learning loop / RAG v2 / service layer / FastAPI skeleton 已完成。Web UI 还没有开始实现，下一阶段先做 chat-first Web shell，再接对话页和练习页。
+## 主要功能
 
-设计和产品方向见：
-
-- [`docs/PROJECT_GUIDE.md`](docs/PROJECT_GUIDE.md)：项目主指南，给人和 AI 看的唯一主入口。
-- [`docs/DESIGN.md`](docs/DESIGN.md)：Bobodan 的视觉硬约束，所有 Web UI / 页面 / 组件设计开工前必须先读。
+- 多 LLM Provider：DeepSeek、MiniMax、OpenAI 兼容接口。
+- ReAct Agent：工具调用、Session 持久化、Skills 注入。
+- 本地知识库：SQLite / FTS5 / Qdrant / hybrid retrieval。
+- 学习闭环：学习计划、题库练习、自动批改、掌握度追踪、间隔复习。
+- 记忆系统：每日记忆、永久记忆、FTS5 检索和记忆晋升。
+- Obsidian 集成：导入资料，导出学习计划和做题总结。
+- MCP 客户端：支持 stdio / SSE / streamable_http。
+- 多 agent 编排：`doc_reader`、`triage`、`planner` specialist。
+- API skeleton：FastAPI 路由和 SSE 事件流，用于 Web / API 集成。
 
 ## 快速开始
 
@@ -170,7 +175,7 @@ rag/           # 文档导入、切块、向量索引、检索路由
 graph/         # 知识图谱（本地 JSON + 可选 Neo4j）
 wiki/          # LLM Wiki 编译层
 skills/        # Skills 定义目录
-tests/         # 单元测试（998）
+tests/         # 单元测试
 web/backend/   # FastAPI skeleton（Web API / SSE / service 协议转换）
 ```
 
@@ -260,10 +265,6 @@ mcp:
 python -m pytest
 ```
 
-当前全量测试：`998 passed, 2 warnings`。
-
 ## 文档
 
-项目主指南见 [`docs/PROJECT_GUIDE.md`](docs/PROJECT_GUIDE.md)。文档索引见 [`docs/README.md`](docs/README.md)。
-
-后续做 Web UI、官网、练习页、对话页或任何视觉相关内容时，先读 [`docs/DESIGN.md`](docs/DESIGN.md)，不要临时发明新的主题色或做成通用 SaaS dashboard。
+更多文档见 [`docs/README.md`](docs/README.md)。
