@@ -161,7 +161,7 @@ rag/           # 文档导入、切块、向量索引、检索路由
 graph/         # 知识图谱（本地 JSON + 可选 Neo4j）
 wiki/          # LLM Wiki 编译层
 skills/        # Skills 定义目录
-tests/         # 单元测试（769+）
+tests/         # 单元测试（994+）
 ```
 
 ## 核心功能
@@ -252,4 +252,4 @@ pytest tests/ -v
 
 ## 文档
 
-详见 [`docs/README.md`](docs/README.md) 文档索引。视觉设计参考 [`docs/DESIGN.md`](docs/DESIGN.md)。
+项目主指南见 [`docs/PROJECT_GUIDE.md`](docs/PROJECT_GUIDE.md)。文档索引见 [`docs/README.md`](docs/README.md)。

@@ -7,6 +7,37 @@
 ## [未发布]
 
 ### 新增
+- **Bobodan 当前阶段收尾**: 完成产品定位、文档合并、设计规范补强和 FastAPI skeleton，Web UI 留到下一阶段实现。
+  - `docs/PROJECT_GUIDE.md`（新）: 作为后续给人和 AI 看的唯一主入口，整理产品定位、当前阶段、下一步路线、练习系统、功能分层和架构边界。
+  - `docs/DESIGN.md`: 补充 Bobodan Web UI 设计硬约束，包括轻纸面质感、Study / Workbench 分区、阅读优先的中等密度、移动端 Chat / Practice / Review 优先、Tailwind / shadcn 语义 token、核心组件规范、来源 chip、Practice 一题一卡、温和状态反馈、用户可配置人设和硬性反模式清单。
+  - `web/backend/`（新）: FastAPI skeleton，包含 app/deps/sse 以及 chat、kb、quiz、learning、memory、settings 路由，先完成后端协议边界，不实现 Web UI。
+  - `tests/test_web_backend.py`（新）: 覆盖 Web backend health、路由协议、SSE 包装和 service 委托边界。
+  - 文档整理：收敛旧架构、旧计划和 archive 文档，更新 `CLAUDE.md`、`README.md`、`docs/README.md`、`docs/MCP.md`、`docs/tools/skills.md`，强调后续 UI / 设计必须先读 `docs/DESIGN.md`。
+  - 验证：最近一次全量测试 `998 passed`，2 个既有 warning。
+
+- **RAG v2 — Qdrant + SQLite + Hybrid Retrieval**: 知识库检索升级为完整 RAG 基础设施。
+  - `rag/schema.py`（新）: `RetrievalHit`、`DocumentHit`、`RetrievalResult`、`HybridResult` 统一结果 schema。
+  - `rag/sqlite_store.py`（新）: `KBSQLiteStore` — SQLite + FTS5 存储层（documents, chunks, chunks_fts, directory_entries, retrieval_runs）。FTS5 content-synced triggers 自动同步。
+  - `rag/qdrant_store.py`（新）: `QdrantStore` — Qdrant local persistent 向量存储，支持 upsert/search/delete_by_filter。Point id 使用 UUID5 确定性转换。
+  - `rag/embedding_service.py`（新）: `EmbeddingService` — Ollama embedding 包装器，graceful degradation。
+  - `rag/source_section.py`（新）: `SourceSection` — 多格式解析统一中间结构。
+  - `rag/parsers/`（新）: 多格式解析器 — Markdown heading-aware、PDF page-aware (PyMuPDF)、PPT slide-aware (python-pptx)、Word heading-style (python-docx)。
+  - `rag/chunker_v2.py`（新）: heading-aware adaptive chunking — heading_path 继承、长 section 二次切分、短 section 合并、embedding text heading context 注入。
+  - `rag/rrf.py`（新）: RRF (Reciprocal Rank Fusion) — vector + FTS5 排名融合。
+  - `rag/hybrid.py`（新）: `HybridRetriever` — vector + FTS5 → RRF → chunk candidates。
+  - `rag/directory.py`（新）: `DirectoryRetriever` — 文档级路由，metadata lexical + chunk aggregation。
+  - `rag/grep_retriever.py`（新）: `GrepRetriever` — rg 优先 + Python fallback，intent-aware evidence thin 判断（exact_lookup vs coverage），扩展阶梯。
+  - `rag/orchestrator.py`（新）: `RetrievalOrchestrator` — 三种检索模式调度（hybrid/directory/directory_grep），auto 模式规则路由 + hybrid 空结果 fallback。
+  - `rag/query_router.py`（新）: 规则路由（directory_grep > directory > hybrid）。
+  - `obsidian/sync.py`: 改用新 parsers + chunker_v2 + SQLite + Qdrant 写入，incremental sync 保留 manifest。
+  - `service/kb_service.py`: `search()` 新增 `mode` 参数（auto|hybrid|directory|directory_grep）。
+  - `tools/rag_search.py`: tool schema 新增 `mode` 参数。
+  - `rag/retriever.py`: 优先走 Orchestrator，legacy JSON index fallback。
+  - `rag/citations.py`: 支持 heading、page/slide、retriever 信息。
+  - `config.yaml`: 扩展 `rag:` section（vector_db, chunking, retrieval 配置）。
+  - `requirements.txt`: 新增 `qdrant-client`、`python-docx`、`python-pptx`、`pymupdf`。
+  - 112 个新测试覆盖 SQLite store、Qdrant store、parsers、chunker v2、RRF、hybrid/directory/grep retriever、orchestrator、query router。994 测试全通过。
+
 - **Bobodan base system prompt**: `core/agent_loop.py` 新增稳定的 Bobodan 基础 system prompt，用 marker 幂等注入。
   - 定位从通用 CLI assistant 收敛为 "local-first personal assistant with strong learning capabilities"。
   - 学习能力仍是核心强项，但允许普通聊天、陪伴、头脑风暴、轻娱乐和日常问题。

@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+Before product, planning, architecture, or Web UI work, read `docs/PROJECT_GUIDE.md` first. It is the current source of truth for Bobodan's product positioning, current stage, next steps, feature priority, and architecture boundaries.
+
+Before any Web UI, page, component, prototype, TUI, or visual design work, also read `docs/DESIGN.md`. It defines Bobodan's required theme colors and visual direction; do not invent a different palette or generic SaaS/AI-gradient style.
+
 ## Overview 
 
 波波蛋 (Bobodan) is a Python-based ReAct agent with multiple LLM provider support, session persistence, a skills system, a persistent memory system with daily memory and FTS5 search, a local knowledge base with RAG and knowledge graph, a wiki compilation layer, a quiz system, a learning path system, and a CLI REPL interface. Users chat with the agent which reasons and calls tools (read_file, write_file, list_dir, change_dir, stat_path, memory_save, memory_recall, memory_daily_save, memory_daily_read, memory_promote, knowledge_status, question_generate, quiz_start, quiz_submit, learning_path, learning_progress, learning_review, wiki_ingest, wiki_lint, obsidian_export_plan, obsidian_export_quiz_summary) in a loop until it produces a response.
@@ -183,16 +187,34 @@ mcp_client/       # MCP (Model Context Protocol) client integration
   transport_stdio.py   # stdio transport (subprocess + SDK)
   transport_sse.py     # SSE transport (legacy HTTP+SSE)
   transport_http.py    # streamable_http transport (modern HTTP)
-rag/              # Document ingestion, chunking, embeddings, vector stores, retrieval router
-  chunker.py      # TextChunk, chunk_text (paragraph-aware sliding window)
-  embeddings.py   # LocalEmbeddingProvider: sparse TF+L2 vectors
-  vector_store.py # LocalVectorStore: JSON-backed sparse vector index
-  dense_store.py  # DenseVectorStore: JSON-backed dense vector index (Ollama)
+rag/              # RAG v2: SQLite+FTS5, Qdrant, hybrid retrieval, multi-format parsers
+  schema.py       # RetrievalHit, DocumentHit, RetrievalResult, HybridResult
+  sqlite_store.py # KBSQLiteStore: SQLite + FTS5 (documents, chunks, directory_entries)
+  qdrant_store.py # QdrantStore: Qdrant local persistent vector store
+  embedding_service.py # EmbeddingService: Ollama embedding wrapper
+  source_section.py # SourceSection: unified intermediate structure for parsers
+  chunker_v2.py   # heading-aware adaptive chunking (replaces chunker.py for v2)
+  rrf.py          # RRF (Reciprocal Rank Fusion) for vector + FTS5
+  hybrid.py       # HybridRetriever: vector + FTS5 → RRF fusion
+  directory.py    # DirectoryRetriever: document-level routing
+  grep_retriever.py # GrepRetriever: exact text search + intent-aware evidence
+  orchestrator.py # RetrievalOrchestrator: hybrid/directory/directory_grep dispatch
+  query_router.py # Rule-based query routing (no LLM in v1)
+  parsers/        # Multi-format document parsers
+    __init__.py   # parse_document dispatch by extension
+    markdown_parser.py # Heading-aware Markdown/Markdown splitting
+    pdf_parser.py # Page-aware PDF parsing (PyMuPDF + pypdf fallback)
+    pptx_parser.py # Slide-aware PPT parsing (python-pptx)
+    docx_parser.py # Heading-style-aware Word parsing (python-docx)
+  chunker.py      # Legacy: TextChunk, chunk_text (paragraph-aware sliding window)
+  embeddings.py   # Legacy: LocalEmbeddingProvider sparse TF+L2
+  vector_store.py # Legacy: LocalVectorStore JSON-backed sparse index
+  dense_store.py  # Legacy: DenseVectorStore JSON-backed dense index
   ollama.py       # OllamaEmbeddingClient: probe, embed, cache availability
-  router.py       # VectorStoreRouter: auto/local/ollama backend selection + dual-write
-  retriever.py    # search_index: thin search wrapper
+  router.py       # Legacy: VectorStoreRouter auto/local/ollama
+  retriever.py    # search_index: Orchestrator entry point (legacy fallback)
   ingest.py       # Document loading (md/txt/pdf)
-  citations.py    # format_search_results
+  citations.py    # format_search_results (updated for v2 result schema)
 wiki/             # LLM wiki compilation layer (Karpathy pattern)
   schema.py       # WikiPage, CompileResult, WikiConfig, source registry
   compiler.py     # WikiCompiler: LLM-based source→wiki page compilation
@@ -211,16 +233,17 @@ skills/           # Skills directory (configurable via config.yaml)
 
 ## Knowledge assistant modules
 
-RAG and knowledge graph features are additive modules. Keep the existing Agent loop,
+RAG v2 and knowledge graph are additive modules. Keep the existing Agent loop,
 provider abstraction, session model, and REPL stable unless a change is explicitly
 needed for tool integration.
 
 ```
 obsidian/        # Obsidian vault scanning and Markdown/frontmatter/link/tag parsing
-rag/             # Document ingestion, chunking, embeddings, vector stores, retrieval router
+rag/             # RAG v2: multi-format parsing, heading-aware chunking, SQLite+FTS5,
+                 #   Qdrant vectors, RRF fusion, hybrid/directory/grep retrieval, orchestrator
 graph/           # Knowledge graph schema, local JSON store, optional Neo4j adapter
 tools/           # Agent-facing wrappers for sync, RAG search, and graph query
-.knowledge/      # Runtime indexes and sync state; generated locally and not tracked by git
+.knowledge/      # Runtime: knowledge.db (SQLite), qdrant/ (vectors), manifest, sync_state
 ```
 
 ### Knowledge data rules
@@ -230,12 +253,13 @@ tools/           # Agent-facing wrappers for sync, RAG search, and graph query
 - Knowledge tools must keep workspace boundary checks. They should not scan or
   index paths outside the current workspace unless a future explicit allow-list is
   added first.
-- Prefer local, deterministic fallbacks for MVP behavior. Neo4j is optional: when
-  `NEO4J_URI`, `NEO4J_USERNAME`, and `NEO4J_PASSWORD` are missing or the driver is
-  unavailable, graph operations must continue through the local JSON graph store.
-- Keep RAG storage behind adapter-style modules so the lightweight local index can
-  later be replaced by real embedding providers or vector databases without
-  changing Agent tool contracts.
+- Neo4j is optional: when `NEO4J_URI`, `NEO4J_USERNAME`, and `NEO4J_PASSWORD` are
+  missing or the driver is unavailable, graph operations must continue through the
+  local JSON graph store.
+- Knowledge graph stays independent from RetrievalOrchestrator — different granularity
+  (concept relationships vs chunk evidence).
+- SQLite is the truth source for RAG v2. Qdrant failures never roll back SQLite writes.
+  `documents.vector_status` tracks Qdrant indexing state (`pending|indexed|error`).
 
 ### Key patterns
 
@@ -271,21 +295,35 @@ Promotion: `PromotionEngine` evaluates daily memories for promotion to permanent
 
 Tools: `memory_save`, `memory_recall` (FTS5 search), `memory_daily_save`, `memory_daily_read`, `memory_promote`. REPL: `/memory list|show|search|forget|daily|promote|review|stats`.
 
-## RAG Embedding System
+## RAG v2 — Hybrid Retrieval System
 
-Two vector store backends with automatic routing:
+Four retrieval methods, unified through `RetrievalOrchestrator`:
 
-- **Sparse** (`rag/vector_store.py`): TF + L2 normalization, dict-based vectors. Zero dependencies, always available.
-- **Dense** (`rag/dense_store.py`): Ollama embedding models, float arrays. Better semantic matching, requires local Ollama.
+1. **Vector** (Qdrant + Ollama): semantic similarity via dense embeddings.
+2. **FTS5** (SQLite): keyword/term/exact match via BM25 ranking.
+3. **Directory** (SQLite): document-level routing — finds which documents are relevant.
+4. **Grep** (rg/Python): exact text search in source files with context expansion.
 
-Routing (`rag/router.py`): `VectorStoreRouter` selects backend based on `config.yaml` `rag.embedding_backend`:
-- `auto` (default): probe Ollama at startup → use dense if available, sparse as fallback. Dual-writes both indices on `/kb sync`.
-- `local`: force sparse only.
-- `ollama`: force dense, fail if unavailable.
+**Retrieval modes** (`rag/orchestrator.py`):
+- `hybrid` (default): Vector + FTS5 → RRF fusion → chunk-level results.
+- `directory`: Hybrid broad search → document aggregation → document-level results.
+- `directory_grep`: Directory → grep evidence → exact source/context results.
+- `auto`: rule-based routing (directory_grep > directory > hybrid), hybrid empty → fallback to directory_grep.
 
-Ollama client (`rag/ollama.py`): `OllamaEmbeddingClient` probes Ollama health + model capability + real embed request. Caches availability. Config: `rag.ollama_url`, `rag.ollama_model`, `rag.probe_timeout`, `rag.request_timeout`.
+**Storage** (`.knowledge/`):
+- `knowledge.db` — SQLite: documents, chunks, chunks_fts (FTS5), directory_entries, retrieval_runs.
+- `qdrant/` — Qdrant local persistent: `bobodan_chunks` collection, cosine distance, HNSW.
+- `manifest.json`, `sync_state.json`, `import_report.json` — metadata and sync state.
 
-Index files: `.knowledge/rag_index.json` (sparse), `.knowledge/rag_index_dense.json` (dense). Dense index stores model name + embedding dim for model change detection.
+**Multi-format parsing** (`rag/parsers/`): Markdown (heading-aware), PDF (page-aware via PyMuPDF), PPT (slide-aware via python-pptx), Word (heading-style via python-docx). All parsed to `SourceSection` → `chunker_v2` → `TextChunk`.
+
+**Embedding**: Ollama `qwen3-embedding:0.6b` via `EmbeddingService`. Graceful degradation: no Ollama → FTS5/directory/grep still work.
+
+**Tool**: `rag_search` accepts optional `mode` parameter (`auto|hybrid|directory|directory_grep`).
+
+**Legacy files** (`vector_store.py`, `dense_store.py`, `router.py`): retained but not used by the new pipeline. Old JSON indexes (`.knowledge/rag_index.json`) are legacy artifacts.
+
+Full design: [`docs/rag_design.md`](docs/rag_design.md).
 
 ## MCP (Model Context Protocol) Client
 

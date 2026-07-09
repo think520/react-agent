@@ -117,15 +117,19 @@ class KBService:
         query: str,
         course: str | None = None,
         top_k: int = 5,
+        mode: str = "auto",
         config: dict | None = None,
     ) -> dict[str, Any]:
         if not query or not query.strip():
             return _err("query is required")
 
         knowledge_dir = os.path.join(self.workspace, ".knowledge")
+        db_path = os.path.join(knowledge_dir, "knowledge.db")
         sparse_path = os.path.join(knowledge_dir, "rag_index.json")
         dense_path = os.path.join(knowledge_dir, "rag_index_dense.json")
-        if not os.path.exists(sparse_path) and not os.path.exists(dense_path):
+        if (not os.path.exists(db_path)
+                and not os.path.exists(sparse_path)
+                and not os.path.exists(dense_path)):
             return _err("RAG index not found. Run obsidian_sync first.")
 
         from rag.retriever import search_index
@@ -136,6 +140,7 @@ class KBService:
             course=course,
             top_k=max(1, min(top_k, 20)),
             config=config or {},
+            mode=mode,
         )
         return _ok(results=results)
 
