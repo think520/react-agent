@@ -1,6 +1,15 @@
 # 波波蛋 (Bobodan)
 
-Python ReAct Agent，支持多 LLM Provider、工具调用、Session 持久化、Skills 注入、持久化记忆、本地知识库（RAG + 知识图谱）、题库系统、学习路线与复习、MCP 客户端、多 agent 编排、CLI REPL 交互。
+Bobodan 是一个 **chat-first、local-first 的个人学习 AI 助手**。
+
+它的主入口应该像 ChatGPT / Gemini 一样自然对话：用户可以提问、上传资料、生成练习、安排复习；系统在背后调用本地知识库、RAG、题库、掌握度、记忆、Obsidian 和 Agent 能力，把每次对话沉淀成可追踪的学习进度。
+
+当前阶段已经收尾：CLI / learning loop / RAG v2 / service layer / FastAPI skeleton 已完成。Web UI 还没有开始实现，下一阶段先做 chat-first Web shell，再接对话页和练习页。
+
+设计和产品方向见：
+
+- [`docs/PROJECT_GUIDE.md`](docs/PROJECT_GUIDE.md)：项目主指南，给人和 AI 看的唯一主入口。
+- [`docs/DESIGN.md`](docs/DESIGN.md)：Bobodan 的视觉硬约束，所有 Web UI / 页面 / 组件设计开工前必须先读。
 
 ## 快速开始
 
@@ -161,7 +170,8 @@ rag/           # 文档导入、切块、向量索引、检索路由
 graph/         # 知识图谱（本地 JSON + 可选 Neo4j）
 wiki/          # LLM Wiki 编译层
 skills/        # Skills 定义目录
-tests/         # 单元测试（994+）
+tests/         # 单元测试（998）
+web/backend/   # FastAPI skeleton（Web API / SSE / service 协议转换）
 ```
 
 ## 核心功能
@@ -247,9 +257,13 @@ mcp:
 ## 测试
 
 ```bash
-pytest tests/ -v
+python -m pytest
 ```
+
+当前全量测试：`998 passed, 2 warnings`。
 
 ## 文档
 
 项目主指南见 [`docs/PROJECT_GUIDE.md`](docs/PROJECT_GUIDE.md)。文档索引见 [`docs/README.md`](docs/README.md)。
+
+后续做 Web UI、官网、练习页、对话页或任何视觉相关内容时，先读 [`docs/DESIGN.md`](docs/DESIGN.md)，不要临时发明新的主题色或做成通用 SaaS dashboard。
