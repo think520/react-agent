@@ -21,10 +21,10 @@ from cli.markdown_render import (
     print_success,
     console as rich_console,
 )
-from core.memory import MemoryManager
 from core.session import Session
-from core.skills import build_skills_system_prompt, list_skills, find_skill_by_name
+from core.skills import list_skills, find_skill_by_name
 from providers.factory import ProviderFactory
+from service.runtime_service import RuntimeService
 from tools import get_tools_schema
 
 try:
@@ -158,6 +158,7 @@ class REPL:
         self.memory_prompt = None
         self.memory_manager = None
         self.memory_count = 0
+        self.runtime_context = None
         self.agent_timeout = 300  # seconds, per-turn timeout
         self.prompt_session = None
         self.show_tool_calls = True
@@ -192,20 +193,13 @@ class REPL:
             agent_config = self.config.get("agent", {})
             self.agent_timeout = agent_config.get("timeout", 300)
 
-            # Skills configuration
-            skills_config = self.config.get("skills", {})
-            if skills_config.get("enabled", True):
-                self.skills_dir = skills_config.get("dir", "skills")
-                self.skills_prompt = build_skills_system_prompt(self.skills_dir)
-                self.skill_count = len(list_skills(self.skills_dir))
-
-            # Memory configuration
-            memory_config = self.config.get("memory", {})
-            if memory_config.get("enabled", True):
-                memory_dir = memory_config.get("dir", ".bobodan")
-                self.memory_manager = MemoryManager(os.getcwd(), base_dir=memory_dir)
-                self.memory_prompt = self.memory_manager.build_memory_prompt()
-                self.memory_count = len(self.memory_manager.list_entries())
+            self.runtime_context = RuntimeService.build_context(self.config, os.getcwd())
+            self.skills_dir = self.runtime_context.skills_dir
+            self.skills_prompt = self.runtime_context.skills_prompt
+            self.skill_count = self.runtime_context.skill_count
+            self.memory_manager = self.runtime_context.memory_manager
+            self.memory_prompt = self.runtime_context.memory_prompt
+            self.memory_count = self.runtime_context.memory_count
 
             # RAG embedding backend probe
             rag_config = self.config.get("rag") or {}

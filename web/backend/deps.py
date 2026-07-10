@@ -12,6 +12,7 @@ from functools import lru_cache
 from typing import Any
 
 from providers.factory import ProviderFactory
+from service.runtime_service import RuntimeContext, RuntimeService
 
 
 @lru_cache(maxsize=1)
@@ -37,9 +38,15 @@ def get_default_provider_name(config: dict[str, Any] | None = None) -> str:
     return cfg.get("llm", {}).get("default_provider", "")
 
 
+@lru_cache(maxsize=1)
+def get_runtime_context() -> RuntimeContext:
+    return RuntimeService.build_context(get_config(), get_workspace())
+
+
 def reset_dependency_caches() -> None:
     """Clear cached dependency state.
 
     Tests use this after overriding environment variables.
     """
     get_config.cache_clear()
+    get_runtime_context.cache_clear()

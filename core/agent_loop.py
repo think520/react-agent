@@ -65,7 +65,7 @@ class AgentLoop:
                  memory_prompt: str | None = None, mcp_prompt: str | None = None,
                  tools_schema: list[dict] | None = None,
                  max_iterations: int | None = None,
-                 trace_writer=None):
+                 trace_writer=None, allowed_tool_names=None):
         self.llm = llm_provider
         self.session = session
         self.tools_schema = tools_schema if tools_schema is not None else get_tools_schema()
@@ -74,6 +74,9 @@ class AgentLoop:
         self.memory_prompt = memory_prompt
         self.mcp_prompt = mcp_prompt
         self.trace_writer = trace_writer
+        self.allowed_tool_names = (
+            frozenset(allowed_tool_names) if allowed_tool_names is not None else None
+        )
 
     def set_session(self, session) -> None:
         self.session = session
@@ -191,7 +194,16 @@ class AgentLoop:
                             self.trace_writer.write(tool_start_event)
 
                         start_ts = time.monotonic()
-                        result = execute_tool(tc.name, args, session=self.session)
+                        if (
+                            self.allowed_tool_names is not None
+                            and tc.name not in self.allowed_tool_names
+                        ):
+                            result = ToolResult(
+                                ok=False,
+                                content=f"Tool unavailable in this runtime: {tc.name}",
+                            )
+                        else:
+                            result = execute_tool(tc.name, args, session=self.session)
                         elapsed = time.monotonic() - start_ts
                         if isinstance(result, ToolResult):
                             self._sync_session_state(tc.name, result)
@@ -211,6 +223,7 @@ class AgentLoop:
                                 "tool_name": tc.name,
                                 "ok": result.ok,
                                 "content": result.content,
+                                "artifacts": result.artifacts,
                                 "elapsed": elapsed,
                                 "result_summary": _compute_result_summary(tc.name, result),
                             }

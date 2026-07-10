@@ -94,6 +94,29 @@ def test_get_due_reviews_with_due(store, svc):
     assert result["concepts"][0]["concept"] == "A"
 
 
+def test_get_review_queue_aggregates_learning_and_quiz_data(store, svc, monkeypatch):
+    from datetime import datetime, timezone, timedelta
+    store.upsert_mastery(Mastery(
+        concept="A",
+        status="learning",
+        score=0.5,
+        next_review=(datetime.now(timezone.utc) - timedelta(hours=1)).isoformat(),
+    ))
+    monkeypatch.setattr(
+        "service.quiz_service.QuizService.get_wrong_answer_book",
+        lambda self, limit: {"ok": True, "entries": [{"question_id": 1}]},
+    )
+    monkeypatch.setattr(
+        "service.quiz_service.QuizService.get_weakness_analysis",
+        lambda self: {"ok": True, "analysis": [{"concept": "A"}]},
+    )
+
+    result = svc.get_review_queue()
+    assert result["due_concepts"][0]["concept"] == "A"
+    assert result["wrong_answers"] == [{"question_id": 1}]
+    assert result["weaknesses"] == [{"concept": "A"}]
+
+
 # --- mark_mastery ---
 
 def test_mark_mastery(svc):

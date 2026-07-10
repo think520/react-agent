@@ -170,6 +170,30 @@ def test_agent_loop_tool_call_then_text(tmp_path):
     assert (tmp_path / "test.txt").read_text(encoding="utf-8") == "hello world"
 
 
+def test_agent_loop_blocks_tools_outside_runtime_allowlist(tmp_path):
+    session = Session.new(str(tmp_path))
+    llm = MockLLMProvider([
+        _tool_response([{
+            "name": "write_file",
+            "args": {"path": "blocked.txt", "content": "no"},
+        }]),
+        LLMResponse(content="done"),
+    ])
+    agent = AgentLoop(
+        llm,
+        session,
+        tools_schema=[],
+        allowed_tool_names={"rag_search"},
+    )
+
+    events = list(agent.run_stream("write file"))
+
+    assert not (tmp_path / "blocked.txt").exists()
+    tool_end = next(event for event in events if event["type"] == "tool_end")
+    assert tool_end["ok"] is False
+    assert "unavailable in this runtime" in tool_end["content"]
+
+
 def test_agent_loop_yields_specialist_display_events_without_session_pollution(tmp_path):
     def delegate_fake():
         return ToolResult(

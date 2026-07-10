@@ -245,6 +245,22 @@ def test_load_session_strips_json_suffix(save_dir):
     assert result["session"].session_id == s.session_id
 
 
+def test_rename_and_delete_session(save_dir):
+    from core.session import Session
+
+    os.makedirs(save_dir, exist_ok=True)
+    session = Session.new("/tmp")
+    session.save_to_file(os.path.join(save_dir, f"{session.session_id}.json"))
+
+    renamed = AgentService.rename_session(session.session_id, save_dir, "Renamed")
+    assert renamed["ok"]
+    assert AgentService.load_session(session.session_id, save_dir)["session"].name == "Renamed"
+
+    deleted = AgentService.delete_session(session.session_id, save_dir)
+    assert deleted == {"ok": True, "session_id": session.session_id}
+    assert not os.path.exists(os.path.join(save_dir, f"{session.session_id}.json"))
+
+
 # --- run_stream ---
 
 def test_run_stream_yields_events(monkeypatch):

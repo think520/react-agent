@@ -15,6 +15,8 @@ class Question:
     concepts: list[str] = field(default_factory=list)
     difficulty: str = "medium"
     source: str = ""
+    attribution_kind: str = "unverified"
+    sources: list[dict] = field(default_factory=list)
     created_at: str = ""
 
 
@@ -24,6 +26,8 @@ class QuizSession:
     question_ids: list[int] = field(default_factory=list)
     started_at: str = ""
     completed_at: str | None = None
+    updated_at: str = ""
+    status: str = "active"
 
 
 @dataclass

@@ -83,7 +83,7 @@ Bobodan 不照抄任何单一产品。它吸收这些产品的功能骨架，再
 
 ### 2.3 信息架构
 
-主界面分成 **Study** 和 **Workbench** 两组。
+长期信息架构分成 **Study** 和 **Workbench** 两组。
 
 Study 是一等入口：
 
@@ -95,6 +95,19 @@ Review
 Library
 Roadmap
 ```
+
+Web MVP 不一次开放六个一级导航。第一版主导航收敛为：
+
+```text
+Chat
+Practice
+Review
+Library
+```
+
+- Today 作为 Chat 在无活动会话或用户回访时的起始状态。
+- Roadmap 在学习闭环稳定后再升级为独立入口；第一版可从 Today / Review 进入。
+- 未实现页面不放一级占位入口。
 
 Workbench 是高级区，默认折叠，可展开或固定：
 
@@ -121,6 +134,7 @@ Workbench / 工作台
 Today：
 
 - 学习伙伴首页，不是 dashboard。
+- Web MVP 中复用 Chat 主学习画布，不单独维护第二套页面框架。
 - 结构是“一句低压问候 + 一条记忆/上下文 + 2-3 个行动建议”。
 
 示例：
@@ -197,118 +211,264 @@ Memory 不只记录学习数据，还要沉淀：
 - Obsidian 写回偏好。
 - 用户不喜欢的表达方式。
 
-## 3. 当前阶段
+## 3. 全项目复盘结论
 
-当前阶段已经收尾。
+### 3.1 总体判断
 
-已完成：
+Bobodan 已经完成“学习 Agent 引擎”和“Web 产品化基础”阶段，但还没有完成普通用户可持续使用的 Web 产品。
 
-- ReAct AgentLoop + 多 Provider + 多模型切换。
-- tools / skills / memory。
-- RAG v2：SQLite + FTS5 + Qdrant + hybrid / directory / grep retrieval。
-- quiz / learning / review / mastery。
-- Obsidian 写回：学习计划 + 做题总结。
-- Event Trace：JSONL trace + `/trace` 命令。
-- MCP client：stdio / SSE / streamable_http。
-- Learning Agent Orchestrator v1：`doc_reader` / `triage` / `planner`。
-- CLI Tool Display UX。
-- Service 层：`learning_service` / `quiz_service` / `memory_service` / `kb_service` / `agent_service`。
-- FastAPI skeleton：`web/backend` 路由、SSE 事件流、service 协议转换和 Web API 测试。
+现有技术路线不需要推倒重来。Python + FastAPI + SQLite / Qdrant + React Web UI 仍然适合本地优先的个人学习助手。P5C 已把 CLI 能力整理成稳定、可复用、可追踪的 Web 产品合约；下一步进入 P5D，按 Library → Chat → Practice → Review 的纵向闭环实现真实页面。
 
-验证状态：
+一句话结论：
 
-- 最近一次全量测试：`998 passed`，2 个既有 warning。
-- 当前结论：P0-P4 完成，P5 前置 service 层和 FastAPI skeleton 完成。
+> 底层能力与 Web 合约已经就绪，下一阶段停止横向扩功能，优先交付“导入资料 → 提问 → 查看来源 → 做题 → 复习”的本地学习闭环。
 
-当前阶段：
+### 3.2 当前成熟度
 
-> FastAPI skeleton 已完成。下一步做 chat-first Web shell：左侧导航 + 对话页 + 练习页占位。
+| 模块 | 当前判断 | 说明 |
+|---|---|---|
+| Agent Runtime | 可用且测试充分 | ReAct、流式输出、工具调用、session、provider 已稳定运行 |
+| RAG v2 | 较成熟 | SQLite / FTS5 / Qdrant / hybrid / directory / grep 已具备完整检索骨架 |
+| Quiz / Learning | Web 合约就绪 | 支持题目归因、练习恢复、提交进度、掌握度变化、放弃练习和 Review 聚合 |
+| Memory | Web 合约就绪 | Web Chat 注入并按 run 刷新 memory prompt，公开 API 不返回本地绝对路径 |
+| Service Layer | 产品化基础完成 | CLI / Web 共用 runtime、config 与 service，Review / Practice 聚合已补齐 |
+| FastAPI | P5C 完成 | 已有稳定错误结构、流式事件适配、session CRUD、资料导入、Library / Practice / Review API |
+| Web UI | 未开始 | 当前没有 frontend 工程、组件、路由或端到端 Web 流程 |
+| 测试 | 后端较强 | P5C 完成后全量测试 `1020 passed`，Web API 已覆盖安全事件、错误、会话、练习、复习和导入合约 |
 
-## 4. 下一步路线
+### 3.3 P5C 已解决的问题与剩余边界
 
-### P5B：FastAPI skeleton（已完成）
+已解决：
 
-目标：接已完成的五个 service，跑通 Web 所需的 HTTP 和 SSE 事件流。
+1. CLI / Web 共用 runtime composition，统一 provider、workspace、skills、memory、trace 和 LLM service config。
+2. `/api/chat/runs` 固定使用 POST + `fetch` / `ReadableStream` 消费 SSE，事件收敛为稳定 Web 协议。
+3. Web 只接收白名单状态与 artifact，不暴露原始 tool output、specialist 日志、secret 或本地绝对路径。
+4. Chat session 已支持 list / detail / rename / delete，并只恢复用户可见消息。
+5. Library 已支持托管上传、文档列表与详情；Markdown、PDF、DOCX、PPTX 能进入现有同步流程。
+6. Question 支持结构化 `Attribution + SourceRef`，旧 SQLite 数据可迁移，出题来源由 RAG chunk 确定性保留。
+7. Practice 已支持 session detail、attempt、progress、active list 和 abandon；Review 已聚合到期概念、错题和薄弱点。
+8. Web Agent 使用学习 / RAG / memory 工具白名单；文件写入、任意 HTTP、MCP 与 specialist 不进入 Web MVP 运行时。
 
-建议目录：
+仍待 P5D / P5F 解决：
+
+- React 前端、真实交互状态、Playwright 闭环测试尚未开始。
+- 开发期仍是 Vite + FastAPI 两个进程；单进程静态托管与一键启动留到发布阶段。
+- MCP / specialist 要等请求级 ToolContext 完成后，才能考虑在 Web Workbench 中开放。
+
+### 3.4 优化原则
+
+- 以“用户完成一次学习闭环”为进度单位，不以页面或模块数量为进度单位。
+- 服务器端存储是学习状态真相源；浏览器只保存草稿、当前页面和 session 指针。
+- 来源必须是结构化数据，不能让前端从自然语言回答里猜引用。
+- 主流程只保留 Chat、Practice、Review、Library；Today 作为 Chat 的起始状态，Roadmap 后补。
+- MCP、specialist、trace、模型切换继续保留，但不阻塞 Web 学习 MVP。
+- 新增代码优先扩展现有 service，不创建重复的前端业务层或第二套学习逻辑。
+
+## 4. 推荐技术路线与执行计划
+
+### 4.1 目标架构
 
 ```text
-web/backend/
-  app.py
-  routers/
-    chat.py       # /api/chat/runs, /api/chat/runs/{id}/events
-    kb.py         # /api/kb/*
-    quiz.py       # /api/quiz/*
-    learning.py   # /api/learning/*
-    memory.py     # /api/memory/*
-    settings.py   # /api/settings/*
+React Web UI
+  ↓ HTTP / streamed response
+FastAPI Web DTO & Event Adapter
+  ↓
+Runtime Composition + Service Layer
+  ↓
+Agent / RAG / Quiz / Learning / Memory
+  ↓
+.session / .knowledge / .bobodan / Obsidian
 ```
 
-原则：
+关键边界：
 
-- FastAPI 路由只做协议转换。
-- 业务逻辑继续放在 `service/`。
-- SSE 优先，WebSocket 后置。
-- 不在 API 层重写 `core/`、`tools/`、`learning/`、`memory/`。
+- React 只调用 FastAPI，不直接理解 Python domain 数据结构。
+- FastAPI 负责 HTTP、DTO、状态码和事件转换，不承载学习业务。
+- Service 层负责可复用业务和跨域聚合。
+- Runtime Composition 负责 provider、skills、memory、tool catalog、trace，以及按能力开关装配 MCP / specialist。
+- CLI 与 Web 最终共用同一套 runtime 装配规则，避免行为长期分叉。
+
+### 4.2 技术选择
+
+- 前端：React + TypeScript + Vite。
+- UI：Tailwind CSS + shadcn/ui 基础组件，强制映射 `docs/DESIGN.md` tokens。
+- 路由：React Router。
+- 数据请求：第一版使用原生 `fetch`；POST 流式回答使用 `ReadableStream` 解析 SSE frame，不使用原生 `EventSource`。
+- 状态：服务端数据留在 API / domain；前端先用 React state + 小型 context，不提前引入复杂全局状态框架。
+- 开发模式：Vite dev server + FastAPI，Vite proxy `/api`。
+- 发布模式：Vite production build 由 FastAPI 托管静态文件，一个本地进程启动。
+- 运行边界：默认只绑定 `127.0.0.1`，按单用户本地应用设计，本阶段不做登录和多租户。
+- 保留现有 SQLite、Qdrant、JSON / Markdown 存储，不进行无收益的数据层重写。
+
+### P5C：产品化基础
+
+**状态：已完成（2026-07-10）。** Web 已能通过稳定、安全、可恢复的产品合约调用真正的 Bobodan；本阶段没有实现 React 页面。
+
+#### P5C.1 统一运行时装配
+
+范围：
+
+- 抽取 CLI 与 Web 可复用的 runtime composition，统一加载 config、provider、skills prompt、memory prompt 和 trace。
+- Web MVP 默认启用内置学习工具、skills、memory 和 trace。
+- MCP 与 specialist 在 Web MVP 默认关闭；启用前先把 delegate tool 从“闭包捕获 CLI session”改为请求级 ToolContext。
+- memory 写入或删除后，下一次 run 必须使用刷新后的 memory prompt。
+- 所有 LLM 相关 service 使用同一份 config / provider 解析规则，不再隐式读取另一个默认配置。
 
 验收：
 
-- 能启动本地 FastAPI app。
-- 能创建 chat run。
-- 能通过 SSE 收到 agent event。
-- 能调用知识库、题库、学习、记忆和设置相关 service。
+- 同一个问题在 CLI 和 Web 使用相同 provider、workspace、skills 和 memory 配置。
+- Web run 能调用 RAG / quiz / learning 工具，并产生 trace。
+- 两个并行 session 不共享 cwd、session 或用户上下文。
 
-当前实现：
+#### P5C.2 稳定 Web DTO 与事件协议
 
-```text
-web/backend/
-  app.py
-  deps.py
-  sse.py
-  routers/
-    chat.py
-    kb.py
-    quiz.py
-    learning.py
-    memory.py
-    settings.py
-```
+范围：
 
-运行方式：
+- 为 chat、session、quiz、review、library 定义 Pydantic request / response schema。
+- Web 层把 AgentLoop 事件转换为稳定事件：`run_started`、`message_delta`、`status`、`citation`、`run_completed`、`run_failed`。
+- 每次 run 生成 `run_id`，Web 事件不直接暴露原始 tool output、secret、内部路径或 specialist 日志。
+- RAG 等工具通过白名单 artifact 输出结构化公开数据；Web 不解析 `ToolResult.content` 获取引用。
+- 统一错误结构：`code`、`message`、可选 `details`，按 not found / invalid / conflict / unavailable 使用正确 HTTP 状态码。
+- 增加 session list / detail / rename / delete API。
 
-```powershell
-.\.venv\Scripts\python.exe -m uvicorn web.backend.app:app --reload
-```
-
-### P5C：Web Chat MVP
-
-目标：先做一个能用的对话主页，而不是完整后台。
-
-建议目录：
+浏览器流方案：
 
 ```text
-web/frontend/
-  src/
-    pages/
-    components/
-    hooks/
-    api/
+POST /api/chat/runs
+→ fetch()
+→ response.body.getReader()
+→ 逐帧解析 SSE
 ```
 
-第一版页面：
-
-- 对话主页。
-- 左侧会话列表。
-- 右侧学习上下文。
-- 资料库入口。
-- 今日复习入口。
+第一版不做断线后继续同一 run；断线后提供“重新发送本轮”操作。只有确实需要 run 重连时，再升级为 POST 创建 run + GET events。
 
 验收：
 
-- 用户打开 Web 后第一眼知道“这是一个 AI 对话工具”。
-- 用户可以在对话里问学习问题，并看到来源。
-- 用户可以从一次回答继续生成题目或复习项。
-- 用户不需要理解 RAG / MCP / specialist。
+- API contract tests 覆盖正常、空数据、非法参数、provider 不可用和 stream error。
+- 前端不需要解析 tool 文本来判断来源、状态或下一步动作。
+- 保存后的 chat session 能通过 API 完整恢复为用户 / AI 消息视图。
+
+#### P5C.3 资料、来源与练习数据合约
+
+定义统一归因对象：
+
+```text
+Attribution
+  kind: local | local_extension | web | ai | unverified
+  sources: SourceRef[]
+
+SourceRef
+  source_type: local | web
+  source_id
+  title
+  url                 # 仅网页来源
+  document_id / chunk_id
+  heading / page / slide
+```
+
+`AI 补充` 与 `待核实` 可以没有 `SourceRef`；本地绝对路径只保留在服务端，不直接发送给前端。
+
+范围：
+
+- 增加面向普通用户的资料导入 API，第一版支持 Markdown、PDF、DOCX、PPTX；上传文件复制到应用管理的本地 source 目录后再进入现有 sync 流程。
+- 增加 document list / detail / sync status API，Library 不直接遍历服务器文件系统。
+- 保留“高级本地路径同步”给已有 vault 用户，但路径必须位于明确配置的 allowed roots 内。
+- Chat citation、Question、Practice summary 共用同一套 `Attribution + SourceRef` 语义。
+- Question 从单个 `source` 字符串迁移为可保存多个来源的结构；迁移必须兼容已有 SQLite 数据。
+- 出题时由系统确定性保留 RAG chunk 来源，不依赖 LLM 自己编造 source 字段。
+- 增加 practice session detail / attempts / abandon / summary API。
+- submit answer 返回题目概念、来源、批改、解释、session 进度和掌握度变化。
+- Review service 聚合到期概念、错题和薄弱点，前端只负责展示和操作。
+
+验收：
+
+- 用户不进入 CLI 就能导入一份受支持资料，并在 Library 看见同步结果。
+- 任意一道生成题都能解释“基于哪份资料生成”。
+- 刷新后可从后端恢复练习进度，不依赖浏览器保存完整答案副本。
+- 一次答错后，Practice 返回掌握度变化，Review API 能看到对应复习项。
+
+### P5D：本地学习闭环 Web MVP
+
+#### P5D.1 前端地基
+
+- 建立 `web/frontend`、路由、Vite proxy 和 API client。
+- 落地 `DESIGN.md` tokens、字体和核心组件。
+- Today 作为 Chat 无活动会话时的起始状态，不单独搭第二套首页。
+- 第一批真实入口只开放 Chat、Practice、Review、Library；没有数据的入口显示“导入资料 / 开始对话”等可执行空状态，不放假按钮。
+
+#### P5D.2 最小 Library 与资料导入
+
+- 上传 Markdown、PDF、DOCX、PPTX，显示导入和索引状态。
+- 展示文档列表、基础元数据和可读错误，不先做全文编辑、highlight 或大图谱。
+- 选择一份或一组资料作为 Chat / Practice 的学习范围。
+
+#### P5D.3 Chat 纵向切片
+
+- 会话列表、主对话区、composer、流式回答、状态反馈、来源 chip。
+- 新建、恢复、重命名、删除会话。
+- 工具过程默认折叠，只展示用户能理解的状态。
+- 失败可重试，刷新后恢复最近已完成会话。
+
+#### P5D.4 Practice 纵向切片
+
+- 从主题、资料或 Chat 回答创建练习，默认 5 题。
+- 单选、判断、简答混合，一题一卡。
+- 提交、批改、解释、来源、进度、结束小结。
+- 继续 / 放弃未完成练习，后端 SQLite 为真相源。
+
+#### P5D.5 Chat → Practice → Review 闭环
+
+- Chat 回答可带上下文创建练习。
+- Practice 内有只围绕当前题目的轻量“问 AI”。
+- 答题自动更新错题、掌握度和复习计划。
+- Review 展示今日到期概念、错题和薄弱点，并能继续生成针对性练习。
+
+P5D 验收：
+
+- 新用户能完成“导入资料 → 提问 → 查看来源 → 生成 5 题 → 做题 → 查看批改 → 进入复习”。
+- 关键流程全部使用真实后端数据，无 mock 业务数据。
+- Chat → Practice → Review 至少有一条 Playwright 端到端测试。
+
+### P5E：可信资料扩展
+
+在本地资料闭环稳定后，再补用户已确认的联网资料流程：
+
+1. 本地资料不足时明确提示，不静默联网。
+2. 用户确认后搜索，并先展示候选网页标题、域名和摘要。
+3. 用户确认来源后再生成回答或题目。
+4. 网页内容保存来源 URL、访问时间和引用片段。
+5. 无可靠来源时只能标记为 `AI 补充` 或 `待核实`。
+
+验收：
+
+- 用户能区分本地资料、网页来源、AI 补充和待核实。
+- Web 搜索失败不会阻塞本地资料问答与练习。
+- 不允许把搜索摘要或 AI 常识伪装成用户资料。
+
+### P5F：支撑页面与发布收尾
+
+按优先级补齐：
+
+1. Library 增强：文档阅读、highlight、摘录回流和相关概念；基础导入与列表已在 P5D 完成。
+2. Roadmap：学习目标、当前阶段和今日任务。
+3. Memory Browser：查看、编辑、删除、固定；用户人设配置后置于此。
+4. Workbench：只提供必要的设置和状态入口，Agents / MCP / Logs 继续低权重。
+
+发布门槛：
+
+- `npm run build` 和后端全量测试通过。
+- FastAPI 能托管 frontend build，一个命令启动本地应用。
+- API 错误、空知识库、无来源、provider 未配置和流中断都有明确恢复动作。
+- 桌面与移动端 Chat / Practice / Review 完成截图复核，符合 `docs/DESIGN.md`。
+- 键盘操作、焦点状态、基础可访问性和文本溢出通过检查。
+
+### 本轮明确不做
+
+- 完整 Agent / MCP / Logs 管理后台。
+- 独立 Canvas 产品、复杂知识图谱和完整知识编辑器。
+- 模拟考试、限时训练、复杂题型和完整能力模型。
+- 多用户 SaaS、跨设备同步、移动端原生 App。
+- 插件市场、班级协作、排行榜或社交分享。
 
 ## 5. 练习系统产品决策
 
@@ -318,21 +478,27 @@ web/frontend/
 
 练习是和对话并列的主页面，但交互要像对话一样自然。
 
-主导航建议：
+长期 Study 导航：
 
 ```text
-对话
-练习
-复习
-资料
-进度
+Today
+Chat
+Practice
+Review
+Library
+Roadmap
 ```
+
+Web MVP 一级导航只开放 Chat、Practice、Review、Library；Today 复用 Chat 起始状态，Roadmap 后补。
 
 页面边界：
 
+- Today：低压问候、记忆提示和 2-3 个学习动作，与 Chat 共用主学习画布。
 - 对话页：开放式学习问答。
 - 练习页：结构化训练，一题一卡。
 - 复习页：今日到期知识点、错题和薄弱点。
+- 资料页：资料树、阅读内容、来源和相关概念。
+- 路线页：学习目标、当前阶段和今日任务。
 
 ### 5.2 练习页形态
 
@@ -360,10 +526,11 @@ web/frontend/
 
 | 标签 | 含义 |
 |---|---|
-| 来自我的资料 | 题目直接基于用户导入资料 |
-| 基于我的资料扩展 | 题目围绕用户资料扩展 |
-| 来自联网资料 | 本地资料不足，经用户确认后联网搜索并基于网页资料生成 |
+| 本地资料 | 题目或结论直接基于用户导入资料 |
+| 本地扩展 | 围绕用户资料推导或扩展，但不是资料原文直接结论 |
+| 网页来源 | 本地资料不足，经用户确认后联网搜索并基于网页资料生成 |
 | AI 补充 | 不直接来自资料或联网来源，作为拓展练习 |
+| 待核实 | 当前证据不足或来源尚未确认，不能按确定事实展示 |
 
 联网策略：
 
@@ -635,7 +802,7 @@ web/frontend/
 每道联网题必须显示：
 
 ```text
-来源：来自联网资料
+来源：网页来源
 引用：网页标题 + 链接
 ```
 
@@ -777,17 +944,22 @@ Dijkstra 算法
 
 第一版要支持本地恢复当前练习状态，不做跨设备同步。
 
-练习中保存：
+状态真相源：
+
+- `quiz_sessions`、`quiz_attempts` 和题目数据保存在本地后端 SQLite。
+- 前端不得维护一份独立的完整练习副本。
+- 浏览器只保存 `practice_session_id`、当前界面位置和未提交草稿；恢复时重新请求后端 session detail。
+
+后端练习状态应包含：
 
 - `practice_session_id`
-- 当前第几题。
-- 已答题目。
-- 未答题目。
-- 用户答案。
-- 批改结果。
+- 题目顺序和当前进度。
+- 已答 / 未答题目。
+- 用户答案和批改结果。
 - 当前题追问记录。
 - `started_at`
 - `updated_at`
+- `completed_at`
 
 用户回来时提示：
 
@@ -827,20 +999,16 @@ MVP 必须跑通：
 
 ### 5.21 下一阶段实现顺序
 
-下一阶段从 Web shell 开始，但 Web MVP 从一开始按 **对话 + 练习双主线** 规划，分阶段实现。
-
-不要先只做聊天壳，也不要先做完整练习系统。
-
-推荐顺序：
+实现顺序以第 4 章为唯一执行路线，本节不再维护第二份重复计划。
 
 ```text
-1. FastAPI skeleton（已完成）
-2. Web shell：左侧导航 + 对话页 + 练习页占位
-3. 对话页 SSE 跑通
-4. 练习创建流程 + 一题一卡
-5. 批改 / 解释 / 追问 / 沉淀
-6. 再补资料页、复习页、进度页
+P5C 产品化基础
+→ P5D 本地学习闭环 Web MVP
+→ P5E 可信资料扩展
+→ P5F 支撑页面与发布收尾
 ```
+
+P5C 是进入前端开发前的硬门槛。任何阶段都不能只交付静态占位页；进入下一阶段前，当前阶段的验收条件必须成立。
 
 ## 6. 功能分层
 
@@ -893,7 +1061,13 @@ MVP 必须跑通：
 
 ```text
 UI Layer
-  CLI / future Web UI
+  CLI / React Web UI
+
+Web Protocol Layer
+  FastAPI routers / Pydantic DTO / event adapter
+
+Runtime Composition Layer
+  config / provider / prompts / tool catalog / trace / optional extensions
 
 Service Layer
   service/learning_service
@@ -927,17 +1101,23 @@ Storage Layer
 - `providers/` 只管模型调用。
 - `tools/` 只做 Agent 能力入口，不承载复杂业务状态。
 - `service/` 是 CLI 和 Web API 的业务入口。
+- Runtime Composition 只负责装配，不复制 service 或 domain 逻辑。
+- `web/backend` 只负责 HTTP、DTO、事件过滤和依赖注入。
+- `web/frontend` 只负责呈现与交互，不能从自然语言文本反推业务状态。
 - `rag/` 管检索、切块、embedding、vector store。
 - `knowledge/` 管知识库状态、manifest、导入报告和统计。
 - `quiz/` 管题库、练习、批改、错题。
 - `learning/` 管学习路径、掌握度、复习。
 - `memory/` 管用户长期上下文，不替代知识库。
-- `cli/` 和未来 `web/` 只负责交互，不写核心业务。
+- `cli/` 和 `web/` 只负责交互，不写核心业务。
 
 依赖方向：
 
 ```text
-UI -> service/core
+React UI -> FastAPI Web Protocol
+CLI -> Runtime Composition / service
+FastAPI Web Protocol -> Runtime Composition / service
+Runtime Composition -> core/providers/tools/skills/memory/MCP/agents
 service -> domain modules
 tools -> service/domain modules
 core -> providers/tools/session
@@ -950,13 +1130,23 @@ rag -> parsers/embeddings/vector stores
 禁止方向：
 
 ```text
+React UI -> core/domain/storage
+FastAPI router -> direct SQLite business queries
 domain modules -> cli
+domain modules -> web
 providers -> tools
 rag -> quiz
 rag -> learning
 knowledge -> cli
 memory -> cli
 ```
+
+实现原则：
+
+- 跨域聚合优先扩展现有 service；只有 Today / Review 这类确实跨越 quiz、learning、memory 的场景才增加小型 facade。
+- 不为每个页面创建一套 backend service。
+- 不建立泛化 repository、event bus 或微服务；当前是单进程本地应用。
+- MCP / specialist 接入 Web 前必须改为请求级上下文，不能捕获某个 CLI session 的全局闭包。
 
 ## 8. 数据边界
 
@@ -968,13 +1158,37 @@ memory -> cli
 
 `.bobodan/`：
 
-- 个性化数据。
-- 包含 permanent memory、daily memory、trace、memory db。
+- 不可从索引重建的本地用户数据。
+- 包含 permanent memory、daily memory、trace、memory db，以及 Web 上传资料的托管副本目录 `sources/`。
 - 不应随便删除。
+
+`.bobodan/sources/`：
+
+- 保存通过 Web 上传的原始资料副本，是托管资料的 truth source。
+- `.knowledge/` 只保存它们生成的索引；重建索引时不能删除这里的文件。
+- 外部 Obsidian vault 不复制时，vault 本身继续作为 truth source。
 
 `.session/`：
 
 - 会话历史。
+
+浏览器存储：
+
+- 只保存 UI 偏好、草稿、最近的 `chat_session_id` / `practice_session_id`。
+- 不保存知识库真相、完整练习记录、掌握度或长期记忆副本。
+
+来源数据：
+
+- `Attribution + SourceRef` 是 Chat、Practice、Review 共用的可信来源边界。
+- 本地来源保存文档 / chunk 标识和可读定位；网页来源保存 URL 和访问时间。
+- 本地绝对路径只在服务端保存，前端只接收可展示标题、source id 和定位信息。
+- `AI 补充` 与 `待核实` 不是引用来源，必须作为独立归因状态保留。
+
+标识命名：
+
+- 对话统一使用 `chat_session_id`，保持 UUID。
+- 练习统一使用 `practice_session_id`，可继续使用 SQLite integer id。
+- API 和前端不得都简称为 `session_id`，避免跨页面传错。
 
 Obsidian vault：
 

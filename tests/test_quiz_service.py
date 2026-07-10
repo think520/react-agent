@@ -71,6 +71,7 @@ def test_start_quiz_with_existing_questions(store, svc):
         assert "id" in q
         assert "type" in q
         assert "question" in q
+        assert "attribution" in q
 
 
 def test_start_quiz_with_type_filter(store, svc):
@@ -94,6 +95,10 @@ def test_submit_answer_correct(store, svc):
     assert result["is_correct"] is True
     assert "feedback" in result
     assert result["correct_answer"] == "B"
+    assert result["progress"]["completed"] is True
+    assert result["session_completed"] is True
+    assert result["concepts"] == ["math"]
+    assert result["mastery_changes"]
 
 
 def test_submit_answer_wrong(store, svc):
@@ -126,6 +131,33 @@ def test_submit_answer_question_not_in_session(store, svc):
     result = svc.submit_answer(session.id, q2.id, "B")
     assert not result["ok"]
     assert "不属于" in result["error"]
+
+
+def test_session_state_and_abandon(store, svc):
+    q1 = _make_question(store)
+    q2 = _make_question(store)
+    session = store.create_session([q1.id, q2.id])
+    store.record_attempt(QuizAttempt(
+        session_id=session.id,
+        question_id=q1.id,
+        user_answer="B",
+        is_correct=True,
+    ))
+
+    state = svc.get_session_state(session.id)
+    assert state["ok"]
+    assert state["progress"] == {
+        "answered": 1,
+        "total": 2,
+        "correct": 1,
+        "current_index": 1,
+        "completed": False,
+    }
+    assert state["attempts"][0]["question_id"] == q1.id
+
+    abandoned = svc.abandon_session(session.id)
+    assert abandoned["status"] == "abandoned"
+    assert svc.list_active_sessions()["sessions"] == []
 
 
 # --- get_wrong_answer_book ---

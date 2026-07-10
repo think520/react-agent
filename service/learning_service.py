@@ -26,16 +26,19 @@ def _err(error: str) -> dict[str, Any]:
     return {"ok": False, "error": error}
 
 
-def _get_llm_provider():
-    from providers.factory import ProviderFactory
-    return ProviderFactory.create_from_config()
+def _get_llm_provider(config: dict | None = None):
+    from service.runtime_service import RuntimeService
+    if config is None:
+        config = RuntimeService.load_default_config()
+    return RuntimeService.create_provider(config)
 
 
 class LearningService:
     """Stateless service: each method creates its own store/scheduler instances."""
 
-    def __init__(self, workspace: str = "."):
+    def __init__(self, workspace: str = ".", config: dict | None = None):
         self.workspace = workspace
+        self.config = config
 
     # --- Plan generation ---
 
@@ -48,7 +51,7 @@ class LearningService:
         store = LearningStore(self.workspace)
         progress = ProgressTracker(store, ReviewScheduler(store))
         try:
-            llm = _get_llm_provider()
+            llm = _get_llm_provider(self.config)
         except Exception:
             llm = None
 
@@ -108,6 +111,18 @@ class LearningService:
                 "consecutive_correct": m.consecutive_correct,
             })
         return _ok(count=len(due), concepts=concepts)
+
+    def get_review_queue(self, limit: int = 20) -> dict[str, Any]:
+        due_result = self.get_due_reviews(limit=limit)
+        from service.quiz_service import QuizService
+        quiz_service = QuizService(self.workspace, config=self.config)
+        wrong_result = quiz_service.get_wrong_answer_book(limit=limit)
+        weakness_result = quiz_service.get_weakness_analysis()
+        return _ok(
+            due_concepts=due_result.get("concepts", []),
+            wrong_answers=wrong_result.get("entries", []),
+            weaknesses=weakness_result.get("analysis", []),
+        )
 
     # --- Manual mastery ---
 

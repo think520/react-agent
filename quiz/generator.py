@@ -19,7 +19,8 @@ QUESTION_GENERATION_PROMPT = """你是一个题目生成器。根据以下课程
 5. 题目应该考察理解能力，而不是死记硬背
 6. 每道题标注相关概念名称
 7. 分配难度：easy、medium、hard
-8. 所有内容用中文
+8. 每道题提供 source_ids，只能选择课程材料中实际出现的来源编号
+9. 所有内容用中文
 
 课程材料：
 {material}
@@ -33,7 +34,8 @@ QUESTION_GENERATION_PROMPT = """你是一个题目生成器。根据以下课程
     "answer": "B",
     "explanation": "Dijkstra 算法每次选择距离最小的未访问顶点，属于贪心策略。",
     "concepts": ["Dijkstra 算法", "贪心算法"],
-    "difficulty": "easy"
+    "difficulty": "easy",
+    "source_ids": ["S1"]
   }}
 ]"""
 
@@ -119,10 +121,23 @@ class QuestionGenerator:
 
         # Build material text from chunks
         material_parts = []
+        source_refs: dict[str, dict] = {}
         for i, chunk in enumerate(chunks[:10], 1):
+            source_id = f"S{i}"
             source = chunk.get("source", "unknown")
             text = chunk.get("text", "")
-            material_parts.append(f"[来源 {i}: {source}]\n{text}")
+            metadata = chunk.get("metadata") or {}
+            source_refs[source_id] = {
+                "source_type": "local",
+                "source_id": str(chunk.get("chunk_id") or source_id),
+                "title": str(chunk.get("title") or metadata.get("title") or source),
+                "document_id": chunk.get("document_id"),
+                "chunk_id": chunk.get("chunk_id"),
+                "heading": metadata.get("heading_text") or chunk.get("heading_text"),
+                "page": metadata.get("page_start") or chunk.get("page_start"),
+                "slide": metadata.get("slide_start") or chunk.get("slide_start"),
+            }
+            material_parts.append(f"[来源 {source_id}: {source}]\n{text}")
         material = "\n\n".join(material_parts)
 
         prompt = QUESTION_GENERATION_PROMPT.format(count=count, material=material)
@@ -140,6 +155,14 @@ class QuestionGenerator:
             if not _validate_question(item):
                 logger.warning("Skipping invalid question item: %s", item.get("question", "?"))
                 continue
+            selected_sources = [
+                source_refs[source_id]
+                for source_id in item.get("source_ids", [])
+                if source_id in source_refs
+            ]
+            if not selected_sources:
+                selected_sources = list(source_refs.values())[:3]
+
             questions.append(Question(
                 type=item["type"],
                 question=item["question"],
@@ -148,7 +171,9 @@ class QuestionGenerator:
                 explanation=item.get("explanation", ""),
                 concepts=item.get("concepts", []),
                 difficulty=item.get("difficulty", "medium"),
-                source=item.get("source", ""),
+                source=selected_sources[0]["title"] if selected_sources else "",
+                attribution_kind="local_extension" if selected_sources else "unverified",
+                sources=selected_sources,
                 created_at=datetime.now(timezone.utc).isoformat(),
             ))
 

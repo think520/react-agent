@@ -26,9 +26,11 @@ def _err(error: str) -> dict[str, Any]:
     return {"ok": False, "error": error}
 
 
-def _get_llm_provider():
-    from providers.factory import ProviderFactory
-    return ProviderFactory.create_from_config()
+def _get_llm_provider(config: dict | None = None):
+    from service.runtime_service import RuntimeService
+    if config is None:
+        config = RuntimeService.load_default_config()
+    return RuntimeService.create_provider(config)
 
 
 _TYPE_LABELS = {
@@ -41,8 +43,28 @@ _TYPE_LABELS = {
 class QuizService:
     """Stateless service: each method creates its own store/generator/evaluator."""
 
-    def __init__(self, workspace: str = "."):
+    def __init__(self, workspace: str = ".", config: dict | None = None):
         self.workspace = workspace
+        self.config = config
+
+    @staticmethod
+    def _attribution(question: Question) -> dict[str, Any]:
+        return {
+            "kind": question.attribution_kind,
+            "sources": question.sources,
+        }
+
+    def _question_for_practice(self, question: Question) -> dict[str, Any]:
+        return {
+            "id": question.id,
+            "type": question.type,
+            "type_label": _TYPE_LABELS.get(question.type, question.type),
+            "question": question.question,
+            "options": question.options,
+            "concepts": question.concepts,
+            "difficulty": question.difficulty,
+            "attribution": self._attribution(question),
+        }
 
     # --- Question generation ---
 
@@ -53,7 +75,7 @@ class QuizService:
         count: int = 5,
     ) -> dict[str, Any]:
         try:
-            llm = _get_llm_provider()
+            llm = _get_llm_provider(self.config)
         except Exception as e:
             return _err(f"LLM provider not available: {e}")
 
@@ -86,6 +108,7 @@ class QuizService:
                 "options": q.options,
                 "concepts": q.concepts,
                 "difficulty": q.difficulty,
+                "attribution": self._attribution(q),
             })
 
         types = {}
@@ -112,7 +135,7 @@ class QuizService:
 
         if len(questions) < count:
             try:
-                llm = _get_llm_provider()
+                llm = _get_llm_provider(self.config)
                 generator = QuestionGenerator(self.workspace, llm)
                 query = course or "课程重点知识"
                 new_questions = generator.generate_from_query(
@@ -131,16 +154,7 @@ class QuizService:
         question_ids = [q.id for q in questions if q.id is not None]
         session = store.create_session(question_ids)
 
-        question_list = []
-        for q in questions:
-            question_list.append({
-                "id": q.id,
-                "type": q.type,
-                "type_label": _TYPE_LABELS.get(q.type, q.type),
-                "question": q.question,
-                "options": q.options,
-                "difficulty": q.difficulty,
-            })
+        question_list = [self._question_for_practice(q) for q in questions]
 
         return _ok(
             session_id=session.id,
@@ -170,7 +184,7 @@ class QuizService:
             return _err(f"题目 {question_id} 不属于练习 session {session_id}。")
 
         try:
-            llm = _get_llm_provider()
+            llm = _get_llm_provider(self.config)
             evaluator = QuizEvaluator(llm)
         except Exception:
             evaluator = QuizEvaluator()
@@ -188,14 +202,24 @@ class QuizService:
         store.record_attempt(attempt_record)
 
         # Record learning effect
+        mastery_changes = []
         try:
             from learning.quiz_integration import record_quiz_learning_effect
-            record_quiz_learning_effect(
+            updated = record_quiz_learning_effect(
                 workspace=self.workspace,
                 question_concepts=question.concepts,
                 is_correct=is_correct,
                 feedback=feedback,
             )
+            mastery_changes = [
+                {
+                    "concept": item.concept,
+                    "status": item.status,
+                    "score": item.score,
+                    "next_review": item.next_review,
+                }
+                for item in updated
+            ]
         except Exception as e:
             logger.warning("Failed to record quiz learning effect: %s", e)
 
@@ -213,13 +237,89 @@ class QuizService:
         except Exception as e:
             logger.warning("Failed to check session completion: %s", e)
 
+        session_state = self.get_session_state(session_id)
+        progress = session_state.get("progress", {}) if session_state.get("ok") else {}
+
         return _ok(
             is_correct=is_correct,
             feedback=feedback,
             correct_answer=question.answer,
             explanation=question.explanation,
+            concepts=question.concepts,
+            attribution=self._attribution(question),
+            mastery_changes=mastery_changes,
+            progress=progress,
             session_completed=session_completed,
         )
+
+    def get_session_state(self, session_id: int) -> dict[str, Any]:
+        store = QuizStore(self.workspace)
+        session = store.get_session(session_id)
+        if not session:
+            return _err(f"练习 session {session_id} 不存在。")
+
+        questions = store.get_questions_by_ids(session.question_ids)
+        attempts = store.get_attempts_for_session(session_id)
+        latest_attempts = {}
+        for attempt in attempts:
+            latest_attempts[attempt.question_id] = attempt
+
+        answered_count = len(latest_attempts)
+        correct_count = sum(1 for attempt in latest_attempts.values() if attempt.is_correct)
+        total = len(session.question_ids)
+        current_index = total
+        for index, question_id in enumerate(session.question_ids):
+            if question_id not in latest_attempts:
+                current_index = index
+                break
+
+        attempt_items = [
+            {
+                "question_id": attempt.question_id,
+                "user_answer": attempt.user_answer,
+                "is_correct": attempt.is_correct,
+                "feedback": attempt.feedback,
+                "answered_at": attempt.answered_at,
+            }
+            for attempt in latest_attempts.values()
+        ]
+
+        return _ok(
+            practice_session_id=session.id,
+            status=session.status,
+            started_at=session.started_at,
+            updated_at=session.updated_at,
+            completed_at=session.completed_at,
+            questions=[self._question_for_practice(question) for question in questions],
+            attempts=attempt_items,
+            progress={
+                "answered": answered_count,
+                "total": total,
+                "correct": correct_count,
+                "current_index": current_index,
+                "completed": session.status == "completed",
+            },
+        )
+
+    def list_active_sessions(self, limit: int = 10) -> dict[str, Any]:
+        store = QuizStore(self.workspace)
+        sessions = store.list_active_sessions(limit=limit)
+        return _ok(sessions=[
+            {
+                "practice_session_id": session.id,
+                "started_at": session.started_at,
+                "updated_at": session.updated_at,
+                "question_count": len(session.question_ids),
+            }
+            for session in sessions
+        ])
+
+    def abandon_session(self, session_id: int) -> dict[str, Any]:
+        store = QuizStore(self.workspace)
+        if not store.get_session(session_id):
+            return _err(f"练习 session {session_id} 不存在。")
+        store.abandon_session(session_id)
+        return _ok(practice_session_id=session_id, status="abandoned")
 
     # --- Review ---
 
