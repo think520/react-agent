@@ -216,3 +216,55 @@ def test_sync_course_dir_outside_workspace(svc, workspace):
         result = svc.sync(vault_path=vault_path, course_dir=course_dir)
         assert not result["ok"]
         assert "access denied" in result["error"].lower() or "outside workspace" in result["error"].lower()
+
+
+def test_import_files_uses_managed_sources_and_preserves_registered_roots(
+    svc, workspace, monkeypatch
+):
+    vault = os.path.join(workspace, "vault")
+    course = os.path.join(workspace, "course")
+    os.makedirs(vault)
+    os.makedirs(course)
+    svc._save_source_roots({"vault_path": vault, "course_dirs": [course]})
+
+    captured = {}
+
+    class Summary:
+        def to_dict(self):
+            return {"scanned_files": 1, "errors": []}
+
+    def fake_sync(mode, config):
+        captured["roots"] = svc._registered_roots()
+        return Summary()
+
+    monkeypatch.setattr(svc, "_sync_registered_sources", fake_sync)
+    result = svc.import_files([
+        ("../lesson.md", b"# Lesson"),
+        ("malware.exe", b"no"),
+    ])
+
+    assert result["ok"]
+    assert result["imported"] == ["lesson.md"]
+    assert result["rejected"][0]["reason"] == "unsupported_file_type"
+    assert os.path.exists(os.path.join(svc.managed_sources_dir, "lesson.md"))
+    _, roots = captured["roots"]
+    assert os.path.abspath(course) in roots
+    assert os.path.abspath(svc.managed_sources_dir) in roots
+
+
+def test_course_scanner_includes_docx_and_pptx(tmp_path):
+    from obsidian.sync import _scan_course_files
+
+    (tmp_path / "lesson.docx").write_bytes(b"docx")
+    (tmp_path / "slides.pptx").write_bytes(b"pptx")
+    (tmp_path / "ignored.exe").write_bytes(b"exe")
+
+    sources = [item[0] for item in _scan_course_files(str(tmp_path))]
+    assert sources == ["lesson.docx", "slides.pptx"]
+
+
+def test_managed_source_root_uses_stable_managed_prefix(tmp_path):
+    from obsidian.sync import _course_prefix
+
+    assert _course_prefix(str(tmp_path / ".bobodan" / "sources"), "course") == "managed"
+    assert _course_prefix(str(tmp_path / "course"), "course") == "course"

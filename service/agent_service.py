@@ -161,6 +161,28 @@ class AgentService:
 
         return _ok(session=session)
 
+    @staticmethod
+    def rename_session(query: str, save_dir: str, name: str) -> dict[str, Any]:
+        result = AgentService.load_session(query, save_dir)
+        if not result["ok"]:
+            return result
+        session = result["session"]
+        session.name = name.strip()
+        return AgentService.save_session(session, save_dir)
+
+    @staticmethod
+    def delete_session(query: str, save_dir: str) -> dict[str, Any]:
+        result = AgentService.load_session(query, save_dir)
+        if not result["ok"]:
+            return result
+        session = result["session"]
+        path = os.path.join(save_dir, f"{session.session_id}.json")
+        try:
+            os.remove(path)
+        except OSError as exc:
+            return _err(f"Failed to delete session: {exc}")
+        return _ok(session_id=session.session_id)
+
     # --- Agent run ---
 
     @staticmethod
@@ -172,6 +194,8 @@ class AgentService:
         memory_prompt: str | None = None,
         mcp_prompt: str | None = None,
         trace_writer=None,
+        tools_schema: list[dict] | None = None,
+        allowed_tool_names: set[str] | frozenset[str] | None = None,
     ) -> Iterator[dict]:
         """Create an AgentLoop and return its event stream iterator.
 
@@ -189,5 +213,7 @@ class AgentService:
             memory_prompt=memory_prompt,
             mcp_prompt=mcp_prompt,
             trace_writer=trace_writer,
+            tools_schema=tools_schema,
+            allowed_tool_names=allowed_tool_names,
         )
         return agent.run_stream(user_input)

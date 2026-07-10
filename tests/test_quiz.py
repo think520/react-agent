@@ -1,5 +1,6 @@
 import json
 import os
+import sqlite3
 from dataclasses import asdict
 
 from quiz.schema import Question, QuizSession, QuizAttempt, QUESTION_TYPES, DIFFICULTY_LEVELS
@@ -69,6 +70,78 @@ def test_add_and_get_question(tmp_path):
     assert loaded.concepts == ["arithmetic"]
 
 
+def test_question_attribution_round_trips(tmp_path):
+    store = QuizStore(str(tmp_path))
+    source = {
+        "source_type": "local",
+        "source_id": "chunk-1",
+        "title": "Lesson",
+        "document_id": "doc-1",
+    }
+    qid = store.add_question(Question(
+        question="Q",
+        answer="A",
+        attribution_kind="local_extension",
+        sources=[source],
+    ))
+
+    loaded = store.get_question(qid)
+    assert loaded.attribution_kind == "local_extension"
+    assert loaded.sources == [source]
+
+
+def test_store_migrates_existing_quiz_database(tmp_path):
+    knowledge_dir = tmp_path / ".knowledge"
+    knowledge_dir.mkdir()
+    db_path = knowledge_dir / "bobodan.db"
+    conn = sqlite3.connect(db_path)
+    conn.executescript("""
+        CREATE TABLE questions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            type TEXT NOT NULL,
+            question TEXT NOT NULL,
+            options TEXT NOT NULL DEFAULT '[]',
+            answer TEXT NOT NULL,
+            explanation TEXT NOT NULL DEFAULT '',
+            concepts TEXT NOT NULL DEFAULT '[]',
+            difficulty TEXT NOT NULL DEFAULT 'medium',
+            source TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE quiz_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            question_ids TEXT NOT NULL DEFAULT '[]',
+            started_at TEXT NOT NULL,
+            completed_at TEXT
+        );
+        CREATE TABLE quiz_attempts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id INTEGER NOT NULL,
+            question_id INTEGER NOT NULL,
+            user_answer TEXT NOT NULL,
+            is_correct INTEGER NOT NULL DEFAULT 0,
+            feedback TEXT NOT NULL DEFAULT '',
+            answered_at TEXT NOT NULL
+        );
+        INSERT INTO questions
+            (type, question, answer, created_at)
+            VALUES ('single_choice', 'Legacy question', 'A', '2026-01-01');
+        INSERT INTO quiz_sessions
+            (question_ids, started_at, completed_at)
+            VALUES ('[1]', '2026-01-01', '2026-01-02');
+    """)
+    conn.commit()
+    conn.close()
+
+    store = QuizStore(str(tmp_path))
+    question = store.get_question(1)
+    session = store.get_session(1)
+    assert question.sources == []
+    assert question.attribution_kind == "unverified"
+    assert session.status == "completed"
+    assert session.updated_at == "2026-01-02"
+
+
 def test_list_questions(tmp_path):
     store = QuizStore(str(tmp_path))
     store.add_question(Question(type="single_choice", question="Q1", answer="A"))
@@ -128,6 +201,19 @@ def test_complete_session(tmp_path):
 
     loaded = store.get_session(session.id)
     assert loaded.completed_at is not None
+    assert loaded.status == "completed"
+
+
+def test_active_sessions_and_abandon(tmp_path):
+    store = QuizStore(str(tmp_path))
+    first = store.create_session([1])
+    second = store.create_session([2])
+    store.complete_session(first.id)
+
+    active = store.list_active_sessions()
+    assert [item.id for item in active] == [second.id]
+    assert store.abandon_session(second.id) is True
+    assert store.get_session(second.id).status == "abandoned"
 
 
 def test_record_and_get_attempts(tmp_path):
@@ -391,6 +477,31 @@ def test_generator_from_chunks_mock():
     assert len(questions) == 1
     assert questions[0].question == "Test Q?"
     assert questions[0].answer == "B"
+    assert questions[0].attribution_kind == "local_extension"
+    assert questions[0].sources[0]["title"] == "test.md"
+
+
+def test_generator_uses_selected_source_ids():
+    class MockProvider:
+        class Response:
+            content = json.dumps([{
+                "type": "true_false",
+                "question": "Q?",
+                "answer": "true",
+                "source_ids": ["S2"],
+            }])
+
+        def complete(self, messages):
+            return self.Response()
+
+    from quiz.generator import QuestionGenerator
+    gen = QuestionGenerator(str("/tmp"), MockProvider())
+    questions = gen.generate_from_chunks([
+        {"text": "first", "source": "first.md", "chunk_id": "c1"},
+        {"text": "second", "source": "second.md", "chunk_id": "c2"},
+    ], count=1)
+    assert questions[0].sources[0]["source_id"] == "c2"
+    assert questions[0].sources[0]["title"] == "second.md"
 
 
 # --- Tool integration tests ---

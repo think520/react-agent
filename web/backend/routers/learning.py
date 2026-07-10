@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from service.learning_service import LearningService
-from web.backend.deps import get_workspace
+from web.backend.deps import get_config, get_workspace
+from web.backend.errors import unwrap_service_result
 
 router = APIRouter()
 
@@ -34,13 +35,11 @@ class CompleteStepRequest(BaseModel):
 
 
 def _service() -> LearningService:
-    return LearningService(get_workspace())
+    return LearningService(get_workspace(), config=get_config())
 
 
 def _unwrap(result: dict):
-    if not result.get("ok"):
-        raise HTTPException(status_code=400, detail=result.get("error", "request failed"))
-    return result
+    return unwrap_service_result(result)
 
 
 @router.post("/plans")
@@ -60,6 +59,11 @@ def progress(concept: str | None = None) -> dict:
 @router.get("/reviews")
 def reviews(limit: int = 20) -> dict:
     return _unwrap(_service().get_due_reviews(limit=limit))
+
+
+@router.get("/review-queue")
+def review_queue(limit: int = 20) -> dict:
+    return _unwrap(_service().get_review_queue(limit=max(1, min(limit, 50))))
 
 
 @router.post("/mastery")

@@ -19,6 +19,7 @@ class ToolResult:
     ok: bool
     content: str  # text sent to LLM
     data: dict = field(default_factory=dict)  # structured data for programmatic use
+    artifacts: list[dict] = field(default_factory=list)  # safe structured data for UIs
 
 
 def _is_within_workspace(path: str, workspace: str) -> bool:

@@ -14,7 +14,9 @@ def _load_config() -> dict:
         return _config_cache
     try:
         from providers.factory import ProviderFactory
-        _config_cache = ProviderFactory.load_config("config.yaml")
+        _config_cache = ProviderFactory.load_config(
+            os.getenv("BOBODAN_CONFIG", "config.yaml")
+        )
     except Exception:
         _config_cache = {}
     return _config_cache
@@ -38,10 +40,33 @@ def rag_search(
 
         results = result["results"]
         data = {"results": results}
+        sources = []
+        for item in results:
+            metadata = item.get("metadata") or {}
+            source = str(item.get("source", ""))
+            sources.append({
+                "source_type": "local",
+                "source_id": str(item.get("chunk_id") or source),
+                "title": str(item.get("title") or metadata.get("title") or source),
+                "document_id": item.get("document_id"),
+                "chunk_id": item.get("chunk_id"),
+                "heading": metadata.get("heading_text") or item.get("heading_text"),
+                "page": metadata.get("page_start") or item.get("page_start"),
+                "slide": metadata.get("slide_start") or item.get("slide_start"),
+            })
+
+        artifacts = []
+        if sources:
+            artifacts.append({
+                "type": "citation",
+                "attribution": {"kind": "local", "sources": sources},
+            })
+
         return ToolResult(
             ok=True,
             content=json.dumps(data, ensure_ascii=False, indent=2) + "\n\n" + format_search_results(results),
             data=data,
+            artifacts=artifacts,
         )
     except Exception as e:
         return ToolResult(ok=False, content=f"Error searching knowledge base: {e}")

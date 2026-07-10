@@ -7,6 +7,15 @@
 ## [未发布]
 
 ### 新增
+- **P5C Web UI 产品化前置工作完成**: 在不实现 React 页面之前，完成 Web MVP 所需的运行时、API、资料、来源和练习状态基础。
+  - 新增共享 `RuntimeService / RuntimeContext`，CLI 与 Web 统一加载 provider、workspace、skills、memory 和 trace；quiz / learning LLM 调用使用同一份 config。
+  - Chat API 增加 `run_id`、安全 SSE 事件适配、session list / detail / rename / delete；Web 运行时只开放 RAG、学习、练习和记忆工具白名单。
+  - Web 错误统一为 `code / message / details`，流式异常、工具原始输出、secret 和本地绝对路径不再直接返回浏览器。
+  - Library 增加托管文件上传、document list / detail 和 source roots；Markdown、PDF、DOCX、PPTX 可进入现有 RAG v2 同步链路。
+  - Question 增加 `Attribution + SourceRef` 持久化及旧 SQLite 迁移；Practice 增加 active session、状态恢复、进度、掌握度变化和 abandon；Review 增加聚合队列。
+  - 更新 `docs/PROJECT_GUIDE.md` 与 `docs/DESIGN.md`，明确下一阶段为 P5D 本地学习闭环 Web MVP，所有 UI 必须遵循设计 token 与交互边界。
+  - 验证：Python 编译检查通过；全量测试 `1020 passed`，2 个既有 warning。
+
 - **Bobodan 当前阶段收尾**: 完成产品定位、文档合并、设计规范补强和 FastAPI skeleton，Web UI 留到下一阶段实现。
   - `docs/PROJECT_GUIDE.md`（新）: 作为后续给人和 AI 看的唯一主入口，整理产品定位、当前阶段、下一步路线、练习系统、功能分层和架构边界。
   - `docs/DESIGN.md`: 补充 Bobodan Web UI 设计硬约束，包括轻纸面质感、Study / Workbench 分区、阅读优先的中等密度、移动端 Chat / Practice / Review 优先、Tailwind / shadcn 语义 token、核心组件规范、来源 chip、Practice 一题一卡、温和状态反馈、用户可配置人设和硬性反模式清单。

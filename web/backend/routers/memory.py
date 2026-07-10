@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from service.memory_service import MemoryService
 from web.backend.deps import get_workspace
+from web.backend.errors import unwrap_service_result
 
 router = APIRouter()
 
@@ -28,9 +29,7 @@ def _service() -> MemoryService:
 
 
 def _unwrap(result: dict):
-    if not result.get("ok"):
-        raise HTTPException(status_code=400, detail=result.get("error", "request failed"))
-    return result
+    return unwrap_service_result(result)
 
 
 @router.get("")
@@ -60,7 +59,8 @@ def stats() -> dict:
 
 @router.post("/daily")
 def daily_save(request: DailySaveRequest) -> dict:
-    return _unwrap(_service().daily_save(request.content, tags=request.tags))
+    result = _unwrap(_service().daily_save(request.content, tags=request.tags))
+    return {"ok": True, "date": result["date"]}
 
 
 @router.get("/daily/read")
@@ -70,12 +70,16 @@ def daily_read(date: str | None = None) -> dict:
 
 @router.post("/promote")
 def promote(dry_run: bool = False) -> dict:
-    return _unwrap(_service().promote(dry_run=dry_run))
+    result = _unwrap(_service().promote(dry_run=dry_run))
+    for candidate in result.get("candidates", []):
+        candidate.pop("path", None)
+    return result
 
 
 @router.get("/{name}")
 def get_entry(name: str) -> dict:
-    return _unwrap(_service().get_entry(name))
+    result = _unwrap(_service().get_entry(name))
+    return {key: value for key, value in result.items() if key != "file_path"}
 
 
 @router.delete("/{name}")

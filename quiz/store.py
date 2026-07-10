@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS questions (
     concepts TEXT NOT NULL DEFAULT '[]',
     difficulty TEXT NOT NULL DEFAULT 'medium' CHECK(difficulty IN ('easy', 'medium', 'hard')),
     source TEXT NOT NULL DEFAULT '',
+    attribution_kind TEXT NOT NULL DEFAULT 'unverified',
+    sources TEXT NOT NULL DEFAULT '[]',
     created_at TEXT NOT NULL
 );
 
@@ -25,7 +27,9 @@ CREATE TABLE IF NOT EXISTS quiz_sessions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     question_ids TEXT NOT NULL DEFAULT '[]',
     started_at TEXT NOT NULL,
-    completed_at TEXT
+    completed_at TEXT,
+    updated_at TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'active'
 );
 
 CREATE TABLE IF NOT EXISTS quiz_attempts (
@@ -59,6 +63,8 @@ def _row_to_question(row: sqlite3.Row) -> Question:
         concepts=json.loads(row["concepts"]),
         difficulty=row["difficulty"],
         source=row["source"],
+        attribution_kind=row["attribution_kind"],
+        sources=json.loads(row["sources"]),
         created_at=row["created_at"],
     )
 
@@ -69,6 +75,8 @@ def _row_to_session(row: sqlite3.Row) -> QuizSession:
         question_ids=json.loads(row["question_ids"]),
         started_at=row["started_at"],
         completed_at=row["completed_at"],
+        updated_at=row["updated_at"],
+        status=row["status"],
     )
 
 
@@ -101,6 +109,38 @@ class QuizStore:
         conn = self._connect()
         try:
             conn.executescript(_SCHEMA_SQL)
+            question_columns = {
+                row["name"] for row in conn.execute("PRAGMA table_info(questions)").fetchall()
+            }
+            if "attribution_kind" not in question_columns:
+                conn.execute(
+                    "ALTER TABLE questions ADD COLUMN attribution_kind TEXT NOT NULL DEFAULT 'unverified'"
+                )
+            if "sources" not in question_columns:
+                conn.execute(
+                    "ALTER TABLE questions ADD COLUMN sources TEXT NOT NULL DEFAULT '[]'"
+                )
+
+            session_columns = {
+                row["name"] for row in conn.execute("PRAGMA table_info(quiz_sessions)").fetchall()
+            }
+            if "updated_at" not in session_columns:
+                conn.execute(
+                    "ALTER TABLE quiz_sessions ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''"
+                )
+            if "status" not in session_columns:
+                conn.execute(
+                    "ALTER TABLE quiz_sessions ADD COLUMN status TEXT NOT NULL DEFAULT 'active'"
+                )
+            conn.execute(
+                """UPDATE quiz_sessions
+                   SET updated_at = COALESCE(NULLIF(updated_at, ''), completed_at, started_at)"""
+            )
+            conn.execute(
+                """UPDATE quiz_sessions
+                   SET status = 'completed'
+                   WHERE completed_at IS NOT NULL AND status = 'active'"""
+            )
             conn.commit()
         finally:
             conn.close()
@@ -112,8 +152,8 @@ class QuizStore:
         try:
             cur = conn.execute(
                 """INSERT INTO questions (type, question, options, answer, explanation,
-                   concepts, difficulty, source, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   concepts, difficulty, source, attribution_kind, sources, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     q.type,
                     q.question,
@@ -123,6 +163,8 @@ class QuizStore:
                     json.dumps(q.concepts, ensure_ascii=False),
                     q.difficulty,
                     q.source,
+                    q.attribution_kind,
+                    json.dumps(q.sources, ensure_ascii=False),
                     q.created_at or _now_iso(),
                 ),
             )
@@ -190,11 +232,18 @@ class QuizStore:
         try:
             now = _now_iso()
             cur = conn.execute(
-                "INSERT INTO quiz_sessions (question_ids, started_at) VALUES (?, ?)",
-                (json.dumps(question_ids), now),
+                """INSERT INTO quiz_sessions
+                   (question_ids, started_at, updated_at, status) VALUES (?, ?, ?, 'active')""",
+                (json.dumps(question_ids), now, now),
             )
             conn.commit()
-            return QuizSession(id=cur.lastrowid, question_ids=question_ids, started_at=now)
+            return QuizSession(
+                id=cur.lastrowid,
+                question_ids=question_ids,
+                started_at=now,
+                updated_at=now,
+                status="active",
+            )
         finally:
             conn.close()
 
@@ -211,11 +260,38 @@ class QuizStore:
     def complete_session(self, session_id: int) -> None:
         conn = self._connect()
         try:
+            now = _now_iso()
             conn.execute(
-                "UPDATE quiz_sessions SET completed_at = ? WHERE id = ?",
+                """UPDATE quiz_sessions
+                   SET completed_at = ?, updated_at = ?, status = 'completed'
+                   WHERE id = ?""",
+                (now, now, session_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def abandon_session(self, session_id: int) -> bool:
+        conn = self._connect()
+        try:
+            cur = conn.execute(
+                "UPDATE quiz_sessions SET status = 'abandoned', updated_at = ? WHERE id = ?",
                 (_now_iso(), session_id),
             )
             conn.commit()
+            return cur.rowcount > 0
+        finally:
+            conn.close()
+
+    def list_active_sessions(self, limit: int = 10) -> list[QuizSession]:
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                """SELECT * FROM quiz_sessions
+                   WHERE status = 'active' ORDER BY updated_at DESC, id DESC LIMIT ?""",
+                (limit,),
+            ).fetchall()
+            return [_row_to_session(row) for row in rows]
         finally:
             conn.close()
 
@@ -236,6 +312,10 @@ class QuizStore:
                     attempt.feedback,
                     attempt.answered_at or _now_iso(),
                 ),
+            )
+            conn.execute(
+                "UPDATE quiz_sessions SET updated_at = ? WHERE id = ?",
+                (_now_iso(), attempt.session_id),
             )
             conn.commit()
             return cur.lastrowid

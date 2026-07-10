@@ -24,6 +24,8 @@ from rag.parsers import parse_document, SUPPORTED_EXTENSIONS
 
 logger = logging.getLogger(__name__)
 
+_COURSE_SKIP_DIRS = {".git", "__pycache__", ".venv", "venv", ".knowledge"}
+
 
 @dataclass
 class SyncSummary:
@@ -79,10 +81,35 @@ def _stable_hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
+def _scan_course_files(root_dir: str) -> list[tuple[str, str, str]]:
+    """Return supported course files as (relative source, path, content hash)."""
+    root_dir = os.path.abspath(root_dir)
+    files = []
+    for root, dirs, filenames in os.walk(root_dir):
+        dirs[:] = [
+            name for name in dirs
+            if name not in _COURSE_SKIP_DIRS and not name.startswith(".")
+        ]
+        for filename in filenames:
+            if os.path.splitext(filename)[1].lower() not in SUPPORTED_EXTENSIONS:
+                continue
+            path = os.path.join(root, filename)
+            with open(path, "rb") as handle:
+                content_hash = hashlib.sha256(handle.read()).hexdigest()
+            source = os.path.relpath(path, root_dir).replace(os.sep, "/")
+            files.append((source, path, content_hash))
+    return sorted(files, key=lambda item: item[0].casefold())
+
+
+def _course_prefix(root_dir: str, default: str) -> str:
+    return "managed" if os.path.basename(os.path.normpath(root_dir)) == "sources" else default
+
+
 def sync_sources(
     workspace: str,
     vault_path: str,
     course_dir: str | None = None,
+    extra_course_dirs: list[str] | None = None,
     mode: str = "incremental",
     config: dict | None = None,
 ) -> SyncSummary:
@@ -107,13 +134,21 @@ def sync_sources(
         if mode == "full" or old_state.get(source) != scanned.content_hash:
             changed_sources.append((source, scanned.abs_path, scanned.content_hash, "obsidian_note"))
 
+    course_roots: list[tuple[str, str]] = []
     if course_dir:
-        from rag.ingest import iter_documents
-        for document in iter_documents(course_dir):
-            source = f"course/{document.source}"
-            new_state[source] = document.content_hash
-            if mode == "full" or old_state.get(source) != document.content_hash:
-                changed_sources.append((source, document.path, document.content_hash, "course_document"))
+        course_roots.append((_course_prefix(course_dir, "course"), course_dir))
+    for index, extra_dir in enumerate(extra_course_dirs or []):
+        if not extra_dir or any(os.path.abspath(extra_dir) == os.path.abspath(path) for _, path in course_roots):
+            continue
+        prefix = _course_prefix(extra_dir, f"course-{index + 2}")
+        course_roots.append((prefix, extra_dir))
+
+    for prefix, root_dir in course_roots:
+        for relative_source, path, content_hash in _scan_course_files(root_dir):
+            source = f"{prefix}/{relative_source}"
+            new_state[source] = content_hash
+            if mode == "full" or old_state.get(source) != content_hash:
+                changed_sources.append((source, path, content_hash, "course_document"))
 
     deleted_sources = [s for s in old_state if s not in new_state]
 

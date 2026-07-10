@@ -1,14 +1,16 @@
-"""Tests for the FastAPI backend skeleton."""
+"""Contract tests for the FastAPI backend used by the future Web UI."""
 
 from __future__ import annotations
 
 import os
+from types import SimpleNamespace
 
 import pytest
 
 fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 
+from core.session import Session
 from web.backend.app import create_app
 from web.backend.deps import reset_dependency_caches
 
@@ -41,7 +43,9 @@ mcp:
     monkeypatch.setenv("DUMMY_API_KEY", "test-key")
     reset_dependency_caches()
     try:
-        yield TestClient(create_app())
+        client = TestClient(create_app())
+        client.workspace = tmp_path
+        yield client
     finally:
         reset_dependency_caches()
 
@@ -52,43 +56,259 @@ def test_health_endpoint(backend_client):
     assert response.json() == {"ok": True}
 
 
-def test_settings_endpoint_lists_providers(backend_client):
+def test_settings_endpoint_lists_providers_without_absolute_workspace(backend_client):
     response = backend_client.get("/api/settings")
     assert response.status_code == 200
     data = response.json()
-    assert data["ok"] is True
     assert data["default_provider"] == "dummy"
     assert data["providers"][0]["name"] == "dummy"
     assert data["providers"][0]["configured"] is True
+    assert data["workspace_name"] == backend_client.workspace.name
+    assert str(backend_client.workspace) not in response.text
 
 
-def test_kb_status_returns_service_error_when_missing(backend_client):
+def test_kb_status_returns_structured_not_found(backend_client):
     response = backend_client.get("/api/kb/status")
-    assert response.status_code == 400
-    assert "No knowledge base found" in response.json()["detail"]
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "knowledge_base_not_found"
+    assert "No knowledge base found" in response.json()["error"]["message"]
 
 
-def test_chat_run_streams_agent_events(backend_client, monkeypatch):
+def test_validation_errors_use_stable_error_contract(backend_client):
+    response = backend_client.post("/api/chat/runs", json={"message": ""})
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "invalid_request"
+    assert response.json()["error"]["details"][0]["field"] == "message"
+
+
+def test_chat_run_maps_safe_events_and_injects_runtime(backend_client, monkeypatch):
+    captured = {}
+
     class DummyProvider:
         def get_name(self):
             return "dummy"
 
-    def fake_create_provider(config, provider_name):
-        return {"ok": True, "provider": DummyProvider()}
+    runtime = SimpleNamespace(
+        workspace=str(backend_client.workspace),
+        skills_prompt="skills prompt",
+        memory_prompt="memory prompt",
+        create_provider=lambda _name: DummyProvider(),
+        refresh_memory=lambda: "memory prompt",
+        create_trace=lambda _session_id: object(),
+    )
 
     def fake_run_stream(**kwargs):
+        captured.update(kwargs)
+        yield {"type": "tool_start", "tool_name": "rag_search"}
+        yield {
+            "type": "tool_end",
+            "tool_name": "rag_search",
+            "ok": True,
+            "content": "SECRET raw tool output C:\\private\\notes.md",
+            "artifacts": [{
+                "type": "citation",
+                "attribution": {
+                    "kind": "local",
+                    "sources": [{
+                        "source_type": "local",
+                        "source_id": "chunk-1",
+                        "title": "Lesson 1",
+                    }],
+                },
+            }],
+        }
         yield {"type": "assistant_delta", "content": "Hi"}
         yield {"type": "assistant_done", "content": "Hi", "termination_reason": "final_answer"}
 
-    monkeypatch.setattr("web.backend.routers.chat.AgentService.create_provider", fake_create_provider)
+    monkeypatch.setattr("web.backend.routers.chat.get_runtime_context", lambda: runtime)
     monkeypatch.setattr("web.backend.routers.chat.AgentService.run_stream", fake_run_stream)
 
     response = backend_client.post("/api/chat/runs", json={"message": "hello", "save": False})
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/event-stream")
     body = response.text
-    assert "event: run_start" in body
-    assert "event: assistant_delta" in body
+    assert "event: run_started" in body
+    assert "event: status" in body
+    assert "event: citation" in body
+    assert "event: message_delta" in body
+    assert "event: run_completed" in body
     assert '"content": "Hi"' in body
-    assert "event: assistant_done" in body
-    assert "event: run_end" in body
+    assert "SECRET" not in body
+    assert "C:\\private" not in body
+    assert captured["skills_prompt"] == "skills prompt"
+    assert captured["memory_prompt"] == "memory prompt"
+    assert captured["trace_writer"] is not None
+    assert "rag_search" in captured["allowed_tool_names"]
+    assert "write_file" not in captured["allowed_tool_names"]
+    schema_names = {
+        item["function"]["name"] for item in captured["tools_schema"]
+    }
+    assert schema_names == set(captured["allowed_tool_names"])
+
+
+def test_chat_stream_error_does_not_leak_internal_details(backend_client, monkeypatch):
+    runtime = SimpleNamespace(
+        workspace=str(backend_client.workspace),
+        skills_prompt=None,
+        memory_prompt=None,
+        create_provider=lambda _name: object(),
+        refresh_memory=lambda: None,
+        create_trace=lambda _session_id: object(),
+    )
+
+    def fake_run_stream(**_kwargs):
+        raise RuntimeError("token=secret C:\\private\\config.yaml")
+        yield
+
+    monkeypatch.setattr("web.backend.routers.chat.get_runtime_context", lambda: runtime)
+    monkeypatch.setattr("web.backend.routers.chat.AgentService.run_stream", fake_run_stream)
+
+    response = backend_client.post("/api/chat/runs", json={"message": "hello", "save": False})
+    assert "event: run_failed" in response.text
+    assert "The AI run failed" in response.text
+    assert "secret" not in response.text
+    assert "config.yaml" not in response.text
+
+
+def test_chat_provider_error_is_generic(backend_client, monkeypatch):
+    runtime = SimpleNamespace(
+        workspace=str(backend_client.workspace),
+        create_provider=lambda _name: (_ for _ in ()).throw(
+            RuntimeError("DUMMY_API_KEY missing at C:\\private\\config.yaml")
+        ),
+    )
+    monkeypatch.setattr("web.backend.routers.chat.get_runtime_context", lambda: runtime)
+
+    response = backend_client.post("/api/chat/runs", json={"message": "hello"})
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "provider_unavailable"
+    assert "DUMMY_API_KEY" not in response.text
+    assert "config.yaml" not in response.text
+
+
+def test_chat_session_crud_restores_only_user_visible_messages(backend_client):
+    save_dir = backend_client.workspace / ".session"
+    save_dir.mkdir()
+    session = Session.new(str(backend_client.workspace))
+    session.name = "Original"
+    session.add_message("user", "Question")
+    session.add_message_with_tool_calls("assistant", "", [{"id": "1"}])
+    session.add_tool_message("1", "raw output")
+    session.add_message("assistant", "Answer")
+    session.save_to_file(str(save_dir / f"{session.session_id}.json"))
+
+    listed = backend_client.get("/api/chat/sessions").json()
+    assert listed["sessions"][0]["chat_session_id"] == session.session_id
+
+    detail = backend_client.get(f"/api/chat/sessions/{session.session_id}").json()
+    assert detail["messages"] == [
+        {"role": "user", "content": "Question"},
+        {"role": "assistant", "content": "Answer"},
+    ]
+
+    renamed = backend_client.patch(
+        f"/api/chat/sessions/{session.session_id}", json={"name": "Renamed"}
+    )
+    assert renamed.json()["name"] == "Renamed"
+
+    deleted = backend_client.delete(f"/api/chat/sessions/{session.session_id}")
+    assert deleted.json()["deleted"] is True
+    assert not (save_dir / f"{session.session_id}.json").exists()
+
+
+def test_quiz_recovery_and_abandon_contracts(backend_client, monkeypatch):
+    monkeypatch.setattr(
+        "web.backend.routers.quiz.QuizService.list_active_sessions",
+        lambda self, limit: {"ok": True, "sessions": [{"practice_session_id": 7}]},
+    )
+    monkeypatch.setattr(
+        "web.backend.routers.quiz.QuizService.get_session_state",
+        lambda self, session_id: {
+            "ok": True,
+            "practice_session_id": session_id,
+            "status": "active",
+            "questions": [],
+            "attempts": [],
+            "progress": {"answered": 0, "total": 1},
+        },
+    )
+    monkeypatch.setattr(
+        "web.backend.routers.quiz.QuizService.abandon_session",
+        lambda self, session_id: {
+            "ok": True, "practice_session_id": session_id, "status": "abandoned"
+        },
+    )
+
+    assert backend_client.get("/api/quiz/sessions/active").json()["sessions"][0][
+        "practice_session_id"
+    ] == 7
+    assert backend_client.get("/api/quiz/sessions/7").json()["status"] == "active"
+    assert backend_client.delete("/api/quiz/sessions/7").json()["status"] == "abandoned"
+
+
+def test_review_queue_contract(backend_client, monkeypatch):
+    monkeypatch.setattr(
+        "web.backend.routers.learning.LearningService.get_review_queue",
+        lambda self, limit: {
+            "ok": True,
+            "due_concepts": [{"concept": "graphs"}],
+            "wrong_answers": [],
+            "weaknesses": [],
+        },
+    )
+    response = backend_client.get("/api/learning/review-queue")
+    assert response.status_code == 200
+    assert response.json()["due_concepts"][0]["concept"] == "graphs"
+
+
+def test_library_import_strips_internal_paths(backend_client, monkeypatch):
+    monkeypatch.setattr(
+        "web.backend.routers.kb.KBService.import_files",
+        lambda self, files, config: {
+            "ok": True,
+            "imported": [files[0][0]],
+            "rejected": [],
+            "sync": {
+                "scanned_files": 1,
+                "updated_files": 1,
+                "chunk_count": 2,
+                "relationship_count": 0,
+                "graph_backend": "local",
+                "rag_index_path": "C:\\private\\knowledge.db",
+                "graph_store_path": "C:\\private\\graph.json",
+                "error_files": 1,
+                "errors": [{"source": "managed/notes.md", "error": "C:\\private\\notes.md"}],
+            },
+        },
+    )
+    response = backend_client.post(
+        "/api/kb/import",
+        files=[("files", ("notes.md", b"# Notes", "text/markdown"))],
+    )
+    assert response.status_code == 200
+    assert response.json()["imported"] == ["notes.md"]
+    assert "rag_index_path" not in response.text
+    assert "C:\\private" not in response.text
+
+
+def test_memory_daily_and_promotion_strip_paths(backend_client, monkeypatch):
+    monkeypatch.setattr(
+        "web.backend.routers.memory.MemoryService.daily_save",
+        lambda self, content, tags: {
+            "ok": True, "path": "C:\\private\\daily.md", "date": "2026-07-10"
+        },
+    )
+    monkeypatch.setattr(
+        "web.backend.routers.memory.MemoryService.promote",
+        lambda self, dry_run: {
+            "ok": True,
+            "candidates": [{"path": "C:\\private\\daily.md", "date": "2026-07-10"}],
+            "promoted": 0,
+            "dry_run": dry_run,
+        },
+    )
+
+    saved = backend_client.post("/api/memory/daily", json={"content": "Remember"})
+    promoted = backend_client.post("/api/memory/promote?dry_run=true")
+    assert saved.json() == {"ok": True, "date": "2026-07-10"}
+    assert "C:\\private" not in promoted.text
