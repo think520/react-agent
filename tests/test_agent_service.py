@@ -129,6 +129,7 @@ def test_save_session(save_dir):
     assert result["session_id"] == session.session_id
     assert os.path.exists(result["path"])
     assert session.name == "my-session"
+    assert session.name_source == "manual"
 
 
 def test_save_session_creates_dir(save_dir):

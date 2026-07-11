@@ -80,6 +80,8 @@ def _search_v2(
     # Chunk-level hits (hybrid, directory_grep)
     for hit in result.hits:
         d = {
+            "chunk_id": hit.chunk_id,
+            "document_id": hit.document_id,
             "text": hit.text,
             "source": hit.source,
             "score": hit.score,

@@ -114,14 +114,30 @@ class LearningService:
 
     def get_review_queue(self, limit: int = 20) -> dict[str, Any]:
         due_result = self.get_due_reviews(limit=limit)
+        from quiz.store import QuizStore
         from service.quiz_service import QuizService
+        quiz_store = QuizStore(self.workspace)
         quiz_service = QuizService(self.workspace, config=self.config)
         wrong_result = quiz_service.get_wrong_answer_book(limit=limit)
         weakness_result = quiz_service.get_weakness_analysis()
+        due_concepts = [
+            {
+                **record,
+                "question_ids": quiz_store.find_question_ids_by_concept(record["concept"]),
+            }
+            for record in due_result.get("concepts", [])
+        ]
+        weaknesses = [
+            {
+                **record,
+                "question_ids": quiz_store.find_question_ids_by_concept(record["concept"]),
+            }
+            for record in weakness_result.get("analysis", [])
+        ]
         return _ok(
-            due_concepts=due_result.get("concepts", []),
+            due_concepts=due_concepts,
             wrong_answers=wrong_result.get("entries", []),
-            weaknesses=weakness_result.get("analysis", []),
+            weaknesses=weaknesses,
         )
 
     # --- Manual mastery ---

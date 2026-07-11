@@ -2,16 +2,27 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from .errors import APIError
 from .routers import chat, kb, learning, memory, quiz, settings
+from .deps import get_config, get_session_save_dir
+from service.kb_service import KBService
+from .deps import get_workspace
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Bobodan API", version="0.1.0")
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        chat.migrate_unnamed_sessions(get_session_save_dir(get_config()))
+        KBService(get_workspace()).archive_duplicate_wiki_pages()
+        yield
+
+    app = FastAPI(title="Bobodan API", version="0.1.0", lifespan=lifespan)
 
     @app.exception_handler(APIError)
     async def api_error_handler(_request, exc: APIError) -> JSONResponse:

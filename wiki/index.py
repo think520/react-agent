@@ -6,7 +6,12 @@ log.md — append-only chronological record of operations.
 
 import os
 import logging
+import re
+import shutil
+import unicodedata
 from datetime import datetime, timezone
+
+import yaml
 
 from .schema import WikiPage, WikiConfig, CompileResult
 
@@ -70,6 +75,13 @@ class WikiIndexer:
 
         with open(index_path, "w", encoding="utf-8") as f:
             f.write("\n".join(lines))
+
+    def rebuild_index(self, pages: list[WikiPage]) -> None:
+        """Replace index.md with entries from the current canonical pages only."""
+        index_path = self.config.index_path(self.vault_path)
+        if os.path.exists(index_path):
+            os.remove(index_path)
+        self.update_index(pages)
 
     def append_log(self, action: str, source: str, result: CompileResult | None = None) -> None:
         """Append an entry to log.md."""
@@ -151,3 +163,92 @@ class WikiIndexer:
                     result[current_type][title] = {"tags": [], "sources": [], "updated": ""}
 
         return result
+
+
+def _canonical_title(title: str) -> str:
+    normalized = unicodedata.normalize("NFKC", title or "").casefold()
+    return re.sub(r"[^0-9a-z\u4e00-\u9fff]+", "", normalized)
+
+
+def _read_generated_page(path: str) -> tuple[dict, str] | None:
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            content = handle.read()
+    except OSError:
+        return None
+    if not content.startswith("---"):
+        return None
+    end = content.find("---", 3)
+    if end == -1:
+        return None
+    try:
+        metadata = yaml.safe_load(content[3:end]) or {}
+    except yaml.YAMLError:
+        return None
+    if metadata.get("generated_by") != "bobodan":
+        return None
+    return metadata, content[end + 3:].strip()
+
+
+def archive_duplicate_pages(
+    vault_path: str,
+    archive_root: str,
+    timestamp: str | None = None,
+) -> dict:
+    """Archive stale Bobodan-generated Wiki duplicates and rebuild the index."""
+    config = WikiConfig()
+    wiki_dir = os.path.join(vault_path, config.wiki_dir)
+    if not os.path.isdir(wiki_dir):
+        return {"archived": [], "canonical": 0, "archive_dir": None}
+
+    groups: dict[str, list[tuple[str, dict, str]]] = {}
+    for directory in (config.entities_path(vault_path), config.concepts_path(vault_path)):
+        if not os.path.isdir(directory):
+            continue
+        for filename in os.listdir(directory):
+            if not filename.endswith(".md"):
+                continue
+            path = os.path.join(directory, filename)
+            parsed = _read_generated_page(path)
+            if not parsed:
+                continue
+            metadata, body = parsed
+            title = str(metadata.get("title") or os.path.splitext(filename)[0])
+            groups.setdefault(_canonical_title(title), []).append((path, metadata, body))
+
+    canonical: list[tuple[str, dict, str]] = []
+    stale: list[tuple[str, dict, str]] = []
+    for pages in groups.values():
+        pages.sort(key=lambda item: (
+            not bool(item[1].get("indexable")),
+            item[1].get("type") != "wiki_concept",
+            item[0].casefold(),
+        ))
+        canonical.append(pages[0])
+        stale.extend(pages[1:])
+
+    archive_dir = None
+    archived = []
+    if stale:
+        stamp = timestamp or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        archive_dir = os.path.join(archive_root, stamp)
+        for path, _metadata, _body in stale:
+            relative = os.path.relpath(path, wiki_dir)
+            target = os.path.join(archive_dir, relative)
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            shutil.move(path, target)
+            archived.append(relative.replace("\\", "/"))
+
+    pages = [WikiPage(
+        title=str(metadata.get("title") or os.path.splitext(os.path.basename(path))[0]),
+        page_type=str(metadata.get("type") or "wiki_entity"),
+        content=body,
+        tags=list(metadata.get("tags") or []),
+        sources=list(metadata.get("sources") or []),
+        source_hash=str(metadata.get("source_hash") or ""),
+        indexable=bool(metadata.get("indexable", False)),
+        created=str(metadata.get("created") or ""),
+        updated=str(metadata.get("updated") or ""),
+    ) for path, metadata, body in canonical]
+    WikiIndexer(vault_path, config).rebuild_index(pages)
+    return {"archived": archived, "canonical": len(pages), "archive_dir": archive_dir}

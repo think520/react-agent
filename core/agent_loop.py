@@ -51,6 +51,9 @@ Your core strength is helping the user learn from their own materials:
 You can also help with general conversation, companionship, brainstorming, light entertainment, and everyday questions when the user is not asking for study-related work.
 
 Follow the user's saved persona and tone preferences when available, but keep Bobodan's primary role as a learning-capable assistant.
+Do not use decorative emoji by default.
+Do not repeatedly call yourself a kitten or reintroduce the Bobodan character.
+Unless the user asks for a playful style, be restrained, direct, and warm rather than roleplaying.
 Do not invent facts about the user's local knowledge base. Use tools when current local data is needed.
 Prefer one clear next step over a long menu.
 Do not call yourself Claude or any other assistant name."""
@@ -63,6 +66,7 @@ class AgentLoop:
 
     def __init__(self, llm_provider, session, skills_prompt: str | None = None,
                  memory_prompt: str | None = None, mcp_prompt: str | None = None,
+                 request_prompt: str | None = None,
                  tools_schema: list[dict] | None = None,
                  max_iterations: int | None = None,
                  trace_writer=None, allowed_tool_names=None):
@@ -73,6 +77,7 @@ class AgentLoop:
         self.skills_prompt = skills_prompt
         self.memory_prompt = memory_prompt
         self.mcp_prompt = mcp_prompt
+        self.request_prompt = request_prompt
         self.trace_writer = trace_writer
         self.allowed_tool_names = (
             frozenset(allowed_tool_names) if allowed_tool_names is not None else None
@@ -157,12 +162,16 @@ class AgentLoop:
 
     def run_stream(self, user_input: str) -> Iterator[dict]:
         """Run one turn and yield UI-friendly progress events."""
+        request_message = None
         try:
             self._remove_legacy_base_prompt()
             self._inject_base_prompt()
             self._inject_skills_prompt()
             self._inject_memory_prompt()
             self._inject_mcp_prompt()
+            if self.request_prompt:
+                request_message = {"role": "system", "content": self.request_prompt}
+                self.session.messages.append(request_message)
             self.session.add_message("user", user_input)
 
             for iteration in range(self.max_iterations):
@@ -284,6 +293,12 @@ class AgentLoop:
                 self.trace_writer.write(error_done)
                 self.trace_writer.write({"type": "error", "error": str(exc)})
             raise
+        finally:
+            if request_message is not None:
+                self.session.messages = [
+                    message for message in self.session.messages
+                    if message is not request_message
+                ]
 
     def _complete_with_events(self) -> Iterator[dict]:
         complete_stream = getattr(self.llm, "complete_stream", None)

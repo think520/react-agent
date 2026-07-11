@@ -33,6 +33,10 @@ class GraphQueryRequest(BaseModel):
     limit: int = Field(default=20, ge=1, le=50)
 
 
+class WikiMaintenanceRequest(BaseModel):
+    action: str
+
+
 def _service() -> KBService:
     return KBService(get_workspace())
 
@@ -89,8 +93,21 @@ async def import_files(files: list[UploadFile] = File(...)) -> dict:
 
 
 @router.get("/documents")
-def documents(course: str | None = None) -> dict:
-    return unwrap_service_result(_service().list_documents(course=course))
+def documents(course: str | None = None, collection: str = "all") -> dict:
+    return unwrap_service_result(_service().list_documents(
+        course=course,
+        collection=collection,
+    ))
+
+
+@router.get("/wiki/maintenance")
+def wiki_maintenance_status() -> dict:
+    return unwrap_service_result(_service().wiki_health())
+
+
+@router.post("/wiki/maintenance")
+def maintain_wiki(request: WikiMaintenanceRequest) -> dict:
+    return unwrap_service_result(_service().maintain_wiki(request.action))
 
 
 @router.get("/documents/{document_id}")
@@ -98,6 +115,17 @@ def document_detail(document_id: str) -> dict:
     result = _service().get_document(document_id)
     if not result.get("ok"):
         raise APIError(404, "document_not_found", result["error"])
+    return result
+
+
+@router.delete("/documents/{document_id}")
+def delete_document(document_id: str) -> dict:
+    result = _service().delete_document(document_id, config=get_config())
+    if not result.get("ok"):
+        message = result["error"]
+        status_code = 409 if "read-only" in message else 404
+        raise APIError(status_code, "document_not_deletable", message)
+    result["sync"] = _public_sync(result["sync"])
     return result
 
 

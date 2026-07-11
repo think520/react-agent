@@ -215,6 +215,23 @@ class QuizStore:
         finally:
             conn.close()
 
+    def find_question_ids_by_concept(self, concept: str, limit: int = 5) -> list[int]:
+        if not concept:
+            return []
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                """SELECT DISTINCT q.id
+                   FROM questions q, json_each(q.concepts) concept_item
+                   WHERE concept_item.value = ?
+                   ORDER BY q.id DESC
+                   LIMIT ?""",
+                (concept, max(1, limit)),
+            ).fetchall()
+            return [int(row["id"]) for row in rows]
+        finally:
+            conn.close()
+
     def count_questions(self) -> dict:
         conn = self._connect()
         try:

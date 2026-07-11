@@ -94,6 +94,10 @@ def execute_tool(name: str, args: dict, session=None) -> Any:
                 call_args.setdefault("cwd", session.cwd)
             if "workspace" in sig.parameters:
                 call_args.setdefault("workspace", session.workspace_root)
+            if "document_ids" in sig.parameters:
+                call_args.setdefault(
+                    "document_ids", getattr(session, "active_document_ids", None)
+                )
         result = func(**call_args)
         # Ensure result is a ToolResult
         if not isinstance(result, ToolResult):

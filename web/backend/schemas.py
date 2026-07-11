@@ -22,6 +22,10 @@ class ChatRunRequest(BaseModel):
     chat_session_id: str | None = None
     provider: str | None = None
     save: bool = True
+    document_ids: list[str] = Field(default_factory=list, max_length=50)
+    learning_goal: str = Field(default="", max_length=500)
+    memory_enabled: bool = True
+    web_enabled: bool = False
 
 
 class ChatSessionUpdateRequest(BaseModel):
@@ -36,6 +40,7 @@ class ChatMessage(BaseModel):
 class ChatSessionSummary(BaseModel):
     chat_session_id: str
     name: str
+    name_source: Literal["ai", "fallback", "manual"]
     created_at: str
     last_active: str
     message_count: int
@@ -55,6 +60,7 @@ class SourceRef(BaseModel):
     heading: str | None = None
     page: int | None = None
     slide: int | None = None
+    collection: Literal["material", "wiki"] | None = None
 
 
 class Attribution(BaseModel):

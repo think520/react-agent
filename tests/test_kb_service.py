@@ -112,6 +112,27 @@ def test_search_with_index(svc, workspace):
     assert len(result["results"]) > 0
 
 
+def test_search_respects_selected_document_ids(svc, workspace):
+    knowledge_dir = os.path.join(workspace, ".knowledge")
+    os.makedirs(knowledge_dir)
+    from rag.vector_store import LocalVectorStore
+    from rag.chunker import TextChunk
+
+    store = LocalVectorStore(os.path.join(knowledge_dir, "rag_index.json"))
+    store.upsert([
+        TextChunk(id="c1", text="Graph shortest path algorithm", source="course/one.md", metadata={"title": "One"}),
+        TextChunk(id="c2", text="Graph shortest path algorithm", source="course/two.md", metadata={"title": "Two"}),
+    ])
+    documents = svc.list_documents()["documents"]
+    allowed = next(item["document_id"] for item in documents if item["title"] == "One")
+
+    result = svc.search("shortest path", document_ids=[allowed], top_k=5)
+
+    assert result["ok"]
+    assert result["results"]
+    assert {item["document_id"] for item in result["results"]} == {allowed}
+
+
 def test_search_top_k_clamped(svc, workspace):
     knowledge_dir = os.path.join(workspace, ".knowledge")
     os.makedirs(knowledge_dir)
@@ -121,6 +142,141 @@ def test_search_top_k_clamped(svc, workspace):
     result = svc.search(query="test", top_k=100)
     assert result["ok"]
     assert result["results"] == []
+
+
+def test_legacy_index_documents_are_visible_and_readable(svc, workspace):
+    knowledge_dir = os.path.join(workspace, ".knowledge")
+    os.makedirs(knowledge_dir)
+    index_path = os.path.join(knowledge_dir, "rag_index.json")
+    with open(index_path, "w", encoding="utf-8") as handle:
+        json.dump({"chunks": [{
+            "id": "obsidian/course/lesson.md#0",
+            "source": "obsidian/course/lesson.md",
+            "text": "# Lesson\n\nLegacy knowledge remains readable.",
+            "metadata": {
+                "kind": "obsidian_note",
+                "title": "Lesson",
+                "course": "CS101",
+                "heading_text": "Introduction",
+            },
+        }]}, handle)
+
+    listed = svc.list_documents()
+    assert listed["ok"]
+    assert len(listed["documents"]) == 1
+    document = listed["documents"][0]
+    assert document["origin"] == "legacy_index"
+    assert document["managed"] is False
+    assert document["chunk_count"] == 1
+
+    detail = svc.get_document(document["document_id"])
+    assert detail["ok"]
+    assert detail["sections"][0]["chunk_id"] == "obsidian/course/lesson.md#0"
+    assert "Legacy knowledge" in detail["sections"][0]["text"]
+
+    deleted = svc.delete_document(document["document_id"])
+    assert not deleted["ok"]
+    assert "read-only" in deleted["error"]
+
+
+def test_document_collections_hide_metadata_and_deduplicate_wiki(svc, workspace):
+    knowledge_dir = os.path.join(workspace, ".knowledge")
+    os.makedirs(knowledge_dir)
+    chunks = []
+    for index, (source, title, kind) in enumerate([
+        ("obsidian/course/lesson.md", "Lesson", "obsidian_note"),
+        ("obsidian/wiki/index.md", "Wiki Index", "obsidian_note"),
+        ("obsidian/wiki/entities/Dijkstra算法.md", "Dijkstra算法", "wiki_entity"),
+        ("obsidian/wiki/entities/Dijkstra 算法.md", "Dijkstra 算法", "wiki_entity"),
+    ]):
+        chunks.append({
+            "id": f"chunk-{index}", "source": source, "text": title,
+            "metadata": {"title": title, "kind": kind},
+        })
+    with open(os.path.join(knowledge_dir, "rag_index.json"), "w", encoding="utf-8") as handle:
+        json.dump({"chunks": chunks}, handle, ensure_ascii=False)
+
+    materials = svc.list_documents(collection="material")["documents"]
+    wiki = svc.list_documents(collection="wiki")["documents"]
+
+    assert [item["title"] for item in materials] == ["Lesson"]
+    assert len(wiki) == 1
+    assert wiki[0]["canonical_id"].startswith("wiki-")
+    assert svc.list_documents(collection="invalid")["ok"] is False
+
+
+def test_wiki_duplicate_migration_archives_generated_pages_and_rebuilds_index(svc, workspace):
+    vault = os.path.join(workspace, "note", "vault")
+    entities = os.path.join(vault, "wiki", "entities")
+    concepts = os.path.join(vault, "wiki", "concepts")
+    os.makedirs(entities)
+    os.makedirs(concepts)
+    stale = os.path.join(entities, "优先队列.md")
+    canonical = os.path.join(concepts, "优先队列.md")
+    with open(stale, "w", encoding="utf-8") as handle:
+        handle.write("---\ngenerated_by: bobodan\ntitle: 优先队列\ntype: wiki_entity\n---\n\n旧页面")
+    with open(canonical, "w", encoding="utf-8") as handle:
+        handle.write("---\ngenerated_by: bobodan\nindexable: true\ntitle: 优先队列\ntype: wiki_concept\ntags: [数据结构]\n---\n\n规范页面")
+
+    result = svc.archive_duplicate_wiki_pages()
+
+    assert result["ok"]
+    assert not os.path.exists(stale)
+    assert os.path.exists(canonical)
+    archived = result["results"][0]["archive_dir"]
+    assert os.path.exists(os.path.join(archived, "entities", "优先队列.md"))
+    index = open(os.path.join(vault, "wiki", "index.md"), encoding="utf-8").read()
+    assert index.count("[[优先队列]]") == 1
+
+
+def test_wiki_health_and_maintenance_use_workspace_vault(svc, workspace):
+    concepts = os.path.join(workspace, "note", "vault", "wiki", "concepts")
+    os.makedirs(concepts)
+    with open(os.path.join(concepts, "RAG.md"), "w", encoding="utf-8") as handle:
+        handle.write("---\ngenerated_by: bobodan\ntitle: RAG\ntype: wiki_concept\n---\n\n# RAG")
+
+    health = svc.wiki_health()
+    maintained = svc.maintain_wiki("organize")
+
+    assert health["ok"]
+    assert health["total_pages"] == 1
+    assert health["vaults"][0]["vault"] == "note/vault"
+    assert maintained["ok"]
+    assert maintained["canonical_count"] == 1
+    assert maintained["health"]["total_pages"] == 1
+    assert svc.maintain_wiki("invalid")["ok"] is False
+
+
+def test_delete_managed_document_removes_source_and_resyncs(svc, workspace, monkeypatch):
+    from rag.sqlite_store import KBSQLiteStore
+
+    os.makedirs(svc.managed_sources_dir)
+    source_path = os.path.join(svc.managed_sources_dir, "notes.md")
+    with open(source_path, "w", encoding="utf-8") as handle:
+        handle.write("# Notes")
+
+    store = KBSQLiteStore(workspace)
+    store.init_db()
+    store.upsert_document(
+        "doc-1",
+        "managed/notes.md",
+        "hash",
+        path=source_path,
+        kind="course_document",
+        title="Notes",
+    )
+    store.close()
+
+    class Summary:
+        def to_dict(self):
+            return {"updated_files": 1, "errors": []}
+
+    monkeypatch.setattr(svc, "_sync_registered_sources", lambda mode, config: Summary())
+
+    result = svc.delete_document("doc-1")
+
+    assert result["ok"]
+    assert not os.path.exists(source_path)
 
 
 # --- graph_query ---

@@ -16,12 +16,14 @@ class GenerateQuestionsRequest(BaseModel):
     query: str = Field(..., min_length=1)
     course: str | None = None
     count: int = Field(default=5, ge=1, le=15)
+    document_ids: list[str] = Field(default_factory=list, max_length=50)
 
 
 class StartQuizRequest(BaseModel):
     count: int = Field(default=5, ge=1, le=15)
     course: str | None = None
     question_type: str | None = None
+    question_ids: list[int] = Field(default_factory=list, max_length=15)
 
 
 class SubmitAnswerRequest(BaseModel):
@@ -40,6 +42,7 @@ def generate_questions(request: GenerateQuestionsRequest) -> dict:
         query=request.query,
         course=request.course,
         count=request.count,
+        document_ids=request.document_ids,
     ))
 
 
@@ -49,6 +52,7 @@ def start_quiz(request: StartQuizRequest) -> dict:
         count=request.count,
         course=request.course,
         question_type=request.question_type,
+        question_ids=request.question_ids,
     ))
     return {
         "practice_session_id": result["session_id"],

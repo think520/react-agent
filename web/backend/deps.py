@@ -11,12 +11,15 @@ import os
 from functools import lru_cache
 from typing import Any
 
+from dotenv import load_dotenv
+
 from providers.factory import ProviderFactory
 from service.runtime_service import RuntimeContext, RuntimeService
 
 
 @lru_cache(maxsize=1)
 def get_config() -> dict[str, Any]:
+    load_dotenv(os.path.join(get_workspace(), ".env"), override=False)
     config_path = os.getenv("BOBODAN_CONFIG", "config.yaml")
     return ProviderFactory.load_config(config_path)
 

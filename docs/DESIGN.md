@@ -56,7 +56,7 @@ Bobodan 的参考宇宙不是科技产品榜单，而是中文阅读、纸面排
 ### 第一审美锚点
 
 - Kami: Bobodan 的第一视觉参考。学习暖纸张、内容像放在好纸上、长文阅读、轻插图和个人知识产品气质。来源：https://github.com/tw93/Kami
-- Luo 落文: Bobodan 的中文字体和长文气质参考。学习纸面排版、中文阅读、端正含蓄、有骨节的标题与正文。来源：https://github.com/tw93/Luo 和 https://luo.tw93.fun/
+- Luo 落文: Bobodan 的品牌字与展示标题气质参考。学习纸面排版、端正含蓄和有骨节的标题表达，不用于覆盖全部 UI。来源：https://github.com/tw93/Luo 和 https://luo.tw93.fun/
 
 ### 核心品牌参考
 
@@ -95,7 +95,7 @@ Bobodan 的参考宇宙不是科技产品榜单，而是中文阅读、纸面排
 
 - 功能骨架可以参考。
 - 视觉不能照抄控制台、后台、黑色终端、AI 紫渐变或 Agent dashboard。
-- 所有模块最终都要回到 Kami 暖纸张、墨蓝阅读秩序、Luo 中文排版、Claude 橘棕温度和 Bobodan 的纸面学习气质。
+- 所有模块最终都要回到 Kami 暖纸张、墨蓝阅读秩序、Luo 品牌识别、Noto Serif SC 长文阅读、Claude 橘棕温度和 Bobodan 的纸面学习气质。
 
 一句话标准：
 
@@ -522,36 +522,38 @@ Memory Browser 视觉要像整理索引卡，不像数据库表。
 
 建议：
 
-- 中文标题 / 长文 / 官网 hero：优先考虑 Luo 落文。
-- 中文正文：Luo 落文、霞鹜文楷、系统宋体或系统中文字体，优先纸面阅读感和稳定性。
-- 英文标题：可使用有编辑感的衬线字体，如 `Georgia`、`Cormorant Garamond`、`Source Serif`。
-- UI 控件：使用无衬线字体，保持清楚、克制。
+- 品牌名与少量固定展示标题使用 Luo，形成稳定的 Bobodan 识别。
+- 导航、按钮、输入框、标签、会话列表和设置项使用系统中文黑体栈，保证完整字形、清晰字重和高频操作效率。
+- AI 回答、资料正文、Wiki 和阅读器使用 Noto Serif SC，形成安静的长文阅读区。
+- 模型名、路径、代码和技术标识使用等宽字体。
+- 不依赖浏览器合成 Luo 粗体；需要粗体的 UI 必须使用系统黑体，正文粗体由 Noto Serif SC 承担。
 
-### Luo 落文
+### 字体 Token
 
-Luo 适合 Bobodan 的标题、文章页、知识卡片、官网主视觉和文档页。它不适合所有小控件；按钮、菜单、输入框仍可使用系统无衬线，保持清楚。
+```css
+--font-brand: "Luo", "Noto Serif SC", serif;
+--font-ui: system-ui, -apple-system, "Segoe UI", "PingFang SC",
+  "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+--font-reading: "Noto Serif SC", "Source Han Serif SC",
+  "Songti SC", "STSong", "SimSun", serif;
+--font-article: "TsangerJinKai02", "Noto Serif SC",
+  "Source Han Serif SC", "Songti SC", serif;
+--font-mono: ui-monospace, "Cascadia Code", monospace;
+```
 
 Bobodan 是 local-first 产品，正式 Web App 必须把字体文件随前端静态资源本地打包。不要在运行时依赖 jsDelivr、Google Fonts 或其他公共 CDN。字体加载失败时必须自然回退到本地系统字体。
 
-```css
-@font-face {
-  font-family: "Luo";
-  src: url("/assets/fonts/Luo-Regular.woff2") format("woff2");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
+Noto Serif SC 使用 Unicode Range 分片随项目分发，覆盖正文常见字、罕见字、英文、数字和 300-700 字重。前端资源保留 SIL Open Font License；Luo 继续保留其原始许可说明。
 
-.prose,
-.hero-title,
-.editorial-heading {
-  font-family: "Luo", "LXGW WenKai Screen", "STSong", "SimSun", serif;
-}
-```
+资料阅读器和 Wiki 正文使用 Kami 同款的仓耳今楷 W04/W05 完整字重。当前 Luo Web 字体约 327 KB，适合品牌与展示标题，但不是完整中文文章字库；禁止把它单独设置为长文唯一字体。文章字体必须本地加载、保留 Noto Serif SC 回退，并关闭字体合成。
 
 字体来源标注：
 
 > 中文字体参考 Luo 落文，作者 tw93，来源 https://github.com/tw93/Luo 与 https://luo.tw93.fun/。正式产品使用前检查仓库 README 与 LICENSE。Luo 项目说明中提到其基于 LXGW WenKai Screen 底层构建，并向 LXGW、落霞孤鹜与 Fontworks Klee One 等开源字体工作致谢。
+
+> 阅读字体使用 Noto Serif SC，按 SIL Open Font License 随项目分发。
+
+> 资料文章字体参考 Kami 的仓耳今楷实现。公开分发桌面安装包前需再次核对字体作者的分发条款并保留所需署名。
 
 ### 字号层级
 
@@ -730,6 +732,8 @@ Bobodan 的 Web UI 先规范高频学习组件，不先做庞大的完整 Design
 | AI 回答块 | 采用笔记正文式回答，不使用普通聊天气泡作为主形态。工具调用、搜索、推理痕迹默认折叠。 |
 | 来源 chip | 关键结论旁显示轻量归因标注：`本地资料`、`本地扩展`、`网页来源`、`AI 补充`、`待核实`。点击后展开来源详情。 |
 | 资料导入区 | 接受支持格式、显示同步进度和可恢复错误。空状态的主动作是“导入资料”，不是知识库统计面板。 |
+| Wiki 维护区 | 在 Wiki 分类内提供健康检查、问题详情和“整理并重建索引”。重复页只归档 Bobodan 生成内容，不删除用户原始资料。 |
+| Slash 命令面板 | 输入 `/` 后贴近 composer 展示 Web 安全命令与当前可执行 Skills；支持筛选、方向键、Enter / Tab 和 Esc，不暴露 CLI 管理命令。 |
 | Practice 题卡 | 一题一卡，像干净练习纸。题干、选项、答案反馈和来源标注明确分层。 |
 | Practice 操作区 | 底部固定提交、下一题、问 AI、退出练习等操作，位置稳定，不随内容跳动。 |
 | 问 AI 抽屉 | 在当前题目内打开轻量抽屉，只围绕当前题目、知识点和资料回答。不能把做题页变成完整聊天页。 |
@@ -737,6 +741,16 @@ Bobodan 的 Web UI 先规范高频学习组件，不先做庞大的完整 Design
 | Memory 提示 | 在 Today、Chat、Review 中轻量出现，说明“基于你的偏好/近期薄弱点/长期目标”。必须可查看、编辑、删除。 |
 | Workbench 抽屉 | Agents、MCP、Logs 等放在低权重工具抽屉里，默认不抢 Study 主舞台。 |
 | Canvas 面板 | Chat 内的临时学习白纸，用于整理摘要、提纲、练习清单。不是独立 IDE 或 Figma。 |
+
+### 首次引导与学习范围
+
+- 首次引导只在真正空白的工作区出现，使用四个短步骤收集称呼与目标、AI 连接、首批资料、记忆与联网边界。
+- 已有会话或资料的工作区不得强制重复引导；完成状态和非敏感学习偏好可保存在浏览器本地。
+- 当前学习范围必须在 Library、Chat composer 和右侧学习书桌中使用同一份状态，并由后端真正约束检索与出题。
+- 资料正文允许选中文字后显示轻量“带到对话”工具条；工具条保持在正文流附近，不遮挡原文，不常驻悬浮。
+- Practice 的“问 AI”使用当前题目内的轻量抽屉。桌面从右侧进入，移动端从底部进入；关闭后答案和练习进度不得丢失。
+- AI 处理过程只显示状态、资料、工具与耗时摘要，默认折叠，不展示原始思维链。
+- Slash 面板只显示当前 Web runtime 能完整执行的命令与 Skills；需要联网、任意写回、MCP 或桌面进程控制的能力不得伪装成可用项。
 
 ### 来源与可信度标注
 
@@ -846,6 +860,9 @@ AI 回答区应接近阅读器：
 - `SYSTEM RUNNING`
 
 状态可以温和，但必须明确。涉及网页资料、AI 补充、搜索结果、题目生成、记忆写入时，不能只用情绪化文案代替事实标签。
+
+- `到期`、`错题`、`薄弱点` 等 2-4 字固定状态词可使用 Luo 作为纸面强调；正文、按钮和动态长文本仍使用 UI / Reading 字体。
+- 可滚动工作区保留可发现性，但滚动条应使用透明轨道与暖灰细滑块；横向滚动只允许代码、表格等确有必要的内容，普通面板文本必须收缩或省略。
 
 ### 关键页面状态
 

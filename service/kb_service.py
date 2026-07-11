@@ -10,6 +10,10 @@ from __future__ import annotations
 import os
 import json
 import shutil
+import hashlib
+import re
+import unicodedata
+from functools import lru_cache
 from typing import Any
 
 
@@ -19,6 +23,50 @@ def _ok(**kwargs: Any) -> dict[str, Any]:
 
 def _err(error: str) -> dict[str, Any]:
     return {"ok": False, "error": error}
+
+
+def _legacy_document_id(source: str) -> str:
+    digest = hashlib.sha256(source.encode("utf-8")).hexdigest()[:16]
+    return f"legacy-{digest}"
+
+
+def _canonical_wiki_key(title: str) -> str:
+    normalized = unicodedata.normalize("NFKC", title or "").casefold()
+    return re.sub(r"[^0-9a-z\u4e00-\u9fff]+", "", normalized)
+
+
+def _document_classification(source: str, kind: str = "", title: str = "") -> dict[str, Any]:
+    normalized_source = source.replace("\\", "/").casefold()
+    is_wiki = normalized_source.startswith("obsidian/wiki/") or "/wiki/" in normalized_source
+    metadata_names = {"index.md", "log.md"}
+    basename = os.path.basename(normalized_source)
+    content_role = "metadata" if is_wiki and basename in metadata_names else "content"
+    wiki_type = None
+    if is_wiki:
+        if "/entities/" in normalized_source or kind == "wiki_entity":
+            wiki_type = "entity"
+        elif "/concepts/" in normalized_source or kind == "wiki_concept":
+            wiki_type = "concept"
+    canonical_key = _canonical_wiki_key(title or os.path.splitext(os.path.basename(source))[0])
+    canonical_id = f"wiki-{hashlib.sha256(canonical_key.encode('utf-8')).hexdigest()[:16]}" if is_wiki else None
+    return {
+        "collection": "wiki" if is_wiki else "material",
+        "wiki_type": wiki_type,
+        "canonical_id": canonical_id,
+        "content_role": content_role,
+    }
+
+
+@lru_cache(maxsize=4)
+def _load_legacy_chunks(index_path: str, modified_at: float) -> tuple[dict[str, Any], ...]:
+    del modified_at
+    try:
+        with open(index_path, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return ()
+    chunks = payload.get("chunks", []) if isinstance(payload, dict) else payload
+    return tuple(item for item in chunks if isinstance(item, dict))
 
 
 class KBService:
@@ -72,6 +120,98 @@ class KBService:
             course_dirs.append(self.managed_sources_dir)
         course_dirs = list(dict.fromkeys(os.path.abspath(path) for path in course_dirs))
         return vault_path, course_dirs
+
+    def _wiki_vaults(self) -> list[str]:
+        roots = self._load_source_roots()
+        candidates = [
+            roots.get("vault_path"),
+            self.managed_vault_dir,
+            os.path.join(self.workspace, "note", "vault"),
+        ]
+        vaults = []
+        seen = set()
+        for candidate in candidates:
+            if not candidate or not os.path.isdir(candidate):
+                continue
+            vault = os.path.abspath(candidate)
+            if vault in seen or not self._is_within_workspace(vault, self.workspace):
+                continue
+            if not os.path.isdir(os.path.join(vault, "wiki")):
+                continue
+            seen.add(vault)
+            vaults.append(vault)
+        return vaults
+
+    def archive_duplicate_wiki_pages(self) -> dict[str, Any]:
+        from wiki.index import archive_duplicate_pages
+
+        roots = self._load_source_roots()
+        candidates = [roots.get("vault_path"), os.path.join(self.workspace, "note", "vault")]
+        seen = set()
+        results = []
+        for candidate in candidates:
+            if not candidate or not os.path.isdir(candidate):
+                continue
+            vault = os.path.abspath(candidate)
+            if vault in seen or not self._is_within_workspace(vault, self.workspace):
+                continue
+            seen.add(vault)
+            result = archive_duplicate_pages(
+                vault,
+                os.path.join(self.workspace, ".bobodan", "archive", "wiki"),
+            )
+            if result["canonical"] or result["archived"]:
+                results.append(result)
+        return _ok(results=results)
+
+    def wiki_health(self) -> dict[str, Any]:
+        from wiki.lint import WikiLinter
+
+        details = []
+        for vault in self._wiki_vaults():
+            result = WikiLinter(vault).lint()
+            details.append({
+                "vault": os.path.relpath(vault, self.workspace).replace("\\", "/"),
+                "total_pages": result.total_pages,
+                "orphans": result.orphan_pages,
+                "broken_links": [
+                    {
+                        "source": os.path.basename(item.get("source", "")),
+                        "target": item.get("target", ""),
+                    }
+                    for item in result.broken_links
+                ],
+                "missing": result.missing_pages,
+                "stale": result.stale_pages,
+                "errors": result.errors,
+                "healthy": result.healthy and not result.errors,
+            })
+
+        return _ok(
+            healthy=bool(details) and all(item["healthy"] for item in details),
+            total_pages=sum(item["total_pages"] for item in details),
+            orphan_count=sum(len(item["orphans"]) for item in details),
+            broken_link_count=sum(len(item["broken_links"]) for item in details),
+            missing_count=sum(len(item["missing"]) for item in details),
+            stale_count=sum(len(item["stale"]) for item in details),
+            vaults=details,
+        )
+
+    def maintain_wiki(self, action: str) -> dict[str, Any]:
+        if action == "check":
+            return self.wiki_health()
+        if action != "organize":
+            return _err("action must be check or organize")
+
+        organized = self.archive_duplicate_wiki_pages()
+        health = self.wiki_health()
+        if not organized.get("ok") or not health.get("ok"):
+            return _err(organized.get("error") or health.get("error") or "Wiki maintenance failed")
+        return _ok(
+            archived_count=sum(len(item.get("archived", [])) for item in organized.get("results", [])),
+            canonical_count=sum(int(item.get("canonical", 0)) for item in organized.get("results", [])),
+            health={key: value for key, value in health.items() if key != "ok"},
+        )
 
     @staticmethod
     def _is_within_workspace(path: str, workspace: str) -> bool:
@@ -201,50 +341,95 @@ class KBService:
 
         return _ok(**result)
 
-    def list_documents(self, course: str | None = None) -> dict[str, Any]:
+    def list_documents(
+        self,
+        course: str | None = None,
+        collection: str = "all",
+    ) -> dict[str, Any]:
+        if collection not in {"all", "material", "wiki"}:
+            return _err("collection must be all, material, or wiki")
         db_path = os.path.join(self.workspace, ".knowledge", "knowledge.db")
-        if not os.path.exists(db_path):
-            return _ok(documents=[])
-        from rag.sqlite_store import KBSQLiteStore
-        store = KBSQLiteStore(self.workspace)
-        store.init_db()
-        try:
-            documents = store.list_documents(course=course)
-        finally:
-            store.close()
-        return _ok(documents=[self._public_document(item) for item in documents])
+        documents = []
+        if os.path.exists(db_path):
+            from rag.sqlite_store import KBSQLiteStore
+            store = KBSQLiteStore(self.workspace)
+            store.init_db()
+            try:
+                documents = store.list_documents(course=course)
+            finally:
+                store.close()
+
+        public = [self._public_document(item) for item in documents]
+        known_sources = {item.get("source") for item in documents}
+        public.extend(self._legacy_documents(course=course, exclude_sources=known_sources))
+        public = self._visible_documents(public)
+        if collection != "all":
+            public = [item for item in public if item["collection"] == collection]
+        public.sort(key=lambda item: (item.get("title") or item.get("source") or "").casefold())
+        return _ok(documents=public)
 
     def get_document(self, document_id: str) -> dict[str, Any]:
         db_path = os.path.join(self.workspace, ".knowledge", "knowledge.db")
+        if os.path.exists(db_path):
+            from rag.sqlite_store import KBSQLiteStore
+            store = KBSQLiteStore(self.workspace)
+            store.init_db()
+            try:
+                document = store.get_document(document_id)
+                if document is not None:
+                    chunks = store.get_chunks_by_document(document_id)
+                    return _ok(
+                        document=self._public_document(document),
+                        sections=[self._public_section(chunk) for chunk in chunks],
+                    )
+            finally:
+                store.close()
+
+        legacy = self._legacy_document(document_id)
+        if legacy:
+            return _ok(**legacy)
+        return _err(f"Document not found: {document_id}")
+
+    def delete_document(self, document_id: str, config: dict | None = None) -> dict[str, Any]:
+        if document_id.startswith("legacy-"):
+            return _err("This knowledge source is read-only and cannot be deleted here")
+        db_path = os.path.join(self.workspace, ".knowledge", "knowledge.db")
         if not os.path.exists(db_path):
             return _err(f"Document not found: {document_id}")
+
         from rag.sqlite_store import KBSQLiteStore
         store = KBSQLiteStore(self.workspace)
         store.init_db()
         try:
             document = store.get_document(document_id)
-            if document is None:
-                return _err(f"Document not found: {document_id}")
-            chunks = store.get_chunks_by_document(document_id)
         finally:
             store.close()
-        return _ok(
-            document=self._public_document(document),
-            sections=[
-                {
-                    "chunk_id": chunk.get("id"),
-                    "heading": chunk.get("heading_text", ""),
-                    "page_start": chunk.get("page_start"),
-                    "slide_start": chunk.get("slide_start"),
-                    "text": chunk.get("text", ""),
-                }
-                for chunk in chunks
-            ],
-        )
+        if document is None:
+            return _err(f"Document not found: {document_id}")
+
+        path = document.get("path")
+        if not path or not self._is_within_workspace(path, self.managed_sources_dir):
+            return _err("This knowledge source is read-only and cannot be deleted here")
+        if os.path.isfile(path):
+            os.remove(path)
+
+        summary = self._sync_registered_sources(mode="incremental", config=config or {})
+        return _ok(document_id=document_id, sync=summary.to_dict())
 
     @staticmethod
-    def _public_document(document: dict[str, Any]) -> dict[str, Any]:
+    def _public_section(chunk: dict[str, Any]) -> dict[str, Any]:
         return {
+            "chunk_id": chunk.get("id"),
+            "heading": chunk.get("heading_text", ""),
+            "page_start": chunk.get("page_start"),
+            "slide_start": chunk.get("slide_start"),
+            "text": chunk.get("text", ""),
+        }
+
+    def _public_document(self, document: dict[str, Any]) -> dict[str, Any]:
+        path = document.get("path")
+        managed = bool(path and self._is_within_workspace(path, self.managed_sources_dir))
+        public = {
             "document_id": document.get("id"),
             "source": document.get("source", ""),
             "kind": document.get("kind", ""),
@@ -254,7 +439,107 @@ class KBService:
             "vector_status": document.get("vector_status", ""),
             "vector_error": document.get("vector_error"),
             "updated_at": document.get("updated_at", ""),
+            "managed": managed,
+            "origin": "managed" if managed else "workspace",
         }
+        public.update(_document_classification(
+            public["source"], public["kind"], public["title"]
+        ))
+        return public
+
+    @staticmethod
+    def _visible_documents(documents: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        visible = [item for item in documents if item.get("content_role") != "metadata"]
+        wiki_groups: dict[str, list[dict[str, Any]]] = {}
+        output = []
+        for item in visible:
+            if item.get("collection") != "wiki":
+                output.append(item)
+                continue
+            wiki_groups.setdefault(item.get("canonical_id") or item["document_id"], []).append(item)
+
+        for items in wiki_groups.values():
+            items.sort(key=lambda item: (
+                item.get("wiki_type") != "concept",
+                " " not in (item.get("title") or ""),
+                item.get("source") or "",
+            ))
+            output.append(items[0])
+        return output
+
+    def _legacy_chunks(self) -> tuple[dict[str, Any], ...]:
+        path = os.path.join(self.workspace, ".knowledge", "rag_index.json")
+        if not os.path.exists(path):
+            return ()
+        return _load_legacy_chunks(path, os.path.getmtime(path))
+
+    def _legacy_documents(
+        self,
+        course: str | None = None,
+        exclude_sources: set[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        grouped: dict[str, dict[str, Any]] = {}
+        excluded = exclude_sources or set()
+        index_path = os.path.join(self.workspace, ".knowledge", "rag_index.json")
+        updated_at = ""
+        if os.path.exists(index_path):
+            from datetime import datetime, timezone
+            updated_at = datetime.fromtimestamp(
+                os.path.getmtime(index_path), tz=timezone.utc
+            ).isoformat()
+
+        for chunk in self._legacy_chunks():
+            source = str(chunk.get("source") or "")
+            if not source or source in excluded:
+                continue
+            metadata = chunk.get("metadata") or {}
+            chunk_course = metadata.get("course") or chunk.get("course")
+            if course and chunk_course != course:
+                continue
+            classification = _document_classification(
+                source,
+                metadata.get("kind") or "legacy_document",
+                metadata.get("title") or os.path.splitext(os.path.basename(source))[0],
+            )
+            item = grouped.setdefault(source, {
+                "document_id": _legacy_document_id(source),
+                "source": source,
+                "kind": metadata.get("kind") or "legacy_document",
+                "title": metadata.get("title") or os.path.splitext(os.path.basename(source))[0],
+                "course": chunk_course,
+                "summary": str(chunk.get("text") or "")[:220].strip(),
+                "vector_status": "indexed",
+                "vector_error": None,
+                "updated_at": updated_at,
+                "managed": False,
+                "origin": "legacy_index",
+                "chunk_count": 0,
+                **classification,
+            })
+            item["chunk_count"] += 1
+        return list(grouped.values())
+
+    def _legacy_document(self, document_id: str) -> dict[str, Any] | None:
+        documents = {
+            item["document_id"]: item
+            for item in self._legacy_documents()
+        }
+        document = documents.get(document_id)
+        if not document:
+            return None
+        sections = []
+        for chunk in self._legacy_chunks():
+            if chunk.get("source") != document["source"]:
+                continue
+            metadata = chunk.get("metadata") or {}
+            sections.append({
+                "chunk_id": chunk.get("id"),
+                "heading": metadata.get("heading_text") or metadata.get("heading") or "",
+                "page_start": metadata.get("page_start") or metadata.get("page"),
+                "slide_start": metadata.get("slide_start") or metadata.get("slide"),
+                "text": chunk.get("text", ""),
+            })
+        return {"document": document, "sections": sections}
 
     # --- RAG Search ---
 
@@ -264,6 +549,7 @@ class KBService:
         course: str | None = None,
         top_k: int = 5,
         mode: str = "auto",
+        document_ids: list[str] | None = None,
         config: dict | None = None,
     ) -> dict[str, Any]:
         if not query or not query.strip():
@@ -280,15 +566,59 @@ class KBService:
 
         from rag.retriever import search_index
 
+        requested_top_k = max(1, min(top_k, 20))
+        candidate_top_k = 20 if document_ids else requested_top_k
         results = search_index(
             self.workspace,
             query=query.strip(),
             course=course,
-            top_k=max(1, min(top_k, 20)),
+            top_k=candidate_top_k,
             config=config or {},
             mode=mode,
         )
-        return _ok(results=results)
+        legacy_results = []
+        if self._legacy_chunks():
+            from rag.vector_store import LocalVectorStore
+            index_path = os.path.join(self.workspace, ".knowledge", "rag_index.json")
+            legacy_results = LocalVectorStore(index_path).search(
+                query=query.strip(), course=course, top_k=candidate_top_k
+            )
+            for item in legacy_results:
+                source = str(item.get("source") or "")
+                metadata = item.get("metadata") or {}
+                item["document_id"] = _legacy_document_id(source)
+                item["chunk_id"] = item.get("chunk_id") or item.get("id")
+                item["title"] = item.get("title") or metadata.get("title") or os.path.basename(source)
+
+        source_documents = {
+            item["source"]: item
+            for item in self.list_documents(collection="all").get("documents", [])
+        }
+        allowed_document_ids = set(document_ids or [])
+        merged = []
+        seen = set()
+        for index in range(max(len(results), len(legacy_results))):
+            for collection in (results, legacy_results):
+                if index >= len(collection):
+                    continue
+                item = collection[index]
+                visible_document = source_documents.get(str(item.get("source") or ""))
+                if not visible_document:
+                    continue
+                if allowed_document_ids and visible_document["document_id"] not in allowed_document_ids:
+                    continue
+                item["document_id"] = visible_document["document_id"]
+                item["title"] = visible_document["title"]
+                item["collection"] = visible_document["collection"]
+                item["wiki_type"] = visible_document["wiki_type"]
+                key = item.get("chunk_id") or (item.get("source"), item.get("text"))
+                if key in seen:
+                    continue
+                seen.add(key)
+                merged.append(item)
+                if len(merged) >= requested_top_k:
+                    return _ok(results=merged)
+        return _ok(results=merged)
 
     # --- Graph Query ---
 
