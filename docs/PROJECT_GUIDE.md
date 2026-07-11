@@ -76,6 +76,153 @@ Bobodan 不照抄任何单一产品。它吸收这些产品的功能骨架，再
 | 阅读器 | Readwise Reader | distraction-free reading、highlight、摘录、复习回流 |
 | Agent 管理 | ClawPort / Agent Hub | Agent 状态、任务队列、记忆浏览、MCP/Cron/Logs，但不吸收控制台视觉 |
 | 本地助手 | OpenClaw | local-first、工具执行、设备/渠道连接、隐私感 |
+| 安静桌面工作区 | [OpenHanako](https://github.com/liliMozi/openhanako) | 三栏工作区、角色化欢迎页、工作空间与记忆状态、右侧书桌/便笺、纸面 Token；不吸收办公 Agent 的频道和社交入口 |
+
+#### 2.2.1 OpenHanako 借鉴边界
+
+OpenHanako 与 Bobodan 都受到 Kami 纸面美学影响，适合作为 Web 工作区结构参考，但产品目标不同：OpenHanako 是通用私人 Agent，Bobodan 必须保持学习助手定位。
+
+第一优先级，进入 P5D：
+
+| 借鉴点 | Bobodan 的实现方式 |
+|---|---|
+| 三栏工作区 | 左侧会话 / 学习空间，中间 Chat 主画布，右侧可折叠学习上下文；窄屏只保留主画布，左右栏改为抽屉 |
+| 角色化欢迎页 | Today 复用 Chat 空状态，显示 Bobodan 小猫、“今天想学什么？”、当前学习空间、记忆状态和 2-3 个真实学习动作 |
+| 工作空间绑定 | 一个学习空间绑定课程或项目、资料范围、聊天、笔记、练习记录和学习记忆，不把文件夹概念直接暴露给普通用户 |
+| 右侧书桌 / 便笺 | 转化为“资料 / 学习笔记”上下文面板；根据任务切换来源、相关知识点、当前题目和解析，不固定显示后台信息 |
+| Composer | 支持附件、资料范围、引用选中文字和短学习动作；模型、工具和推理等级保持低视觉权重 |
+| 纸面设计系统 | 使用本地字体、暖纸 Token、轻纹理、小圆角、细分隔和短时动效；以 `docs/DESIGN.md` 为唯一色彩与排版标准 |
+
+第二优先级，在 P5F 或学习闭环稳定后补：
+
+- 会话正文搜索、归档与恢复。
+- 可查看和管理的学习记忆，明确区分用户画像、长期目标、课程进度、错题薄弱点和临时上下文。
+- 复习提醒与定时学习任务，把通用 Cron 转化为间隔复习和阶段总结。
+- 可导入、导出的教学人设或学习技能包；Bobodan 三花猫仍是固定品牌形象。
+- 桌面端与移动 PWA 共享同一套会话、资料和练习身份，避免前端各自复制数据。
+
+明确不照搬：
+
+- 不把频道、社交平台、多 Agent 协作放进 Web MVP 一级导航。
+- 不把多个角色选择器放在默认首页；用户人设属于配置层，Bobodan 小猫属于品牌层。
+- 不长期固定展开右侧面板，也不在右侧堆叠 Todo、Workflow、Logs 等 Agent 控制卡。
+- 不照搬过低对比度文字、过量空白、嵌套卡片和大面积胶囊按钮；阅读可访问性优先。
+- 不提前建设主题画廊、插件市场、角色卡市场和完整自动化后台。
+- 可以借鉴结构和交互思想；若直接复用 OpenHanako 代码，必须遵守其 Apache-2.0 许可证并保留必要声明，不复制其角色与品牌资产。
+
+#### 2.2.2 OpenHanako 系统级参考
+
+前面的三栏布局只是表层参考。后续实现还应持续检查 OpenHanako 在过程披露、配置、记忆、会话恢复、权限和扩展边界上的做法，但只吸收适合学习产品的部分。
+
+##### 思考与任务过程
+
+OpenHanako 将思考、工具组、子任务和工作流分别建模，并采用“聊天中显示摘要、按需展开详情、复杂流程放右侧面板”的渐进披露。Bobodan 采用相同的信息层级，但不得把模型原始思维链直接展示给用户。
+
+Bobodan 的用户可见过程统一为：
+
+```text
+理解问题
+→ 检索已选择的本地资料
+→ 必要时请求联网确认
+→ 对比来源并检查冲突
+→ 组织回答 / 生成练习
+→ 完成、失败或等待用户操作
+```
+
+规则：
+
+- Chat 默认只显示一句过程摘要，例如“正在检索 3 份课程资料”。
+- 展开后显示资料、工具、耗时、成功/失败与重试动作，不显示未经整理的内部推理文本。
+- 多个同类工具调用自动归组；已经有来源卡、练习卡或设置回执承载结果时，不重复显示底层工具行。
+- 复杂任务在聊天流中只保留静态概览，实时步骤放入右侧上下文面板。
+- 面向普通用户提供“简洁 / 标准 / 深入”的回答深度，不直接暴露模型 thinking budget 名称。
+
+参考实现：[ThinkingBlock](https://github.com/liliMozi/openhanako/blob/main/desktop/src/react/components/chat/ThinkingBlock.tsx)、[ProcessFoldBlock](https://github.com/liliMozi/openhanako/blob/main/desktop/src/react/components/chat/ProcessFoldBlock.tsx)、[ToolGroupBlock](https://github.com/liliMozi/openhanako/blob/main/desktop/src/react/components/chat/ToolGroupBlock.tsx)。
+
+##### 首次配置与应用设置
+
+OpenHanako 的首次流程依次处理语言、用户/助手名称、Provider、模型、主题和工作区；模型又区分 chat、utility、utility_large、embedding 与视觉能力。Bobodan 保留职责分工，但默认自动选择，避免把模型工程概念当成新用户门槛。
+
+Bobodan 首次流程收敛为四步：
+
+1. 语言、用户称呼和学习目标。
+2. 连接 AI；提供推荐配置，高级用户再展开 Provider、Base URL 和模型职责。
+3. 导入第一份资料或先跳过，并建立第一个学习空间。
+4. 解释记忆、联网和本地数据边界，用户确认后进入 Chat。
+
+长期设置结构：
+
+| 设置组 | 内容 |
+|---|---|
+| 我的资料 | 称呼、头像、个人介绍、长期目标 |
+| 学习偏好 | 讲解方式、反馈强度、回答深度、练习偏好 |
+| 记忆与隐私 | 记忆总开关、分层记忆、删除与导出、联网确认 |
+| AI 与模型 | 推荐自动路由；Provider、模型职责和视觉模型放在高级区 |
+| 资料与搜索 | 默认资料范围、联网搜索服务、来源策略 |
+| 复习与通知 | 间隔复习、学习提醒、阶段总结 |
+| 界面与阅读 | 主题、字体、字号、内容宽度、纸张纹理、减少动态效果 |
+| 技能与集成 | Obsidian、Skills、MCP；默认折叠 |
+| 安全与数据 | 权限模式、备份、归档、代理和本地数据位置 |
+
+设置页必须支持搜索。用户也可以在 Chat 中提出“关闭记忆”“回答简短一点”等配置请求；系统显示修改前后值并要求确认。沙盒、文件删除、密钥、网络边界等敏感设置只能由用户在设置页操作，AI 不能代为开启。
+
+参考实现：[配置模板](https://github.com/liliMozi/openhanako/blob/main/lib/config.example.yaml)、[设置搜索](https://github.com/liliMozi/openhanako/blob/main/desktop/src/react/settings/settings-search-index.ts)、[对话修改设置](https://github.com/liliMozi/openhanako/blob/main/lib/tools/update-settings-tool.ts)。
+
+##### 人格与学习记忆
+
+OpenHanako 将身份、人格、用户资料、置顶记忆、事实库、今日、近一周、长期记忆和经验分开。Bobodan 使用同样的可解释分层，但必须按学习场景重新命名并隔离：
+
+| OpenHanako 概念 | Bobodan 对应 |
+|---|---|
+| identity / persona | 教学人设与表达方式，不覆盖品牌、安全和来源规则 |
+| user profile | 用户画像、学习目标、背景和偏好 |
+| pinned memory | 用户明确固定的目标、约束和重要事实 |
+| facts | 稳定学习事实、课程信息和用户确认内容 |
+| today / week / longterm | 今日学习、近期进度、长期学习轨迹 |
+| experience | 对该用户有效的教学方法；默认关闭或谨慎写入 |
+
+记忆必须按学习空间隔离，同时允许少量全局用户偏好跨空间共享。用户能查看、编辑、固定、删除和清空；界面显示记忆健康与最近更新时间。错题、掌握度和复习计划仍由结构化学习数据维护，不能只写进自然语言 memory.md。
+
+参考实现：[记忆编译](https://github.com/liliMozi/openhanako/blob/main/lib/memory/compile.ts)、[置顶记忆](https://github.com/liliMozi/openhanako/blob/main/lib/memory/pinned-memory-store.ts)、[记忆设置](https://github.com/liliMozi/openhanako/blob/main/desktop/src/react/settings/tabs/agent/AgentMemory.tsx)。
+
+##### 会话、资料与恢复
+
+以下不是装饰功能，而是长期使用体验的基础：
+
+- 会话标题优先搜索，必要时继续搜索正文；支持项目/学习空间分组、置顶、归档、恢复和永久删除。
+- 输入草稿按首页或会话分别持久化，切换会话、刷新或短暂离线后不丢失。
+- 流式回答支持断线续传与事件重放，刷新后能恢复已完成内容。
+- 会话恢复前检查连续错误、上下文溢出和孤立工具结果，提供压缩、新会话或重试动作。
+- 对话过长时使用结构化摘要压缩，保留目标、决策、文件、来源和未完成事项。
+- 文件、资料、生成物和媒体使用稳定 resource id / source id，不把本地绝对路径当作前端身份。
+- 资料具有版本或 revision；编辑前创建检查点，外部变化与本地未保存修改冲突时明确提示。
+- 预览器保存阅读位置、当前标题、选区和编辑位置；选中文字可引用到 Chat。
+
+这些能力优先借鉴协议与恢复逻辑，不要求 Bobodan 改用 Electron 或 JSONL。Python + FastAPI + SQLite 的现有技术路线保持不变。
+
+参考实现：[会话健康](https://github.com/liliMozi/openhanako/blob/main/core/session-health.ts)、[断线续流](https://github.com/liliMozi/openhanako/blob/main/desktop/src/react/services/stream-resume.ts)、[资源引用](https://github.com/liliMozi/openhanako/blob/main/lib/resource-io/resource-refs.ts)、[输入草稿](https://github.com/liliMozi/openhanako/blob/main/desktop/src/react/stores/input-draft-persistence.ts)。
+
+##### 权限、安全与自动化
+
+- 借鉴 read-only / ask / auto / operate 的分层思想，Bobodan 面向用户简化为“只读”“每次询问”“允许当前学习空间”。
+- 联网搜索、写回 Obsidian、删除资料、执行代码和修改长期记忆分别声明副作用，不用一个总开关包办。
+- 敏感操作保留用户确认；自动审查不能扩大沙盒、可写目录或网络范围。
+- 文件修改前检查点、备份保留期、恢复入口和脱敏安全审计进入发布门槛。
+- 定时触发与 AI 执行分离：调度器负责“何时触发”，AI 只负责“生成什么内容”。
+- 自动化优先转化为复习提醒、到期错题和阶段总结；默认不巡检任意本地目录。
+
+参考实现：[会话权限](https://github.com/liliMozi/openhanako/blob/main/core/session-permission-mode.ts)、[路径权限](https://github.com/liliMozi/openhanako/blob/main/lib/sandbox/path-guard.ts)、[定时调度](https://github.com/liliMozi/openhanako/blob/main/lib/desk/cron-scheduler.ts)。
+
+##### 技能、插件与工程结构
+
+- Skill 可以组成“学习技能包”，按学习空间或教学人设启用、禁用、导入和导出。
+- 教学人设包可以携带人格、头像和 Skills；记忆默认不随包导入，必须单独勾选和预览。
+- 插件若后续实现，必须声明能力、网络域名、资源读写和配置 schema，并区分受限与完全访问。
+- 后端继续使用现有 Python service 边界，但借鉴 Manager / facade、事件总线、稳定 DTO、schema version 和迁移机制。
+- Provider 与模型使用稳定的 `provider + model id` 引用，不按裸模型名猜测；聊天、轻量任务、深度分析、embedding 和视觉模型可内部路由。
+- 借鉴其测试纪律：过程 UI、会话恢复、Provider 兼容、权限、安全、插件 grant 和移动布局都要有针对性测试；不要只测 happy path。
+
+OpenHanako 当前使用 Electron + React + Zustand + Hono，并拥有大量前端与契约测试。Bobodan 不复制技术栈，只把其成熟边界映射到 FastAPI + React 架构。
 
 一句话：
 
@@ -393,7 +540,10 @@ SourceRef
 
 - 建立 `web/frontend`、路由、Vite proxy 和 API client。
 - 落地 `DESIGN.md` tokens、字体和核心组件。
+- 建立响应式三栏骨架：左侧会话 / 学习空间，中间 Chat 主画布，右侧可折叠学习上下文；移动端使用抽屉，不压缩主对话列。
 - Today 作为 Chat 无活动会话时的起始状态，不单独搭第二套首页。
+- Today 使用 Bobodan 正式头像或学习场景图，显示当前学习空间与记忆状态；只提供“开始提问、导入资料、开始练习”等真实可执行动作。
+- 增加四步首次配置：用户与目标、AI 连接、首个学习空间、记忆与联网边界；模型职责默认自动配置。
 - 第一批真实入口只开放 Chat、Practice、Review、Library；没有数据的入口显示“导入资料 / 开始对话”等可执行空状态，不放假按钮。
 
 #### P5D.2 最小 Library 与资料导入
@@ -401,11 +551,16 @@ SourceRef
 - 上传 Markdown、PDF、DOCX、PPTX，显示导入和索引状态。
 - 展示文档列表、基础元数据和可读错误，不先做全文编辑、highlight 或大图谱。
 - 选择一份或一组资料作为 Chat / Practice 的学习范围。
+- 当前资料范围同步显示在右侧上下文面板；面板首版只做资料列表和来源详情，不实现完整文件管理器。
 
 #### P5D.3 Chat 纵向切片
 
 - 会话列表、主对话区、composer、流式回答、状态反馈、来源 chip。
 - 新建、恢复、重命名、删除会话。
+- Composer 支持附件、当前资料范围和引用选中文字；解释、总结、出题等学习动作复用同一个输入与发送流程。
+- 右侧上下文根据当前回答展示来源、相关知识点和“生成练习”入口，无上下文时自动收起或显示轻量空状态。
+- 思考与工具过程使用渐进披露：默认一句学习过程摘要，展开后显示资料、工具、耗时和失败恢复，不展示原始思维链。
+- 输入草稿按首页 / 会话持久化；切换页面不丢失当前运行状态，刷新或断线后恢复已完成内容并提供“重新发送本轮”，同一 run 断点续传留到后续按需升级。
 - 工具过程默认折叠，只展示用户能理解的状态。
 - 失败可重试，刷新后恢复最近已完成会话。
 
@@ -428,6 +583,7 @@ P5D 验收：
 - 新用户能完成“导入资料 → 提问 → 查看来源 → 生成 5 题 → 做题 → 查看批改 → 进入复习”。
 - 关键流程全部使用真实后端数据，无 mock 业务数据。
 - Chat → Practice → Review 至少有一条 Playwright 端到端测试。
+- 刷新和会话切换后，输入草稿、已完成回答和当前学习范围可恢复；短暂断线有明确的重试动作。
 
 ### P5E：可信资料扩展
 
@@ -452,7 +608,11 @@ P5D 验收：
 1. Library 增强：文档阅读、highlight、摘录回流和相关概念；基础导入与列表已在 P5D 完成。
 2. Roadmap：学习目标、当前阶段和今日任务。
 3. Memory Browser：查看、编辑、删除、固定；用户人设配置后置于此。
-4. Workbench：只提供必要的设置和状态入口，Agents / MCP / Logs 继续低权重。
+4. 会话增强：正文搜索、归档、恢复和引用历史。
+5. 复习自动化：用户确认后创建间隔复习提醒和阶段总结，不暴露通用 Cron 配置。
+6. 设置增强：设置搜索、学习偏好、回答深度，以及经确认的对话式非敏感配置修改。
+7. 数据保护：资料编辑检查点、备份恢复、记忆导出和安全审计入口。
+8. Workbench：只提供必要的设置和状态入口，Agents / MCP / Logs 继续低权重。
 
 发布门槛：
 
@@ -465,10 +625,11 @@ P5D 验收：
 ### 本轮明确不做
 
 - 完整 Agent / MCP / Logs 管理后台。
+- 频道、社交平台入口和多 Agent 群聊。
 - 独立 Canvas 产品、复杂知识图谱和完整知识编辑器。
 - 模拟考试、限时训练、复杂题型和完整能力模型。
 - 多用户 SaaS、跨设备同步、移动端原生 App。
-- 插件市场、班级协作、排行榜或社交分享。
+- 主题 / 封面画廊、插件市场、角色卡市场、班级协作、排行榜或社交分享。
 
 ## 5. 练习系统产品决策
 

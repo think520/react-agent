@@ -101,6 +101,22 @@ Bobodan 的参考宇宙不是科技产品榜单，而是中文阅读、纸面排
 
 > 像给一台 Agent OS 穿上高级笔记本封皮。
 
+### Bobodan 品牌角色
+
+Bobodan 的固定品牌形象是一只安静、聪明的三花小猫。正式参考与实现资产：
+
+- `docs/assets/brand/bobodan-calico-mascot-primary.png`
+- `docs/assets/brand/bobodan-calico-avatar-master.png`（最终透明 UI 头像母版）
+- `docs/assets/brand/bobodan-calico-avatar-expressions-master.png`（四表情母版）
+- `docs/assets/brand/bobodan-calico-states-master.png`（六学习状态母版）
+- `docs/assets/brand/bobodan-chat-hero-master.png`（Chat 起始页横向插图母版）
+- 前端资源：`web/frontend/public/assets/brand/`
+- 角色规范与资产清单：`docs/assets/brand/BOBODAN_MASCOT.md`
+
+小猫属于品牌层，不等于用户配置的人设。产品 Logo、启动页、空状态和少量系统反馈可以使用 Bobodan 小猫；用户仍可修改助手称呼、表达方式、教学风格、反馈强度和对话头像，或隐藏角色形象。人设只能改变表达，不得覆盖来源、可信度、隐私和安全规则。
+
+后续生成角色图片必须使用主参考图作为图像参考，保持脸部左右分区、身体斑块、尾巴花纹、墨蓝线条和橘棕色一致。禁止每次重新设计一只外观不同的三花猫。
+
 ## 3.1 Study / Workbench 视觉分区
 
 Bobodan 的长期 Web UI 有两组空间：

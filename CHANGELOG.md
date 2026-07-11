@@ -7,6 +7,11 @@
 ## [未发布]
 
 ### 新增
+- **Bobodan 品牌与 Web 视觉参考资产**: 完成三花猫品牌角色规范、正式透明头像、四表情、六学习状态和 Chat 起始插图，并导出前端可直接使用的 PNG / WebP 尺寸。
+  - 新增 `docs/assets/brand/BOBODAN_MASCOT.md`，明确品牌角色与用户可配置人设的边界、固定识别特征和后续图片接收规则。
+  - 新增 `web/frontend/public/assets/brand/` 前端资源清单，以及 `docs/prototypes/bobodan-study-workspace.html` 静态视觉预览。
+  - `docs/DESIGN.md` 补充品牌角色规范；`docs/PROJECT_GUIDE.md` 补充 OpenHanako 的布局、过程披露、设置、记忆、恢复、权限和扩展借鉴边界。
+
 - **P5C Web UI 产品化前置工作完成**: 在不实现 React 页面之前，完成 Web MVP 所需的运行时、API、资料、来源和练习状态基础。
   - 新增共享 `RuntimeService / RuntimeContext`，CLI 与 Web 统一加载 provider、workspace、skills、memory 和 trace；quiz / learning LLM 调用使用同一份 config。
   - Chat API 增加 `run_id`、安全 SSE 事件适配、session list / detail / rename / delete；Web 运行时只开放 RAG、学习、练习和记忆工具白名单。

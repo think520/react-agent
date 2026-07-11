@@ -1,0 +1,1147 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Bobodan 学习工作区</title>
+  <!--
+    设计假设：
+    - 这是 P5D Web MVP 的视觉预览，默认展示 Chat 学习主画布。
+    - 同一文件包含 Practice / Review / Library 的轻量切换，用于验证整体设计语言。
+    - 数据均为静态示例，不连接后端，也不代表已实现业务功能。
+    - 字体仅使用本机字体回退，正式 Web UI 应按 DESIGN.md 本地打包 Luo 字体。
+  -->
+  <style>
+    :root {
+      --paper: #f5f4ed;
+      --paper-soft: #f7f5ef;
+      --parchment: #f3efe5;
+      --ink: #2e2b27;
+      --muted: #6f675c;
+      --faint: #9a9185;
+      --blue: #1b365d;
+      --blue-soft: #2f4f78;
+      --blue-wash: #e8edf3;
+      --blue-faint: #a9b7c8;
+      --sage: #7a9b76;
+      --sage-soft: #93aa8d;
+      --sage-wash: #e7ede3;
+      --oak: #c89b73;
+      --wheat: #cfaf88;
+      --clay: #b86f4b;
+      --clay-soft: #c98563;
+      --clay-wash: #f3e1d5;
+      --petal: #d9a7a0;
+      --petal-wash: #f6e6e2;
+      --danger: #934d43;
+      --border: rgba(46, 43, 39, 0.10);
+      --border-strong: rgba(46, 43, 39, 0.16);
+      --shadow-soft: 0 4px 12px rgba(46, 43, 39, 0.04);
+      --shadow-float: 0 10px 28px rgba(46, 43, 39, 0.08);
+      --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+      --sidebar: 252px;
+      --context: 316px;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body { height: 100%; }
+
+    body {
+      margin: 0;
+      overflow: hidden;
+      color: var(--ink);
+      background: var(--paper);
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      font-size: 15px;
+      line-height: 1.6;
+      letter-spacing: 0;
+    }
+
+    button, textarea, input { font: inherit; letter-spacing: 0; }
+    button { color: inherit; }
+    svg { display: block; width: 18px; height: 18px; stroke-width: 1.8; }
+
+    :focus-visible {
+      outline: 2px solid var(--blue-soft);
+      outline-offset: 2px;
+    }
+
+    .app {
+      display: grid;
+      grid-template-columns: var(--sidebar) minmax(0, 1fr) var(--context);
+      height: 100dvh;
+      min-height: 600px;
+      overflow: hidden;
+    }
+
+    .sidebar {
+      display: flex;
+      min-width: 0;
+      min-height: 0;
+      flex-direction: column;
+      background: var(--paper-soft);
+      border-right: 1px solid var(--border);
+      padding: 22px 16px 16px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      padding: 0 8px 22px;
+    }
+
+    .brand-mark {
+      display: grid;
+      width: 34px;
+      height: 34px;
+      place-items: center;
+      border: 1px solid rgba(27, 54, 93, 0.16);
+      border-radius: 8px;
+      color: var(--blue);
+      background: var(--blue-wash);
+      font-family: Georgia, "STSong", serif;
+      font-size: 19px;
+      font-weight: 600;
+    }
+
+    .brand-copy { min-width: 0; }
+    .brand-name {
+      color: var(--blue);
+      font-family: Georgia, "STSong", "SimSun", serif;
+      font-size: 18px;
+      font-weight: 600;
+      line-height: 1.15;
+    }
+    .brand-subtitle { color: var(--faint); font-size: 11px; margin-top: 2px; }
+
+    .new-chat {
+      display: flex;
+      width: 100%;
+      min-height: 42px;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 12px;
+      border: 1px solid var(--border-strong);
+      border-radius: 8px;
+      color: var(--blue);
+      background: transparent;
+      cursor: pointer;
+      transition: background 160ms ease, border-color 160ms ease, transform 120ms var(--ease-out);
+    }
+
+    .new-chat:hover { background: var(--blue-wash); border-color: rgba(27, 54, 93, 0.22); }
+    .new-chat:active, .icon-button:active, .primary-button:active, .quiet-button:active { transform: scale(0.97); }
+    .new-chat-label { display: flex; align-items: center; gap: 9px; font-weight: 600; }
+    .shortcut { color: var(--faint); font-size: 11px; }
+
+    .nav { display: grid; gap: 4px; margin-top: 16px; }
+    .nav-button {
+      display: flex;
+      width: 100%;
+      min-height: 42px;
+      align-items: center;
+      gap: 11px;
+      padding: 0 12px;
+      border: 0;
+      border-radius: 7px;
+      color: var(--muted);
+      background: transparent;
+      cursor: pointer;
+      text-align: left;
+      transition: color 150ms ease, background 150ms ease, transform 120ms var(--ease-out);
+    }
+
+    .nav-button:hover { color: var(--ink); background: rgba(46, 43, 39, 0.04); }
+    .nav-button:active { transform: scale(0.98); }
+    .nav-button.active { color: var(--blue); background: var(--blue-wash); font-weight: 600; }
+    .nav-button .count {
+      min-width: 20px;
+      margin-left: auto;
+      color: var(--muted);
+      font-size: 11px;
+      text-align: right;
+    }
+
+    .history {
+      min-height: 0;
+      flex: 1;
+      overflow: auto;
+      margin-top: 26px;
+      padding: 0 3px;
+    }
+
+    .eyebrow {
+      color: var(--faint);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .history-list { display: grid; gap: 2px; margin-top: 8px; }
+    .history-item {
+      width: 100%;
+      overflow: hidden;
+      padding: 8px 9px;
+      border: 0;
+      border-radius: 6px;
+      color: var(--muted);
+      background: transparent;
+      cursor: pointer;
+      text-align: left;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .history-item:hover { color: var(--ink); background: rgba(46, 43, 39, 0.035); }
+
+    .sidebar-footer {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 8px 2px;
+      border-top: 1px solid var(--border);
+    }
+    .avatar {
+      display: grid;
+      width: 31px;
+      height: 31px;
+      flex: 0 0 auto;
+      place-items: center;
+      border-radius: 50%;
+      color: var(--ink);
+      background: var(--petal-wash);
+      font-family: Georgia, serif;
+      font-weight: 600;
+    }
+    .profile { min-width: 0; flex: 1; }
+    .profile-name { font-size: 13px; font-weight: 600; line-height: 1.25; }
+    .profile-status { color: var(--faint); font-size: 11px; }
+
+    .icon-button {
+      display: inline-grid;
+      width: 38px;
+      height: 38px;
+      flex: 0 0 auto;
+      place-items: center;
+      border: 1px solid transparent;
+      border-radius: 7px;
+      color: var(--muted);
+      background: transparent;
+      cursor: pointer;
+      transition: color 150ms ease, background 150ms ease, border-color 150ms ease, transform 120ms var(--ease-out);
+    }
+    .icon-button:hover { color: var(--blue); background: var(--blue-wash); border-color: rgba(27, 54, 93, 0.08); }
+
+    .main {
+      position: relative;
+      display: flex;
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+      flex-direction: column;
+      background: var(--paper);
+    }
+
+    .topbar {
+      position: relative;
+      z-index: 4;
+      display: flex;
+      min-height: 68px;
+      align-items: center;
+      gap: 14px;
+      padding: 0 26px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(245, 244, 237, 0.94);
+      backdrop-filter: blur(16px) saturate(130%);
+    }
+    .mobile-menu { display: none; }
+    .page-meta { min-width: 0; flex: 1; }
+    .page-kicker { color: var(--faint); font-size: 11px; line-height: 1.25; }
+    .page-title {
+      overflow: hidden;
+      color: var(--ink);
+      font-family: Georgia, "STSong", "SimSun", serif;
+      font-size: 17px;
+      font-weight: 600;
+      line-height: 1.35;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .topbar-actions { display: flex; align-items: center; gap: 4px; }
+    .context-toggle { display: none; }
+
+    .content-scroll {
+      width: 100%;
+      min-height: 0;
+      flex: 1;
+      overflow: auto;
+      overscroll-behavior: contain;
+      scrollbar-gutter: stable;
+    }
+
+    .view { display: none; min-height: 100%; }
+    .view.active { display: block; }
+
+    .conversation {
+      width: min(100%, 780px);
+      margin: 0 auto;
+      padding: 46px 32px 168px;
+    }
+
+    .day-line {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 36px;
+      color: var(--faint);
+      font-size: 11px;
+    }
+    .day-line::before, .day-line::after { height: 1px; flex: 1; content: ""; background: var(--border); }
+
+    .user-message {
+      width: fit-content;
+      max-width: 76%;
+      margin: 0 0 34px auto;
+      padding: 13px 16px;
+      border: 1px solid rgba(184, 111, 75, 0.13);
+      border-radius: 8px 8px 2px 8px;
+      background: var(--clay-wash);
+      line-height: 1.65;
+    }
+
+    .assistant { position: relative; }
+    .assistant-label {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      margin-bottom: 15px;
+      color: var(--blue);
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .assistant-seal {
+      display: grid;
+      width: 25px;
+      height: 25px;
+      place-items: center;
+      border: 1px solid rgba(27, 54, 93, 0.14);
+      border-radius: 6px;
+      background: var(--blue-wash);
+      font-family: Georgia, serif;
+      font-size: 13px;
+    }
+    .prose {
+      font-family: Georgia, "LXGW WenKai Screen", "STSong", "SimSun", serif;
+      font-size: 17px;
+      line-height: 1.9;
+    }
+    .prose h2 {
+      margin: 0 0 18px;
+      color: var(--blue);
+      font-size: 25px;
+      font-weight: 600;
+      line-height: 1.35;
+    }
+    .prose p { margin: 0 0 18px; }
+    .prose strong { color: var(--blue); font-weight: 600; }
+    .key-idea {
+      margin: 26px 0;
+      padding: 18px 20px;
+      border-left: 3px solid var(--wheat);
+      background: rgba(243, 239, 229, 0.76);
+    }
+    .key-idea-title {
+      margin-bottom: 5px;
+      color: var(--clay);
+      font-family: ui-sans-serif, sans-serif;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .source-row, .action-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .source-row { margin-top: 24px; }
+    .source-chip {
+      display: inline-flex;
+      min-height: 30px;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 9px;
+      border: 1px solid rgba(27, 54, 93, 0.14);
+      border-radius: 6px;
+      color: var(--blue);
+      background: var(--blue-wash);
+      cursor: pointer;
+      font-family: ui-sans-serif, sans-serif;
+      font-size: 12px;
+      transition: border-color 150ms ease, background 150ms ease, transform 120ms var(--ease-out);
+    }
+    .source-chip:hover { border-color: rgba(27, 54, 93, 0.3); background: #e1e8f0; }
+    .source-chip:active { transform: scale(0.97); }
+    .source-chip.extension { border-style: dashed; background: transparent; }
+
+    .action-row { margin-top: 27px; padding-top: 20px; border-top: 1px solid var(--border); }
+    .quiet-button, .primary-button {
+      display: inline-flex;
+      min-height: 40px;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 0 13px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      transition: color 150ms ease, background 150ms ease, border-color 150ms ease, transform 120ms var(--ease-out);
+    }
+    .quiet-button { border: 1px solid var(--border-strong); color: var(--muted); background: transparent; }
+    .quiet-button:hover { color: var(--blue); background: var(--blue-wash); border-color: rgba(27, 54, 93, 0.18); }
+    .primary-button { border: 1px solid var(--blue); color: var(--paper-soft); background: var(--blue); box-shadow: var(--shadow-soft); }
+    .primary-button:hover { background: var(--blue-soft); }
+
+    .composer-wrap {
+      position: absolute;
+      z-index: 5;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      padding: 24px 28px 20px;
+      background: linear-gradient(to bottom, rgba(245, 244, 237, 0), var(--paper) 25%, var(--paper));
+      pointer-events: none;
+    }
+    .composer {
+      width: min(100%, 760px);
+      margin: 0 auto;
+      overflow: hidden;
+      border: 1px solid var(--border-strong);
+      border-radius: 8px;
+      background: var(--paper-soft);
+      box-shadow: var(--shadow-float);
+      pointer-events: auto;
+      transition: border-color 160ms ease, box-shadow 160ms ease;
+    }
+    .composer:focus-within { border-color: rgba(27, 54, 93, 0.48); box-shadow: 0 10px 28px rgba(27, 54, 93, 0.09); }
+    .composer textarea {
+      display: block;
+      width: 100%;
+      min-height: 56px;
+      max-height: 140px;
+      resize: none;
+      overflow-y: auto;
+      padding: 16px 18px 6px;
+      border: 0;
+      outline: 0;
+      color: var(--ink);
+      background: transparent;
+      line-height: 1.6;
+    }
+    .composer textarea::placeholder { color: var(--faint); }
+    .composer-toolbar { display: flex; min-height: 48px; align-items: center; gap: 4px; padding: 4px 8px 8px; }
+    .composer-hint { margin-left: 4px; color: var(--faint); font-size: 11px; }
+    .send-button {
+      display: grid;
+      width: 38px;
+      height: 38px;
+      margin-left: auto;
+      place-items: center;
+      border: 0;
+      border-radius: 7px;
+      color: var(--paper-soft);
+      background: var(--blue);
+      cursor: pointer;
+      transition: background 150ms ease, transform 120ms var(--ease-out), opacity 150ms ease;
+    }
+    .send-button:hover { background: var(--blue-soft); }
+    .send-button:active { transform: scale(0.95); }
+    .send-button:disabled { opacity: 0.45; cursor: default; }
+
+    .context-panel {
+      min-width: 0;
+      min-height: 0;
+      overflow: auto;
+      padding: 24px 22px;
+      border-left: 1px solid var(--border);
+      background: var(--parchment);
+    }
+    .context-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+    .context-title {
+      color: var(--blue);
+      font-family: Georgia, "STSong", serif;
+      font-size: 17px;
+      font-weight: 600;
+    }
+    .context-close { display: none; }
+    .context-section { padding: 20px 0; border-top: 1px solid var(--border); }
+    .context-section:first-of-type { padding-top: 0; border-top: 0; }
+    .section-title { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; color: var(--muted); font-size: 12px; font-weight: 700; }
+    .memory-note {
+      padding: 14px 15px;
+      border: 1px solid rgba(217, 167, 160, 0.23);
+      border-radius: 8px;
+      background: var(--petal-wash);
+      color: var(--muted);
+      font-family: Georgia, "STSong", serif;
+      font-size: 14px;
+      line-height: 1.75;
+    }
+    .memory-note strong { color: var(--ink); font-weight: 600; }
+    .document-list, .review-list { display: grid; gap: 7px; }
+    .document-item, .review-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 8px 0;
+    }
+    .document-icon {
+      display: grid;
+      width: 31px;
+      height: 34px;
+      flex: 0 0 auto;
+      place-items: center;
+      border: 1px solid var(--border-strong);
+      border-radius: 6px;
+      color: var(--blue);
+      background: var(--paper-soft);
+    }
+    .document-copy { min-width: 0; flex: 1; }
+    .document-title { overflow: hidden; font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+    .document-meta { color: var(--faint); font-size: 11px; }
+    .status-dot { width: 7px; height: 7px; flex: 0 0 auto; margin-top: 8px; border-radius: 50%; background: var(--sage); }
+
+    .review-item { align-items: center; }
+    .review-mark {
+      display: grid;
+      width: 25px;
+      height: 25px;
+      flex: 0 0 auto;
+      place-items: center;
+      border: 1px solid rgba(184, 111, 75, 0.18);
+      border-radius: 6px;
+      color: var(--clay);
+      background: var(--clay-wash);
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .review-copy { min-width: 0; flex: 1; }
+    .review-name { font-size: 13px; font-weight: 600; }
+    .review-meta { color: var(--faint); font-size: 11px; }
+    .context-action { width: 100%; margin-top: 10px; }
+
+    .practice-page, .review-page, .library-page { padding: 38px 34px 80px; }
+    .page-inner { width: min(100%, 920px); margin: 0 auto; }
+    .section-heading { margin-bottom: 28px; }
+    .section-heading h1 {
+      margin: 0 0 6px;
+      color: var(--blue);
+      font-family: Georgia, "STSong", serif;
+      font-size: 30px;
+      font-weight: 600;
+      line-height: 1.3;
+    }
+    .section-heading p { margin: 0; color: var(--muted); }
+
+    .practice-progress { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+    .progress-track { height: 4px; flex: 1; overflow: hidden; border-radius: 2px; background: rgba(46, 43, 39, 0.09); }
+    .progress-value { width: 40%; height: 100%; background: var(--blue); }
+    .progress-label { color: var(--faint); font-size: 12px; }
+    .question-card {
+      padding: 30px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--paper-soft);
+      box-shadow: var(--shadow-soft);
+    }
+    .question-type { color: var(--clay); font-size: 12px; font-weight: 700; }
+    .question-title {
+      margin: 10px 0 24px;
+      font-family: Georgia, "STSong", serif;
+      font-size: 23px;
+      font-weight: 600;
+      line-height: 1.55;
+    }
+    .options { display: grid; gap: 10px; }
+    .option {
+      display: grid;
+      grid-template-columns: 32px minmax(0, 1fr);
+      min-height: 52px;
+      align-items: center;
+      gap: 12px;
+      padding: 8px 13px;
+      border: 1px solid var(--border-strong);
+      border-radius: 7px;
+      background: transparent;
+      cursor: pointer;
+      text-align: left;
+      transition: border-color 150ms ease, background 150ms ease, transform 120ms var(--ease-out);
+    }
+    .option:hover { border-color: rgba(27, 54, 93, 0.28); background: rgba(232, 237, 243, 0.52); }
+    .option:active { transform: scale(0.992); }
+    .option.selected { border-color: var(--blue); background: var(--blue-wash); }
+    .option-letter { display: grid; width: 28px; height: 28px; place-items: center; border: 1px solid var(--border-strong); border-radius: 6px; color: var(--muted); font-size: 12px; font-weight: 700; }
+    .option.selected .option-letter { border-color: var(--blue); color: var(--paper-soft); background: var(--blue); }
+    .question-actions { display: flex; align-items: center; gap: 9px; margin-top: 22px; }
+    .question-actions .primary-button { margin-left: auto; }
+    .feedback {
+      display: none;
+      margin-top: 20px;
+      padding: 16px 18px;
+      border-left: 3px solid var(--sage);
+      background: var(--sage-wash);
+      color: var(--muted);
+    }
+    .feedback.visible { display: block; }
+    .feedback strong { color: var(--ink); }
+
+    .review-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; margin-bottom: 28px; border: 1px solid var(--border); background: var(--border); }
+    .summary-cell { min-height: 104px; padding: 19px; background: var(--paper-soft); }
+    .summary-value { color: var(--blue); font-family: Georgia, serif; font-size: 27px; line-height: 1.2; }
+    .summary-label { margin-top: 5px; color: var(--muted); font-size: 12px; }
+    .review-queue { border-top: 1px solid var(--border); }
+    .queue-row {
+      display: grid;
+      grid-template-columns: 42px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 15px;
+      min-height: 78px;
+      border-bottom: 1px solid var(--border);
+    }
+    .queue-index { color: var(--faint); font-family: Georgia, serif; font-size: 18px; }
+    .queue-title { font-family: Georgia, "STSong", serif; font-size: 17px; font-weight: 600; }
+    .queue-meta { color: var(--faint); font-size: 12px; }
+
+    .library-layout { display: grid; grid-template-columns: 226px minmax(0, 1fr); min-height: 560px; border: 1px solid var(--border); background: var(--paper-soft); }
+    .library-tree { padding: 18px 14px; border-right: 1px solid var(--border); background: var(--parchment); }
+    .tree-heading { padding: 0 7px 10px; color: var(--faint); font-size: 11px; font-weight: 700; }
+    .tree-item {
+      display: flex;
+      width: 100%;
+      min-height: 38px;
+      align-items: center;
+      gap: 9px;
+      padding: 0 8px;
+      border: 0;
+      border-radius: 6px;
+      color: var(--muted);
+      background: transparent;
+      cursor: pointer;
+      text-align: left;
+    }
+    .tree-item:hover, .tree-item.active { color: var(--blue); background: var(--blue-wash); }
+    .tree-indent { padding-left: 27px; }
+    .reader { overflow: auto; padding: 34px 44px 60px; }
+    .reader-meta { color: var(--faint); font-size: 12px; }
+    .reader h2 { margin: 7px 0 22px; color: var(--blue); font-family: Georgia, "STSong", serif; font-size: 28px; font-weight: 600; }
+    .reader article { max-width: 680px; font-family: Georgia, "LXGW WenKai Screen", "STSong", serif; font-size: 16px; line-height: 1.95; }
+    .reader article p { margin: 0 0 19px; }
+    mark { padding: 2px 3px; color: inherit; background: rgba(200, 155, 115, 0.24); }
+
+    .source-popover {
+      position: fixed;
+      z-index: 20;
+      right: calc(var(--context) + 22px);
+      bottom: 28px;
+      width: min(360px, calc(100vw - 32px));
+      padding: 18px;
+      border: 1px solid var(--border-strong);
+      border-radius: 10px;
+      opacity: 0;
+      background: var(--paper-soft);
+      box-shadow: var(--shadow-float);
+      pointer-events: none;
+      transform: translateY(8px) scale(0.98);
+      transform-origin: bottom right;
+      transition: opacity 180ms var(--ease-out), transform 180ms var(--ease-out);
+    }
+    .source-popover.visible { opacity: 1; pointer-events: auto; transform: translateY(0) scale(1); }
+    .popover-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .popover-title { color: var(--blue); font-weight: 700; }
+    .popover-body { margin-top: 12px; color: var(--muted); font-size: 13px; }
+    .popover-location { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); color: var(--faint); font-size: 11px; }
+
+    .toast {
+      position: fixed;
+      z-index: 30;
+      left: 50%;
+      bottom: 24px;
+      max-width: calc(100vw - 32px);
+      padding: 10px 14px;
+      border: 1px solid var(--border-strong);
+      border-radius: 8px;
+      opacity: 0;
+      color: var(--paper-soft);
+      background: var(--ink);
+      box-shadow: var(--shadow-float);
+      pointer-events: none;
+      transform: translate(-50%, 10px) scale(0.98);
+      transition: opacity 180ms var(--ease-out), transform 180ms var(--ease-out);
+      font-size: 13px;
+    }
+    .toast.visible { opacity: 1; transform: translate(-50%, 0) scale(1); }
+
+    .mobile-nav { display: none; }
+    .scrim { display: none; }
+
+    [data-tooltip] { position: relative; }
+    [data-tooltip]::after {
+      position: absolute;
+      z-index: 50;
+      top: calc(100% + 7px);
+      left: 50%;
+      padding: 5px 7px;
+      border-radius: 5px;
+      opacity: 0;
+      color: var(--paper-soft);
+      background: var(--ink);
+      content: attr(data-tooltip);
+      font-size: 11px;
+      pointer-events: none;
+      transform: translate(-50%, -2px);
+      transition: opacity 130ms ease, transform 130ms var(--ease-out);
+      white-space: nowrap;
+    }
+    [data-tooltip]:hover::after, [data-tooltip]:focus-visible::after { opacity: 1; transform: translate(-50%, 0); }
+
+    @media (max-width: 1180px) {
+      .app { grid-template-columns: 76px minmax(0, 1fr); }
+      .sidebar { padding: 18px 10px 14px; }
+      .brand { justify-content: center; padding: 0 0 22px; }
+      .brand-copy, .new-chat span:not(.new-chat-label), .new-chat-label span, .nav-button span:not(.count), .nav-button .count, .history, .profile { display: none; }
+      .new-chat { justify-content: center; padding: 0; }
+      .new-chat-label { gap: 0; }
+      .nav-button { justify-content: center; padding: 0; }
+      .sidebar-footer { justify-content: center; padding: 14px 0 2px; }
+      .sidebar-footer .icon-button { display: none; }
+      .context-panel {
+        position: fixed;
+        z-index: 12;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        width: var(--context);
+        opacity: 0;
+        box-shadow: -14px 0 34px rgba(46, 43, 39, 0.09);
+        pointer-events: none;
+        transform: translateX(100%);
+        transition: opacity 220ms var(--ease-out), transform 260ms var(--ease-out);
+      }
+      .context-panel.open { opacity: 1; pointer-events: auto; transform: translateX(0); }
+      .context-close, .context-toggle { display: inline-grid; }
+      .scrim { position: fixed; z-index: 11; inset: 0; opacity: 0; background: rgba(46, 43, 39, 0.18); pointer-events: none; transition: opacity 200ms ease; }
+      .scrim.visible { display: block; opacity: 1; pointer-events: auto; }
+      .source-popover { right: 24px; }
+    }
+
+    @media (max-width: 767px) {
+      html, body, .app, .main { width: 100%; max-width: 100%; overflow-x: hidden; }
+      body { overflow: hidden; }
+      .app { display: block; min-height: 0; }
+      .sidebar { position: fixed; z-index: 14; top: 0; bottom: 0; left: 0; width: min(286px, 84vw); padding: 22px 16px 18px; opacity: 0; box-shadow: 14px 0 32px rgba(46, 43, 39, 0.1); pointer-events: none; transform: translateX(-100%); transition: opacity 220ms var(--ease-out), transform 260ms var(--ease-out); }
+      .sidebar.open { opacity: 1; pointer-events: auto; transform: translateX(0); }
+      .brand { justify-content: flex-start; padding: 0 8px 22px; }
+      .brand-copy, .new-chat span:not(.new-chat-label), .new-chat-label span, .nav-button span:not(.count), .nav-button .count, .history, .profile { display: block; }
+      .new-chat { justify-content: space-between; padding: 0 12px; }
+      .new-chat-label { gap: 9px; }
+      .nav-button { justify-content: flex-start; padding: 0 12px; }
+      .sidebar-footer { justify-content: flex-start; padding: 14px 8px 2px; }
+      .sidebar-footer .icon-button { display: inline-grid; }
+      .main { height: 100dvh; }
+      .topbar { min-height: 58px; padding: 0 10px; }
+      .mobile-menu { display: inline-grid; }
+      .page-kicker { display: none; }
+      .page-title { font-size: 15px; }
+      .topbar-actions .icon-button:not(.context-toggle) { display: none; }
+      .conversation { width: 100%; max-width: 100%; padding: 28px 18px 174px; overflow: hidden; }
+      .day-line { margin-bottom: 26px; }
+      .user-message { width: auto; max-width: calc(100% - 42px); overflow-wrap: anywhere; }
+      .prose { font-size: 16px; line-height: 1.85; }
+      .prose h2 { font-size: 22px; }
+      .prose, .prose p, .prose h2, .key-idea { max-width: 100%; overflow-wrap: anywhere; }
+      .action-row { gap: 7px; }
+      .quiet-button, .primary-button { min-height: 42px; }
+      .composer-wrap { bottom: 64px; padding: 22px 12px 10px; }
+      .composer-hint { display: none; }
+      .context-panel { width: min(360px, 92vw); padding-bottom: 90px; }
+      .practice-page, .review-page, .library-page { padding: 26px 16px 90px; }
+      .section-heading h1 { font-size: 26px; }
+      .question-card { padding: 21px 17px; }
+      .question-title { font-size: 20px; }
+      .question-actions { flex-wrap: wrap; }
+      .question-actions .primary-button { width: 100%; margin-left: 0; order: -1; }
+      .review-summary { grid-template-columns: 1fr; }
+      .summary-cell { min-height: 78px; }
+      .queue-row { grid-template-columns: 32px minmax(0, 1fr); padding: 10px 0; }
+      .queue-row .quiet-button { grid-column: 2; width: fit-content; }
+      .library-layout { display: block; border: 0; background: transparent; }
+      .library-tree { margin-bottom: 18px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; }
+      .reader { padding: 20px 4px 40px; }
+      .reader h2 { font-size: 24px; }
+      .mobile-nav {
+        position: fixed;
+        z-index: 10;
+        right: 0;
+        bottom: 0;
+        left: 0;
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        min-height: 64px;
+        padding-bottom: env(safe-area-inset-bottom);
+        border-top: 1px solid var(--border);
+        background: rgba(247, 245, 239, 0.96);
+        backdrop-filter: blur(18px) saturate(130%);
+      }
+      .mobile-nav .nav-button { display: flex; width: auto; min-width: 0; min-height: 64px; flex-direction: column; justify-content: center; gap: 3px; padding: 4px; border-radius: 0; font-size: 10px; }
+      .mobile-nav .nav-button span { display: block; }
+      .source-popover { right: 16px; bottom: 80px; left: 16px; width: auto; }
+      .toast { bottom: 78px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
+    }
+  </style>
+</head>
+<body>
+  <svg width="0" height="0" aria-hidden="true" style="position:absolute">
+    <symbol id="i-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></symbol>
+    <symbol id="i-chat" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z" stroke-linejoin="round"/></symbol>
+    <symbol id="i-practice" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M9 11l3 3L22 4" stroke-linecap="round" stroke-linejoin="round"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" stroke-linecap="round"/></symbol>
+    <symbol id="i-review" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 12a9 9 0 1 0 3-6.7L3 8" stroke-linecap="round"/><path d="M3 3v5h5M12 7v5l3 2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-library" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" stroke-linejoin="round"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21h-4v-.1A1.7 1.7 0 0 0 8.6 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3v-4h.1A1.7 1.7 0 0 0 4.6 8.6a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3h4v.1A1.7 1.7 0 0 0 15.4 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9c.13.37.34.7.6 1 .29.32.68.47 1.1.4h.1v4h-.1a1.7 1.7 0 0 0-1.7.6z" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 6h16M4 12h16M4 18h16" stroke-linecap="round"/></symbol>
+    <symbol id="i-panel" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M15 3v18"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="5" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-paperclip" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21.4 11.6l-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7L9.4 18a2 2 0 0 1-2.8-2.8l8.5-8.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-spark" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 3l1.4 4.1L17.5 8.5l-4.1 1.4L12 14l-1.4-4.1-4.1-1.4 4.1-1.4zM18.5 14l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z" stroke-linejoin="round"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M22 2L11 13" stroke-linecap="round"/><path d="M22 2l-7 20-4-9-9-4z" stroke-linejoin="round"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke-linejoin="round"/><path d="M14 2v6h6M8 13h8M8 17h6" stroke-linecap="round"/></symbol>
+    <symbol id="i-bookmark" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M6 3h12v18l-6-4-6 4z" stroke-linejoin="round"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M18 6L6 18M6 6l12 12" stroke-linecap="round"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M5 12h14M13 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 6a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" stroke-linejoin="round"/></symbol>
+  </svg>
+
+  <div class="app">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="brand-mark">B</div>
+        <div class="brand-copy"><div class="brand-name">Bobodan</div><div class="brand-subtitle">Local learning companion</div></div>
+      </div>
+      <button class="new-chat" id="newChat"><span class="new-chat-label"><svg><use href="#i-plus"/></svg><span>新对话</span></span><span class="shortcut">Ctrl N</span></button>
+      <nav class="nav" aria-label="学习导航">
+        <button class="nav-button active" data-view="chat"><svg><use href="#i-chat"/></svg><span>对话</span></button>
+        <button class="nav-button" data-view="practice"><svg><use href="#i-practice"/></svg><span>练习</span><span class="count">2/5</span></button>
+        <button class="nav-button" data-view="review"><svg><use href="#i-review"/></svg><span>复习</span><span class="count">3</span></button>
+        <button class="nav-button" data-view="library"><svg><use href="#i-library"/></svg><span>资料库</span><span class="count">12</span></button>
+      </nav>
+      <div class="history">
+        <div class="eyebrow">最近对话</div>
+        <div class="history-list">
+          <button class="history-item">Dijkstra 为什么不能处理负权</button>
+          <button class="history-item">整理图算法复习路线</button>
+          <button class="history-item">操作系统：进程与线程</button>
+          <button class="history-item">英语写作中的连接词</button>
+        </div>
+      </div>
+      <div class="sidebar-footer">
+        <div class="avatar">星</div>
+        <div class="profile"><div class="profile-name">星刻</div><div class="profile-status">资料已在本地同步</div></div>
+        <button class="icon-button" data-tooltip="设置" aria-label="设置"><svg><use href="#i-settings"/></svg></button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <button class="icon-button mobile-menu" id="menuButton" aria-label="打开导航"><svg><use href="#i-menu"/></svg></button>
+        <div class="page-meta"><div class="page-kicker" id="pageKicker">图算法 · 本地资料</div><div class="page-title" id="pageTitle">Dijkstra 的贪心选择为什么成立？</div></div>
+        <div class="topbar-actions">
+          <button class="icon-button" data-tooltip="更多" aria-label="更多"><svg><use href="#i-more"/></svg></button>
+          <button class="icon-button context-toggle" id="contextButton" data-tooltip="学习上下文" aria-label="打开学习上下文"><svg><use href="#i-panel"/></svg></button>
+        </div>
+      </header>
+
+      <div class="content-scroll" id="contentScroll">
+        <section class="view active" data-panel="chat">
+          <div class="conversation">
+            <div class="day-line"><span>今天 · 14:32</span></div>
+            <div class="user-message">Dijkstra 算法为什么每次选当前距离最小的节点就是安全的？能结合我导入的课件解释吗？</div>
+            <article class="assistant">
+              <div class="assistant-label"><span class="assistant-seal">B</span><span>Bobodan</span></div>
+              <div class="prose">
+                <h2>关键在于「非负权」让已经确定的最短距离不会被后来推翻。</h2>
+                <p>设当前还没有确定的节点里，<strong>u 的暂定距离最小</strong>。如果存在一条更短的路径能在以后到达 u，那么这条路径一定要先经过另一个尚未确定的节点 v。</p>
+                <p>但边权都不小于 0，所以走到 v 时的距离已经不会小于 u 的暂定距离；再从 v 走向 u，只会让总距离更大。因此，u 当前的距离已经是最终答案，可以安全地加入已确定集合。</p>
+                <div class="key-idea"><div class="key-idea-title">可以这样记</div>贪心选择成立，不是因为「当前最小看起来最好」，而是因为<strong>非负边权保证未来没有机会从后面绕回来变得更小</strong>。</div>
+                <p>这也是 Dijkstra 不能直接处理负权边的原因：负权会让一条暂时更长的路径，在后半段突然变短，从而推翻已经做出的选择。</p>
+              </div>
+              <div class="source-row">
+                <button class="source-chip" data-source="《算法设计》第 4 章" data-location="最短路径 · 第 18 页"><svg><use href="#i-file"/></svg>本地资料 · 算法设计</button>
+                <button class="source-chip extension" data-source="基于课件中的松弛操作推导" data-location="不是资料原文，属于本地扩展"><svg><use href="#i-spark"/></svg>本地扩展</button>
+              </div>
+              <div class="action-row">
+                <button class="quiet-button" data-action="practice"><svg><use href="#i-practice"/></svg>生成 5 道练习</button>
+                <button class="quiet-button" data-action="bookmark"><svg><use href="#i-bookmark"/></svg>加入笔记</button>
+                <button class="quiet-button" data-action="explain"><svg><use href="#i-spark"/></svg>换个例子</button>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="view" data-panel="practice">
+          <div class="practice-page"><div class="page-inner">
+            <div class="section-heading"><h1>图算法练习</h1><p>围绕当前资料生成 · 5 题 · 单选与判断混合</p></div>
+            <div class="practice-progress"><div class="progress-track"><div class="progress-value"></div></div><div class="progress-label">第 2 / 5 题</div></div>
+            <div class="question-card">
+              <div class="question-type">单选题 · 中等</div>
+              <div class="question-title">在 Dijkstra 算法中，为什么已经加入集合 S 的节点不需要再次更新？</div>
+              <div class="options">
+                <button class="option"><span class="option-letter">A</span><span>因为集合 S 中的节点已经访问过一次</span></button>
+                <button class="option"><span class="option-letter">B</span><span>因为非负权保证其当前距离已经是全局最短距离</span></button>
+                <button class="option"><span class="option-letter">C</span><span>因为所有出边都会被从图中删除</span></button>
+                <button class="option"><span class="option-letter">D</span><span>因为优先队列中不会出现重复节点</span></button>
+              </div>
+              <div class="feedback" id="practiceFeedback"><strong>答对了。</strong> 非负边权保证未来经过其他未确定节点的路径不可能让它更短。</div>
+              <div class="question-actions">
+                <button class="quiet-button" data-action="ask"><svg><use href="#i-chat"/></svg>问 AI</button>
+                <button class="quiet-button" data-action="leave">退出练习</button>
+                <button class="primary-button" id="submitAnswer">提交答案 <svg><use href="#i-arrow"/></svg></button>
+              </div>
+            </div>
+          </div></div>
+        </section>
+
+        <section class="view" data-panel="review">
+          <div class="review-page"><div class="page-inner">
+            <div class="section-heading"><h1>今天的复习</h1><p>先处理到期内容，再回到新的学习任务。</p></div>
+            <div class="review-summary">
+              <div class="summary-cell"><div class="summary-value">3</div><div class="summary-label">到期知识点</div></div>
+              <div class="summary-cell"><div class="summary-value">2</div><div class="summary-label">需要回看的错题</div></div>
+              <div class="summary-cell"><div class="summary-value">12 min</div><div class="summary-label">预计完成时间</div></div>
+            </div>
+            <div class="review-queue">
+              <div class="queue-row"><div class="queue-index">01</div><div><div class="queue-title">Dijkstra 的贪心证明</div><div class="queue-meta">掌握度 56% · 昨天答错 1 次 · 本地资料</div></div><button class="quiet-button" data-action="reviewNow">开始复习</button></div>
+              <div class="queue-row"><div class="queue-index">02</div><div><div class="queue-title">优先队列与堆优化</div><div class="queue-meta">掌握度 64% · 3 天未复习 · 本地扩展</div></div><button class="quiet-button" data-action="reviewNow">开始复习</button></div>
+              <div class="queue-row"><div class="queue-index">03</div><div><div class="queue-title">负权边与 Bellman-Ford</div><div class="queue-meta">掌握度 48% · 薄弱点 · 本地资料</div></div><button class="quiet-button" data-action="reviewNow">开始复习</button></div>
+            </div>
+          </div></div>
+        </section>
+
+        <section class="view" data-panel="library">
+          <div class="library-page"><div class="page-inner">
+            <div class="section-heading"><h1>资料库</h1><p>12 份资料已在本地建立索引。</p></div>
+            <div class="library-layout">
+              <nav class="library-tree" aria-label="资料目录">
+                <div class="tree-heading">我的资料</div>
+                <button class="tree-item active"><svg><use href="#i-folder"/></svg>图算法</button>
+                <button class="tree-item tree-indent"><svg><use href="#i-file"/></svg>算法设计.pdf</button>
+                <button class="tree-item tree-indent"><svg><use href="#i-file"/></svg>最短路径课件.pptx</button>
+                <button class="tree-item"><svg><use href="#i-folder"/></svg>操作系统</button>
+                <button class="tree-item"><svg><use href="#i-folder"/></svg>英语写作</button>
+              </nav>
+              <section class="reader">
+                <div class="reader-meta">算法设计.pdf · 第 4 章 · 最近同步于今天 13:48</div>
+                <h2>单源最短路径与贪心策略</h2>
+                <article>
+                  <p>Dijkstra 算法维护一个已经确定最短距离的顶点集合 S。每一步从 V-S 中选择暂定距离最小的顶点 u，将其加入 S，并用 u 的出边对相邻顶点执行松弛。</p>
+                  <p><mark>当所有边权均为非负数时，选择当前暂定距离最小的顶点是安全的。</mark>任何经过其他未确定顶点到达 u 的路径，都不会比当前距离更短。</p>
+                  <p>若图中存在负权边，这一性质不再成立。一个顶点即使已经取得当前最小的暂定距离，仍可能在后续通过负权边得到更短路径。</p>
+                  <div class="key-idea"><div class="key-idea-title">相关概念</div>Dijkstra · 松弛操作 · 贪心选择性质 · Bellman-Ford</div>
+                </article>
+              </section>
+            </div>
+          </div></div>
+        </section>
+      </div>
+
+      <div class="composer-wrap" id="composerWrap">
+        <div class="composer">
+          <textarea id="composerInput" rows="1" placeholder="继续问，或者把一份资料交给我…" aria-label="消息"></textarea>
+          <div class="composer-toolbar">
+            <button class="icon-button" data-tooltip="添加资料" aria-label="添加资料"><svg><use href="#i-paperclip"/></svg></button>
+            <button class="icon-button" data-tooltip="学习动作" aria-label="学习动作"><svg><use href="#i-spark"/></svg></button>
+            <span class="composer-hint">Enter 发送 · Shift Enter 换行</span>
+            <button class="send-button" id="sendButton" aria-label="发送"><svg><use href="#i-send"/></svg></button>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <aside class="context-panel" id="contextPanel">
+      <div class="context-head"><div class="context-title">学习上下文</div><button class="icon-button context-close" id="contextClose" aria-label="关闭学习上下文"><svg><use href="#i-x"/></svg></button></div>
+      <section class="context-section">
+        <div class="section-title"><svg><use href="#i-bookmark"/></svg>基于你的记忆</div>
+        <div class="memory-note">你更喜欢<strong>先看直觉，再补证明</strong>。上次图算法复习中，负权边是主要混淆点。</div>
+      </section>
+      <section class="context-section">
+        <div class="section-title"><svg><use href="#i-library"/></svg>当前资料</div>
+        <div class="document-list">
+          <div class="document-item"><div class="document-icon"><svg><use href="#i-file"/></svg></div><div class="document-copy"><div class="document-title">算法设计.pdf</div><div class="document-meta">第 4 章 · 18 个片段</div></div><span class="status-dot" title="已同步"></span></div>
+          <div class="document-item"><div class="document-icon"><svg><use href="#i-file"/></svg></div><div class="document-copy"><div class="document-title">最短路径课件.pptx</div><div class="document-meta">12 页 · 9 个片段</div></div><span class="status-dot" title="已同步"></span></div>
+        </div>
+        <button class="quiet-button context-action" data-action="manageSources">管理资料</button>
+      </section>
+      <section class="context-section">
+        <div class="section-title"><svg><use href="#i-review"/></svg>接下来</div>
+        <div class="review-list">
+          <div class="review-item"><span class="review-mark">1</span><div class="review-copy"><div class="review-name">做 5 道基础题</div><div class="review-meta">约 8 分钟</div></div></div>
+          <div class="review-item"><span class="review-mark">2</span><div class="review-copy"><div class="review-name">复习负权边</div><div class="review-meta">今天到期</div></div></div>
+        </div>
+      </section>
+    </aside>
+  </div>
+
+  <nav class="mobile-nav" aria-label="移动端学习导航">
+    <button class="nav-button active" data-view="chat"><svg><use href="#i-chat"/></svg><span>对话</span></button>
+    <button class="nav-button" data-view="practice"><svg><use href="#i-practice"/></svg><span>练习</span></button>
+    <button class="nav-button" data-view="review"><svg><use href="#i-review"/></svg><span>复习</span></button>
+    <button class="nav-button" data-view="library"><svg><use href="#i-library"/></svg><span>资料库</span></button>
+  </nav>
+
+  <div class="scrim" id="scrim"></div>
+  <div class="source-popover" id="sourcePopover" role="dialog" aria-modal="false" aria-labelledby="sourceTitle">
+    <div class="popover-head"><div class="popover-title" id="sourceTitle">来源详情</div><button class="icon-button" id="sourceClose" aria-label="关闭来源详情"><svg><use href="#i-x"/></svg></button></div>
+    <div class="popover-body" id="sourceBody"></div><div class="popover-location" id="sourceLocation"></div>
+  </div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    const viewMeta = {
+      chat: ["图算法 · 本地资料", "Dijkstra 的贪心选择为什么成立？"],
+      practice: ["练习 · 进行中", "图算法练习"],
+      review: ["今日复习", "3 个知识点等待复习"],
+      library: ["本地资料库", "图算法"]
+    };
+
+    const panels = [...document.querySelectorAll("[data-panel]")];
+    const navButtons = [...document.querySelectorAll("[data-view]")];
+    const pageKicker = document.getElementById("pageKicker");
+    const pageTitle = document.getElementById("pageTitle");
+    const composerWrap = document.getElementById("composerWrap");
+    const contentScroll = document.getElementById("contentScroll");
+    const contextPanel = document.getElementById("contextPanel");
+    const sidebar = document.getElementById("sidebar");
+    const scrim = document.getElementById("scrim");
+    const toast = document.getElementById("toast");
+    let toastTimer;
+
+    function icon(name) {
+      return `<svg><use href="#i-${name}"/></svg>`;
+    }
+
+    function showToast(message) {
+      clearTimeout(toastTimer);
+      toast.textContent = message;
+      toast.classList.add("visible");
+      toastTimer = setTimeout(() => toast.classList.remove("visible"), 1900);
+    }
+
+    function closeOverlays() {
+      sidebar.classList.remove("open");
+      contextPanel.classList.remove("open");
+      scrim.classList.remove("visible");
+    }
+
+    function switchView(view) {
+      panels.forEach(panel => panel.classList.toggle("active", panel.dataset.panel === view));
+      navButtons.forEach(button => button.classList.toggle("active", button.dataset.view === view));
+      pageKicker.textContent = viewMeta[view][0];
+      pageTitle.textContent = viewMeta[view][1];
+      composerWrap.style.display = view === "chat" ? "block" : "none";
+      contentScroll.scrollTop = 0;
+      closeOverlays();
+    }
+
+    navButtons.forEach(button => button.addEventListener("click", () => switchView(button.dataset.view)));
+
+    document.getElementById("menuButton").addEventListener("click", () => {
+      sidebar.classList.add("open");
+      scrim.classList.add("visible");
+    });
+    document.getElementById("contextButton").addEventListener("click", () => {
+      contextPanel.classList.add("open");
+      scrim.classList.add("visible");
+    });
+    document.getElementById("contextClose").addEventListener("click", closeOverlays);
+    scrim.addEventListener("click", closeOverlays);
+
+    const composerInput = document.getElementById("composerInput");
+    const sendButton = document.getElementById("sendButton");
+    function resizeComposer() {
+      composerInput.style.height = "auto";
+      composerInput.style.height = `${Math.min(composerInput.scrollHeight, 140)}px`;
+    }
+    composerInput.addEventListener("input", resizeComposer);
+    composerInput.addEventListener("keydown", event => {
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        sendMessage();
+      }
+    });
+    function sendMessage() {
+      const value = composerInput.value.trim();
+      if (!value) { showToast("先写下你想问的问题"); return; }
+      composerInput.value = "";
+      resizeComposer();
+      showToast("问题已放入对话队列");
+    }
+    sendButton.addEventListener("click", sendMessage);
+
+    document.getElementById("newChat").addEventListener("click", () => {
+      switchView("chat");
+      composerInput.focus();
+      showToast("已打开一张新的学习白纸");
+    });
+
+    const sourcePopover = document.getElementById("sourcePopover");
+    const sourceBody = document.getElementById("sourceBody");
+    const sourceLocation = document.getElementById("sourceLocation");
+    document.querySelectorAll(".source-chip").forEach(chip => chip.addEventListener("click", () => {
+      sourceBody.textContent = chip.dataset.source;
+      sourceLocation.textContent = chip.dataset.location;
+      sourcePopover.classList.add("visible");
+    }));
+    document.getElementById("sourceClose").addEventListener("click", () => sourcePopover.classList.remove("visible"));
+
+    document.querySelectorAll(".option").forEach(option => option.addEventListener("click", () => {
+      document.querySelectorAll(".option").forEach(item => item.classList.remove("selected"));
+      option.classList.add("selected");
+    }));
+    document.getElementById("submitAnswer").addEventListener("click", () => {
+      const selected = document.querySelector(".option.selected");
+      if (!selected) { showToast("先选择一个答案"); return; }
+      if (selected.querySelector(".option-letter").textContent !== "B") {
+        showToast("这个选项还不准确，再想想非负权的作用");
+        return;
+      }
+      document.getElementById("practiceFeedback").classList.add("visible");
+      showToast("已记录本题掌握度变化");
+    });
+
+    document.querySelectorAll("[data-action]").forEach(button => button.addEventListener("click", () => {
+      const action = button.dataset.action;
+      if (action === "practice") { switchView("practice"); return; }
+      if (action === "manageSources") { switchView("library"); return; }
+      if (action === "reviewNow") { switchView("practice"); showToast("已按薄弱点准备练习"); return; }
+      if (action === "bookmark") showToast("已加入学习笔记");
+      if (action === "explain") showToast("已切换为生活化例子");
+      if (action === "ask") showToast("题目追问抽屉将在正式版本接入");
+      if (action === "leave") switchView("chat");
+    }));
+
+    window.addEventListener("keydown", event => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "n") {
+        event.preventDefault();
+        document.getElementById("newChat").click();
+      }
+      if (event.key === "Escape") {
+        closeOverlays();
+        sourcePopover.classList.remove("visible");
+      }
+    });
+
+    const requestedView = new URLSearchParams(window.location.search).get("view");
+    if (requestedView && viewMeta[requestedView]) switchView(requestedView);
+  </script>
+</body>
+</html>
