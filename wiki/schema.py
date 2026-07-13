@@ -59,6 +59,7 @@ class WikiPage:
             FM_SOURCES: self.sources or [],
             FM_SOURCE_REFS: self.source_refs or [],
             FM_SOURCE_HASH: self.source_hash,
+            "related": self.links or [],
             "indexable": self.indexable,
             "status": self.status,
             FM_CREATED: self.created or now,

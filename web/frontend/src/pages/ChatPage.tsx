@@ -281,6 +281,15 @@ export function ChatPage() {
       await api.applyChatWikiPlan(artifact.plan_id, sessionId);
       await refreshWikiSession(sessionId);
     } catch (reason) {
+      try {
+        const refreshed = await api.wikiPlan(artifact.plan_id);
+        setMessages((current) => current.map((message) => ({
+          ...message,
+          artifacts: message.artifacts?.map((item) => item.type === "wiki_plan" && item.plan_id === artifact.plan_id
+            ? { ...item, plan: refreshed }
+            : item),
+        })));
+      } catch { /* keep the persisted chat artifact when refresh is unavailable */ }
       setError(reason instanceof Error ? reason.message : "Wiki 写入失败。" );
     } finally {
       setWikiPlanLoading(false);

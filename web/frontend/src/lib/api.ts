@@ -4,6 +4,7 @@ import type {
   ChatSessionSummary,
   DocumentSection,
   DocumentSummary,
+  DocumentImpact,
   PracticeSession,
   Question,
   ReviewQueue,
@@ -13,6 +14,7 @@ import type {
   WikiArtifact,
   WikiHealth,
   WikiPlan,
+  WikiTask,
 } from "../types";
 
 interface ErrorEnvelope {
@@ -120,6 +122,9 @@ export const api = {
     `/api/kb/documents/${encodeURIComponent(id)}`,
     { method: "DELETE" },
   ),
+  documentImpact: (id: string) => request<DocumentImpact>(
+    `/api/kb/documents/${encodeURIComponent(id)}/impact`,
+  ),
   importDocuments: async (files: File[]) => {
     const form = new FormData();
     files.forEach((file) => form.append("files", file));
@@ -131,7 +136,20 @@ export const api = {
   wikiHealth: () => request<WikiHealth>("/api/kb/wiki/maintenance"),
   maintainWiki: () => request<{ archived_count: number; canonical_count: number; health: WikiHealth }>(
     "/api/kb/wiki/maintenance",
-    json({ action: "organize" }),
+    json({ action: "plan" }),
+  ),
+  reviewWikiSemantics: () => request<{ reviews: unknown[]; health: WikiHealth }>(
+    "/api/kb/wiki/maintenance/semantic",
+    json({}),
+  ),
+  wikiTasks: () => request<{ tasks: WikiTask[] }>("/api/kb/wiki/tasks"),
+  retryWikiTask: (id: string) => request<{ retry_of: string; result: Record<string, unknown> }>(
+    `/api/kb/wiki/tasks/${encodeURIComponent(id)}/retry`,
+    json({}),
+  ),
+  cancelWikiTask: (id: string) => request<{ task: WikiTask }>(
+    `/api/kb/wiki/tasks/${encodeURIComponent(id)}/cancel`,
+    { method: "POST" },
   ),
   createWikiPlan: (body: {
     action: "generate" | "update";

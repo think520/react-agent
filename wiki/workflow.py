@@ -14,7 +14,10 @@ from urllib.parse import quote
 import yaml
 
 from .compiler import _parse_llm_json, _safe_filename
-from .index import WikiIndexer, archive_duplicate_pages
+from .index import WikiIndexer
+from .reliability import (
+    WIKI_WRITE_LOCK, WikiTaskStore, atomic_text, merge_page, stage_change, validate_change,
+)
 from .schema import CompileResult, GENERATED_BY, WikiConfig, WikiPage
 
 
@@ -98,6 +101,7 @@ class WikiWorkflow:
         self.vault_path = os.path.abspath(vault_path)
         self.llm = llm_provider
         self.config = WikiConfig()
+        self.tasks = WikiTaskStore(self.workspace)
 
     @property
     def plan_dir(self) -> str:
@@ -231,7 +235,7 @@ class WikiWorkflow:
                 lines.append(f"- [{ref['title']}{suffix}]({self._source_link(ref)})")
         return "\n".join(lines).strip(), list(used_refs.values())
 
-    def create_plan(self, documents: list[dict], action: str = "generate", instruction: str = "") -> dict:
+    def _create_plan(self, documents: list[dict], action: str = "generate", instruction: str = "") -> dict:
         if action not in {"generate", "update"}:
             raise ValueError("Wiki action must be generate or update")
         catalog, source_excerpts = self._source_catalog(documents)
@@ -355,6 +359,32 @@ class WikiWorkflow:
         _atomic_json(self._plan_path(plan_id), plan)
         return plan
 
+    def create_plan(self, documents: list[dict], action: str = "generate", instruction: str = "") -> dict:
+        task_id = self.tasks.start("plan", {
+            "action": action,
+            "instruction": instruction.strip(),
+            "document_ids": [item.get("document_id") for item in documents],
+        })
+        try:
+            plan = self._create_plan(documents, action=action, instruction=instruction)
+        except Exception as exc:
+            self.tasks.update(
+                task_id,
+                status="failed",
+                error=str(exc),
+                retryable=True,
+            )
+            raise
+        plan["task_id"] = task_id
+        _atomic_json(self._plan_path(plan["plan_id"]), plan)
+        self.tasks.update(
+            task_id,
+            status="completed",
+            plan_id=plan["plan_id"],
+            retryable=False,
+        )
+        return plan
+
     def create_migration_plan(self) -> dict:
         """Preview a metadata-only upgrade of legacy Wiki pages."""
         wiki_dir = os.path.join(self.vault_path, self.config.wiki_dir)
@@ -440,6 +470,31 @@ class WikiWorkflow:
         })
         return checkpoint_id
 
+    def _preflight_plan(self, plan: dict) -> None:
+        allowed_document_ids = set(plan.get("scope", {}).get("document_ids") or [])
+        require_sources = plan.get("action") != "migrate"
+        staged = []
+        for change in plan.get("changes", []):
+            if change.get("kind") not in {"add", "update", "merge"}:
+                continue
+            errors = validate_change(
+                change,
+                allowed_document_ids,
+                require_sources=require_sources,
+            )
+            if errors:
+                staged.append({
+                    "change_id": change.get("change_id"),
+                    "path": stage_change(self.workspace, plan["plan_id"], change, errors),
+                    "errors": errors,
+                })
+        if not staged:
+            return
+        plan["staging"] = staged
+        plan["last_error"] = "Wiki plan validation failed before writing files"
+        _atomic_json(self._plan_path(plan["plan_id"]), plan)
+        raise ValueError(plan["last_error"])
+
     def _write_plan_changes(self, plan: dict) -> list[str]:
         written_pages = []
         written_paths = []
@@ -447,42 +502,46 @@ class WikiWorkflow:
         for change in plan.get("changes", []):
             if change.get("kind") not in {"add", "update", "merge"}:
                 continue
-            page = WikiPage(
-                title=change["title"],
-                page_type=change["page_type"],
-                content=change["content"],
-                tags=change.get("tags") or [],
-                sources=sorted({item.get("source", "") for item in change.get("source_refs") or [] if item.get("source")}),
-                links=change.get("related") or [],
-                source_refs=change.get("source_refs") or [],
-                source_hash=hashlib.sha256(json.dumps(change.get("source_refs") or [], sort_keys=True).encode("utf-8")).hexdigest()[:16],
-                summary=change.get("summary") or "",
-            )
             target = os.path.abspath(os.path.join(wiki_dir, change["target"]))
             if os.path.commonpath([target, wiki_dir]) != os.path.abspath(wiki_dir):
                 raise ValueError("Wiki plan target escaped the Wiki directory")
-            os.makedirs(os.path.dirname(target), exist_ok=True)
-            with open(target, "w", encoding="utf-8") as handle:
-                handle.write(page.to_markdown())
+            existing_paths = [target]
             for relative in change.get("merge_paths") or []:
                 duplicate = os.path.abspath(os.path.join(wiki_dir, relative))
-                if duplicate != target and os.path.isfile(duplicate) and os.path.commonpath([duplicate, wiki_dir]) == os.path.abspath(wiki_dir):
+                if duplicate != target and os.path.commonpath([duplicate, wiki_dir]) == os.path.abspath(wiki_dir):
+                    existing_paths.append(duplicate)
+            prepared = dict(change)
+            prepared["source_hash"] = hashlib.sha256(
+                json.dumps(change.get("source_refs") or [], sort_keys=True).encode("utf-8")
+            ).hexdigest()[:16]
+            try:
+                page = merge_page(prepared, existing_paths)
+            except ValueError as exc:
+                errors = [str(exc)]
+                staged_item = {
+                    "change_id": change.get("change_id"),
+                    "path": stage_change(self.workspace, plan["plan_id"], change, errors),
+                    "errors": errors,
+                }
+                plan["staging"] = [*plan.get("staging", []), staged_item]
+                plan["last_error"] = str(exc)
+                _atomic_json(self._plan_path(plan["plan_id"]), plan)
+                raise
+            atomic_text(target, page.to_markdown())
+            for duplicate in existing_paths[1:]:
+                if os.path.isfile(duplicate):
                     os.remove(duplicate)
             written_pages.append(page)
             written_paths.append(change["target"])
 
         if written_pages:
             indexer = WikiIndexer(self.vault_path, self.config)
-            indexer.update_index(written_pages)
+            indexer.rebuild_from_disk()
             result = CompileResult(pages=written_pages)
             result.entities_count = sum(page.page_type == "wiki_entity" for page in written_pages)
             result.concepts_count = sum(page.page_type == "wiki_concept" for page in written_pages)
             result.sources_count = sum(page.page_type == "wiki_source" for page in written_pages)
             indexer.append_log("confirmed-plan", plan["plan_id"], result)
-            archive_duplicate_pages(
-                self.vault_path,
-                os.path.join(self.workspace, ".bobodan", "archive", "wiki"),
-            )
         return written_paths
 
     def _write_migration_changes(self, plan: dict) -> list[str]:
@@ -508,28 +567,44 @@ class WikiWorkflow:
                 "indexable": bool(metadata.get("indexable", True)),
             })
             rendered = yaml.safe_dump(metadata, allow_unicode=True, sort_keys=False).strip()
-            with open(target, "w", encoding="utf-8") as handle:
-                handle.write(f"---\n{rendered}\n---\n\n{str(change.get('content') or '').strip()}\n")
+            atomic_text(target, f"---\n{rendered}\n---\n\n{str(change.get('content') or '').strip()}\n")
             written.append(change["target"])
         if written:
-            WikiIndexer(self.vault_path, self.config).append_log("迁移", plan["plan_id"])
+            indexer = WikiIndexer(self.vault_path, self.config)
+            indexer.rebuild_from_disk()
+            indexer.append_log("迁移", plan["plan_id"])
         return written
 
     def apply_plan(self, plan_id: str) -> dict:
+        with WIKI_WRITE_LOCK:
+            return self._apply_plan(plan_id)
+
+    def _apply_plan(self, plan_id: str) -> dict:
         plan = self.get_plan(plan_id)
         if plan.get("status") != "planned":
             raise ValueError("This Wiki plan has already been applied or cancelled")
         if not any(change.get("kind") in {"add", "update", "merge"} for change in plan.get("changes", [])):
             raise ValueError("This Wiki plan has no applicable changes")
-        checkpoint_id = self._create_checkpoint(plan_id)
+        task_id = self.tasks.start("apply", {"plan_id": plan_id})
+        checkpoint_id = None
         try:
+            self._preflight_plan(plan)
+            checkpoint_id = self._create_checkpoint(plan_id)
             written_paths = (
                 self._write_migration_changes(plan)
                 if plan.get("action") == "migrate"
                 else self._write_plan_changes(plan)
             )
-        except Exception:
-            self.restore_checkpoint(checkpoint_id)
+        except Exception as exc:
+            if checkpoint_id:
+                self.restore_checkpoint(checkpoint_id)
+            self.tasks.update(
+                task_id,
+                status="failed",
+                error=str(exc),
+                plan_id=plan_id,
+                retryable=True,
+            )
             raise
 
         plan.update({
@@ -537,11 +612,32 @@ class WikiWorkflow:
             "applied_at": _now(),
             "checkpoint_id": checkpoint_id,
             "written": written_paths,
+            "task_id": task_id,
         })
         _atomic_json(self._plan_path(plan_id), plan)
+        self.tasks.update(
+            task_id,
+            status="completed",
+            plan_id=plan_id,
+            checkpoint_id=checkpoint_id,
+            retryable=False,
+        )
         return plan
 
+    def list_tasks(self) -> list[dict]:
+        return self.tasks.list()
+
+    def get_task(self, task_id: str) -> dict:
+        return self.tasks.get(task_id)
+
+    def cancel_task(self, task_id: str) -> dict:
+        return self.tasks.cancel(task_id)
+
     def restore_checkpoint(self, checkpoint_id: str) -> dict:
+        with WIKI_WRITE_LOCK:
+            return self._restore_checkpoint(checkpoint_id)
+
+    def _restore_checkpoint(self, checkpoint_id: str) -> dict:
         root = self._checkpoint_path(checkpoint_id)
         metadata_path = os.path.join(root, "checkpoint.json")
         if not os.path.exists(metadata_path):

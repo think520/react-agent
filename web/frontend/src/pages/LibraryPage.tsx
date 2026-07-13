@@ -8,7 +8,7 @@ import type { AppOutletContext } from "../components/AppShell";
 import { BrandIllustration, EmptyState, ErrorNotice, IconButton, LoadingState, formatRelativeDate } from "../components/common";
 import { WikiPlanCard } from "../components/WikiPlanCard";
 import { api } from "../lib/api";
-import type { DocumentSection, DocumentSummary, WikiHealth, WikiPlan } from "../types";
+import type { DocumentSection, DocumentSummary, WikiHealth, WikiPlan, WikiTask } from "../types";
 
 export function LibraryPage() {
   const {
@@ -46,6 +46,7 @@ export function LibraryPage() {
   const [wikiPlan, setWikiPlan] = useState<WikiPlan | null>(null);
   const [wikiPlanOpen, setWikiPlanOpen] = useState(false);
   const [wikiPlanLoading, setWikiPlanLoading] = useState(false);
+  const [wikiTasks, setWikiTasks] = useState<WikiTask[]>([]);
   const [wikiInstruction, setWikiInstruction] = useState("");
   const [wikiScopeMode, setWikiScopeMode] = useState<"selection" | "document" | "course">("selection");
 
@@ -113,7 +114,10 @@ export function LibraryPage() {
 
   async function openWikiMaintenance() {
     setMaintenanceOpen(true);
-    if (!wikiHealth) await checkWiki();
+    await Promise.all([
+      wikiHealth ? Promise.resolve() : checkWiki(),
+      api.wikiTasks().then((result) => setWikiTasks(result.tasks)).catch(() => setWikiTasks([])),
+    ]);
   }
 
   async function organizeWiki() {
@@ -126,6 +130,50 @@ export function LibraryPage() {
       setNotice("已生成 Wiki 修复预览；确认前不会改动任何页面。");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Wiki 整理失败。" );
+    } finally {
+      setMaintenanceLoading(false);
+    }
+  }
+
+  async function reviewWikiSemantics() {
+    setMaintenanceLoading(true);
+    setError("");
+    setNotice("");
+    try {
+      const result = await api.reviewWikiSemantics();
+      setWikiHealth(result.health);
+      setNotice("AI 语义检查已完成；发现项只是审核候选，不会自动修改 Wiki。");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Wiki 语义检查失败。" );
+    } finally {
+      setMaintenanceLoading(false);
+    }
+  }
+
+  async function retryWikiTask(taskId: string) {
+    setMaintenanceLoading(true);
+    setError("");
+    try {
+      await api.retryWikiTask(taskId);
+      const [health, tasks] = await Promise.all([api.wikiHealth(), api.wikiTasks()]);
+      setWikiHealth(health);
+      setWikiTasks(tasks.tasks);
+      setNotice("Wiki 任务已重新执行。");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Wiki 任务重试失败。" );
+    } finally {
+      setMaintenanceLoading(false);
+    }
+  }
+
+  async function cancelWikiTask(taskId: string) {
+    setMaintenanceLoading(true);
+    setError("");
+    try {
+      await api.cancelWikiTask(taskId);
+      setWikiTasks((await api.wikiTasks()).tasks);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "无法取消 Wiki 任务。" );
     } finally {
       setMaintenanceLoading(false);
     }
@@ -167,6 +215,7 @@ export function LibraryPage() {
         await loadDocuments();
       }
     } catch (reason) {
+      try { setWikiPlan(await api.wikiPlan(wikiPlan.plan_id)); } catch { /* keep current preview */ }
       setError(reason instanceof Error ? reason.message : "Wiki 写入失败。" );
     } finally {
       setWikiPlanLoading(false);
@@ -224,13 +273,18 @@ export function LibraryPage() {
 
   async function deleteDocument(document: DocumentSummary) {
     if (!document.managed || deletingId) return;
-    if (!window.confirm(`删除资料“${document.title || document.source}”？本地托管文件和索引都会移除。`)) return;
     setDeletingId(document.document_id);
     setError("");
     setNotice("");
     try {
+      const impact = await api.documentImpact(document.document_id);
+      const affected = impact.affected_pages.slice(0, 4).map((item) => item.title).join("、");
+      const impactMessage = impact.affected_count
+        ? `\n\n这会影响 ${impact.affected_count} 个 Wiki 页面${affected ? `：${affected}` : ""}。这些页面只会标记为待更新，不会自动删除。`
+        : "";
+      if (!window.confirm(`归档资料“${document.title || document.source}”？原文件会移入资料库归档区，并从当前索引移除。${impactMessage}`)) return;
       await api.deleteDocument(document.document_id);
-      setNotice("资料已删除，本地索引已更新。");
+      setNotice("资料已归档，本地索引已更新；关联 Wiki 已标记为待检查。");
       if (selectedId === document.document_id) {
         setSelectedId(null);
         setSearchParams({}, { replace: true });
@@ -311,7 +365,7 @@ export function LibraryPage() {
           onClose={() => { setWikiPlan(null); setWikiPlanOpen(false); }}
         />}
         {collection === "wiki" && maintenanceOpen && <section className="wiki-maintenance" aria-label="Wiki 维护">
-          <header><div><span>Wiki Maintenance</span><h3>维护 Wiki</h3><p>检查断链、孤立页和过期内容；整理操作只归档 Bobodan 生成的重复页。</p></div><IconButton label="关闭 Wiki 维护" onClick={() => setMaintenanceOpen(false)}><X size={17} /></IconButton></header>
+          <header><div><span>Wiki Maintenance</span><h3>维护 Wiki</h3><p>结构问题由程序检查，矛盾、过时内容和知识缺口由 AI 作为候选提出；任何修复都需要再次确认。</p></div><IconButton label="关闭 Wiki 维护" onClick={() => setMaintenanceOpen(false)}><X size={17} /></IconButton></header>
           {maintenanceLoading && !wikiHealth ? <LoadingState label="正在检查 Wiki…" /> : wikiHealth && <>
             <div className="wiki-health-summary">
               <div><strong>{wikiHealth.total_pages}</strong><span>规范页面</span></div>
@@ -320,9 +374,10 @@ export function LibraryPage() {
               <div><strong>{wikiHealth.stale_count}</strong><span>过期页</span></div>
             </div>
             <div className={`wiki-health-state ${wikiHealth.healthy ? "healthy" : "attention"}`}><ShieldCheck size={17} /><span>{wikiHealth.healthy ? "Wiki 结构正常" : "发现需要检查的结构问题"}</span><small>{wikiHealth.vaults.map((item) => item.vault).join(" · ") || "尚未发现 Wiki 目录"}</small></div>
-            {!wikiHealth.healthy && <details className="wiki-health-details"><summary>查看问题详情</summary><div>{wikiHealth.vaults.map((vault) => <section key={vault.vault}><strong>{vault.vault}</strong>{vault.orphans.length > 0 && <p>孤立页：{vault.orphans.slice(0, 6).join("、")}</p>}{vault.broken_links.length > 0 && <p>断链：{vault.broken_links.slice(0, 6).map((item) => item.target).join("、")}</p>}{vault.stale.length > 0 && <p>过期页：{vault.stale.slice(0, 6).join("、")}</p>}{vault.errors.length > 0 && <p>读取错误：{vault.errors.slice(0, 3).join("；")}</p>}</section>)}</div></details>}
+            {(!wikiHealth.healthy || (wikiHealth.semantic_candidate_count || 0) > 0) && <details className="wiki-health-details"><summary>查看问题详情</summary><div>{wikiHealth.vaults.map((vault) => <section key={vault.vault}><strong>{vault.vault}</strong>{vault.orphans.length > 0 && <p>孤立页：{vault.orphans.slice(0, 6).join("、")}</p>}{vault.broken_links.length > 0 && <p>断链：{vault.broken_links.slice(0, 6).map((item) => item.target).join("、")}</p>}{vault.stale.length > 0 && <p>过期页：{vault.stale.slice(0, 6).join("、")}</p>}{(vault.duplicate_candidates?.length || 0) > 0 && <p>重复候选：{vault.duplicate_candidates!.slice(0, 4).map((item) => item.canonical_title).join("、")}</p>}{(vault.semantic_candidates?.length || 0) > 0 && <p>AI 审核候选：{vault.semantic_candidates!.slice(0, 4).map((item) => item.reason).join("；")}</p>}{vault.errors.length > 0 && <p>读取错误：{vault.errors.slice(0, 3).join("；")}</p>}</section>)}</div></details>}
           </>}
-          <footer><button className="quiet-button" disabled={maintenanceLoading} onClick={() => void checkWiki()}><RefreshCw size={15} />重新检查</button><button className="primary-button" disabled={maintenanceLoading} onClick={() => void organizeWiki()}><Wrench size={15} />{maintenanceLoading ? "正在整理" : "整理并重建索引"}</button></footer>
+          {wikiTasks.some((task) => task.status === "failed") && <section className="wiki-task-list" aria-label="失败的 Wiki 任务"><strong>需要处理的任务</strong>{wikiTasks.filter((task) => task.status === "failed").slice(0, 4).map((task) => <div key={task.task_id}><span><b>{task.operation === "plan" ? "生成计划" : "写入 Wiki"}</b><small>{task.error || "任务未完成"}</small></span><span>{task.retryable && <button className="quiet-button" disabled={maintenanceLoading} onClick={() => void retryWikiTask(task.task_id)}>重试</button>}<button className="icon-button" aria-label="取消任务" disabled={maintenanceLoading} onClick={() => void cancelWikiTask(task.task_id)}><X size={14} /></button></span></div>)}</section>}
+          <footer><button className="quiet-button" disabled={maintenanceLoading} onClick={() => void checkWiki()}><RefreshCw size={15} />重新检查</button><button className="quiet-button" disabled={maintenanceLoading} onClick={() => void reviewWikiSemantics()}><Sparkles size={15} />AI 语义检查</button><button className="primary-button" disabled={maintenanceLoading} onClick={() => void organizeWiki()}><Wrench size={15} />{maintenanceLoading ? "正在生成" : "生成修复计划"}</button></footer>
         </section>}
         {(documentImportNotice || notice) && <div className="success-notice"><CheckCircle2 size={17} />{documentImportNotice || notice}</div>}
         {documentImportError && <ErrorNotice message={documentImportError} />}

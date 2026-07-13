@@ -2,6 +2,7 @@ import json
 import os
 
 import pytest
+import yaml
 
 from providers.types import LLMResponse
 from wiki.workflow import WikiWorkflow
@@ -205,3 +206,103 @@ def test_legacy_wiki_migration_previews_then_upgrades_metadata_only(tmp_path):
 
     workflow.restore_checkpoint(applied["checkpoint_id"])
     assert page.read_text(encoding="utf-8") == body
+
+
+def test_invalid_plan_target_is_staged_without_writing(tmp_path):
+    vault = tmp_path / "vault"
+    workflow = WikiWorkflow(str(tmp_path), str(vault), FakeProvider([{
+        "title": "RAG",
+        "page_type": "wiki_concept",
+        "summary": "Summary.",
+        "body": "A sufficiently detailed body.",
+        "claims": [{"text": "Claim.", "source_ids": ["S1"]}],
+    }]))
+    plan = workflow.create_plan([source_document()])
+    change = next(item for item in plan["changes"] if item["page_type"] == "wiki_concept")
+    change["target"] = "../index.md"
+    with open(workflow._plan_path(plan["plan_id"]), "w", encoding="utf-8") as handle:
+        json.dump(plan, handle)
+
+    with pytest.raises(ValueError, match="validation failed"):
+        workflow.apply_plan(plan["plan_id"])
+
+    stored = workflow.get_plan(plan["plan_id"])
+    assert stored["status"] == "planned"
+    assert stored["staging"][0]["errors"]
+    assert (tmp_path / ".bobodan" / "wiki" / "staging" / plan["plan_id"]).is_dir()
+    assert not (vault / "index.md").exists()
+
+
+def test_safe_update_preserves_sources_metadata_and_rebuilds_index(tmp_path):
+    vault = tmp_path / "vault"
+    concepts = vault / "wiki" / "concepts"
+    concepts.mkdir(parents=True)
+    page_path = concepts / "RAG.md"
+    page_path.write_text(
+        "---\n"
+        "type: wiki_concept\ntitle: RAG\nsummary: Old\nschema_version: 1\n"
+        "generated_by: bobodan\ncreated: '2025-01-01'\nupdated: '2025-01-02'\n"
+        "sources: [course/old.md]\nsource_refs:\n  - document_id: doc-old\n    source: course/old.md\n"
+        "tags: [old]\nrelated: [Retriever]\nstatus: active\nindexable: true\n---\n\n# RAG\n\nOld grounded body.",
+        encoding="utf-8",
+    )
+    (vault / "wiki" / "index.md").write_text(
+        "# Wiki Index\n\n## 概念\n\n| 页面 | 摘要 | 来源数 | 更新时间 |\n| --- | --- | ---: | --- |\n| [[Ghost]] | stale | 1 | 2020-01-01 |\n",
+        encoding="utf-8",
+    )
+    provider = FakeProvider([{
+        "title": "RAG",
+        "page_type": "wiki_concept",
+        "summary": "Updated.",
+        "body": "RAG combines retrieval and generation with grounded evidence for reliable answers.",
+        "tags": ["new"],
+        "related": ["Generator"],
+        "claims": [{"text": "It uses evidence.", "source_ids": ["S1"]}],
+    }])
+    workflow = WikiWorkflow(str(tmp_path), str(vault), provider)
+    plan = workflow.create_plan([source_document()], action="update")
+
+    workflow.apply_plan(plan["plan_id"])
+
+    content = page_path.read_text(encoding="utf-8")
+    metadata = yaml.safe_load(content.split("---", 2)[1])
+    index = (vault / "wiki" / "index.md").read_text(encoding="utf-8")
+    assert metadata["created"] == "2025-01-01"
+    assert metadata["sources"] == ["course/old.md", "course/rag.md"]
+    assert {item["document_id"] for item in metadata["source_refs"]} == {"doc-old", "doc-1"}
+    assert metadata["tags"] == ["old", "new"]
+    assert metadata["related"] == ["Retriever", "Generator"]
+    assert "[[RAG]]" in index
+    assert "[[Ghost]]" not in index
+
+
+def test_multi_source_update_rejects_abnormal_body_shrink_and_restores_checkpoint(tmp_path):
+    vault = tmp_path / "vault"
+    concepts = vault / "wiki" / "concepts"
+    concepts.mkdir(parents=True)
+    page_path = concepts / "RAG.md"
+    original = (
+        "---\ntype: wiki_concept\ntitle: RAG\ngenerated_by: bobodan\n"
+        "sources: [course/a.md, course/b.md]\nsource_refs:\n"
+        "  - {document_id: a, source: course/a.md}\n  - {document_id: b, source: course/b.md}\n"
+        "indexable: true\n---\n\n# RAG\n\n" + ("Existing evidence. " * 80)
+    )
+    page_path.write_text(original, encoding="utf-8")
+    workflow = WikiWorkflow(str(tmp_path), str(vault), FakeProvider([{
+        "title": "RAG",
+        "page_type": "wiki_concept",
+        "summary": "Short.",
+        "body": "Too short.",
+        "claims": [{"text": "Claim.", "source_ids": ["S1"]}],
+    }]))
+    plan = workflow.create_plan([source_document()], action="update")
+
+    with pytest.raises(ValueError, match="unexpectedly shorter"):
+        workflow.apply_plan(plan["plan_id"])
+
+    assert page_path.read_text(encoding="utf-8") == original
+    stored = workflow.get_plan(plan["plan_id"])
+    assert stored["staging"][0]["errors"] == ["incoming body is unexpectedly shorter than the existing page"]
+    apply_tasks = [item for item in workflow.list_tasks() if item["operation"] == "apply"]
+    assert apply_tasks[0]["status"] == "failed"
+    assert apply_tasks[0]["retryable"] is True

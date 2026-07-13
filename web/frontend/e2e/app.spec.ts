@@ -195,7 +195,7 @@ test("review reuses historical questions without regenerating them", async ({ pa
   expect(sessionBody.question_ids).toEqual([5]);
 });
 
-test("Wiki maintenance checks health and organizes generated pages", async ({ page }) => {
+test("Wiki maintenance separates checks from confirmed repairs", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("bobodan:onboarding:v1", "complete"));
   const wikiDocument = { document_id: "wiki-1", source: "obsidian/wiki/concepts/RAG.md", kind: "wiki_concept", title: "RAG", collection: "wiki", wiki_type: "concept", content_role: "content", managed: false };
   await page.route("**/api/settings", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ workspace_name: "测试空间", default_provider: "deepseek", providers: [{ name: "deepseek", configured: true }], mcp_enabled: false, skills: [] }) }));
@@ -218,7 +218,7 @@ test("Wiki maintenance checks health and organizes generated pages", async ({ pa
   await expect(page.getByText("发现需要检查的结构问题")).toBeVisible();
   await page.getByText("查看问题详情").click();
   await expect(page.getByText(/孤立页：旧页面/)).toBeVisible();
-  await page.getByRole("button", { name: "整理并重建索引" }).click();
+  await page.getByRole("button", { name: "生成修复计划" }).click();
   await expect(page.getByText("已生成 Wiki 修复预览；确认前不会改动任何页面。")).toBeVisible();
   await expect(page.getByText("Wiki 结构正常")).toBeVisible();
 });

@@ -11,6 +11,7 @@ from wiki.schema import (
 )
 from wiki.index import WikiIndexer
 from wiki.lint import WikiLinter, LintResult
+from wiki.reliability import WikiTaskStore
 
 
 # --- WikiPage ---
@@ -180,6 +181,60 @@ def test_linter_format_result(tmp_path):
     summary = linter.format_result(result)
     assert "5" in summary
     assert "A" in summary
+
+
+def test_linter_separates_duplicates_from_semantic_candidates(tmp_path):
+    concepts = tmp_path / "wiki" / "concepts"
+    concepts.mkdir(parents=True)
+    (concepts / "RAG.md").write_text("---\ntitle: RAG\ntype: wiki_concept\n---\n\n# RAG", encoding="utf-8")
+    (concepts / "rag-copy.md").write_text("---\ntitle: r a g\ntype: wiki_concept\n---\n\n# RAG", encoding="utf-8")
+    (tmp_path / "wiki" / ".semantic-review.json").write_text(json.dumps({
+        "issues": [{"type": "contradiction", "pages": ["RAG", "Retriever"], "reason": "Claims differ."}],
+    }), encoding="utf-8")
+
+    result = WikiLinter(str(tmp_path)).lint()
+
+    assert result.duplicate_candidates[0]["canonical_title"] == "RAG"
+    assert result.contradiction_candidates == ["RAG", "Retriever"]
+    assert result.semantic_candidates[0]["reason"] == "Claims differ."
+
+
+def test_semantic_review_persists_advisory_candidates(tmp_path):
+    from providers.types import LLMResponse
+
+    concepts = tmp_path / "wiki" / "concepts"
+    concepts.mkdir(parents=True)
+    (concepts / "RAG.md").write_text("---\ntitle: RAG\ntype: wiki_concept\n---\n\n# RAG\n\nClaim A.", encoding="utf-8")
+    provider = type("Provider", (), {
+        "complete": lambda self, messages: LLMResponse(content=json.dumps({
+            "issues": [{"type": "stale", "pages": ["RAG"], "reason": "Needs a newer source."}],
+        })),
+    })()
+
+    review = WikiLinter(str(tmp_path)).semantic_review(provider)
+
+    assert review["issues"][0]["type"] == "stale"
+    assert (tmp_path / "wiki" / ".semantic-review.json").is_file()
+    assert WikiLinter(str(tmp_path)).lint().semantic_candidates == review["issues"]
+
+
+def test_task_store_recovers_interrupted_process_tasks(tmp_path):
+    store = WikiTaskStore(str(tmp_path))
+    os.makedirs(os.path.dirname(store.path), exist_ok=True)
+    with open(store.path, "w", encoding="utf-8") as handle:
+        json.dump([{
+            "task_id": "task-1",
+            "operation": "apply",
+            "status": "running",
+            "runner_id": "previous-process",
+            "created_at": "2026-01-01T00:00:00+00:00",
+            "updated_at": "2026-01-01T00:00:00+00:00",
+        }], handle)
+
+    task = store.list()[0]
+
+    assert task["status"] == "failed"
+    assert task["retryable"] is True
 
 
 # --- Compiler ---

@@ -205,6 +205,67 @@ def test_wiki_maintenance_contract(backend_client, monkeypatch):
     assert maintained.json()["archived_count"] == 2
 
 
+def test_wiki_semantic_review_and_task_contracts(backend_client, monkeypatch):
+    provider = object()
+    monkeypatch.setattr(
+        "web.backend.routers.kb.get_runtime_context",
+        lambda: SimpleNamespace(create_provider=lambda _name: provider),
+    )
+    monkeypatch.setattr(
+        "web.backend.routers.kb.KBService.review_wiki_semantics",
+        lambda self, llm_provider: {
+            "ok": True,
+            "reviews": [{"issues": [{"type": "stale", "pages": ["RAG"], "reason": "Old source"}]}],
+            "health": {"healthy": True, "vaults": []},
+        } if llm_provider is provider else {"ok": False, "error": "wrong provider"},
+    )
+    monkeypatch.setattr(
+        "web.backend.routers.kb.KBService.wiki_tasks",
+        lambda self: {"ok": True, "tasks": [{
+            "task_id": "task-1", "operation": "apply", "status": "failed", "retryable": True,
+        }]},
+    )
+    monkeypatch.setattr(
+        "web.backend.routers.kb.KBService.retry_wiki_task",
+        lambda self, task_id, llm_provider, config: {
+            "ok": True, "retry_of": task_id, "result": {"status": "applied"},
+        },
+    )
+    monkeypatch.setattr(
+        "web.backend.routers.kb.KBService.cancel_wiki_task",
+        lambda self, task_id: {"ok": True, "task": {"task_id": task_id, "status": "cancelled"}},
+    )
+
+    semantic = backend_client.post("/api/kb/wiki/maintenance/semantic", json={})
+    tasks = backend_client.get("/api/kb/wiki/tasks")
+    retried = backend_client.post("/api/kb/wiki/tasks/task-1/retry", json={})
+    cancelled = backend_client.post("/api/kb/wiki/tasks/task-1/cancel")
+
+    assert semantic.status_code == 200
+    assert semantic.json()["reviews"][0]["issues"][0]["type"] == "stale"
+    assert tasks.json()["tasks"][0]["status"] == "failed"
+    assert retried.json()["retry_of"] == "task-1"
+    assert cancelled.json()["task"]["status"] == "cancelled"
+
+
+def test_document_impact_endpoint(backend_client, monkeypatch):
+    monkeypatch.setattr(
+        "web.backend.routers.kb.KBService.document_impact",
+        lambda self, document_id: {
+            "ok": True,
+            "document_id": document_id,
+            "title": "Lesson",
+            "affected_count": 1,
+            "affected_pages": [{"title": "RAG", "action": "mark_needs_update"}],
+        },
+    )
+
+    response = backend_client.get("/api/kb/documents/doc-1/impact")
+
+    assert response.status_code == 200
+    assert response.json()["affected_count"] == 1
+
+
 def test_user_confirmed_wiki_plan_contract(backend_client, monkeypatch):
     provider = object()
     captured = {}
