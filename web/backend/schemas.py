@@ -17,6 +17,13 @@ class ErrorResponse(BaseModel):
     error: ErrorBody
 
 
+class ChatReference(BaseModel):
+    type: Literal["document", "session"]
+    id: str = Field(..., min_length=1, max_length=160)
+    title: str = Field(..., min_length=1, max_length=200)
+    collection: Literal["material", "wiki"] | None = None
+
+
 class ChatRunRequest(BaseModel):
     message: str = Field(..., min_length=1)
     chat_session_id: str | None = None
@@ -26,10 +33,15 @@ class ChatRunRequest(BaseModel):
     learning_goal: str = Field(default="", max_length=500)
     memory_enabled: bool = True
     web_enabled: bool = False
+    references: list[ChatReference] = Field(default_factory=list, max_length=8)
 
 
 class ChatSessionUpdateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=120)
+
+
+class ChatSessionProviderRequest(BaseModel):
+    provider: str = Field(..., min_length=1, max_length=80)
 
 
 class WikiFocusRequest(BaseModel):
@@ -65,6 +77,7 @@ class ChatMessage(BaseModel):
     role: Literal["user", "assistant"]
     content: str
     artifacts: list[dict[str, Any]] = Field(default_factory=list)
+    references: list[ChatReference] = Field(default_factory=list)
 
 
 class ChatSessionSummary(BaseModel):
@@ -75,6 +88,7 @@ class ChatSessionSummary(BaseModel):
     last_active: str
     message_count: int
     library_id: str | None = None
+    provider_name: str | None = None
 
 
 class ChatSessionDetail(ChatSessionSummary):

@@ -33,7 +33,10 @@ def create_app() -> FastAPI:
 
     @app.middleware("http")
     async def resolve_library(request: Request, call_next):
-        scoped_prefixes = ("/api/chat", "/api/kb", "/api/quiz", "/api/learning")
+        scoped_prefixes = (
+            "/api/chat", "/api/kb", "/api/quiz", "/api/learning",
+            "/api/settings/proposals",
+        )
         if request.url.path.startswith(scoped_prefixes):
             service = get_library_service()
             registry = service.list_libraries()

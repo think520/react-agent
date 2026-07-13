@@ -110,9 +110,14 @@ def format_skills_for_prompt(skills: list[Skill]) -> str:
 SKILLS_PROMPT_MARKER = "<!-- [skills_prompt] -->"
 
 
-def build_skills_system_prompt(skills_dir: str) -> Optional[str]:
+def build_skills_system_prompt(
+    skills_dir: str,
+    enabled_names: set[str] | None = None,
+) -> Optional[str]:
     """Load skills and return a complete system prompt string, or None if no skills."""
     skills = load_skills_from_dir(skills_dir)
+    if enabled_names is not None:
+        skills = [skill for skill in skills if skill.name in enabled_names]
     if not skills:
         return None
 

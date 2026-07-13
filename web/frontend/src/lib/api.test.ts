@@ -21,6 +21,8 @@ describe("api client", () => {
       learningGoal: "掌握图算法",
       memoryEnabled: false,
       webEnabled: false,
+      provider: "local",
+      references: [{ type: "document", id: "doc-2", title: "第二课", collection: "material" }],
     }, (event) => events.push(event.event));
 
     expect(events).toEqual(["run_started", "message_delta"]);
@@ -29,6 +31,12 @@ describe("api client", () => {
     }));
     expect(vi.mocked(fetch)).toHaveBeenCalledWith("/api/chat/runs", expect.objectContaining({
       body: expect.stringContaining('"memory_enabled":false'),
+    }));
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith("/api/chat/runs", expect.objectContaining({
+      body: expect.stringContaining('"provider":"local"'),
+    }));
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith("/api/chat/runs", expect.objectContaining({
+      body: expect.stringContaining('"id":"doc-2"'),
     }));
   });
 

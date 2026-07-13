@@ -7,6 +7,16 @@
 ## [未发布]
 
 ### 新增
+- **P5E.3 Web UI 系统体验与设置中心**: 在进入联网资料扩展前，补齐本地学习产品的用户偏好、模型与通用交互基础。
+  - 新增用户级 `preferences.json`，使用 schema、revision 和原子写入保存助手、用户、阅读、Provider、记忆和 Web Skills 偏好；旧浏览器学习资料可一次性迁移。
+  - 新增桌面居中 / 移动全屏设置中心，支持中文搜索、键盘选择、URL 深链接、阅读字体与字号、内容宽度、纸纹、会话密度和减少动效。
+  - 新增 Provider 状态与最小连接测试；新会话继承默认 Provider，已有会话持久化自己的 Provider，流式回答期间可停止生成但不能切换模型。
+  - Chat Composer 增加回答深度、正文流状态条、`@资料 / @会话`、可恢复引用 chip，以及按用户启用状态过滤的 Slash / Skills 菜单。
+  - 新增低风险对话式设置确认卡，只允许回答深度、教学方式、反馈强度和记忆开关；Provider、密钥、权限与安全设置不能通过对话修改。
+  - 后端断开时按 `2s → 5s → 10s → 30s` 重试并提供手动重连；正常连接状态不常驻，状态页不暴露密钥、绝对路径、Trace 或原始日志。
+  - 更新 `docs/PROJECT_GUIDE.md` 与 `docs/DESIGN.md`，固化设置中心、Composer 三层状态、引用、Provider 和动效规则。
+  - 验证：Python `1082 passed`、Vitest `4 passed`、TypeScript 与生产构建通过、Playwright 多视口 `42 passed`。
+
 - **P5E.2 Wiki 可靠性增强**: 在不改变用户确认工作流的前提下，为持续更新和批量 Wiki 操作补齐写入保护、失败恢复与维护检查。
   - 新增 Wiki 写入预检，校验目标路径、页面类型、来源范围和结构文件保护；无效模型输出进入 `.bobodan/wiki/staging/`，不会污染正式 Wiki。
   - 页面更新确定性合并 `sources`、`source_refs`、`tags` 与 `related`，保留关键 frontmatter；多来源正文异常缩减时拒绝写入并恢复检查点。

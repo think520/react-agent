@@ -13,17 +13,19 @@ import {
   Plus,
   RefreshCw,
   Search,
+  Settings,
   Sparkles,
   Trash2,
   X,
 } from "lucide-react";
-import { NavLink, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
+import { NavLink, Outlet, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { api, setActiveLibraryId } from "../lib/api";
 import type { ChatSessionSummary, DocumentSummary, LibraryMigrationPreview, LibrarySummary, ReviewQueue, SettingsSummary } from "../types";
 import { formatSessionTime, IconButton, LoadingState, textValue } from "./common";
 import { OnboardingDialog } from "./OnboardingDialog";
 import { LibrarySetupDialog, type LibrarySetupMode } from "./LibrarySetupDialog";
+import { SettingsDialog } from "./SettingsDialog";
 
 export interface LibrarySetupOptions {
   initialMode?: LibrarySetupMode;
@@ -33,6 +35,7 @@ export interface LibrarySetupOptions {
 export interface AppOutletContext {
   sessions: ChatSessionSummary[];
   settings: SettingsSummary | null;
+  refreshSettings: () => Promise<SettingsSummary | null>;
   refreshSessions: () => Promise<void>;
   openContext: () => void;
   documents: DocumentSummary[];
@@ -144,6 +147,7 @@ export function AppShell() {
   const location = useLocation();
   const navigate = useNavigate();
   const params = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const section = location.pathname.split("/")[1] || "chat";
   const [sessions, setSessions] = useState<ChatSessionSummary[]>([]);
   const [settings, setSettings] = useState<SettingsSummary | null>(null);
@@ -177,6 +181,21 @@ export function AppShell() {
   const [documentImportNotice, setDocumentImportNotice] = useState("");
   const [documentImportError, setDocumentImportError] = useState("");
   const [documentImportVersion, setDocumentImportVersion] = useState(0);
+  const [backendState, setBackendState] = useState<"connected" | "disconnected" | "reconnecting">("connected");
+  const [reconnectAttempt, setReconnectAttempt] = useState(0);
+  const settingsButtonRef = useRef<HTMLButtonElement>(null);
+
+  const settingsSection = searchParams.get("settings");
+
+  const refreshSettings = useCallback(async () => {
+    try {
+      const result = await api.settings();
+      setSettings(result);
+      return result;
+    } catch {
+      return null;
+    }
+  }, []);
 
   const refreshSessions = useCallback(async () => {
     try {
@@ -247,7 +266,7 @@ export function AppShell() {
   }
 
   useEffect(() => {
-    void Promise.all([api.settings().then(setSettings).catch(() => setSettings(null)), api.libraries()])
+    void Promise.all([refreshSettings(), api.libraries()])
       .then(async ([, registry]) => {
         setLibraries(registry.libraries);
         const remembered = localStorage.getItem("bobodan:library:active");
@@ -267,7 +286,87 @@ export function AppShell() {
       })
       .catch(() => setLoadingSessions(false))
       .finally(() => setInitialDataLoaded(true));
-  }, [loadScopedData]);
+  }, [loadScopedData, refreshSettings]);
+
+  useEffect(() => {
+    if (!settings) return;
+    const appearance = settings.preferences.appearance;
+    const root = document.documentElement;
+    root.dataset.readingFont = appearance.reading_font;
+    root.dataset.paperTexture = appearance.paper_texture ? "on" : "off";
+    root.dataset.sessionDensity = appearance.session_density;
+    root.dataset.motion = appearance.motion;
+    root.style.setProperty("--body-font-size", `${appearance.body_font_size}px`);
+    root.style.setProperty("--content-width", `${appearance.content_width}px`);
+  }, [settings]);
+
+  useEffect(() => {
+    if (!settings || localStorage.getItem("bobodan:preferences:migrated") === "1") return;
+    let legacy: { displayName?: string; learningGoal?: string; memoryEnabled?: boolean } = {};
+    try { legacy = JSON.parse(localStorage.getItem("bobodan:learning-profile") || "{}"); }
+    catch { legacy = {}; }
+    const patch: Record<string, unknown> = {};
+    if ((legacy.displayName && !settings.preferences.user.display_name) || (legacy.learningGoal && !settings.preferences.user.long_term_goal)) {
+      patch.user = {
+        ...(legacy.displayName ? { display_name: legacy.displayName } : {}),
+        ...(legacy.learningGoal ? { long_term_goal: legacy.learningGoal } : {}),
+      };
+    }
+    if (typeof legacy.memoryEnabled === "boolean" && settings.preferences.memory.enabled !== legacy.memoryEnabled) {
+      patch.memory = { enabled: legacy.memoryEnabled };
+    }
+    if (!Object.keys(patch).length) {
+      localStorage.setItem("bobodan:preferences:migrated", "1");
+      return;
+    }
+    void api.patchPreferences(settings.preferences.revision, patch)
+      .then(() => refreshSettings())
+      .then(() => localStorage.setItem("bobodan:preferences:migrated", "1"))
+      .catch(() => undefined);
+  }, [refreshSettings, settings]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let timer: number | undefined;
+    const delays = [2000, 5000, 10000, 30000];
+    const check = async (attempt = 0) => {
+      try {
+        await api.health();
+        if (!cancelled) {
+          setBackendState("connected");
+          setReconnectAttempt(0);
+        }
+      } catch {
+        if (cancelled) return;
+        setBackendState("disconnected");
+        setReconnectAttempt(attempt + 1);
+        timer = window.setTimeout(() => {
+          setBackendState("reconnecting");
+          void check(attempt + 1);
+        }, delays[Math.min(attempt, delays.length - 1)]);
+      }
+    };
+    void check();
+    const interval = window.setInterval(() => void api.health().catch(() => void check()), 30000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+      if (timer) window.clearTimeout(timer);
+    };
+  }, []);
+
+  function openSettings(section = "assistant") {
+    const next = new URLSearchParams(searchParams);
+    next.set("settings", section);
+    setSearchParams(next, { replace: true });
+  }
+
+  function closeSettings() {
+    const next = new URLSearchParams(searchParams);
+    next.delete("settings");
+    setSearchParams(next, { replace: true });
+    requestAnimationFrame(() => settingsButtonRef.current?.focus());
+  }
 
   useEffect(() => {
     if (!activeLibrary || !pendingDocumentFiles.current.length) return;
@@ -472,6 +571,7 @@ export function AppShell() {
         <div className="profile-row">
           <span className="profile-avatar">库</span>
           <span><strong>{activeLibrary?.name || "尚未选择资料库"}</strong><small>{settings?.default_provider || "等待连接 AI"}</small></span>
+          <button ref={settingsButtonRef} className="icon-button" aria-label="打开设置" title="打开设置" onClick={() => openSettings()}><Settings size={17} /></button>
         </div>
       </aside>
 
@@ -486,6 +586,7 @@ export function AppShell() {
         <Outlet context={{
           sessions,
           settings,
+          refreshSettings,
           refreshSessions,
           openContext: () => desktop ? persistPanel("right", true) : setContextOpen(true),
           documents,
@@ -527,6 +628,12 @@ export function AppShell() {
         onComplete={(profile) => {
           localStorage.setItem("bobodan:onboarding:v1", "complete");
           localStorage.setItem("bobodan:learning-profile", JSON.stringify(profile));
+          if (settings) {
+            void api.patchPreferences(settings.preferences.revision, {
+              user: { display_name: profile.displayName, long_term_goal: profile.learningGoal },
+              memory: { enabled: profile.memoryEnabled },
+            }).then(() => refreshSettings()).catch(() => undefined);
+          }
           setOnboardingOpen(false);
         }}
       />}
@@ -541,6 +648,18 @@ export function AppShell() {
         importCount={librarySetupOptions.importCount}
       />}
       <input ref={documentImportInput} className="visually-hidden" type="file" multiple accept=".md,.pdf,.docx,.pptx" onChange={(event) => void selectDocumentsForImport(event)} />
+      {backendState !== "connected" && <div className={`connection-bar ${backendState}`} role="status">
+        <span>{backendState === "reconnecting" ? "正在重新连接 Bobodan…" : `Bobodan 后端已断开${reconnectAttempt ? `，已重试 ${reconnectAttempt} 次` : ""}`}</span>
+        <button type="button" onClick={() => { setBackendState("reconnecting"); void api.health().then(() => setBackendState("connected")).catch(() => setBackendState("disconnected")); }}>重新连接</button>
+      </div>}
+      {settingsSection && settings && <SettingsDialog
+        settings={settings}
+        activeLibrary={activeLibrary}
+        section={settingsSection}
+        onSectionChange={(nextSection) => openSettings(nextSection)}
+        onClose={closeSettings}
+        onSettingsChange={setSettings}
+      />}
     </div>
   );
 }

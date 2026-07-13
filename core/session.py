@@ -18,6 +18,7 @@ class Session:
     name: str = ""
     name_source: str = "fallback"
     library_id: str | None = None
+    provider_name: str | None = None
 
     @staticmethod
     def new(cwd: str, max_messages: Optional[int] = None) -> "Session":
@@ -124,6 +125,8 @@ class Session:
             data["name_source"] = "manual" if data.get("name") else "fallback"
         if "library_id" not in data:
             data["library_id"] = None
+        if "provider_name" not in data:
+            data["provider_name"] = None
         return Session(**data)
 
     @staticmethod
@@ -161,6 +164,7 @@ class Session:
                     "last_active": data.get("last_active", ""),
                     "message_count": len(data.get("messages", [])),
                     "library_id": data.get("library_id"),
+                    "provider_name": data.get("provider_name"),
                 })
             except (json.JSONDecodeError, OSError):
                 continue

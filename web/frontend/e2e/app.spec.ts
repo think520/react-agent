@@ -1,6 +1,29 @@
 import { expect, test } from "@playwright/test";
 
+function settingsPayload(overrides: Record<string, unknown> = {}) {
+  return {
+    workspace_name: "测试空间",
+    default_provider: "deepseek",
+    providers: [{ name: "deepseek", configured: true, model: "deepseek-chat" }],
+    mcp_enabled: false,
+    skills: [],
+    preferences: {
+      schema_version: 1,
+      revision: 0,
+      assistant: { display_name: "Bobodan", teaching_style: "guided", answer_depth: "standard", feedback_strength: "gentle" },
+      user: { display_name: "", profile: "", long_term_goal: "" },
+      appearance: { reading_font: "jin-kai", body_font_size: 16, content_width: 720, paper_texture: true, session_density: "comfortable", motion: "system" },
+      ai: { default_provider: "deepseek" },
+      memory: { enabled: true },
+      skills: { enabled_names: [] },
+    },
+    ...overrides,
+  };
+}
+
 test.beforeEach(async ({ page }) => {
+  await page.route("**/api/health", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ ok: true }) }));
+  await page.route("**/api/kb/documents?collection=all", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ documents: [] }) }));
   await page.route("**/api/libraries", (route) => route.fulfill({
     contentType: "application/json",
     body: JSON.stringify({
@@ -14,7 +37,7 @@ test("new workspace completes the four-step setup", async ({ page }) => {
   await page.route("**/api/chat/sessions", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ sessions: [] }) }));
   await page.route("**/api/kb/documents?collection=material", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ documents: [] }) }));
   await page.route("**/api/learning/review-queue", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ due_concepts: [], wrong_answers: [], weaknesses: [] }) }));
-  await page.route("**/api/settings", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ workspace_name: "新学习空间", default_provider: "deepseek", providers: [{ name: "deepseek", configured: true }], mcp_enabled: false }) }));
+  await page.route("**/api/settings", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(settingsPayload({ workspace_name: "新学习空间" })) }));
 
   await page.goto("/chat");
   await expect(page.getByRole("dialog")).toBeVisible();
@@ -45,7 +68,7 @@ test("first upload creates a portable library before indexing the file", async (
       await route.fulfill({ contentType: "application/json", body: JSON.stringify({ active_library_id: created ? library.library_id : null, libraries: created ? [library] : [] }) });
     }
   });
-  await page.route("**/api/settings", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ workspace_name: "Bobodan", default_provider: "deepseek", providers: [], mcp_enabled: false, skills: [] }) }));
+  await page.route("**/api/settings", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(settingsPayload({ workspace_name: "Bobodan", providers: [] })) }));
   await page.route("**/api/chat/sessions", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ sessions: [] }) }));
   await page.route("**/api/kb/documents?collection=material", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ documents: [] }) }));
   await page.route("**/api/learning/review-queue", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ due_concepts: [], wrong_answers: [], weaknesses: [] }) }));
@@ -85,7 +108,7 @@ test("legacy folder is previewed and migrated from the Web UI", async ({ page })
     migrated = true;
     return route.fulfill({ contentType: "application/json", body: JSON.stringify({ library, preview: { material_count: 55 }, sync: { scanned_files: 55 } }) });
   });
-  await page.route("**/api/settings", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ workspace_name: "Bobodan", default_provider: "deepseek", providers: [], mcp_enabled: false, skills: [] }) }));
+  await page.route("**/api/settings", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(settingsPayload({ workspace_name: "Bobodan", providers: [] })) }));
   await page.route("**/api/chat/sessions", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ sessions: [] }) }));
   await page.route("**/api/kb/documents?collection=material", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ documents: [] }) }));
   await page.route("**/api/learning/review-queue", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ due_concepts: [], wrong_answers: [], weaknesses: [] }) }));
@@ -118,7 +141,7 @@ test("initialized folder is opened instead of migrated again", async ({ page }) 
     migrated = true;
     return route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: { message: "不应再次迁移" } }) });
   });
-  await page.route("**/api/settings", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ workspace_name: "Bobodan", default_provider: "deepseek", providers: [], mcp_enabled: false, skills: [] }) }));
+  await page.route("**/api/settings", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(settingsPayload({ workspace_name: "Bobodan", providers: [] })) }));
   await page.route("**/api/chat/sessions", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ sessions: [] }) }));
   await page.route("**/api/kb/documents?collection=material", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ documents: [] }) }));
   await page.route("**/api/learning/review-queue", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ due_concepts: [], wrong_answers: [], weaknesses: [] }) }));
@@ -142,7 +165,7 @@ test("selected library scope is sent with chat requests", async ({ page }) => {
   await page.route("**/api/kb/documents?collection=material", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ documents }) }));
   await page.route("**/api/kb/documents/doc-1", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ document: documents[0], sections: [{ chunk_id: "c1", text: "Dijkstra 使用贪心策略。" }] }) }));
   await page.route("**/api/learning/review-queue", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ due_concepts: [], wrong_answers: [], weaknesses: [] }) }));
-  await page.route("**/api/settings", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ workspace_name: "测试空间", default_provider: "deepseek", providers: [{ name: "deepseek", configured: true }], mcp_enabled: false }) }));
+  await page.route("**/api/settings", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(settingsPayload()) }));
   let requestBody: Record<string, unknown> = {};
   await page.route("**/api/chat/runs", async (route) => {
     requestBody = route.request().postDataJSON();
@@ -174,7 +197,7 @@ test("review reuses historical questions without regenerating them", async ({ pa
   });
   let generationCalled = false;
   let sessionBody: Record<string, unknown> = {};
-  await page.route("**/api/settings", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ workspace_name: "测试空间", default_provider: "deepseek", providers: [{ name: "deepseek", configured: true }], mcp_enabled: false }) }));
+  await page.route("**/api/settings", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(settingsPayload()) }));
   await page.route("**/api/chat/sessions", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ sessions: [] }) }));
   await page.route("**/api/kb/documents?collection=material", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ documents: [] }) }));
   await page.route("**/api/learning/review-queue", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ due_concepts: [{ concept: "RAG效果影响因素", status: "learning", question_ids: [5] }], wrong_answers: [], weaknesses: [] }) }));
@@ -198,7 +221,7 @@ test("review reuses historical questions without regenerating them", async ({ pa
 test("Wiki maintenance separates checks from confirmed repairs", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("bobodan:onboarding:v1", "complete"));
   const wikiDocument = { document_id: "wiki-1", source: "obsidian/wiki/concepts/RAG.md", kind: "wiki_concept", title: "RAG", collection: "wiki", wiki_type: "concept", content_role: "content", managed: false };
-  await page.route("**/api/settings", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ workspace_name: "测试空间", default_provider: "deepseek", providers: [{ name: "deepseek", configured: true }], mcp_enabled: false, skills: [] }) }));
+  await page.route("**/api/settings", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(settingsPayload()) }));
   await page.route("**/api/chat/sessions", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ sessions: [] }) }));
   await page.route("**/api/kb/documents?collection=material", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ documents: [] }) }));
   await page.route("**/api/kb/documents?collection=wiki", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ documents: [wikiDocument] }) }));
@@ -230,7 +253,7 @@ test("materials become a traceable Wiki only after plan confirmation", async ({ 
   });
   const material = { document_id: "doc-1", source: "course/rag.md", kind: "course_document", title: "RAG Lesson", collection: "material", content_role: "content", managed: false };
   const wiki = { document_id: "wiki-1", source: "obsidian/wiki/concepts/RAG.md", kind: "wiki_concept", title: "RAG", collection: "wiki", wiki_type: "concept", content_role: "content", managed: false };
-  await page.route("**/api/settings", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ workspace_name: "Study", default_provider: "deepseek", providers: [{ name: "deepseek", configured: true }], mcp_enabled: false, skills: [] }) }));
+  await page.route("**/api/settings", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(settingsPayload({ workspace_name: "Study" })) }));
   await page.route("**/api/chat/sessions", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ sessions: [] }) }));
   await page.route("**/api/learning/review-queue", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ due_concepts: [], wrong_answers: [], weaknesses: [] }) }));
   await page.route("**/api/kb/documents?collection=material", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ documents: [material] }) }));
@@ -285,9 +308,63 @@ test("materials become a traceable Wiki only after plan confirmation", async ({ 
   await expect(page.locator('[data-chunk-id="chunk-1"]')).toHaveClass(/highlighted/);
 });
 
+test("settings deep links and @ references stay usable across viewports", async ({ page }, testInfo) => {
+  await page.addInitScript(() => localStorage.setItem("bobodan:onboarding:v1", "complete"));
+  const material = { document_id: "doc-material", source: "raw/inbox/rag.md", kind: "markdown", title: "RAG 原始资料", collection: "material", content_role: "content" };
+  const wiki = { document_id: "doc-wiki", source: "wiki/concepts/RAG.md", kind: "wiki_concept", title: "RAG Wiki", collection: "wiki", content_role: "content", wiki_type: "concept" };
+  const priorSession = { chat_session_id: "prior-session", name: "上次的 RAG 讨论", name_source: "ai", created_at: "2026-07-12T09:00:00", last_active: "2026-07-12T10:00:00", message_count: 2, provider_name: "deepseek" };
+  const currentSettings = settingsPayload();
+  await page.route("**/api/settings", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(currentSettings) }));
+  await page.route("**/api/settings/preferences", async (route) => {
+    const body = route.request().postDataJSON();
+    currentSettings.preferences = { ...currentSettings.preferences, ...body.patch, revision: currentSettings.preferences.revision + 1 };
+    currentSettings.default_provider = currentSettings.preferences.ai.default_provider;
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ preferences: currentSettings.preferences }) });
+  });
+  await page.route("**/api/chat/sessions", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ sessions: [priorSession] }) }));
+  await page.route("**/api/kb/documents?collection=material", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ documents: [material] }) }));
+  await page.route("**/api/kb/documents?collection=all", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ documents: [material, wiki] }) }));
+  await page.route("**/api/learning/review-queue", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ due_concepts: [], wrong_answers: [], weaknesses: [] }) }));
+  let requestBody: Record<string, any> = {};
+  await page.route("**/api/chat/runs", async (route) => {
+    requestBody = route.request().postDataJSON();
+    await route.fulfill({ status: 200, headers: { "Content-Type": "text/event-stream; charset=utf-8" }, body: `event: run_started\ndata: {"run_id":"ref-run","chat_session_id":"ref-session"}\n\nevent: message_delta\ndata: {"content":"已结合引用回答。"}\n\nevent: run_completed\ndata: {"chat_session_id":"ref-session","termination_reason":"final_answer"}\n\n` });
+  });
+  await page.route("**/api/chat/sessions/ref-session/title", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ name: "引用问答", name_source: "ai" }) }));
+  await page.route("**/api/chat/sessions/ref-session", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ chat_session_id: "ref-session", name: "引用问答", name_source: "ai", created_at: "", last_active: "", message_count: 2, provider_name: "deepseek", messages: [{ role: "user", content: "解释证据边界", references: [{ type: "document", id: "doc-wiki", title: "RAG Wiki", collection: "wiki" }] }, { role: "assistant", content: "已结合引用回答。" }] }) }));
+
+  await page.goto("/chat?settings=appearance");
+  const dialog = page.getByRole("dialog", { name: "设置" });
+  await expect(dialog).toBeVisible();
+  const box = await dialog.boundingBox();
+  expect(box).not.toBeNull();
+  expect(box!.width).toBeLessThanOrEqual(await page.evaluate(() => window.innerWidth));
+  await page.screenshot({ path: testInfo.outputPath(`settings-${testInfo.project.name}.png`), fullPage: true, animations: "disabled" });
+  await page.getByPlaceholder("搜索设置").fill("模型");
+  await page.getByPlaceholder("搜索设置").press("Enter");
+  await expect(page.getByRole("heading", { name: "AI 与模型" }).last()).toBeVisible();
+  const close = page.getByRole("button", { name: "关闭设置" });
+  if (await close.isVisible()) await close.click();
+  else await page.getByRole("button", { name: "返回" }).click();
+
+  const composer = page.getByRole("textbox", { name: "消息" });
+  await composer.fill("@资料");
+  await expect(page.getByRole("listbox", { name: "引用资料或会话" })).toBeVisible();
+  await page.getByRole("option", { name: /RAG Wiki/ }).click();
+  await expect(page.getByRole("button", { name: "RAG Wiki", exact: true })).toBeVisible();
+  await composer.fill("解释证据边界");
+  await page.getByRole("button", { name: "发送" }).click();
+  await expect(page.getByText("已结合引用回答。", { exact: true })).toBeVisible();
+  expect(requestBody.provider).toBe("deepseek");
+  expect(requestBody.references).toEqual([{ type: "document", id: "doc-wiki", title: "RAG Wiki", collection: "wiki" }]);
+});
+
 test("slash palette exposes commands and local skills", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("bobodan:onboarding:v1", "complete"));
-  await page.route("**/api/settings", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ workspace_name: "测试空间", default_provider: "deepseek", providers: [{ name: "deepseek", configured: true }], mcp_enabled: false, skills: [{ name: "study-loop", description: "推进每日学习闭环。" }, { name: "exam-prep", description: "围绕薄弱点集中复习。" }] }) }));
+  const skills = [{ name: "study-loop", description: "推进每日学习闭环。", enabled: true, source: "built-in", capabilities: ["学习对话"] }, { name: "exam-prep", description: "围绕薄弱点集中复习。", enabled: true, source: "built-in", capabilities: ["学习对话"] }];
+  const skillSettings = settingsPayload({ skills });
+  skillSettings.preferences.skills.enabled_names = skills.map((skill) => skill.name);
+  await page.route("**/api/settings", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(skillSettings) }));
   await page.route("**/api/chat/sessions", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ sessions: [] }) }));
   await page.route("**/api/kb/documents?collection=material", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ documents: [] }) }));
   await page.route("**/api/learning/review-queue", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ due_concepts: [], wrong_answers: [], weaknesses: [] }) }));
@@ -326,7 +403,7 @@ test("chat answer becomes practice and returns to review", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("bobodan:onboarding:v1", "complete"));
   const question = { id: 41, type: "single_choice", type_label: "单选", question: "Dijkstra 使用哪种策略？", options: ["A. 分治", "B. 贪心", "C. 回溯", "D. 穷举"], concepts: ["Dijkstra"], difficulty: "easy", attribution: { kind: "local", sources: [] } };
   let completed = false;
-  await page.route("**/api/settings", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ workspace_name: "测试空间", default_provider: "deepseek", providers: [{ name: "deepseek", configured: true }], mcp_enabled: false }) }));
+  await page.route("**/api/settings", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(settingsPayload()) }));
   await page.route("**/api/kb/documents?collection=material", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ documents: [] }) }));
   await page.route("**/api/chat/sessions", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ sessions: [{ chat_session_id: "demo", name: "Dijkstra", name_source: "ai", created_at: "2026-07-11T10:00:00", last_active: "2026-07-11T10:00:00", message_count: 2 }] }) }));
   await page.route("**/api/chat/sessions/demo", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ chat_session_id: "demo", name: "Dijkstra", name_source: "ai", created_at: "2026-07-11T10:00:00", last_active: "2026-07-11T10:00:00", message_count: 2, messages: [{ role: "user", content: "Dijkstra 为什么使用贪心？" }, { role: "assistant", content: "因为非负权保证已确定距离不会被推翻。" }] }) }));
@@ -372,7 +449,7 @@ test("chat answer becomes practice and returns to review", async ({ page }) => {
 
 test("Chat and primary study routes render without overlap", async ({ page }, testInfo) => {
   await page.addInitScript(() => localStorage.setItem("bobodan:onboarding:v1", "complete"));
-  await page.route("**/api/settings", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ workspace_name: "本地工作区", default_provider: "deepseek", providers: [{ name: "deepseek", configured: true }], mcp_enabled: false, skills: [] }) }));
+  await page.route("**/api/settings", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(settingsPayload({ workspace_name: "本地工作区" })) }));
   const document = { document_id: "visual-doc", source: "course/visual.md", kind: "course_document", title: "视觉测试资料", collection: "material", content_role: "content", managed: false };
   await page.route("**/api/chat/sessions", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ sessions: [] }) }));
   await page.route("**/api/kb/documents?collection=material", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ documents: [document] }) }));
@@ -382,7 +459,7 @@ test("Chat and primary study routes render without overlap", async ({ page }, te
   await page.goto("/chat");
   await expect(page.getByRole("heading", { name: "今天想学点什么？", level: 2 })).toBeVisible();
   await expect(page.locator(".composer")).toBeVisible();
-  await expect(page.locator(".composer-model.connected")).toBeVisible();
+  await expect(page.locator(".composer-select.model.connected")).toBeVisible();
   await expect.poll(() => page.evaluate(() => document.fonts.check('16px "Luo"'))).toBe(true);
   expect(await page.evaluate(() => getComputedStyle(document.body).fontFamily.startsWith("Luo"))).toBe(false);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
@@ -489,7 +566,7 @@ test("streamed conversation keeps a calm centered reading flow", async ({ page }
   await page.goto("/chat/demo-session");
   await page.getByRole("textbox", { name: "消息" }).fill("Dijkstra 为什么可以使用贪心选择？");
   await page.getByRole("button", { name: "发送" }).click();
-  await expect(page.getByText("Bobodan 正在处理")).toBeVisible();
+  await expect(page.getByText("正在理解问题", { exact: true })).toBeVisible();
   await expect(page.getByText(/关键在于/)).toBeVisible();
   await expect(page.getByText(/本地资料 · 算法设计/)).toBeVisible();
   await expect(page.getByText("查看处理过程")).toBeVisible();
