@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -42,7 +42,10 @@ describe("Bobodan app shell", () => {
     }));
   });
 
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
 
   it("shows the real study navigation and Today state", async () => {
     render(<MemoryRouter initialEntries={["/chat"]}><App /></MemoryRouter>);
@@ -65,5 +68,28 @@ describe("Bobodan app shell", () => {
     expect(screen.queryByRole("dialog", { name: "设置" })).not.toBeInTheDocument();
     fireEvent.click(screen.getAllByRole("button", { name: "打开设置" }).at(-1)!);
     expect(await screen.findByRole("dialog", { name: "设置" })).toBeInTheDocument();
+  });
+
+  it("keeps the settings button useful while the backend is offline", async () => {
+    localStorage.setItem("bobodan:onboarding:v1", "complete");
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.endsWith("/api/health") || path.endsWith("/api/settings")) {
+        return Promise.resolve(new Response(JSON.stringify({ error: { code: "offline", message: "后端不可用" } }), {
+          status: 503,
+          headers: { "Content-Type": "application/json" },
+        }));
+      }
+      if (path.endsWith("/api/libraries")) return jsonResponse({ active_library_id: null, libraries: [] });
+      throw new Error(`Unexpected request: ${path}`);
+    }));
+
+    render(<MemoryRouter initialEntries={["/chat"]}><App /></MemoryRouter>);
+    fireEvent.click(await screen.findByRole("button", { name: "打开设置" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "设置" });
+    expect(dialog).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "设置暂时不可用" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "重新连接" })).toBeInTheDocument();
   });
 });

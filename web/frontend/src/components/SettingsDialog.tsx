@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity, Bot, BookOpenText, Brain, Check, ChevronLeft, CircleUserRound,
-  Cpu, Database, Gauge, Search, Settings2, ShieldCheck, Sparkles, Wrench, X,
+  Cpu, Database, Gauge, RefreshCw, Search, Settings2, ShieldCheck, Sparkles, Wrench, X,
 } from "lucide-react";
 
 import { api } from "../lib/api";
@@ -176,4 +176,31 @@ export function SettingsDialog({
     <header className="settings-dialog-header"><button className="settings-back" onClick={onClose} aria-label="返回"><ChevronLeft /></button><strong>设置</strong><h2>{sections.find((item) => item.id === active)?.label}</h2><IconButton label="关闭设置" onClick={onClose}><X /></IconButton></header>
     <div className="settings-dialog-body"><nav className="settings-nav" aria-label="设置分类"><label className="settings-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (!matches.length) return; if (event.key === "ArrowDown") { event.preventDefault(); setSearchIndex((current) => (current + 1) % matches.length); } else if (event.key === "ArrowUp") { event.preventDefault(); setSearchIndex((current) => (current - 1 + matches.length) % matches.length); } else if (event.key === "Enter") { event.preventDefault(); onSectionChange(matches[Math.min(searchIndex, matches.length - 1)].id); } }} placeholder="搜索设置" />{query && <button onClick={() => setQuery("")} aria-label="清空搜索"><X size={13} /></button>}</label>{matches.map(({ id, label, icon: Icon }, index) => <button ref={active === id ? activeNavRef : undefined} className={`${active === id ? "active" : ""} ${query && searchIndex === index ? "search-active" : ""}`} key={id} onClick={() => onSectionChange(id)}><Icon size={17} /><span>{label}</span></button>)}</nav><main className="settings-main">{error && <div className="settings-error">{error}</div>}{notice && <div className="settings-notice"><Check size={14} />{notice}</div>}<div className="settings-page-heading"><Sparkles size={16} /><span>Bobodan Settings</span><h2>{sections.find((item) => item.id === active)?.label}</h2></div>{sectionContent()}</main></div>
   </section></div>;
+}
+
+export function SettingsUnavailableDialog({
+  reconnecting,
+  onRetry,
+  onClose,
+}: {
+  reconnecting: boolean;
+  onRetry: () => void;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const close = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    window.addEventListener("keydown", close);
+    return () => window.removeEventListener("keydown", close);
+  }, [onClose]);
+
+  return <div className="settings-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <section className="settings-dialog settings-unavailable" role="dialog" aria-modal="true" aria-label="设置" tabIndex={-1}>
+      <header className="settings-dialog-header"><button className="settings-back" onClick={onClose} aria-label="返回"><ChevronLeft /></button><strong>设置</strong><h2>连接状态</h2><IconButton label="关闭设置" onClick={onClose}><X /></IconButton></header>
+      <main className="settings-unavailable-main">
+        <span className="settings-unavailable-icon"><Activity size={24} /></span>
+        <div><span>Bobodan Settings</span><h2>设置暂时不可用</h2><p>学习页面仍可查看，但需要重新连接本地后端才能读取或修改设置。</p></div>
+        <button className="primary-button" disabled={reconnecting} onClick={onRetry}>{reconnecting ? <><RefreshCw className="spin" size={15} />正在重连</> : <><RefreshCw size={15} />重新连接</>}</button>
+      </main>
+    </section>
+  </div>;
 }

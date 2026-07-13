@@ -25,7 +25,7 @@ import type { ChatSessionSummary, DocumentSummary, LibraryMigrationPreview, Libr
 import { formatSessionTime, IconButton, LoadingState, textValue } from "./common";
 import { OnboardingDialog } from "./OnboardingDialog";
 import { LibrarySetupDialog, type LibrarySetupMode } from "./LibrarySetupDialog";
-import { SettingsDialog } from "./SettingsDialog";
+import { SettingsDialog, SettingsUnavailableDialog } from "./SettingsDialog";
 
 export interface LibrarySetupOptions {
   initialMode?: LibrarySetupMode;
@@ -196,6 +196,18 @@ export function AppShell() {
       return null;
     }
   }, []);
+
+  const reconnectBackend = useCallback(async () => {
+    setBackendState("reconnecting");
+    try {
+      await api.health();
+      setBackendState("connected");
+      setReconnectAttempt(0);
+      await refreshSettings();
+    } catch {
+      setBackendState("disconnected");
+    }
+  }, [refreshSettings]);
 
   const refreshSessions = useCallback(async () => {
     try {
@@ -650,7 +662,7 @@ export function AppShell() {
       <input ref={documentImportInput} className="visually-hidden" type="file" multiple accept=".md,.pdf,.docx,.pptx" onChange={(event) => void selectDocumentsForImport(event)} />
       {backendState !== "connected" && <div className={`connection-bar ${backendState}`} role="status">
         <span>{backendState === "reconnecting" ? "正在重新连接 Bobodan…" : `Bobodan 后端已断开${reconnectAttempt ? `，已重试 ${reconnectAttempt} 次` : ""}`}</span>
-        <button type="button" onClick={() => { setBackendState("reconnecting"); void api.health().then(() => setBackendState("connected")).catch(() => setBackendState("disconnected")); }}>重新连接</button>
+        <button type="button" onClick={() => void reconnectBackend()}>重新连接</button>
       </div>}
       {settingsSection && settings && <SettingsDialog
         settings={settings}
@@ -659,6 +671,11 @@ export function AppShell() {
         onSectionChange={(nextSection) => openSettings(nextSection)}
         onClose={closeSettings}
         onSettingsChange={setSettings}
+      />}
+      {settingsSection && initialDataLoaded && !settings && <SettingsUnavailableDialog
+        reconnecting={backendState === "reconnecting"}
+        onRetry={() => void reconnectBackend()}
+        onClose={closeSettings}
       />}
     </div>
   );
