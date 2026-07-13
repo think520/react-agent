@@ -11,6 +11,7 @@ import uuid
 from pathlib import Path
 
 from rag.schema import RetrievalHit
+from knowledge.paths import knowledge_dir
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +43,11 @@ class QdrantStore:
         vdb_cfg = rag_cfg.get("vector_db", {})
 
         self.mode = vdb_cfg.get("mode", "local")
-        self.local_path = self.workspace / vdb_cfg.get("local_path", ".knowledge/qdrant")
+        configured_path = vdb_cfg.get("local_path")
+        if configured_path and configured_path.replace("\\", "/") != ".knowledge/qdrant":
+            self.local_path = self.workspace / configured_path
+        else:
+            self.local_path = Path(knowledge_dir(str(self.workspace))) / "qdrant"
         self.url = vdb_cfg.get("url", "http://localhost:6333")
         self.collection = vdb_cfg.get("collection", DEFAULT_COLLECTION)
         self.distance = vdb_cfg.get("distance", DEFAULT_DISTANCE)

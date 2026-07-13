@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, File, UploadFile
+from typing import Literal
+
+from fastapi import APIRouter, File, Request, UploadFile
 from pydantic import BaseModel, Field
 
 from service.kb_service import KBService
-from web.backend.deps import get_config, get_workspace
+from web.backend.deps import (
+    get_config, get_library_runtime_context, get_request_workspace,
+    get_runtime_context, get_workspace,
+)
 from web.backend.errors import APIError, unwrap_service_result
 
 router = APIRouter()
@@ -37,8 +42,23 @@ class WikiMaintenanceRequest(BaseModel):
     action: str
 
 
-def _service() -> KBService:
-    return KBService(get_workspace())
+class WikiPlanRequest(BaseModel):
+    action: Literal["generate", "update"] = "generate"
+    document_ids: list[str] = Field(default_factory=list, max_length=50)
+    wiki_document_ids: list[str] = Field(default_factory=list, max_length=20)
+    course: str | None = None
+    instruction: str = Field(default="", max_length=1000)
+    provider: str | None = None
+
+
+def _service(request: Request) -> KBService:
+    return KBService(get_request_workspace(request))
+
+
+def _runtime_for(workspace: str):
+    if workspace == get_workspace():
+        return get_runtime_context()
+    return get_library_runtime_context(workspace)
 
 
 def _public_sync(result: dict) -> dict:
@@ -57,26 +77,26 @@ def _public_sync(result: dict) -> dict:
 
 
 @router.get("/status")
-def status() -> dict:
-    result = _service().status()
+def status(request: Request) -> dict:
+    result = _service(request).status()
     if not result.get("ok"):
         raise APIError(404, "knowledge_base_not_found", result["error"])
     return result
 
 
 @router.post("/sync")
-def sync(request: KBSyncRequest) -> dict:
-    result = unwrap_service_result(_service().sync(
-        vault_path=request.vault_path,
-        course_dir=request.course_dir,
-        mode=request.mode,
+def sync(body: KBSyncRequest, request: Request) -> dict:
+    result = unwrap_service_result(_service(request).sync(
+        vault_path=body.vault_path,
+        course_dir=body.course_dir,
+        mode=body.mode,
         config=get_config(),
     ))
     return _public_sync(result)
 
 
 @router.post("/import")
-async def import_files(files: list[UploadFile] = File(...)) -> dict:
+async def import_files(request: Request, files: list[UploadFile] = File(...)) -> dict:
     payload = []
     for upload in files:
         content = await upload.read(_MAX_UPLOAD_BYTES + 1)
@@ -87,40 +107,95 @@ async def import_files(files: list[UploadFile] = File(...)) -> dict:
                 f"File exceeds 25 MB limit: {upload.filename or '(unnamed)'}",
             )
         payload.append((upload.filename or "", content))
-    result = unwrap_service_result(_service().import_files(payload, config=get_config()))
+    result = unwrap_service_result(_service(request).import_files(payload, config=get_config()))
     result["sync"] = _public_sync(result["sync"])
     return result
 
 
 @router.get("/documents")
-def documents(course: str | None = None, collection: str = "all") -> dict:
-    return unwrap_service_result(_service().list_documents(
+def documents(request: Request, course: str | None = None, collection: str = "all") -> dict:
+    return unwrap_service_result(_service(request).list_documents(
         course=course,
         collection=collection,
     ))
 
 
 @router.get("/wiki/maintenance")
-def wiki_maintenance_status() -> dict:
-    return unwrap_service_result(_service().wiki_health())
+def wiki_maintenance_status(request: Request) -> dict:
+    return unwrap_service_result(_service(request).wiki_health())
 
 
 @router.post("/wiki/maintenance")
-def maintain_wiki(request: WikiMaintenanceRequest) -> dict:
-    return unwrap_service_result(_service().maintain_wiki(request.action))
+def maintain_wiki(body: WikiMaintenanceRequest, request: Request) -> dict:
+    return unwrap_service_result(_service(request).maintain_wiki(body.action))
+
+
+@router.post("/wiki/plans")
+def create_wiki_plan(body: WikiPlanRequest, request: Request) -> dict:
+    workspace = get_request_workspace(request)
+    try:
+        provider = _runtime_for(workspace).create_provider(body.provider)
+    except ValueError as exc:
+        raise APIError(409, "provider_unavailable", str(exc)) from exc
+    return unwrap_service_result(
+        _service(request).create_wiki_plan(
+            provider,
+            document_ids=body.document_ids,
+            wiki_document_ids=body.wiki_document_ids,
+            course=body.course,
+            action=body.action,
+            instruction=body.instruction,
+        ),
+        code="wiki_plan_failed",
+    )
+
+
+@router.post("/wiki/migrations/preview")
+def preview_wiki_migration(request: Request) -> dict:
+    return unwrap_service_result(
+        _service(request).create_wiki_migration_plan(),
+        code="wiki_migration_preview_failed",
+    )
+
+
+@router.get("/wiki/plans/{plan_id}")
+def wiki_plan(plan_id: str, request: Request) -> dict:
+    return unwrap_service_result(
+        _service(request).get_wiki_plan(plan_id),
+        status_code=404,
+        code="wiki_plan_not_found",
+    )
+
+
+@router.post("/wiki/plans/{plan_id}/apply")
+def apply_wiki_plan(plan_id: str, request: Request) -> dict:
+    return unwrap_service_result(
+        _service(request).apply_wiki_plan(plan_id, config=get_config()),
+        status_code=409,
+        code="wiki_plan_not_applicable",
+    )
+
+
+@router.post("/wiki/checkpoints/{checkpoint_id}/restore")
+def restore_wiki_checkpoint(checkpoint_id: str, request: Request) -> dict:
+    return unwrap_service_result(
+        _service(request).undo_wiki_checkpoint(checkpoint_id, config=get_config()),
+        status_code=409,
+        code="wiki_checkpoint_not_restorable",
+    )
 
 
 @router.get("/documents/{document_id}")
-def document_detail(document_id: str) -> dict:
-    result = _service().get_document(document_id)
+def document_detail(document_id: str, request: Request) -> dict:
+    result = _service(request).get_document(document_id)
     if not result.get("ok"):
         raise APIError(404, "document_not_found", result["error"])
     return result
 
 
 @router.delete("/documents/{document_id}")
-def delete_document(document_id: str) -> dict:
-    result = _service().delete_document(document_id, config=get_config())
+def delete_document(document_id: str, request: Request) -> dict:
+    result = _service(request).delete_document(document_id, config=get_config())
     if not result.get("ok"):
         message = result["error"]
         status_code = 409 if "read-only" in message else 404
@@ -130,20 +205,20 @@ def delete_document(document_id: str) -> dict:
 
 
 @router.post("/search")
-def search(request: KBSearchRequest) -> dict:
-    return unwrap_service_result(_service().search(
-        query=request.query,
-        course=request.course,
-        top_k=request.top_k,
-        mode=request.mode,
+def search(body: KBSearchRequest, request: Request) -> dict:
+    return unwrap_service_result(_service(request).search(
+        query=body.query,
+        course=body.course,
+        top_k=body.top_k,
+        mode=body.mode,
         config=get_config(),
     ))
 
 
 @router.post("/graph")
-def graph_query(request: GraphQueryRequest) -> dict:
-    return unwrap_service_result(_service().graph_query(
-        concept=request.concept,
-        intent=request.intent,
-        limit=request.limit,
+def graph_query(body: GraphQueryRequest, request: Request) -> dict:
+    return unwrap_service_result(_service(request).graph_query(
+        concept=body.concept,
+        intent=body.intent,
+        limit=body.limit,
     ))

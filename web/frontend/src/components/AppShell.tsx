@@ -19,10 +19,11 @@ import {
 } from "lucide-react";
 import { NavLink, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 
-import { api } from "../lib/api";
-import type { ChatSessionSummary, DocumentSummary, ReviewQueue, SettingsSummary } from "../types";
+import { api, setActiveLibraryId } from "../lib/api";
+import type { ChatSessionSummary, DocumentSummary, LibrarySummary, ReviewQueue, SettingsSummary } from "../types";
 import { formatSessionTime, IconButton, LoadingState, textValue } from "./common";
 import { OnboardingDialog } from "./OnboardingDialog";
+import { LibrarySetupDialog } from "./LibrarySetupDialog";
 
 export interface AppOutletContext {
   sessions: ChatSessionSummary[];
@@ -34,6 +35,11 @@ export interface AppOutletContext {
   selectedDocuments: DocumentSummary[];
   toggleDocumentScope: (documentId: string) => void;
   clearDocumentScope: () => void;
+  libraries: LibrarySummary[];
+  activeLibrary: LibrarySummary | null;
+  openLibrarySetup: () => void;
+  createLibrary: (name: string, parentPath: string) => Promise<LibrarySummary>;
+  libraryReady: boolean;
 }
 
 const navItems = [
@@ -150,6 +156,9 @@ export function AppShell() {
   const [editingName, setEditingName] = useState("");
   const [loadingSessions, setLoadingSessions] = useState(true);
   const [sessionQuery, setSessionQuery] = useState("");
+  const [libraries, setLibraries] = useState<LibrarySummary[]>([]);
+  const [activeLibrary, setActiveLibrary] = useState<LibrarySummary | null>(null);
+  const [librarySetupOpen, setLibrarySetupOpen] = useState(false);
 
   const refreshSessions = useCallback(async () => {
     try {
@@ -159,27 +168,78 @@ export function AppShell() {
     }
   }, []);
 
-  useEffect(() => {
-    void Promise.all([
+  const loadScopedData = useCallback(async () => {
+    await Promise.all([
       refreshSessions(),
-      api.settings().then(setSettings).catch(() => setSettings(null)),
       api.documents("material").then(setDocuments).catch(() => setDocuments([])),
       api.reviewQueue().then(setReview).catch(() => setReview(null)),
-    ]).finally(() => setInitialDataLoaded(true));
+    ]);
   }, [refreshSessions]);
+
+  useEffect(() => {
+    void Promise.all([api.settings().then(setSettings).catch(() => setSettings(null)), api.libraries()])
+      .then(async ([, registry]) => {
+        setLibraries(registry.libraries);
+        const remembered = localStorage.getItem("bobodan:library:active");
+        const selected = registry.libraries.find((item) => item.library_id === remembered && item.available)
+          || registry.libraries.find((item) => item.library_id === registry.active_library_id && item.available)
+          || registry.libraries.find((item) => item.available)
+          || null;
+        setActiveLibraryId(selected?.library_id || null);
+        setActiveLibrary(selected);
+        if (selected) await loadScopedData();
+        else {
+          setSessions([]);
+          setDocuments([]);
+          setReview(null);
+          setLoadingSessions(false);
+        }
+      })
+      .catch(() => setLoadingSessions(false))
+      .finally(() => setInitialDataLoaded(true));
+  }, [loadScopedData]);
 
   useEffect(() => {
     localStorage.setItem("bobodan:scope:documents", JSON.stringify(selectedDocumentIds));
   }, [selectedDocumentIds]);
 
   useEffect(() => {
-    if (!initialDataLoaded || localStorage.getItem("bobodan:onboarding:v1") === "complete") return;
+    if (!initialDataLoaded || !activeLibrary || localStorage.getItem("bobodan:onboarding:v1") === "complete") return;
     if (sessions.length || documents.length) {
       localStorage.setItem("bobodan:onboarding:v1", "complete");
       return;
     }
     setOnboardingOpen(true);
-  }, [documents.length, initialDataLoaded, sessions.length]);
+  }, [activeLibrary, documents.length, initialDataLoaded, sessions.length]);
+
+  async function createLibrary(name: string, parentPath: string) {
+    const library = await api.createLibrary(name, parentPath);
+    setActiveLibraryId(library.library_id);
+    setActiveLibrary(library);
+    const registry = await api.libraries();
+    setLibraries(registry.libraries);
+    await loadScopedData();
+    return library;
+  }
+
+  async function openExistingLibrary(path: string) {
+    const library = await api.openLibrary(path);
+    setActiveLibraryId(library.library_id);
+    setActiveLibrary(library);
+    const registry = await api.libraries();
+    setLibraries(registry.libraries);
+    await loadScopedData();
+  }
+
+  async function switchLibrary(libraryId: string) {
+    if (libraryId === activeLibrary?.library_id) return;
+    const library = await api.activateLibrary(libraryId);
+    setActiveLibraryId(library.library_id);
+    setActiveLibrary(library);
+    setSelectedDocumentIds([]);
+    navigate("/chat");
+    await loadScopedData();
+  }
 
   useEffect(() => {
     if (!initialDataLoaded || documents.length === 0) return;
@@ -316,8 +376,10 @@ export function AppShell() {
           ) : <p className="sidebar-empty">{sessionQuery ? "没有找到匹配的对话。" : "你的学习对话会保存在这里。"}</p>}
         </div>
         <div className="profile-row">
-          <span className="profile-avatar">用</span>
-          <span><strong>{settings?.workspace_name || "本地工作区"}</strong><small>{settings?.default_provider || "等待连接 AI"}</small></span>
+          <span className="profile-avatar">库</span>
+          <span><strong>{activeLibrary?.name || "尚未选择资料库"}</strong><small>{settings?.default_provider || "等待连接 AI"}</small></span>
+          {libraries.length > 0 && <select aria-label="切换资料库" value={activeLibrary?.library_id || ""} onChange={(event) => void switchLibrary(event.target.value)}>{libraries.filter((item) => item.available).map((library) => <option value={library.library_id} key={library.library_id}>{library.name}</option>)}</select>}
+          <IconButton label="管理资料库" onClick={() => setLibrarySetupOpen(true)}><Plus size={15} /></IconButton>
         </div>
       </aside>
 
@@ -339,6 +401,11 @@ export function AppShell() {
           selectedDocuments,
           toggleDocumentScope,
           clearDocumentScope: () => setSelectedDocumentIds([]),
+          libraries,
+          activeLibrary,
+          openLibrarySetup: () => setLibrarySetupOpen(true),
+          createLibrary,
+          libraryReady: initialDataLoaded,
         } satisfies AppOutletContext} />
       </main>
 
@@ -364,6 +431,11 @@ export function AppShell() {
           localStorage.setItem("bobodan:learning-profile", JSON.stringify(profile));
           setOnboardingOpen(false);
         }}
+      />}
+      {librarySetupOpen && <LibrarySetupDialog
+        onClose={() => setLibrarySetupOpen(false)}
+        onCreate={async (name, parentPath) => { await createLibrary(name, parentPath); }}
+        onOpen={openExistingLibrary}
       />}
     </div>
   );

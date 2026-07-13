@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from core.session import Session
 from web.backend.app import create_app
 from web.backend.deps import reset_dependency_caches
-from web.backend.routers.chat import _slash_command_prompt
+from web.backend.routers.chat import _request_context, _slash_command_prompt
 
 
 @pytest.fixture
@@ -41,6 +41,7 @@ mcp:
     )
     monkeypatch.setenv("BOBODAN_CONFIG", str(config_path))
     monkeypatch.setenv("BOBODAN_WORKSPACE", str(tmp_path))
+    monkeypatch.setenv("BOBODAN_HOME", str(tmp_path / ".bobodan-home"))
     monkeypatch.setenv("DUMMY_API_KEY", "test-key")
     reset_dependency_caches()
     try:
@@ -55,6 +56,48 @@ def test_health_endpoint(backend_client):
     response = backend_client.get("/api/health")
     assert response.status_code == 200
     assert response.json() == {"ok": True}
+
+
+def test_library_api_creates_registers_and_rejects_unknown_context(backend_client, tmp_path):
+    parent = tmp_path / "user-libraries"
+    parent.mkdir()
+    created = backend_client.post("/api/libraries", json={
+        "name": "Algorithms",
+        "parent_path": str(parent),
+    })
+
+    assert created.status_code == 200
+    library = created.json()
+    assert library["name"] == "Algorithms"
+    assert "path" not in library
+    assert (parent / "Algorithms" / "raw" / "inbox").is_dir()
+
+    listed = backend_client.get("/api/libraries").json()
+    assert listed["active_library_id"] == library["library_id"]
+    assert listed["libraries"][0]["active"] is True
+
+    rejected = backend_client.get(
+        "/api/kb/documents",
+        headers={"X-Bobodan-Library-ID": "not-registered"},
+    )
+    assert rejected.status_code == 409
+    assert rejected.json()["error"]["code"] == "library_unavailable"
+
+
+def test_library_api_unregister_does_not_delete_folder(backend_client, tmp_path):
+    parent = tmp_path / "user-libraries"
+    parent.mkdir()
+    created = backend_client.post("/api/libraries", json={
+        "name": "Portable",
+        "parent_path": str(parent),
+    }).json()
+    root = parent / "Portable"
+
+    response = backend_client.delete(f"/api/libraries/{created['library_id']}")
+
+    assert response.status_code == 200
+    assert root.is_dir()
+    assert (root / "BOBODAN_LIBRARY.yaml").is_file()
 
 
 def test_settings_endpoint_lists_providers_without_absolute_workspace(backend_client):
@@ -132,6 +175,174 @@ def test_wiki_maintenance_contract(backend_client, monkeypatch):
     assert maintained.json()["archived_count"] == 2
 
 
+def test_user_confirmed_wiki_plan_contract(backend_client, monkeypatch):
+    provider = object()
+    captured = {}
+    monkeypatch.setattr(
+        "web.backend.routers.kb.get_runtime_context",
+        lambda: SimpleNamespace(create_provider=lambda _name: provider),
+    )
+
+    def create_plan(self, llm_provider, **kwargs):
+        captured.update(kwargs)
+        assert llm_provider is provider
+        return {
+            "ok": True,
+            "plan_id": "a" * 32,
+            "status": "planned",
+            "summary": {"add": 1, "update": 0, "merge": 0, "conflict": 0, "skip": 0},
+            "changes": [],
+        }
+
+    monkeypatch.setattr("web.backend.routers.kb.KBService.create_wiki_plan", create_plan)
+    monkeypatch.setattr(
+        "web.backend.routers.kb.KBService.apply_wiki_plan",
+        lambda self, plan_id, config: {
+            "ok": True,
+            "plan_id": plan_id,
+            "status": "applied",
+            "checkpoint_id": "b" * 32,
+            "changes": [],
+            "sync": {},
+        },
+    )
+    monkeypatch.setattr(
+        "web.backend.routers.kb.KBService.undo_wiki_checkpoint",
+        lambda self, checkpoint_id, config: {
+            "ok": True,
+            "checkpoint_id": checkpoint_id,
+            "restored_at": "2026-07-13T00:00:00+00:00",
+            "sync": {},
+        },
+    )
+
+    planned = backend_client.post("/api/kb/wiki/plans", json={
+        "action": "generate",
+        "document_ids": ["doc-1"],
+        "instruction": "Build a RAG Wiki",
+    })
+    applied = backend_client.post(f"/api/kb/wiki/plans/{'a' * 32}/apply")
+    restored = backend_client.post(f"/api/kb/wiki/checkpoints/{'b' * 32}/restore")
+
+    assert planned.status_code == 200
+    assert planned.json()["status"] == "planned"
+    assert captured["document_ids"] == ["doc-1"]
+    assert applied.json()["checkpoint_id"] == "b" * 32
+    assert restored.json()["checkpoint_id"] == "b" * 32
+
+
+def test_wiki_focus_command_and_artifact_persist_in_chat_session(backend_client, monkeypatch):
+    document = {
+        "document_id": "doc-1",
+        "title": "RAG Lesson",
+        "source": "raw/inbox/rag.md",
+        "sections": [{"chunk_id": "chunk-1", "text": "RAG uses retrieved evidence."}],
+    }
+    monkeypatch.setattr(
+        "web.backend.routers.chat.KBService._wiki_scope_documents",
+        lambda self, document_ids, course, wiki_document_ids: [document],
+    )
+    provider = SimpleNamespace(complete=lambda _messages: SimpleNamespace(content="重点：检索、证据与生成边界。"))
+    monkeypatch.setattr(
+        "web.backend.routers.chat.get_runtime_context",
+        lambda: SimpleNamespace(create_provider=lambda _name: provider),
+    )
+
+    focused = backend_client.post("/api/chat/wiki/focus", json={
+        "action": "generate",
+        "document_ids": ["doc-1"],
+        "instruction": "强调证据边界",
+    })
+
+    assert focused.status_code == 200
+    session_id = focused.json()["chat_session_id"]
+    detail = backend_client.get(f"/api/chat/sessions/{session_id}").json()
+    assert detail["messages"][0]["content"] == "/wiki plan 强调证据边界"
+    artifact = detail["messages"][1]["artifacts"][0]
+    assert artifact["type"] == "wiki_focus"
+    assert artifact["status"] == "awaiting_confirmation"
+    assert artifact["scope"]["document_ids"] == ["doc-1"]
+
+
+def test_wiki_focus_confirm_plan_apply_and_restore_persist(backend_client, monkeypatch):
+    document = {
+        "document_id": "doc-1",
+        "title": "RAG Lesson",
+        "source": "raw/inbox/rag.md",
+        "sections": [{"chunk_id": "chunk-1", "text": "RAG uses evidence."}],
+    }
+    monkeypatch.setattr(
+        "web.backend.routers.chat.KBService._wiki_scope_documents",
+        lambda self, document_ids, course, wiki_document_ids: [document],
+    )
+    provider = SimpleNamespace(complete=lambda _messages: SimpleNamespace(content="确认 RAG 重点。"))
+    monkeypatch.setattr(
+        "web.backend.routers.chat.get_runtime_context",
+        lambda: SimpleNamespace(create_provider=lambda _name: provider),
+    )
+    monkeypatch.setattr(
+        "web.backend.routers.chat.KBService.create_wiki_plan",
+        lambda self, llm_provider, **kwargs: {
+            "ok": True,
+            "plan_id": "a" * 32,
+            "status": "planned",
+            "action": "generate",
+            "instruction": kwargs["instruction"],
+            "created_at": "2026-07-13T00:00:00Z",
+            "scope": {"document_ids": ["doc-1"], "documents": ["RAG Lesson"]},
+            "summary": {"add": 1, "update": 0, "merge": 0, "conflict": 0, "skip": 0},
+            "changes": [],
+        },
+    )
+    monkeypatch.setattr(
+        "web.backend.routers.chat.KBService.apply_wiki_plan",
+        lambda self, plan_id, config: {
+            "ok": True, "plan_id": plan_id, "status": "applied",
+            "checkpoint_id": "b" * 32, "written": ["concepts/RAG.md"], "sync": {},
+        },
+    )
+    monkeypatch.setattr(
+        "web.backend.routers.chat.KBService.undo_wiki_checkpoint",
+        lambda self, checkpoint_id, config: {
+            "ok": True, "checkpoint_id": checkpoint_id,
+            "restored_at": "2026-07-13T00:01:00Z", "sync": {},
+        },
+    )
+    focused = backend_client.post("/api/chat/wiki/focus", json={
+        "action": "generate", "document_ids": ["doc-1"],
+    }).json()
+    session_id = focused["chat_session_id"]
+    focus_id = focused["artifact"]["artifact_id"]
+
+    revised = backend_client.post(f"/api/chat/wiki/focus/{focus_id}/revise", json={
+        "chat_session_id": session_id,
+        "revision": "补充失败边界",
+    })
+
+    confirmed = backend_client.post(f"/api/chat/wiki/focus/{focus_id}/confirm", json={
+        "chat_session_id": session_id,
+    })
+    applied = backend_client.post(f"/api/chat/wiki/plans/{'a' * 32}/apply", json={
+        "chat_session_id": session_id,
+    })
+    restored = backend_client.post(f"/api/chat/wiki/checkpoints/{'b' * 32}/restore", json={
+        "chat_session_id": session_id,
+    })
+
+    assert revised.status_code == 200
+    assert confirmed.status_code == 200
+    assert applied.json()["artifact"]["status"] == "applied"
+    assert restored.json()["artifact"]["status"] == "restored"
+    detail = backend_client.get(f"/api/chat/sessions/{session_id}").json()
+    artifact_types = [artifact["type"] for message in detail["messages"] for artifact in message.get("artifacts", [])]
+    assert artifact_types == ["wiki_focus", "wiki_focus", "wiki_plan", "wiki_result", "wiki_result"]
+    focus_statuses = [
+        artifact["status"] for message in detail["messages"]
+        for artifact in message.get("artifacts", []) if artifact["type"] == "wiki_focus"
+    ]
+    assert focus_statuses == ["confirmed", "confirmed"]
+
+
 def test_explicit_skill_slash_command_loads_selected_skill(tmp_path):
     skill_dir = tmp_path / "skills" / "exam-prep"
     skill_dir.mkdir(parents=True)
@@ -146,6 +357,14 @@ def test_explicit_skill_slash_command_loads_selected_skill(tmp_path):
     assert "exam-prep" in prompt
     assert "复习 RAG" in prompt
     assert "只围绕薄弱点出题" in prompt
+
+
+def test_chat_request_context_distinguishes_wiki_from_original_evidence(tmp_path):
+    document_ids, prompt = _request_context([], str(tmp_path))
+
+    assert document_ids == []
+    assert "use Wiki pages to understand concepts and relationships" in prompt
+    assert "original learning materials as the factual evidence" in prompt
 
 
 def test_validation_errors_use_stable_error_contract(backend_client):

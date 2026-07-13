@@ -3,13 +3,14 @@ import os
 from datetime import datetime, timezone
 
 from .documents import DocumentRecord
+from .paths import knowledge_path
 
 MANIFEST_FILENAME = "manifest.json"
 
 
 def load_manifest(workspace: str) -> dict:
     """Load .knowledge/manifest.json or return empty structure."""
-    path = os.path.join(workspace, ".knowledge", MANIFEST_FILENAME)
+    path = knowledge_path(workspace, MANIFEST_FILENAME)
     if not os.path.exists(path):
         return {"version": 1, "last_sync": None, "sync_summary": {}, "documents": []}
     try:
@@ -28,7 +29,7 @@ def save_manifest(
     """Write .knowledge/manifest.json with document records and sync metadata."""
     from .documents import document_records_to_dict
 
-    path = os.path.join(workspace, ".knowledge", MANIFEST_FILENAME)
+    path = knowledge_path(workspace, MANIFEST_FILENAME)
     os.makedirs(os.path.dirname(path), exist_ok=True)
 
     # Load existing manifest to preserve vault_path if not provided

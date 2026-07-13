@@ -23,11 +23,16 @@ class LintResult:
     broken_links: list[dict] = field(default_factory=list)      # 指向不存在页面
     missing_pages: list[str] = field(default_factory=list)      # 被引用但不存在
     stale_pages: list[str] = field(default_factory=list)        # 超过 N 天未更新
+    index_mismatches: list[str] = field(default_factory=list)
+    contradiction_candidates: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
     @property
     def healthy(self) -> bool:
-        return not self.orphan_pages and not self.broken_links and not self.missing_pages
+        return (
+            not self.orphan_pages and not self.broken_links
+            and not self.missing_pages and not self.index_mismatches
+        )
 
 
 class WikiLinter:
@@ -50,8 +55,9 @@ class WikiLinter:
         pages = {}          # title -> filepath
         links_from = {}     # filepath -> set of link targets
         all_links = set()   # all link targets
+        page_bodies: dict[str, set[str]] = {}
 
-        for dir_name in [self.config.entity_dir, self.config.concept_dir]:
+        for dir_name in self.config.page_dirs():
             dir_path = os.path.join(self.wiki_dir, dir_name)
             if not os.path.isdir(dir_path):
                 continue
@@ -66,6 +72,8 @@ class WikiLinter:
                     # Extract title from frontmatter or first heading
                     title = self._extract_title(content, filename)
                     pages[title] = filepath
+                    canonical = re.sub(r"[^0-9a-z\u4e00-\u9fff]+", "", title.casefold())
+                    page_bodies.setdefault(canonical, set()).add(content.strip())
 
                     # Extract wikilinks
                     links = set(WIKILINK_RE.findall(content))
@@ -76,6 +84,23 @@ class WikiLinter:
                     result.errors.append(f"Error reading {filepath}: {e}")
 
         result.total_pages = len(pages)
+        result.contradiction_candidates = sorted(
+            title for title in pages
+            if len(page_bodies.get(re.sub(r"[^0-9a-z\u4e00-\u9fff]+", "", title.casefold()), set())) > 1
+        )
+
+        try:
+            from .index import WikiIndexer
+
+            if os.path.isfile(self.config.index_path(self.vault_path)):
+                indexed = WikiIndexer(self.vault_path, self.config).read_index()
+                indexed_titles = {title for entries in indexed.values() for title in entries}
+                result.index_mismatches = sorted(
+                    {f"unindexed:{title}" for title in pages if title not in indexed_titles}
+                    | {f"missing:{title}" for title in indexed_titles if title not in pages}
+                )
+        except (OSError, ValueError):
+            result.index_mismatches = ["index_unreadable"]
 
         # Find broken links and missing pages
         for filepath, links in links_from.items():

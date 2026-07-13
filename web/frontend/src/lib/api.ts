@@ -8,7 +8,10 @@ import type {
   Question,
   ReviewQueue,
   SettingsSummary,
+  LibrarySummary,
+  WikiArtifact,
   WikiHealth,
+  WikiPlan,
 } from "../types";
 
 interface ErrorEnvelope {
@@ -27,7 +30,11 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, init);
+  const headers = new Headers(init?.headers);
+  if (activeLibraryId && path.startsWith("/api/") && !path.startsWith("/api/libraries")) {
+    headers.set("X-Bobodan-Library-ID", activeLibraryId);
+  }
+  const response = await fetch(path, { ...init, headers });
   if (!response.ok) {
     let body: ErrorEnvelope = {};
     try {
@@ -45,6 +52,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+let activeLibraryId = localStorage.getItem("bobodan:library:active") || "";
+
+export function setActiveLibraryId(libraryId: string | null) {
+  activeLibraryId = libraryId || "";
+  if (activeLibraryId) localStorage.setItem("bobodan:library:active", activeLibraryId);
+  else localStorage.removeItem("bobodan:library:active");
+}
+
 const json = (body: unknown): RequestInit => ({
   method: "POST",
   headers: { "Content-Type": "application/json" },
@@ -52,6 +67,24 @@ const json = (body: unknown): RequestInit => ({
 });
 
 export const api = {
+  libraries: () => request<{ active_library_id: string | null; libraries: LibrarySummary[] }>("/api/libraries"),
+  createLibrary: (name: string, parentPath: string) => request<LibrarySummary>(
+    "/api/libraries",
+    json({ name, parent_path: parentPath }),
+  ),
+  openLibrary: (path: string) => request<LibrarySummary>("/api/libraries/open", json({ path })),
+  activateLibrary: (id: string) => request<LibrarySummary>(
+    `/api/libraries/${encodeURIComponent(id)}/activate`,
+    { method: "POST" },
+  ),
+  syncLibrary: (id: string) => request<Record<string, unknown>>(
+    `/api/libraries/${encodeURIComponent(id)}/sync`,
+    { method: "POST" },
+  ),
+  unregisterLibrary: (id: string) => request<{ unregistered: boolean }>(
+    `/api/libraries/${encodeURIComponent(id)}`,
+    { method: "DELETE" },
+  ),
   settings: () => request<SettingsSummary>("/api/settings"),
   sessions: async () => (await request<{ sessions: ChatSessionSummary[] }>("/api/chat/sessions")).sessions,
   session: (id: string) => request<ChatSessionDetail>(`/api/chat/sessions/${encodeURIComponent(id)}`),
@@ -89,6 +122,46 @@ export const api = {
   maintainWiki: () => request<{ archived_count: number; canonical_count: number; health: WikiHealth }>(
     "/api/kb/wiki/maintenance",
     json({ action: "organize" }),
+  ),
+  createWikiPlan: (body: {
+    action: "generate" | "update";
+    document_ids?: string[];
+    wiki_document_ids?: string[];
+    course?: string | null;
+    instruction?: string;
+  }) => request<WikiPlan>("/api/kb/wiki/plans", json(body)),
+  wikiPlan: (id: string) => request<WikiPlan>(`/api/kb/wiki/plans/${encodeURIComponent(id)}`),
+  applyWikiPlan: (id: string) => request<WikiPlan & { sync: Record<string, unknown> }>(
+    `/api/kb/wiki/plans/${encodeURIComponent(id)}/apply`,
+    { method: "POST" },
+  ),
+  restoreWikiCheckpoint: (id: string) => request<{ checkpoint_id: string; restored_at: string; sync: Record<string, unknown> }>(
+    `/api/kb/wiki/checkpoints/${encodeURIComponent(id)}/restore`,
+    { method: "POST" },
+  ),
+  createWikiFocus: (body: {
+    chat_session_id?: string;
+    action: "generate" | "update" | "repair" | "migrate";
+    document_ids?: string[];
+    wiki_document_ids?: string[];
+    course?: string | null;
+    instruction?: string;
+  }) => request<{ chat_session_id: string; artifact: WikiArtifact }>("/api/chat/wiki/focus", json(body)),
+  reviseWikiFocus: (artifactId: string, chatSessionId: string, revision: string) => request<{ chat_session_id: string; artifact: WikiArtifact }>(
+    `/api/chat/wiki/focus/${encodeURIComponent(artifactId)}/revise`,
+    json({ chat_session_id: chatSessionId, revision }),
+  ),
+  confirmWikiFocus: (artifactId: string, chatSessionId: string) => request<{ chat_session_id: string; artifact: WikiArtifact }>(
+    `/api/chat/wiki/focus/${encodeURIComponent(artifactId)}/confirm`,
+    json({ chat_session_id: chatSessionId }),
+  ),
+  applyChatWikiPlan: (planId: string, chatSessionId: string) => request<{ chat_session_id: string; artifact: WikiArtifact }>(
+    `/api/chat/wiki/plans/${encodeURIComponent(planId)}/apply`,
+    json({ chat_session_id: chatSessionId }),
+  ),
+  restoreChatWikiCheckpoint: (checkpointId: string, chatSessionId: string) => request<{ chat_session_id: string; artifact: WikiArtifact }>(
+    `/api/chat/wiki/checkpoints/${encodeURIComponent(checkpointId)}/restore`,
+    json({ chat_session_id: chatSessionId }),
   ),
   activePractice: () => request<{ sessions: Array<{ practice_session_id: number; updated_at: string; question_count: number }> }>(
     "/api/quiz/sessions/active",
@@ -158,6 +231,10 @@ export async function streamChat(
       web_enabled: preferences.webEnabled ?? false,
       save: true,
     }),
+    headers: activeLibraryId ? {
+      "Content-Type": "application/json",
+      "X-Bobodan-Library-ID": activeLibraryId,
+    } : { "Content-Type": "application/json" },
     signal,
   });
   if (!response.ok || !response.body) {

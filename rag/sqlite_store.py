@@ -13,6 +13,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from rag.schema import RetrievalHit
+from knowledge.paths import knowledge_path
 
 
 def _stable_hash(text: str) -> str:
@@ -25,7 +26,7 @@ class KBSQLiteStore:
 
     def __init__(self, workspace: str):
         self.workspace = Path(workspace)
-        self.db_path = self.workspace / ".knowledge" / "knowledge.db"
+        self.db_path = Path(knowledge_path(str(self.workspace), "knowledge.db"))
         self._conn: sqlite3.Connection | None = None
 
     # ── connection ──────────────────────────────────────────────────────

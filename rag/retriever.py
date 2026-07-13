@@ -7,6 +7,7 @@ Falls back to legacy VectorStoreRouter if new stores are not initialized.
 from __future__ import annotations
 
 import os
+from knowledge.paths import knowledge_path
 
 
 def search_index(
@@ -36,7 +37,7 @@ def search_index(
     config = config or {}
 
     # Try new RAG v2 pipeline
-    db_path = os.path.join(workspace, ".knowledge", "knowledge.db")
+    db_path = knowledge_path(workspace, "knowledge.db")
     if os.path.exists(db_path):
         return _search_v2(workspace, query, course, top_k, config, mode)
 
@@ -146,7 +147,7 @@ def _search_legacy(
         return router.search(query=query, course=course, top_k=top_k)
 
     # No config — use sparse store directly
-    index_path = os.path.join(workspace, ".knowledge", "rag_index.json")
+    index_path = knowledge_path(workspace, "rag_index.json")
     from .vector_store import LocalVectorStore
     store = LocalVectorStore(index_path)
     return store.search(query=query, course=course, top_k=top_k)

@@ -19,12 +19,13 @@ from graph.store import get_graph_store
 from knowledge.documents import DocumentRecord, build_document_records
 from knowledge.import_report import ImportReport, save_import_report
 from knowledge.manifest import save_manifest
+from knowledge.paths import knowledge_dir
 from rag.source_section import SourceSection
 from rag.parsers import parse_document, SUPPORTED_EXTENSIONS
 
 logger = logging.getLogger(__name__)
 
-_COURSE_SKIP_DIRS = {".git", "__pycache__", ".venv", "venv", ".knowledge"}
+_COURSE_SKIP_DIRS = {".git", "__pycache__", ".venv", "venv", ".knowledge", ".bobodan", "templates"}
 
 
 @dataclass
@@ -54,7 +55,7 @@ class SyncSummary:
 
 
 def _knowledge_dir(workspace: str) -> str:
-    path = os.path.join(workspace, ".knowledge")
+    path = knowledge_dir(workspace)
     os.makedirs(path, exist_ok=True)
     return path
 
@@ -94,9 +95,12 @@ def _scan_course_files(root_dir: str) -> list[tuple[str, str, str]]:
             if os.path.splitext(filename)[1].lower() not in SUPPORTED_EXTENSIONS:
                 continue
             path = os.path.join(root, filename)
+            relative = os.path.relpath(path, root_dir).replace(os.sep, "/")
+            if os.path.basename(os.path.normpath(root_dir)) == "raw" and relative == "README.md":
+                continue
             with open(path, "rb") as handle:
                 content_hash = hashlib.sha256(handle.read()).hexdigest()
-            source = os.path.relpath(path, root_dir).replace(os.sep, "/")
+            source = relative
             files.append((source, path, content_hash))
     return sorted(files, key=lambda item: item[0].casefold())
 

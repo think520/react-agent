@@ -4,25 +4,55 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from .errors import APIError
-from .routers import chat, kb, learning, memory, quiz, settings
-from .deps import get_config, get_session_save_dir
-from service.kb_service import KBService
-from .deps import get_workspace
+from .routers import chat, kb, learning, libraries, memory, quiz, settings
+from .deps import get_config, get_library_service, get_session_save_dir, get_workspace
 
 
 def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
-        chat.migrate_unnamed_sessions(get_session_save_dir(get_config()))
-        KBService(get_workspace()).archive_duplicate_wiki_pages()
+        registry = get_library_service().list_libraries()
+        if registry["libraries"]:
+            for library in registry["libraries"]:
+                try:
+                    record = get_library_service().resolve(library["library_id"])
+                    if record:
+                        chat.migrate_unnamed_sessions(get_session_save_dir(get_config(), record["path"]))
+                except (OSError, ValueError):
+                    continue
+        else:
+            chat.migrate_unnamed_sessions(get_session_save_dir(get_config()))
         yield
 
     app = FastAPI(title="Bobodan API", version="0.1.0", lifespan=lifespan)
+
+    @app.middleware("http")
+    async def resolve_library(request: Request, call_next):
+        scoped_prefixes = ("/api/chat", "/api/kb", "/api/quiz", "/api/learning")
+        if request.url.path.startswith(scoped_prefixes):
+            service = get_library_service()
+            registry = service.list_libraries()
+            library_id = request.headers.get("X-Bobodan-Library-ID")
+            try:
+                record = service.resolve(library_id) if registry["libraries"] else None
+            except ValueError as exc:
+                return JSONResponse(
+                    status_code=409,
+                    content={"error": {"code": "library_unavailable", "message": str(exc), "details": None}},
+                )
+            if registry["libraries"] and record is None:
+                return JSONResponse(
+                    status_code=409,
+                    content={"error": {"code": "library_required", "message": "Select a Bobodan library first.", "details": None}},
+                )
+            request.state.library_id = record["library_id"] if record else None
+            request.state.library_workspace = record["path"] if record else get_workspace()
+        return await call_next(request)
 
     @app.exception_handler(APIError)
     async def api_error_handler(_request, exc: APIError) -> JSONResponse:
@@ -66,6 +96,7 @@ def create_app() -> FastAPI:
     app.include_router(learning.router, prefix="/api/learning", tags=["learning"])
     app.include_router(memory.router, prefix="/api/memory", tags=["memory"])
     app.include_router(settings.router, prefix="/api/settings", tags=["settings"])
+    app.include_router(libraries.router, prefix="/api/libraries", tags=["libraries"])
 
     @app.get("/api/health")
     def health() -> dict[str, bool]:

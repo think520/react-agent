@@ -134,7 +134,8 @@ class LearningPathGenerator:
         """Get course structure from RAG index."""
         try:
             import os
-            index_path = os.path.join(workspace, ".knowledge", "rag_index.json")
+            from knowledge.paths import knowledge_path
+            index_path = knowledge_path(workspace, "rag_index.json")
             if not os.path.exists(index_path):
                 return ""
             with open(index_path, "r", encoding="utf-8") as f:

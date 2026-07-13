@@ -2,6 +2,7 @@
 """Agent CLI entry point."""
 
 import argparse
+import json
 import logging
 import sys
 
@@ -33,9 +34,43 @@ def main():
         action="store_true",
         help="Enable verbose logging (DEBUG level)"
     )
+    subparsers = parser.add_subparsers(dest="command")
+    library_parser = subparsers.add_parser("library", help="Manage portable Bobodan libraries")
+    library_commands = library_parser.add_subparsers(dest="library_command", required=True)
+    library_init = library_commands.add_parser("init", help="Initialize or register a library folder")
+    library_init.add_argument("path")
+    library_init.add_argument("--name")
+    library_sync = library_commands.add_parser("sync", help="Index changed original materials")
+    library_sync.add_argument("path", nargs="?")
+    library_commands.add_parser("list", help="List registered libraries")
     args = parser.parse_args()
 
     setup_logging(verbose=args.verbose)
+
+    if args.command == "library":
+        from providers.factory import ProviderFactory
+        from service.library_service import LibraryService
+
+        service = LibraryService()
+        try:
+            if args.library_command == "init":
+                result = service.initialize(args.path, name=args.name)
+            elif args.library_command == "sync":
+                if args.path:
+                    record = service.register(args.path, activate=True)
+                    library_id = record["library_id"]
+                else:
+                    resolved = service.resolve()
+                    if resolved is None:
+                        parser.error("No active library. Pass a folder path first.")
+                    library_id = resolved["library_id"]
+                result = service.sync(library_id, ProviderFactory.load_config(args.config))
+            else:
+                result = service.list_libraries()
+        except (OSError, ValueError) as exc:
+            parser.error(str(exc))
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return
 
     from cli.repl import REPL
     repl = REPL(config_path=args.config, resume_session_id=args.session_id)

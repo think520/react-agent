@@ -1,6 +1,7 @@
 import json
 import os
 import sqlite3
+from knowledge.paths import knowledge_path
 from datetime import datetime, timezone
 
 from .schema import Question, QuizSession, QuizAttempt
@@ -94,7 +95,7 @@ def _row_to_attempt(row: sqlite3.Row) -> QuizAttempt:
 
 class QuizStore:
     def __init__(self, workspace: str):
-        self.db_path = os.path.join(workspace, ".knowledge", DB_FILENAME)
+        self.db_path = knowledge_path(workspace, DB_FILENAME)
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         self._ensure_db()
 

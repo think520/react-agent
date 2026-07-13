@@ -7,6 +7,26 @@
 ## [未发布]
 
 ### 新增
+- **P5E.1 文件夹资料库与 LLM Wiki 工作流修正**: 将开发工作区知识库升级为可供不同本地用户使用的便携资料库模型。
+  - 一个文件夹对应一个资料库；新增 `BOBODAN_LIBRARY.yaml`、`WIKI_SCHEMA.md`、`raw/`、五类 `wiki/` 页面目录及 `.bobodan/` 本地状态目录。
+  - 新增用户级资料库注册表与创建、打开、切换、同步、取消注册 API；Chat、RAG、Quiz、Review、学习进度和会话按资料库请求上下文隔离。
+  - 首次上传先创建资料库，文件写入 `raw/inbox/` 并只建立原文索引；重复上传自动改名，不会自动生成 Wiki。
+  - 原始资料对 AI 保持只读；用户删除改为归档到 `.bobodan/archive/raw/`，关联 Wiki 页面标记为 `needs_update`。
+  - Wiki 扩展为资料摘要、实体、概念、综合分析、问题与发现五类页面，统一 frontmatter、表格索引、顶部操作日志和健康检查。
+  - `/wiki plan`、重点调整、计划确认、执行结果与撤销状态改为会话 artifact 持久化；刷新、切换会话和重启后可恢复。
+  - 旧 Wiki 支持“迁移预览 → 用户确认 → 检查点 → 机械升级”，只补 schema 元数据，不移动文件或改写正文。
+  - 新增 `python agent.py library init|sync|list`，并通过 `BOBODAN_HOME` 隔离测试注册表。
+  - 验证：Python `1061 passed`、Vitest `3 passed`、TypeScript 与生产构建通过、Playwright 多视口 `33 passed`。
+
+- **P5E 用户主动触发的 LLM Wiki 完成**: 将资料导入与 AI 整理彻底分离，只有用户明确发起并确认计划后才写入 Wiki。
+  - 新增持久化 Wiki 计划，支持当前学习范围、指定资料、课程和已有 Wiki 主题；计划展示新增、更新、合并、冲突和跳过项。
+  - Chat 新增 `/wiki plan`、`/wiki update`、`/wiki generate`，Library 新增“整理成 Wiki / 更新 Wiki”入口和可展开页面预览。
+  - 生成概念页与实体页，保存结构化 `source_refs`、双向相关概念链接，以及 heading、PDF 页、PPT 页或 chunk 级原文定位。
+  - 写入前创建本地检查点，支持显式撤销；写入失败自动恢复，用户手写同名页只标记冲突且不会覆盖。
+  - 无指定资料范围时，检索顺序优先用 Wiki 理解概念结构，再以原始资料作为事实证据，并继续在引用中区分 Wiki 与本地资料。
+  - 参考 OpenHanako 的资源卡、渐进披露和预览分栏逻辑，保留 Bobodan 暖纸、墨蓝、仓耳今楷与三花猫品牌体系。
+  - 验证：Python `1049 passed`、Vitest `3 passed`、生产构建通过、Playwright `30 passed`。
+
 - **P5D 最终可用性收尾**: 补齐 Wiki 维护和 Chat Slash 命令 / Skills 入口。
   - Wiki 分类新增健康检查、孤立页 / 断链 / 过期页统计与详情；“整理并重建索引”只归档 Bobodan 生成的重复页，不删除用户原始资料。
   - Chat 输入 `/` 弹出贴近 composer 的命令面板，支持文本筛选、方向键、Enter / Tab 选择和 Esc 关闭。

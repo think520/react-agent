@@ -16,8 +16,9 @@ describe("Bobodan app shell", () => {
     vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
       const path = String(input);
       if (path.endsWith("/api/settings")) return jsonResponse({ workspace_name: "study", default_provider: "local", providers: [], mcp_enabled: false });
+      if (path.endsWith("/api/libraries")) return jsonResponse({ active_library_id: "library-1", libraries: [{ library_id: "library-1", name: "Study Library", created_at: "", last_opened_at: "", active: true, available: true }] });
       if (path.endsWith("/api/chat/sessions")) return jsonResponse({ sessions: [] });
-      if (path.endsWith("/api/kb/documents")) return jsonResponse({ documents: [] });
+      if (path.includes("/api/kb/documents")) return jsonResponse({ documents: [] });
       if (path.endsWith("/api/learning/review-queue")) return jsonResponse({ due_concepts: [], wrong_answers: [], weaknesses: [] });
       throw new Error(`Unexpected request: ${path}`);
     }));
@@ -33,6 +34,6 @@ describe("Bobodan app shell", () => {
     expect(screen.getAllByRole("link", { name: "练习" }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("link", { name: "复习" }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("link", { name: "资料库" }).length).toBeGreaterThan(0);
-    expect((await screen.findAllByText("study")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("Study Library")).length).toBeGreaterThan(0);
   });
 });

@@ -1,5 +1,15 @@
 import { expect, test } from "@playwright/test";
 
+test.beforeEach(async ({ page }) => {
+  await page.route("**/api/libraries", (route) => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify({
+      active_library_id: "library-1",
+      libraries: [{ library_id: "library-1", name: "测试资料库", created_at: "", last_opened_at: "", active: true, available: true }],
+    }),
+  }));
+});
+
 test("new workspace completes the four-step setup", async ({ page }) => {
   await page.route("**/api/chat/sessions", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ sessions: [] }) }));
   await page.route("**/api/kb/documents?collection=material", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ documents: [] }) }));
@@ -20,6 +30,38 @@ test("new workspace completes the four-step setup", async ({ page }) => {
   await expect(page.getByRole("dialog")).toBeHidden();
   expect(await page.evaluate(() => localStorage.getItem("bobodan:onboarding:v1"))).toBe("complete");
   expect(await page.evaluate(() => localStorage.getItem("bobodan:learning-profile"))).toContain("掌握图算法");
+});
+
+test("first upload creates a portable library before indexing the file", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("bobodan:onboarding:v1", "complete"));
+  let created = false;
+  let importLibraryHeader = "";
+  const library = { library_id: "new-library", name: "算法资料", created_at: "", last_opened_at: "", active: true, available: true };
+  await page.route("**/api/libraries", async (route) => {
+    if (route.request().method() === "POST") {
+      created = true;
+      await route.fulfill({ contentType: "application/json", body: JSON.stringify(library) });
+    } else {
+      await route.fulfill({ contentType: "application/json", body: JSON.stringify({ active_library_id: created ? library.library_id : null, libraries: created ? [library] : [] }) });
+    }
+  });
+  await page.route("**/api/settings", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ workspace_name: "Bobodan", default_provider: "deepseek", providers: [], mcp_enabled: false, skills: [] }) }));
+  await page.route("**/api/chat/sessions", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ sessions: [] }) }));
+  await page.route("**/api/kb/documents?collection=material", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ documents: [] }) }));
+  await page.route("**/api/learning/review-queue", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ due_concepts: [], wrong_answers: [], weaknesses: [] }) }));
+  await page.route("**/api/kb/import", (route) => {
+    importLibraryHeader = route.request().headers()["x-bobodan-library-id"] || "";
+    return route.fulfill({ contentType: "application/json", body: JSON.stringify({ imported: ["lesson.md"], rejected: [], sync: {} }) });
+  });
+
+  await page.goto("/library");
+  await page.locator('input[type="file"]').setInputFiles({ name: "lesson.md", mimeType: "text/markdown", buffer: Buffer.from("# Lesson") });
+  await expect(page.getByRole("heading", { name: "创建本地资料库" })).toBeVisible();
+  await page.getByLabel("资料库名称").fill("算法资料");
+  await page.getByLabel("保存到这个目录").fill("D:\\Learning");
+  await page.getByRole("button", { name: "创建资料库" }).click();
+  await expect(page.getByText("已导入 1 份资料，并更新本地索引。")).toBeVisible();
+  expect(importLibraryHeader).toBe("new-library");
 });
 
 test("selected library scope is sent with chat requests", async ({ page }) => {
@@ -106,8 +148,70 @@ test("Wiki maintenance checks health and organizes generated pages", async ({ pa
   await page.getByText("查看问题详情").click();
   await expect(page.getByText(/孤立页：旧页面/)).toBeVisible();
   await page.getByRole("button", { name: "整理并重建索引" }).click();
-  await expect(page.getByText("已归档 1 个重复页面，并重建规范索引。")).toBeVisible();
+  await expect(page.getByText("已生成 Wiki 修复预览；确认前不会改动任何页面。")).toBeVisible();
   await expect(page.getByText("Wiki 结构正常")).toBeVisible();
+});
+
+test("materials become a traceable Wiki only after plan confirmation", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("bobodan:onboarding:v1", "complete");
+    localStorage.setItem("bobodan:scope:documents", JSON.stringify(["doc-1"]));
+  });
+  const material = { document_id: "doc-1", source: "course/rag.md", kind: "course_document", title: "RAG Lesson", collection: "material", content_role: "content", managed: false };
+  const wiki = { document_id: "wiki-1", source: "obsidian/wiki/concepts/RAG.md", kind: "wiki_concept", title: "RAG", collection: "wiki", wiki_type: "concept", content_role: "content", managed: false };
+  await page.route("**/api/settings", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ workspace_name: "Study", default_provider: "deepseek", providers: [{ name: "deepseek", configured: true }], mcp_enabled: false, skills: [] }) }));
+  await page.route("**/api/chat/sessions", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ sessions: [] }) }));
+  await page.route("**/api/learning/review-queue", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ due_concepts: [], wrong_answers: [], weaknesses: [] }) }));
+  await page.route("**/api/kb/documents?collection=material", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ documents: [material] }) }));
+  await page.route("**/api/kb/documents?collection=wiki", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ documents: [wiki] }) }));
+  await page.route("**/api/kb/documents/doc-1", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ document: material, sections: [{ chunk_id: "chunk-1", heading: "Retrieval", page_start: 3, text: "RAG uses retrieved evidence." }] }) }));
+  await page.route("**/api/kb/documents/wiki-1", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ document: wiki, sections: [{ chunk_id: "wiki-chunk", text: "RAG summary" }] }) }));
+  const planned = {
+    plan_id: "a".repeat(32), status: "planned", action: "generate", instruction: "",
+    created_at: "2026-07-13T00:00:00Z",
+    scope: { document_ids: ["doc-1"], documents: ["RAG Lesson"] },
+    summary: { add: 1, update: 0, merge: 0, conflict: 0, skip: 0 },
+    changes: [{
+      change_id: "change-1", kind: "add", title: "RAG", page_type: "wiki_concept",
+      summary: "Grounded generation.", related: [], source_count: 1, target: "concepts/RAG.md",
+      content: "## 原始资料\n\n- [RAG Lesson · Retrieval](/library?collection=material&document=doc-1&chunk=chunk-1)",
+    }],
+  };
+  const focusArtifact = {
+    artifact_id: "focus-1", type: "wiki_focus", library_id: "library-1", operation: "generate",
+    status: "awaiting_confirmation", summary: "重点整理 RAG 的证据边界。", instruction: "整理核心概念和证据",
+    scope: { document_ids: ["doc-1"], documents: ["RAG Lesson"] },
+  };
+  const planArtifact = { artifact_id: "plan-1", type: "wiki_plan", library_id: "library-1", operation: "generate", status: "planned", plan_id: planned.plan_id, plan: planned };
+  const resultArtifact = { artifact_id: "result-1", type: "wiki_result", library_id: "library-1", operation: "apply", status: "applied", plan_id: planned.plan_id, checkpoint_id: "b".repeat(32), written: ["concepts/RAG.md"] };
+  let wikiPhase: "focus" | "plan" | "result" = "focus";
+  const wikiMessages = () => [
+    { role: "user", content: "/wiki plan 整理核心概念和证据" },
+    { role: "assistant", content: "重点整理 RAG 的证据边界。", artifacts: [{ ...focusArtifact, status: wikiPhase === "focus" ? "awaiting_confirmation" : "confirmed" }] },
+    ...(wikiPhase === "plan" || wikiPhase === "result" ? [{ role: "assistant", content: "已生成 Wiki 计划。", artifacts: [{ ...planArtifact, status: wikiPhase === "result" ? "applied" : "planned", plan: { ...planned, status: wikiPhase === "result" ? "applied" : "planned" } }] }] : []),
+    ...(wikiPhase === "result" ? [{ role: "assistant", content: "Wiki 已按确认计划写入。", artifacts: [resultArtifact] }] : []),
+  ];
+  await page.route("**/api/chat/wiki/focus", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ chat_session_id: "wiki-session", artifact: focusArtifact }) }));
+  await page.route("**/api/chat/sessions/wiki-session", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ chat_session_id: "wiki-session", name: "RAG Wiki", name_source: "ai", created_at: "2026-07-13T00:00:00Z", last_active: "2026-07-13T00:00:00Z", message_count: wikiMessages().length, messages: wikiMessages() }) }));
+  await page.route("**/api/chat/wiki/focus/focus-1/confirm", (route) => { wikiPhase = "plan"; return route.fulfill({ contentType: "application/json", body: JSON.stringify({ chat_session_id: "wiki-session", artifact: planArtifact }) }); });
+  await page.route(`**/api/chat/wiki/plans/${planned.plan_id}/apply`, (route) => { wikiPhase = "result"; return route.fulfill({ contentType: "application/json", body: JSON.stringify({ chat_session_id: "wiki-session", artifact: resultArtifact }) }); });
+
+  await page.goto("/library");
+  await page.getByRole("button", { name: "整理成 Wiki" }).click();
+  await page.getByLabel("整理要求").fill("整理核心概念和证据");
+  await page.getByRole("button", { name: "生成计划" }).click();
+  await expect(page).toHaveURL(/\/chat/);
+  await page.getByRole("textbox", { name: "消息" }).press("Enter");
+  await expect(page.getByText("重点整理 RAG 的证据边界。", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "按此重点继续" }).click();
+  await expect(page.getByRole("region", { name: "Wiki 整理计划" })).toBeVisible();
+  await expect(page.getByText("先审查这份整理计划")).toBeVisible();
+  await page.getByRole("button", { name: "确认并生成" }).click();
+  await expect(page.getByText("Wiki 已写入")).toBeVisible();
+  await page.locator(".wiki-plan-change summary").click();
+  await page.getByRole("link", { name: /RAG Lesson · Retrieval/ }).click();
+  await expect(page).toHaveURL(/collection=material&document=doc-1&chunk=chunk-1/);
+  await expect(page.locator('[data-chunk-id="chunk-1"]')).toHaveClass(/highlighted/);
 });
 
 test("slash palette exposes commands and local skills", async ({ page }) => {
@@ -129,7 +233,7 @@ test("slash palette exposes commands and local skills", async ({ page }) => {
   await composer.fill("/");
   await expect(page.getByRole("listbox", { name: "命令与技能" })).toBeVisible();
   expect(await composer.evaluate((element) => element.getBoundingClientRect().bottom < window.innerHeight - 55)).toBe(true);
-  await expect(page.getByRole("option", { name: /\/wiki/ })).toBeVisible();
+  await expect(page.getByRole("option", { name: /^\/wiki 打开 Wiki/ })).toBeVisible();
   await composer.fill("/skill");
   await expect(page.getByRole("option", { name: /study-loop/ })).toBeVisible();
   await composer.press("ArrowDown");
@@ -142,7 +246,7 @@ test("slash palette exposes commands and local skills", async ({ page }) => {
   expect(String(requestBody.message)).toContain("/skill ");
   const activeComposer = page.getByRole("textbox", { name: "消息" });
   await activeComposer.fill("/wiki");
-  await page.getByRole("option", { name: /\/wiki/ }).click();
+  await page.getByRole("option", { name: /^\/wiki 打开 Wiki/ }).click();
   await activeComposer.press("Enter");
   await expect(page).toHaveURL(/\/library\?collection=wiki/);
 });
@@ -196,6 +300,7 @@ test("chat answer becomes practice and returns to review", async ({ page }) => {
 });
 
 test("Chat and primary study routes render without overlap", async ({ page }, testInfo) => {
+  await page.addInitScript(() => localStorage.setItem("bobodan:onboarding:v1", "complete"));
   await page.route("**/api/settings", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ workspace_name: "本地工作区", default_provider: "deepseek", providers: [{ name: "deepseek", configured: true }], mcp_enabled: false, skills: [] }) }));
   await page.goto("/chat");
   await expect(page.getByRole("heading", { name: "今天想学点什么？", level: 2 })).toBeVisible();
@@ -232,6 +337,7 @@ test("Chat and primary study routes render without overlap", async ({ page }, te
 });
 
 test("desktop sidebars collapse independently and persist", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("bobodan:onboarding:v1", "complete"));
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/chat");
   await page.getByRole("button", { name: "收起左栏" }).click();
@@ -245,6 +351,7 @@ test("desktop sidebars collapse independently and persist", async ({ page }) => 
 });
 
 test("streamed conversation keeps a calm centered reading flow", async ({ page }, testInfo) => {
+  await page.addInitScript(() => localStorage.setItem("bobodan:onboarding:v1", "complete"));
   await page.route("**/api/kb/documents?collection=material", async (route) => {
     await route.fulfill({
       contentType: "application/json",

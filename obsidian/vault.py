@@ -26,11 +26,19 @@ def scan_vault(vault_path: str) -> list[ScannedNote]:
     """Scan a vault directory and parse all Markdown notes."""
     notes: list[ScannedNote] = []
     vault_path = os.path.abspath(vault_path)
+    portable_library = os.path.isfile(os.path.join(vault_path, "BOBODAN_LIBRARY.yaml"))
 
     for root, dirs, files in os.walk(vault_path):
-        dirs[:] = [name for name in dirs if name not in SKIP_DIRS and not name.startswith(".")]
+        dirs[:] = [
+            name for name in dirs
+            if name not in SKIP_DIRS
+            and not name.startswith(".")
+            and not (portable_library and name in {"raw", "templates"})
+        ]
         for filename in files:
             if not filename.lower().endswith(".md"):
+                continue
+            if portable_library and root == vault_path and filename in {"WIKI_SCHEMA.md"}:
                 continue
             abs_path = os.path.join(root, filename)
             rel_path = os.path.relpath(abs_path, vault_path).replace(os.sep, "/")

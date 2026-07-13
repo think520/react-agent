@@ -9,6 +9,7 @@ from .dense_store import DenseVectorStore
 from .embeddings import LocalEmbeddingProvider
 from .ollama import OllamaEmbeddingClient
 from .vector_store import LocalVectorStore
+from knowledge.paths import knowledge_dir
 
 logger = logging.getLogger(__name__)
 
@@ -36,9 +37,9 @@ class VectorStoreRouter:
         probe_timeout = rag_config.get("probe_timeout", 3)
         request_timeout = rag_config.get("request_timeout", 10)
 
-        knowledge_dir = os.path.join(workspace, ".knowledge")
-        sparse_path = os.path.join(knowledge_dir, "rag_index.json")
-        dense_path = os.path.join(knowledge_dir, "rag_index_dense.json")
+        storage_dir = knowledge_dir(workspace)
+        sparse_path = os.path.join(storage_dir, "rag_index.json")
+        dense_path = os.path.join(storage_dir, "rag_index_dense.json")
 
         self.sparse_store = LocalVectorStore(sparse_path)
         self.ollama_client = OllamaEmbeddingClient(

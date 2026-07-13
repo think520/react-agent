@@ -42,6 +42,7 @@ class WikiIndexer:
             existing[key][page.title] = {
                 "tags": page.tags,
                 "sources": page.sources,
+                "summary": page.summary,
                 "updated": page.updated or datetime.now(timezone.utc).strftime("%Y-%m-%d"),
             }
 
@@ -56,21 +57,25 @@ class WikiIndexer:
         type_labels = {
             "wiki_entity": "实体",
             "wiki_concept": "概念",
-            "wiki_source": "来源",
+            "wiki_source": "资料摘要",
+            "wiki_analysis": "综合分析",
+            "wiki_question": "问题与发现",
         }
 
-        for page_type in ["wiki_entity", "wiki_concept", "wiki_source"]:
+        for page_type in ["wiki_source", "wiki_entity", "wiki_concept", "wiki_analysis", "wiki_question"]:
             entries = existing.get(page_type, {})
             if not entries:
                 continue
             label = type_labels.get(page_type, page_type)
             lines.append(f"## {label}")
             lines.append("")
+            lines.append("| 页面 | 摘要 | 来源数 | 更新时间 |")
+            lines.append("| --- | --- | ---: | --- |")
             for title, meta in sorted(entries.items()):
-                tags_str = ""
-                if meta.get("tags"):
-                    tags_str = f" `{', '.join(meta['tags'][:3])}`"
-                lines.append(f"- [[{title}]]{tags_str}")
+                summary = str(meta.get("summary") or "").replace("|", "｜")
+                lines.append(
+                    f"| [[{title}]] | {summary} | {len(meta.get('sources') or [])} | {meta.get('updated') or ''} |"
+                )
             lines.append("")
 
         with open(index_path, "w", encoding="utf-8") as f:
@@ -108,13 +113,17 @@ class WikiIndexer:
 
         lines.append("")
 
-        # Create file with header if it doesn't exist
-        if not os.path.exists(log_path):
-            with open(log_path, "w", encoding="utf-8") as f:
-                f.write("# Wiki Log\n\n")
-
-        with open(log_path, "a", encoding="utf-8") as f:
-            f.write("\n".join(lines))
+        existing = ""
+        if os.path.exists(log_path):
+            with open(log_path, "r", encoding="utf-8") as f:
+                existing = f.read()
+            if existing.startswith("# Wiki Log"):
+                existing = existing[len("# Wiki Log"):].lstrip()
+        with open(log_path, "w", encoding="utf-8") as f:
+            f.write("# Wiki Log\n\n")
+            f.write("\n".join(lines).rstrip() + "\n\n")
+            if existing:
+                f.write(existing.rstrip() + "\n")
 
     def read_index(self) -> dict:
         """Read and parse index.md. Returns {type: {title: meta}}."""
@@ -134,7 +143,7 @@ class WikiIndexer:
             block = block.strip()
             if block and block != "Wiki Log":
                 entries.append(f"## {block}")
-        return entries[-limit:]
+        return entries[:limit]
 
     def _load_existing_index(self, index_path: str) -> dict:
         """Parse existing index.md into structured data."""
@@ -146,7 +155,10 @@ class WikiIndexer:
 
         result = {}
         current_type = None
-        type_map = {"实体": "wiki_entity", "概念": "wiki_concept", "来源": "wiki_source"}
+        type_map = {
+            "实体": "wiki_entity", "概念": "wiki_concept", "来源": "wiki_source",
+            "资料摘要": "wiki_source", "综合分析": "wiki_analysis", "问题与发现": "wiki_question",
+        }
 
         for line in content.split("\n"):
             line = line.strip()
@@ -161,6 +173,19 @@ class WikiIndexer:
                     if current_type not in result:
                         result[current_type] = {}
                     result[current_type][title] = {"tags": [], "sources": [], "updated": ""}
+            elif line.startswith("| [[") and current_type:
+                end = line.find("]]", 4)
+                if end != -1:
+                    title = line[4:end]
+                    cells = [cell.strip() for cell in line.strip("|").split("|")]
+                    if current_type not in result:
+                        result[current_type] = {}
+                    result[current_type][title] = {
+                        "tags": [],
+                        "sources": [""] * int(cells[2]) if len(cells) > 2 and cells[2].isdigit() else [],
+                        "summary": cells[1] if len(cells) > 1 else "",
+                        "updated": cells[3] if len(cells) > 3 else "",
+                    }
 
         return result
 
@@ -202,7 +227,10 @@ def archive_duplicate_pages(
         return {"archived": [], "canonical": 0, "archive_dir": None}
 
     groups: dict[str, list[tuple[str, dict, str]]] = {}
-    for directory in (config.entities_path(vault_path), config.concepts_path(vault_path)):
+    for page_type in (
+        "wiki_source", "wiki_entity", "wiki_concept", "wiki_analysis", "wiki_question",
+    ):
+        directory = config.page_path(vault_path, page_type)
         if not os.path.isdir(directory):
             continue
         for filename in os.listdir(directory):
@@ -249,6 +277,9 @@ def archive_duplicate_pages(
         indexable=bool(metadata.get("indexable", False)),
         created=str(metadata.get("created") or ""),
         updated=str(metadata.get("updated") or ""),
+        summary=str(metadata.get("summary") or ""),
+        schema_version=int(metadata.get("schema_version") or 1),
+        status=str(metadata.get("status") or "active"),
     ) for path, metadata, body in canonical]
     WikiIndexer(vault_path, config).rebuild_index(pages)
     return {"archived": archived, "canonical": len(pages), "archive_dir": archive_dir}

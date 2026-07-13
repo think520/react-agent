@@ -16,6 +16,8 @@ import unicodedata
 from functools import lru_cache
 from typing import Any
 
+from knowledge.paths import knowledge_dir, knowledge_path
+
 
 def _ok(**kwargs: Any) -> dict[str, Any]:
     return {"ok": True, **kwargs}
@@ -76,12 +78,18 @@ class KBService:
         self.workspace = os.path.abspath(workspace)
 
     @property
+    def is_portable_library(self) -> bool:
+        return os.path.isfile(os.path.join(self.workspace, "BOBODAN_LIBRARY.yaml"))
+
+    @property
     def managed_sources_dir(self) -> str:
+        if self.is_portable_library:
+            return os.path.join(self.workspace, "raw", "inbox")
         return os.path.join(self.workspace, ".bobodan", "sources")
 
     @property
     def managed_vault_dir(self) -> str:
-        return os.path.join(self.workspace, ".bobodan", "managed-vault")
+        return self.workspace if self.is_portable_library else os.path.join(self.workspace, ".bobodan", "managed-vault")
 
     @property
     def source_roots_path(self) -> str:
@@ -106,6 +114,16 @@ class KBService:
             json.dump(roots, handle, ensure_ascii=False, indent=2)
 
     def _registered_roots(self) -> tuple[str, list[str]]:
+        if self.is_portable_library:
+            roots = self._load_source_roots()
+            course_dirs = [
+                path for path in roots.get("course_dirs", [])
+                if os.path.isdir(path) and self._is_within_workspace(path, self.workspace)
+            ]
+            raw_dir = os.path.join(self.workspace, "raw")
+            if os.path.isdir(raw_dir):
+                course_dirs.insert(0, raw_dir)
+            return self.workspace, list(dict.fromkeys(os.path.abspath(path) for path in course_dirs))
         roots = self._load_source_roots()
         vault_path = roots.get("vault_path")
         if not vault_path or not os.path.isdir(vault_path):
@@ -122,6 +140,8 @@ class KBService:
         return vault_path, course_dirs
 
     def _wiki_vaults(self) -> list[str]:
+        if self.is_portable_library:
+            return [self.workspace] if os.path.isdir(os.path.join(self.workspace, "wiki")) else []
         roots = self._load_source_roots()
         candidates = [
             roots.get("vault_path"),
@@ -146,7 +166,7 @@ class KBService:
         from wiki.index import archive_duplicate_pages
 
         roots = self._load_source_roots()
-        candidates = [roots.get("vault_path"), os.path.join(self.workspace, "note", "vault")]
+        candidates = [self.workspace] if self.is_portable_library else [roots.get("vault_path"), os.path.join(self.workspace, "note", "vault")]
         seen = set()
         results = []
         for candidate in candidates:
@@ -183,6 +203,8 @@ class KBService:
                 ],
                 "missing": result.missing_pages,
                 "stale": result.stale_pages,
+                "index_mismatches": result.index_mismatches,
+                "contradiction_candidates": result.contradiction_candidates,
                 "errors": result.errors,
                 "healthy": result.healthy and not result.errors,
             })
@@ -194,24 +216,154 @@ class KBService:
             broken_link_count=sum(len(item["broken_links"]) for item in details),
             missing_count=sum(len(item["missing"]) for item in details),
             stale_count=sum(len(item["stale"]) for item in details),
+            index_mismatch_count=sum(len(item["index_mismatches"]) for item in details),
+            contradiction_candidate_count=sum(len(item["contradiction_candidates"]) for item in details),
             vaults=details,
         )
 
     def maintain_wiki(self, action: str) -> dict[str, Any]:
         if action == "check":
             return self.wiki_health()
-        if action != "organize":
-            return _err("action must be check or organize")
+        if action not in {"organize", "plan"}:
+            return _err("action must be check or plan")
 
-        organized = self.archive_duplicate_wiki_pages()
         health = self.wiki_health()
-        if not organized.get("ok") or not health.get("ok"):
-            return _err(organized.get("error") or health.get("error") or "Wiki maintenance failed")
+        if not health.get("ok"):
+            return health
         return _ok(
-            archived_count=sum(len(item.get("archived", [])) for item in organized.get("results", [])),
-            canonical_count=sum(int(item.get("canonical", 0)) for item in organized.get("results", [])),
+            status="planned",
+            archived_count=0,
+            canonical_count=health.get("total_pages", 0),
+            repair_plan={
+                "action": "repair",
+                "requires_confirmation": True,
+                "issues": {
+                    "orphans": health.get("orphan_count", 0),
+                    "broken_links": health.get("broken_link_count", 0),
+                    "missing": health.get("missing_count", 0),
+                    "stale": health.get("stale_count", 0),
+                },
+            },
             health={key: value for key, value in health.items() if key != "ok"},
         )
+
+    def _wiki_target_vault(self) -> str:
+        if self.is_portable_library:
+            return self.workspace
+        roots = self._load_source_roots()
+        configured = roots.get("vault_path")
+        if configured and os.path.isdir(configured):
+            return os.path.abspath(configured)
+        workspace_vault = os.path.join(self.workspace, "note", "vault")
+        if os.path.isdir(workspace_vault):
+            return workspace_vault
+        os.makedirs(self.managed_vault_dir, exist_ok=True)
+        return self.managed_vault_dir
+
+    def _wiki_scope_documents(
+        self,
+        document_ids: list[str] | None = None,
+        course: str | None = None,
+        wiki_document_ids: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        from urllib.parse import unquote
+
+        if not document_ids and not course and not wiki_document_ids:
+            return []
+        requested_ids = set(document_ids or [])
+        for wiki_id in wiki_document_ids or []:
+            detail = self.get_document(wiki_id)
+            if not detail.get("ok") or detail["document"].get("collection") != "wiki":
+                continue
+            for section in detail.get("sections", []):
+                for match in re.findall(r"document=([^&)\s]+)", section.get("text", "")):
+                    requested_ids.add(unquote(match))
+
+        materials = self.list_documents(course=course, collection="material")
+        if not materials.get("ok"):
+            return []
+        available = materials["documents"]
+        if requested_ids:
+            available = [item for item in available if item["document_id"] in requested_ids]
+        elif wiki_document_ids:
+            return []
+        documents = []
+        for summary in available:
+            detail = self.get_document(summary["document_id"])
+            if detail.get("ok"):
+                documents.append({**detail["document"], "sections": detail["sections"]})
+        return documents
+
+    def create_wiki_plan(
+        self,
+        llm_provider,
+        document_ids: list[str] | None = None,
+        course: str | None = None,
+        wiki_document_ids: list[str] | None = None,
+        action: str = "generate",
+        instruction: str = "",
+    ) -> dict[str, Any]:
+        documents = self._wiki_scope_documents(document_ids, course, wiki_document_ids)
+        if not documents:
+            return _err("Select at least one indexed learning material before planning a Wiki")
+        try:
+            from wiki.workflow import WikiWorkflow
+
+            plan = WikiWorkflow(
+                self.workspace,
+                self._wiki_target_vault(),
+                llm_provider=llm_provider,
+            ).create_plan(documents, action=action, instruction=instruction)
+        except Exception as exc:
+            return _err(str(exc))
+        return _ok(**plan)
+
+    def get_wiki_plan(self, plan_id: str) -> dict[str, Any]:
+        try:
+            from wiki.workflow import WikiWorkflow
+
+            plan = WikiWorkflow(self.workspace, self._wiki_target_vault()).get_plan(plan_id)
+        except (OSError, ValueError) as exc:
+            return _err(str(exc))
+        return _ok(**plan)
+
+    def create_wiki_migration_plan(self) -> dict[str, Any]:
+        try:
+            from wiki.workflow import WikiWorkflow
+
+            plan = WikiWorkflow(self.workspace, self._wiki_target_vault()).create_migration_plan()
+        except (OSError, ValueError) as exc:
+            return _err(str(exc))
+        return _ok(**plan)
+
+    def apply_wiki_plan(self, plan_id: str, config: dict | None = None) -> dict[str, Any]:
+        try:
+            from wiki.workflow import WikiWorkflow
+
+            plan = WikiWorkflow(self.workspace, self._wiki_target_vault()).apply_plan(plan_id)
+        except (OSError, ValueError) as exc:
+            return _err(str(exc))
+        try:
+            sync = self._sync_registered_sources(mode="incremental", config=config or {}).to_dict()
+        except Exception as exc:
+            sync = {"errors": [{"error": str(exc)}], "deferred": True}
+        return _ok(**plan, sync=sync)
+
+    def undo_wiki_checkpoint(self, checkpoint_id: str, config: dict | None = None) -> dict[str, Any]:
+        try:
+            from wiki.workflow import WikiWorkflow
+
+            restored = WikiWorkflow(
+                self.workspace,
+                self._wiki_target_vault(),
+            ).restore_checkpoint(checkpoint_id)
+        except (OSError, ValueError) as exc:
+            return _err(str(exc))
+        try:
+            sync = self._sync_registered_sources(mode="incremental", config=config or {}).to_dict()
+        except Exception as exc:
+            sync = {"errors": [{"error": str(exc)}], "deferred": True}
+        return _ok(**restored, sync=sync)
 
     @staticmethod
     def _is_within_workspace(path: str, workspace: str) -> bool:
@@ -242,7 +394,7 @@ class KBService:
                 return _err(f"Course directory not found: {course_dir}")
 
         roots = self._load_source_roots()
-        roots["vault_path"] = os.path.abspath(vault_path)
+        roots["vault_path"] = None if self.is_portable_library else os.path.abspath(vault_path)
         if course_dir:
             course_dirs = [os.path.abspath(path) for path in roots.get("course_dirs", [])]
             abs_course_dir = os.path.abspath(course_dir)
@@ -287,9 +439,14 @@ class KBService:
                 rejected.append({"filename": filename, "reason": "unsupported_file_type"})
                 continue
             target = os.path.join(self.managed_sources_dir, safe_name)
+            stem, extension = os.path.splitext(safe_name)
+            counter = 2
+            while os.path.exists(target):
+                target = os.path.join(self.managed_sources_dir, f"{stem} ({counter}){extension}")
+                counter += 1
             with open(target, "wb") as handle:
                 handle.write(content)
-            imported.append(safe_name)
+            imported.append(os.path.basename(target))
 
         if not imported:
             return _err("No supported files were provided")
@@ -300,8 +457,8 @@ class KBService:
     # --- Status ---
 
     def status(self) -> dict[str, Any]:
-        knowledge_dir = os.path.join(self.workspace, ".knowledge")
-        if not os.path.exists(knowledge_dir):
+        storage_dir = knowledge_dir(self.workspace)
+        if not os.path.exists(storage_dir):
             return _err("No knowledge base found. Run obsidian_sync first.")
 
         from knowledge.library import build_library_summary
@@ -348,7 +505,7 @@ class KBService:
     ) -> dict[str, Any]:
         if collection not in {"all", "material", "wiki"}:
             return _err("collection must be all, material, or wiki")
-        db_path = os.path.join(self.workspace, ".knowledge", "knowledge.db")
+        db_path = knowledge_path(self.workspace, "knowledge.db")
         documents = []
         if os.path.exists(db_path):
             from rag.sqlite_store import KBSQLiteStore
@@ -369,7 +526,7 @@ class KBService:
         return _ok(documents=public)
 
     def get_document(self, document_id: str) -> dict[str, Any]:
-        db_path = os.path.join(self.workspace, ".knowledge", "knowledge.db")
+        db_path = knowledge_path(self.workspace, "knowledge.db")
         if os.path.exists(db_path):
             from rag.sqlite_store import KBSQLiteStore
             store = KBSQLiteStore(self.workspace)
@@ -393,7 +550,7 @@ class KBService:
     def delete_document(self, document_id: str, config: dict | None = None) -> dict[str, Any]:
         if document_id.startswith("legacy-"):
             return _err("This knowledge source is read-only and cannot be deleted here")
-        db_path = os.path.join(self.workspace, ".knowledge", "knowledge.db")
+        db_path = knowledge_path(self.workspace, "knowledge.db")
         if not os.path.exists(db_path):
             return _err(f"Document not found: {document_id}")
 
@@ -411,10 +568,62 @@ class KBService:
         if not path or not self._is_within_workspace(path, self.managed_sources_dir):
             return _err("This knowledge source is read-only and cannot be deleted here")
         if os.path.isfile(path):
-            os.remove(path)
+            if self.is_portable_library:
+                from datetime import datetime, timezone
+                import shutil
+
+                archive_dir = os.path.join(
+                    self.workspace,
+                    ".bobodan",
+                    "archive",
+                    "raw",
+                    datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ"),
+                )
+                os.makedirs(archive_dir, exist_ok=True)
+                target = os.path.join(archive_dir, os.path.basename(path))
+                shutil.move(path, target)
+                self._mark_wiki_sources_stale(document.get("source") or path)
+            else:
+                os.remove(path)
 
         summary = self._sync_registered_sources(mode="incremental", config=config or {})
         return _ok(document_id=document_id, sync=summary.to_dict())
+
+    def _mark_wiki_sources_stale(self, source: str) -> None:
+        """Mark generated pages for review when an original source is archived."""
+        import yaml
+
+        wiki_dir = os.path.join(self.workspace, "wiki")
+        if not os.path.isdir(wiki_dir):
+            return
+        normalized = str(source).replace("\\", "/")
+        for root, _dirs, files in os.walk(wiki_dir):
+            if os.path.basename(root) == "templates":
+                continue
+            for filename in files:
+                if not filename.endswith(".md"):
+                    continue
+                path = os.path.join(root, filename)
+                try:
+                    content = open(path, "r", encoding="utf-8").read()
+                except OSError:
+                    continue
+                if not content.startswith("---"):
+                    continue
+                end = content.find("---", 3)
+                if end < 0:
+                    continue
+                try:
+                    metadata = yaml.safe_load(content[3:end]) or {}
+                except yaml.YAMLError:
+                    continue
+                sources = [str(item).replace("\\", "/") for item in metadata.get("sources") or []]
+                if normalized not in sources and not any(normalized.endswith(item) or item.endswith(normalized) for item in sources):
+                    continue
+                metadata["status"] = "needs_update"
+                rendered = yaml.safe_dump(metadata, allow_unicode=True, sort_keys=False).strip()
+                with open(path, "w", encoding="utf-8") as handle:
+                    handle.write(f"---\n{rendered}\n---{content[end + 3:]}")
 
     @staticmethod
     def _public_section(chunk: dict[str, Any]) -> dict[str, Any]:
@@ -468,7 +677,7 @@ class KBService:
         return output
 
     def _legacy_chunks(self) -> tuple[dict[str, Any], ...]:
-        path = os.path.join(self.workspace, ".knowledge", "rag_index.json")
+        path = knowledge_path(self.workspace, "rag_index.json")
         if not os.path.exists(path):
             return ()
         return _load_legacy_chunks(path, os.path.getmtime(path))
@@ -480,7 +689,7 @@ class KBService:
     ) -> list[dict[str, Any]]:
         grouped: dict[str, dict[str, Any]] = {}
         excluded = exclude_sources or set()
-        index_path = os.path.join(self.workspace, ".knowledge", "rag_index.json")
+        index_path = knowledge_path(self.workspace, "rag_index.json")
         updated_at = ""
         if os.path.exists(index_path):
             from datetime import datetime, timezone
@@ -555,10 +764,10 @@ class KBService:
         if not query or not query.strip():
             return _err("query is required")
 
-        knowledge_dir = os.path.join(self.workspace, ".knowledge")
-        db_path = os.path.join(knowledge_dir, "knowledge.db")
-        sparse_path = os.path.join(knowledge_dir, "rag_index.json")
-        dense_path = os.path.join(knowledge_dir, "rag_index_dense.json")
+        storage_dir = knowledge_dir(self.workspace)
+        db_path = os.path.join(storage_dir, "knowledge.db")
+        sparse_path = os.path.join(storage_dir, "rag_index.json")
+        dense_path = os.path.join(storage_dir, "rag_index_dense.json")
         if (not os.path.exists(db_path)
                 and not os.path.exists(sparse_path)
                 and not os.path.exists(dense_path)):
@@ -579,7 +788,7 @@ class KBService:
         legacy_results = []
         if self._legacy_chunks():
             from rag.vector_store import LocalVectorStore
-            index_path = os.path.join(self.workspace, ".knowledge", "rag_index.json")
+            index_path = knowledge_path(self.workspace, "rag_index.json")
             legacy_results = LocalVectorStore(index_path).search(
                 query=query.strip(), course=course, top_k=candidate_top_k
             )
@@ -616,9 +825,12 @@ class KBService:
                     continue
                 seen.add(key)
                 merged.append(item)
-                if len(merged) >= requested_top_k:
-                    return _ok(results=merged)
-        return _ok(results=merged)
+        if not allowed_document_ids:
+            wiki_results = [item for item in merged if item.get("collection") == "wiki"]
+            material_results = [item for item in merged if item.get("collection") == "material"]
+            if wiki_results and material_results:
+                merged = wiki_results[:2] + material_results + wiki_results[2:]
+        return _ok(results=merged[:requested_top_k])
 
     # --- Graph Query ---
 
@@ -649,7 +861,20 @@ class KBService:
     # --- Reset ---
 
     def reset(self) -> dict[str, Any]:
-        knowledge_dir = os.path.join(self.workspace, ".knowledge")
-        if os.path.exists(knowledge_dir):
-            shutil.rmtree(knowledge_dir)
+        storage_dir = knowledge_dir(self.workspace)
+        if os.path.exists(storage_dir):
+            if self.is_portable_library:
+                for filename in (
+                    "knowledge.db", "knowledge.db-shm", "knowledge.db-wal", "bobodan.db",
+                    "bobodan.db-shm", "bobodan.db-wal", "rag_index.json", "rag_index_dense.json",
+                    "graph_store.json", "sync_state.json", "import_report.json",
+                ):
+                    path = os.path.join(storage_dir, filename)
+                    if os.path.isfile(path):
+                        os.remove(path)
+                qdrant = os.path.join(storage_dir, "qdrant")
+                if os.path.isdir(qdrant):
+                    shutil.rmtree(qdrant)
+            else:
+                shutil.rmtree(storage_dir)
         return _ok(message="Knowledge base reset")

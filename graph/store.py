@@ -2,6 +2,7 @@ import os
 
 from .local_store import LocalGraphStore
 from .neo4j_store import Neo4jGraphStore
+from knowledge.paths import knowledge_path
 
 
 def get_graph_store(workspace: str):
@@ -16,5 +17,5 @@ def get_graph_store(workspace: str):
         except Exception:
             pass
 
-    graph_path = os.path.join(workspace, ".knowledge", "graph_store.json")
+    graph_path = knowledge_path(workspace, "graph_store.json")
     return LocalGraphStore(graph_path)

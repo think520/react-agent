@@ -25,6 +25,7 @@ export interface ChatMessage {
   pending?: boolean;
   failed?: boolean;
   process?: Array<{ phase: string; message: string; toolName?: string; elapsed?: number }>;
+  artifacts?: WikiArtifact[];
 }
 
 export interface ChatSessionSummary {
@@ -34,6 +35,16 @@ export interface ChatSessionSummary {
   created_at: string;
   last_active: string;
   message_count: number;
+  library_id?: string | null;
+}
+
+export interface LibrarySummary {
+  library_id: string;
+  name: string;
+  created_at: string;
+  last_opened_at: string;
+  active: boolean;
+  available: boolean;
 }
 
 export interface ChatSessionDetail extends ChatSessionSummary {
@@ -129,3 +140,66 @@ export interface WikiHealth {
     healthy: boolean;
   }>;
 }
+
+export type WikiChangeKind = "add" | "update" | "merge" | "conflict" | "skip";
+
+export interface WikiPlanChange {
+  change_id: string;
+  kind: WikiChangeKind;
+  title: string;
+  page_type: "wiki_entity" | "wiki_concept";
+  summary: string;
+  related: string[];
+  source_count: number;
+  target: string;
+  content: string;
+}
+
+export interface WikiPlan {
+  plan_id: string;
+  status: "planned" | "applied";
+  action: "generate" | "update";
+  instruction: string;
+  created_at: string;
+  applied_at?: string;
+  checkpoint_id?: string;
+  scope: { document_ids: string[]; documents: string[] };
+  summary: Record<WikiChangeKind, number>;
+  changes: WikiPlanChange[];
+  written?: string[];
+}
+
+export interface WikiFocusArtifact {
+  artifact_id: string;
+  type: "wiki_focus";
+  library_id?: string | null;
+  operation: "generate" | "update" | "repair" | "migrate";
+  status: "awaiting_confirmation" | "confirmed" | "cancelled";
+  summary: string;
+  instruction: string;
+  scope: { document_ids: string[]; wiki_document_ids?: string[]; course?: string | null; documents: string[] };
+}
+
+export interface WikiPlanArtifact {
+  artifact_id: string;
+  type: "wiki_plan";
+  library_id?: string | null;
+  operation: string;
+  status: "planned" | "applied";
+  plan_id: string;
+  plan: WikiPlan;
+}
+
+export interface WikiResultArtifact {
+  artifact_id: string;
+  type: "wiki_result";
+  library_id?: string | null;
+  operation: "apply" | "restore";
+  status: "applied" | "restored";
+  plan_id?: string;
+  checkpoint_id?: string;
+  written?: string[];
+  restored_at?: string;
+}
+
+export type WikiArtifact = WikiFocusArtifact | WikiPlanArtifact | WikiResultArtifact;

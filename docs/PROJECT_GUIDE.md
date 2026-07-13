@@ -362,13 +362,13 @@ Memory 不只记录学习数据，还要沉淀：
 
 ### 3.1 总体判断
 
-Bobodan 已经完成“学习 Agent 引擎”“Web 产品化基础”和“本地学习闭环 Web MVP”阶段，普通用户已经可以在浏览器中完成一次持续的资料学习流程。
+Bobodan 已经完成“学习 Agent 引擎”“Web 产品化基础”“本地学习闭环 Web MVP”“用户主动触发的 LLM Wiki”和“便携文件夹资料库”阶段，普通用户可以在浏览器中切换多个本地资料库，完成资料学习与可追溯知识沉淀流程。
 
-现有技术路线不需要推倒重来。Python + FastAPI + SQLite / Qdrant + React Web UI 仍然适合本地优先的个人学习助手。P5C 已把 CLI 能力整理成稳定、可复用、可追踪的 Web 产品合约，P5D 已完成 Library → Chat → Practice → Review 的纵向闭环；下一步进入 P5E，完成用户主动触发的 LLM Wiki 知识整理闭环。
+现有技术路线不需要推倒重来。Python + FastAPI + SQLite / Qdrant + React Web UI 仍然适合本地优先的个人学习助手。P5C 已整理 Web 产品合约，P5D 已完成 Library → Chat → Practice → Review，P5E 已完成用户确认式 LLM Wiki，P5E.1 已把测试工作区升级为通用文件夹资料库；下一步进入 P5F，补齐可信联网资料扩展。
 
 一句话结论：
 
-> 本地学习闭环已经交付，下一阶段保持主界面克制，优先补齐“本地资料 → 用户要求整理 → AI 提交 Wiki 计划 → 用户确认 → 生成可追溯 Wiki”的知识沉淀流程。
+> 本地学习与 Wiki 沉淀闭环已经交付，下一阶段只在本地资料不足且用户确认后联网，并持续区分本地资料、网页来源、AI 补充和待核实内容。
 
 ### 3.2 当前成熟度
 
@@ -379,11 +379,11 @@ Bobodan 已经完成“学习 Agent 引擎”“Web 产品化基础”和“本�
 | Quiz / Learning | Web 闭环可用 | 支持范围出题、精确题目会话、题内问 AI、练习恢复、批改、掌握度变化和 Review 聚合 |
 | Memory | Web 合约就绪 | Web Chat 注入并按 run 刷新 memory prompt，公开 API 不返回本地绝对路径 |
 | Service Layer | 产品化基础完成 | CLI / Web 共用 runtime、config 与 service，Review / Practice 聚合已补齐 |
-| FastAPI | P5C 完成 | 已有稳定错误结构、流式事件适配、session CRUD、资料导入、Library / Practice / Review API |
-| Web UI | P5D 完成 | 四步首次配置、响应式工作区、Chat、Library、Practice、Review、资料范围与学习闭环已落地 |
-| 测试 | 全栈回归已建立 | 后端全量测试 `1037 passed`；Vitest `3 passed`；Playwright 桌面、窄屏和移动端 `27 passed` |
+| FastAPI | P5E.1 完成 | 已有稳定错误结构、流式事件、session CRUD、资料库注册与请求隔离、Library / Practice / Review / Wiki API |
+| Web UI | P5E.1 完成 | Chat、Library、Practice、Review、多资料库切换与持久化 Wiki 确认流程已落地 |
+| 测试 | 全栈回归已建立 | Python `1061 passed`；Vitest `3 passed`；TypeScript 与生产构建通过；Playwright 桌面、窄屏和移动端 `33 passed` |
 
-### 3.3 P5C / P5D 已解决的问题与剩余边界
+### 3.3 P5C / P5D / P5E 已解决的问题与剩余边界
 
 已解决：
 
@@ -402,9 +402,16 @@ P5D 已补齐：
 - Chat → Practice → Review 的完整学习闭环，以及不离开当前题目的轻量问 AI 抽屉。
 - 生成题按本轮返回的题目 ID 精确创建练习，避免旧题混入当前会话。
 
-仍待 P5E / P5F / P5G 解决：
+P5E 已补齐：
 
-- 用户主动触发的 Wiki 规划、生成、增量更新、页面互链和原文定位。
+- 从 Chat、资料页或已有 Wiki 主题发起生成 / 更新计划，支持当前范围、指定资料与课程范围。
+- 计划阶段只保存新增、更新、合并、冲突和跳过草稿；用户确认前不写 Wiki。
+- 确认后生成概念页 / 实体页、双向相关概念链接和原文定位，并重新同步 Wiki 索引。
+- 写入前创建检查点，支持用户撤销；写入中途失败会自动恢复，不留下部分更新。
+- 无指定范围的检索先使用 Wiki 理解结构，再以原始学习资料作为事实证据，并明确标记 AI 整理内容。
+
+仍待 P5F / P5G 解决：
+
 - 本地资料不足后的用户确认联网、来源候选选择和 `网页来源 / AI 补充 / 待核实` 标注流程。
 - 开发期仍是 Vite + FastAPI 两个进程；单进程静态托管与一键启动留到发布阶段。
 - MCP / specialist 要等请求级 ToolContext 完成后，才能考虑在 Web Workbench 中开放。
@@ -652,6 +659,79 @@ P5E 验收：
 - 生成页面能互相跳转，也能跳回原始资料位置。
 - Chat 能区分 Wiki 摘要与原始资料证据，不把 AI 整理内容伪装成原文。
 - 至少有一条“资料 → Wiki 计划 → 确认生成 → 页面互链 → 原文定位”的 Playwright 测试。
+
+P5E 验收结果：通过。
+
+- 导入资料继续只建立原文索引，不会自动创建 Wiki。
+- Chat 支持 `/wiki plan`、`/wiki update` 和 `/wiki generate`；Library 支持从学习资料或已有 Wiki 页面发起。
+- 计划卡在确认前展示完整变更计数与页面预览，冲突用户页面不会被覆盖。
+- 生成页保存结构化 `source_refs`，相关概念与原始资料均可在 Web 阅读器内跳转定位。
+- 写入前检查点、显式撤销和失败自动恢复均有测试覆盖。
+- Playwright 已覆盖“资料 → Wiki 计划 → 确认生成 → 页面预览 → 原文定位”，并通过桌面、窄屏和移动端验证。
+- 验证结果：Python `1049 passed`、Vitest `3 passed`、生产构建通过、Playwright `30 passed`。
+
+### P5E.1：文件夹资料库与持久化 LLM Wiki 工作流
+
+正式产品不再把项目内 `note/vault` 当作用户默认资料。它只保留为开发和自动化测试数据。一个真实资料库就是一个可移动、可备份、可由 Obsidian 打开的本地文件夹：
+
+```text
+<library-root>/
+├── BOBODAN_LIBRARY.yaml
+├── WIKI_SCHEMA.md
+├── raw/
+│   ├── inbox/ assets/ articles/ papers/ books/ misc/
+├── wiki/
+│   ├── index.md log.md templates/
+│   ├── sources/ entities/ concepts/ analyses/ questions/
+└── .bobodan/
+    ├── manifest.json knowledge.db checkpoints/ archive/
+```
+
+核心规则：
+
+1. `BOBODAN_LIBRARY.yaml` 保存 schema version、稳定 UUID、名称和创建时间，不保存密钥。
+2. `~/.bobodan/libraries.json` 只注册资料库 ID、名称、路径和最近打开时间；测试必须设置 `BOBODAN_HOME` 隔离。
+3. 用户可以创建和切换多个资料库，但同时只有一个活动资料库。资料、会话、RAG、题库、练习、复习和学习进度不得串库。
+4. 第一次上传先确认资料库名称和父目录，随后创建结构、写入 `raw/inbox/` 并初始化原文索引。继续上传只更新当前资料库。
+5. 上传、初始化和同步永远不自动生成 Wiki。文件系统中手动放入资料后，使用 `python agent.py library sync <path>` 建立或更新索引。
+6. AI 对 `raw/` 只有读取权限。用户在 UI 删除原文时，文件进入 `.bobodan/archive/raw/<timestamp>/`，引用它的 Wiki 标记为 `needs_update`。
+7. `WIKI_SCHEMA.md` 是人和所有模型共同读取的规则真相源。AI 只能提出规则变更计划，确认后才能更新。
+
+命令行：
+
+```text
+python agent.py library init <path> [--name <name>]
+python agent.py library sync [path]
+python agent.py library list
+```
+
+Wiki 页面统一为五类：
+
+| 类型 | 目录 | 用途 |
+|---|---|---|
+| `wiki_source` | `wiki/sources/` | 一份原始资料的可追溯摘要，计划中必须至少有一页 |
+| `wiki_entity` | `wiki/entities/` | 人物、组织、系统、算法等实体 |
+| `wiki_concept` | `wiki/concepts/` | 定义、原理、方法和知识点 |
+| `wiki_analysis` | `wiki/analyses/` | 确有价值的跨资料综合分析 |
+| `wiki_question` | `wiki/questions/` | 未解决问题、矛盾与新发现 |
+
+每页 frontmatter 必须包含 `type`、`title`、`summary`、`schema_version`、`generated_by`、`created`、`updated`、`sources`、`source_refs`、`status`、`indexable`。`index.md` 按五类使用“页面 / 摘要 / 来源数 / 更新时间”表格，`log.md` 最新操作写在顶部。模板、索引、日志和内部状态不进入普通检索。
+
+对话工作流固定为：
+
+```text
+用户发送 /wiki plan 或 /wiki update
+→ 命令立即显示并保存为用户消息
+→ AI 阅读资料并给出 wiki_focus 重点卡
+→ 用户确认或用自然语言调整重点
+→ 生成并保存 wiki_plan 计划卡
+→ 用户确认写入
+→ 保存 wiki_result、检查点与撤销状态
+```
+
+命令、重点讨论、计划、执行结果和撤销状态均属于 Chat session artifact，刷新、切换会话和重启后必须恢复。Library 的“整理成 Wiki / 更新 Wiki”只携带范围进入 Chat，不在资料页直接写入。
+
+旧 Wiki 升级固定为“迁移预览 → 用户确认 → 检查点 → 机械升级”。升级只补齐 frontmatter 与 schema version，不移动原文，不调用 LLM 改写正文。健康检查覆盖孤立页、断链、缺失页、索引不同步、过期页和矛盾候选；任何修复都先生成计划，确认前不得修改文件。
 
 ### P5F：可信资料扩展
 
@@ -1231,9 +1311,10 @@ MVP 必须跑通：
 实现顺序以第 4 章为唯一执行路线，本节不再维护第二份重复计划。
 
 ```text
-P5C 产品化基础
-→ P5D 本地学习闭环 Web MVP
-→ P5E 用户主动触发的 LLM Wiki
+P5C 产品化基础（完成）
+→ P5D 本地学习闭环 Web MVP（完成）
+→ P5E 用户主动触发的 LLM Wiki（完成）
+→ P5E.1 文件夹资料库与持久化 Wiki 工作流（完成）
 → P5F 可信资料扩展
 → P5G 支撑页面与发布收尾
 ```
