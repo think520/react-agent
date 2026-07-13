@@ -180,11 +180,25 @@ class QuestionGenerator:
         return questions[:count]
 
     def generate_from_query(
-        self, query: str, course: str | None = None, count: int = 5
+        self,
+        query: str,
+        course: str | None = None,
+        count: int = 5,
+        document_ids: list[str] | None = None,
     ) -> list[Question]:
         """Search RAG for relevant chunks, then generate questions."""
         try:
-            chunks = search_index(self.workspace, query, course=course, top_k=8)
+            if document_ids:
+                from service.kb_service import KBService
+                result = KBService(self.workspace).search(
+                    query=query,
+                    course=course,
+                    top_k=8,
+                    document_ids=document_ids,
+                )
+                chunks = result.get("results", []) if result.get("ok") else []
+            else:
+                chunks = search_index(self.workspace, query, course=course, top_k=8)
         except Exception as e:
             logger.error("RAG search failed: %s", e)
             return []

@@ -66,6 +66,26 @@ def test_agent_loop_plain_text_response():
     assert session.messages[-1]["content"] == "direct response"
 
 
+def test_request_prompt_is_visible_for_one_run_but_not_persisted():
+    captured = []
+
+    class CapturingProvider:
+        def complete(self, messages, tools=None):
+            captured.extend(dict(message) for message in messages)
+            return LLMResponse(content="scoped response")
+
+    session = Session.new("/test")
+    agent = AgentLoop(
+        CapturingProvider(),
+        session,
+        request_prompt="<!-- bobodan:request-scope -->\nUse Lesson 1 only.",
+    )
+
+    assert agent.run("hello") == "scoped response"
+    assert any("Use Lesson 1 only" in message.get("content", "") for message in captured)
+    assert all("bobodan:request-scope" not in message.get("content", "") for message in session.messages)
+
+
 def test_agent_loop_removes_legacy_base_system_prompt():
     session = Session.new("/test")
     session.add_message("system", LEGACY_BASE_SYSTEM_PROMPT)

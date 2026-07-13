@@ -7,7 +7,9 @@ They are 'compiled results' from source documents, not replacements.
 from dataclasses import dataclass, field
 
 # Valid wiki page types (prefixed to avoid collision with user notes)
-PAGE_TYPES = {"wiki_entity", "wiki_concept", "wiki_source"}
+PAGE_TYPES = {
+    "wiki_entity", "wiki_concept", "wiki_source", "wiki_analysis", "wiki_question",
+}
 
 # Frontmatter field names
 FM_TYPE = "type"
@@ -18,6 +20,7 @@ FM_SOURCE_HASH = "source_hash"
 FM_GENERATED_BY = "generated_by"
 FM_CREATED = "created"
 FM_UPDATED = "updated"
+FM_SOURCE_REFS = "source_refs"
 
 GENERATED_BY = "bobodan"
 
@@ -31,10 +34,14 @@ class WikiPage:
     tags: list[str] = field(default_factory=list)
     sources: list[str] = field(default_factory=list)   # 原始资料路径
     links: list[str] = field(default_factory=list)      # wikilink 目标
+    source_refs: list[dict] = field(default_factory=list)
     source_hash: str = ""    # 源文件 SHA-256，用于增量更新
     indexable: bool = True   # True=可被 /kb sync 索引
     created: str = ""
     updated: str = ""
+    summary: str = ""
+    schema_version: int = 1
+    status: str = "active"
 
     def to_markdown(self) -> str:
         """Serialize to markdown with YAML frontmatter."""
@@ -45,11 +52,15 @@ class WikiPage:
         meta = {
             FM_TYPE: self.page_type,
             FM_TITLE: self.title,
+            "summary": self.summary,
+            "schema_version": self.schema_version,
             FM_GENERATED_BY: GENERATED_BY,
             FM_TAGS: self.tags or [],
             FM_SOURCES: self.sources or [],
+            FM_SOURCE_REFS: self.source_refs or [],
             FM_SOURCE_HASH: self.source_hash,
             "indexable": self.indexable,
+            "status": self.status,
             FM_CREATED: self.created or now,
             FM_UPDATED: now,
         }
@@ -74,6 +85,10 @@ class WikiConfig:
     wiki_dir: str = "wiki"           # vault 内相对路径
     entity_dir: str = "entities"
     concept_dir: str = "concepts"
+    source_dir: str = "sources"
+    analysis_dir: str = "analyses"
+    question_dir: str = "questions"
+    template_dir: str = "templates"
 
     def entities_path(self, vault_path: str) -> str:
         import os
@@ -82,6 +97,36 @@ class WikiConfig:
     def concepts_path(self, vault_path: str) -> str:
         import os
         return os.path.join(vault_path, self.wiki_dir, self.concept_dir)
+
+    def sources_path(self, vault_path: str) -> str:
+        import os
+        return os.path.join(vault_path, self.wiki_dir, self.source_dir)
+
+    def analyses_path(self, vault_path: str) -> str:
+        import os
+        return os.path.join(vault_path, self.wiki_dir, self.analysis_dir)
+
+    def questions_path(self, vault_path: str) -> str:
+        import os
+        return os.path.join(vault_path, self.wiki_dir, self.question_dir)
+
+    def page_path(self, vault_path: str, page_type: str) -> str:
+        mapping = {
+            "wiki_source": self.sources_path,
+            "wiki_entity": self.entities_path,
+            "wiki_concept": self.concepts_path,
+            "wiki_analysis": self.analyses_path,
+            "wiki_question": self.questions_path,
+        }
+        if page_type not in mapping:
+            raise ValueError(f"Unsupported Wiki page type: {page_type}")
+        return mapping[page_type](vault_path)
+
+    def page_dirs(self) -> tuple[str, ...]:
+        return (
+            self.source_dir, self.entity_dir, self.concept_dir,
+            self.analysis_dir, self.question_dir,
+        )
 
     def index_path(self, vault_path: str) -> str:
         import os

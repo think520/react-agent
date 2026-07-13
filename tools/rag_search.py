@@ -27,6 +27,7 @@ def rag_search(
     course: str | None = None,
     top_k: int = 5,
     mode: str = "auto",
+    document_ids: list[str] | None = None,
     workspace: str = ".",
 ) -> ToolResult:
     """Search the workspace-local knowledge index."""
@@ -34,7 +35,14 @@ def rag_search(
         from service.kb_service import KBService
         svc = KBService(workspace)
         config = _load_config()
-        result = svc.search(query=query, course=course, top_k=top_k, mode=mode, config=config)
+        result = svc.search(
+            query=query,
+            course=course,
+            top_k=top_k,
+            mode=mode,
+            document_ids=document_ids,
+            config=config,
+        )
         if not result["ok"]:
             return ToolResult(ok=False, content=result["error"], data={"results": []})
 
@@ -53,6 +61,7 @@ def rag_search(
                 "heading": metadata.get("heading_text") or item.get("heading_text"),
                 "page": metadata.get("page_start") or item.get("page_start"),
                 "slide": metadata.get("slide_start") or item.get("slide_start"),
+                "collection": item.get("collection", "material"),
             })
 
         artifacts = []
@@ -86,6 +95,11 @@ register_tool(
                 "type": "string",
                 "description": "Retrieval mode: auto (default), hybrid, directory, directory_grep",
                 "enum": ["auto", "hybrid", "directory", "directory_grep"],
+            },
+            "document_ids": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Optional document IDs selected by the user as the active study scope",
             },
         },
         "required": ["query"],

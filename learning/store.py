@@ -1,6 +1,7 @@
 import json
 import os
 import sqlite3
+from knowledge.paths import knowledge_path
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
@@ -56,7 +57,7 @@ class LearningStore:
     """SQLite-backed storage for mastery tracking and learning plans."""
 
     def __init__(self, workspace: str):
-        self.db_path = os.path.join(workspace, ".knowledge", DB_FILENAME)
+        self.db_path = knowledge_path(workspace, DB_FILENAME)
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         self._init_schema()
 

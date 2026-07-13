@@ -73,6 +73,7 @@ class QuizService:
         query: str,
         course: str | None = None,
         count: int = 5,
+        document_ids: list[str] | None = None,
     ) -> dict[str, Any]:
         try:
             llm = _get_llm_provider(self.config)
@@ -81,7 +82,12 @@ class QuizService:
 
         store = QuizStore(self.workspace)
         generator = QuestionGenerator(self.workspace, llm)
-        questions = generator.generate_from_query(query, course=course, count=count)
+        questions = generator.generate_from_query(
+            query,
+            course=course,
+            count=count,
+            document_ids=document_ids,
+        )
 
         if not questions:
             return _err(
@@ -129,11 +135,18 @@ class QuizService:
         count: int = 5,
         course: str | None = None,
         question_type: str | None = None,
+        question_ids: list[int] | None = None,
     ) -> dict[str, Any]:
         store = QuizStore(self.workspace)
-        questions = store.list_questions(course=course, qtype=question_type, limit=count)
+        if question_ids:
+            questions = [
+                question for question_id in question_ids
+                if (question := store.get_question(question_id)) is not None
+            ][:count]
+        else:
+            questions = store.list_questions(course=course, qtype=question_type, limit=count)
 
-        if len(questions) < count:
+        if not question_ids and len(questions) < count:
             try:
                 llm = _get_llm_provider(self.config)
                 generator = QuestionGenerator(self.workspace, llm)

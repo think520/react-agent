@@ -5,6 +5,8 @@ import pytest
 
 from learning.schema import LearningPlan, Mastery
 from learning.store import LearningStore
+from quiz.schema import Question
+from quiz.store import QuizStore
 from service.learning_service import LearningService
 
 
@@ -110,11 +112,15 @@ def test_get_review_queue_aggregates_learning_and_quiz_data(store, svc, monkeypa
         "service.quiz_service.QuizService.get_weakness_analysis",
         lambda self: {"ok": True, "analysis": [{"concept": "A"}]},
     )
+    question_id = QuizStore(svc.workspace).add_question(
+        Question(question="A 是什么？", answer="答案", concepts=["A"]),
+    )
 
     result = svc.get_review_queue()
     assert result["due_concepts"][0]["concept"] == "A"
+    assert result["due_concepts"][0]["question_ids"] == [question_id]
     assert result["wrong_answers"] == [{"question_id": 1}]
-    assert result["weaknesses"] == [{"concept": "A"}]
+    assert result["weaknesses"] == [{"concept": "A", "question_ids": [question_id]}]
 
 
 # --- mark_mastery ---

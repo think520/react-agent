@@ -112,6 +112,27 @@ def test_search_with_index(svc, workspace):
     assert len(result["results"]) > 0
 
 
+def test_search_respects_selected_document_ids(svc, workspace):
+    knowledge_dir = os.path.join(workspace, ".knowledge")
+    os.makedirs(knowledge_dir)
+    from rag.vector_store import LocalVectorStore
+    from rag.chunker import TextChunk
+
+    store = LocalVectorStore(os.path.join(knowledge_dir, "rag_index.json"))
+    store.upsert([
+        TextChunk(id="c1", text="Graph shortest path algorithm", source="course/one.md", metadata={"title": "One"}),
+        TextChunk(id="c2", text="Graph shortest path algorithm", source="course/two.md", metadata={"title": "Two"}),
+    ])
+    documents = svc.list_documents()["documents"]
+    allowed = next(item["document_id"] for item in documents if item["title"] == "One")
+
+    result = svc.search("shortest path", document_ids=[allowed], top_k=5)
+
+    assert result["ok"]
+    assert result["results"]
+    assert {item["document_id"] for item in result["results"]} == {allowed}
+
+
 def test_search_top_k_clamped(svc, workspace):
     knowledge_dir = os.path.join(workspace, ".knowledge")
     os.makedirs(knowledge_dir)
@@ -121,6 +142,266 @@ def test_search_top_k_clamped(svc, workspace):
     result = svc.search(query="test", top_k=100)
     assert result["ok"]
     assert result["results"] == []
+
+
+def test_legacy_index_documents_are_visible_and_readable(svc, workspace):
+    knowledge_dir = os.path.join(workspace, ".knowledge")
+    os.makedirs(knowledge_dir)
+    index_path = os.path.join(knowledge_dir, "rag_index.json")
+    with open(index_path, "w", encoding="utf-8") as handle:
+        json.dump({"chunks": [{
+            "id": "obsidian/course/lesson.md#0",
+            "source": "obsidian/course/lesson.md",
+            "text": "# Lesson\n\nLegacy knowledge remains readable.",
+            "metadata": {
+                "kind": "obsidian_note",
+                "title": "Lesson",
+                "course": "CS101",
+                "heading_text": "Introduction",
+            },
+        }]}, handle)
+
+    listed = svc.list_documents()
+    assert listed["ok"]
+    assert len(listed["documents"]) == 1
+    document = listed["documents"][0]
+    assert document["origin"] == "legacy_index"
+    assert document["managed"] is False
+    assert document["chunk_count"] == 1
+
+    detail = svc.get_document(document["document_id"])
+    assert detail["ok"]
+    assert detail["sections"][0]["chunk_id"] == "obsidian/course/lesson.md#0"
+    assert "Legacy knowledge" in detail["sections"][0]["text"]
+
+    deleted = svc.delete_document(document["document_id"])
+    assert not deleted["ok"]
+    assert "read-only" in deleted["error"]
+
+
+def test_document_collections_hide_metadata_and_deduplicate_wiki(svc, workspace):
+    knowledge_dir = os.path.join(workspace, ".knowledge")
+    os.makedirs(knowledge_dir)
+    chunks = []
+    for index, (source, title, kind) in enumerate([
+        ("obsidian/course/lesson.md", "Lesson", "obsidian_note"),
+        ("obsidian/wiki/index.md", "Wiki Index", "obsidian_note"),
+        ("obsidian/wiki/entities/Dijkstra算法.md", "Dijkstra算法", "wiki_entity"),
+        ("obsidian/wiki/entities/Dijkstra 算法.md", "Dijkstra 算法", "wiki_entity"),
+    ]):
+        chunks.append({
+            "id": f"chunk-{index}", "source": source, "text": title,
+            "metadata": {"title": title, "kind": kind},
+        })
+    with open(os.path.join(knowledge_dir, "rag_index.json"), "w", encoding="utf-8") as handle:
+        json.dump({"chunks": chunks}, handle, ensure_ascii=False)
+
+    materials = svc.list_documents(collection="material")["documents"]
+    wiki = svc.list_documents(collection="wiki")["documents"]
+
+    assert [item["title"] for item in materials] == ["Lesson"]
+    assert len(wiki) == 1
+    assert wiki[0]["canonical_id"].startswith("wiki-")
+    assert svc.list_documents(collection="invalid")["ok"] is False
+
+
+def test_wiki_duplicate_migration_archives_generated_pages_and_rebuilds_index(svc, workspace):
+    vault = os.path.join(workspace, "note", "vault")
+    entities = os.path.join(vault, "wiki", "entities")
+    concepts = os.path.join(vault, "wiki", "concepts")
+    os.makedirs(entities)
+    os.makedirs(concepts)
+    stale = os.path.join(entities, "优先队列.md")
+    canonical = os.path.join(concepts, "优先队列.md")
+    with open(stale, "w", encoding="utf-8") as handle:
+        handle.write("---\ngenerated_by: bobodan\ntitle: 优先队列\ntype: wiki_entity\n---\n\n旧页面")
+    with open(canonical, "w", encoding="utf-8") as handle:
+        handle.write("---\ngenerated_by: bobodan\nindexable: true\ntitle: 优先队列\ntype: wiki_concept\ntags: [数据结构]\n---\n\n规范页面")
+
+    result = svc.archive_duplicate_wiki_pages()
+
+    assert result["ok"]
+    assert not os.path.exists(stale)
+    assert os.path.exists(canonical)
+    archived = result["results"][0]["archive_dir"]
+    assert os.path.exists(os.path.join(archived, "entities", "优先队列.md"))
+    index = open(os.path.join(vault, "wiki", "index.md"), encoding="utf-8").read()
+    assert index.count("[[优先队列]]") == 1
+
+
+def test_wiki_health_and_maintenance_use_workspace_vault(svc, workspace):
+    concepts = os.path.join(workspace, "note", "vault", "wiki", "concepts")
+    os.makedirs(concepts)
+    with open(os.path.join(concepts, "RAG.md"), "w", encoding="utf-8") as handle:
+        handle.write("---\ngenerated_by: bobodan\ntitle: RAG\ntype: wiki_concept\n---\n\n# RAG")
+
+    health = svc.wiki_health()
+    maintained = svc.maintain_wiki("organize")
+
+    assert health["ok"]
+    assert health["total_pages"] == 1
+    assert health["vaults"][0]["vault"] == "note/vault"
+    assert maintained["ok"]
+    assert maintained["canonical_count"] == 1
+    assert maintained["health"]["total_pages"] == 1
+    assert svc.maintain_wiki("invalid")["ok"] is False
+
+
+def test_wiki_plan_requires_confirmation_before_writing(svc, workspace, monkeypatch):
+    from providers.types import LLMResponse
+    from rag.sqlite_store import KBSQLiteStore, make_chunk_row
+
+    store = KBSQLiteStore(workspace)
+    store.init_db()
+    store.upsert_document(
+        document_id="doc-1",
+        source="course/rag.md",
+        content_hash="hash",
+        kind="course_document",
+        title="RAG Lesson",
+    )
+    store.insert_chunks([make_chunk_row(
+        chunk_id="chunk-1",
+        document_id="doc-1",
+        source="course/rag.md",
+        chunk_index=0,
+        text="RAG grounds generation with retrieved evidence.",
+        heading_path=["RAG"],
+        heading_text="RAG",
+        heading_level=1,
+        section_id="rag",
+    )])
+    store.close()
+
+    class Provider:
+        def complete(self, messages, tools=None):
+            return LLMResponse(content=json.dumps({"pages": [{
+                "title": "RAG",
+                "page_type": "wiki_concept",
+                "summary": "Grounded generation.",
+                "body": "RAG uses retrieved evidence.",
+                "claims": [{"text": "It uses evidence.", "source_ids": ["S1"]}],
+            }]}))
+
+    planned = svc.create_wiki_plan(Provider(), document_ids=["doc-1"])
+
+    assert planned["ok"]
+    assert planned["status"] == "planned"
+    assert not os.path.exists(os.path.join(svc.managed_vault_dir, "wiki"))
+
+    class Summary:
+        def to_dict(self):
+            return {"updated_files": 1, "errors": []}
+
+    monkeypatch.setattr(svc, "_sync_registered_sources", lambda mode, config: Summary())
+    applied = svc.apply_wiki_plan(planned["plan_id"])
+
+    assert applied["ok"]
+    assert applied["status"] == "applied"
+    assert os.path.exists(os.path.join(svc.managed_vault_dir, "wiki", "concepts", "RAG.md"))
+
+
+def test_search_uses_wiki_for_orientation_then_material_for_evidence(svc, workspace, monkeypatch):
+    knowledge_dir = os.path.join(workspace, ".knowledge")
+    os.makedirs(knowledge_dir)
+    with open(os.path.join(knowledge_dir, "rag_index_dense.json"), "w", encoding="utf-8") as handle:
+        handle.write("{}")
+
+    documents = [
+        {"document_id": "material-1", "source": "course/rag.md", "title": "RAG Lesson", "collection": "material", "wiki_type": None},
+        {"document_id": "wiki-1", "source": "obsidian/wiki/concepts/RAG.md", "title": "RAG", "collection": "wiki", "wiki_type": "concept"},
+    ]
+    monkeypatch.setattr(svc, "list_documents", lambda collection="all", course=None: {"ok": True, "documents": documents})
+    monkeypatch.setattr("rag.retriever.search_index", lambda *args, **kwargs: [
+        {"chunk_id": "material-chunk", "source": "course/rag.md", "text": "Original evidence", "metadata": {}},
+        {"chunk_id": "wiki-chunk", "source": "obsidian/wiki/concepts/RAG.md", "text": "AI summary", "metadata": {}},
+    ])
+
+    result = svc.search("RAG", top_k=2)
+
+    assert result["ok"]
+    assert [item["collection"] for item in result["results"]] == ["wiki", "material"]
+
+
+def test_wiki_plan_requires_an_explicit_scope(svc, monkeypatch):
+    monkeypatch.setattr(svc, "list_documents", lambda **kwargs: {
+        "ok": True,
+        "documents": [{"document_id": "doc-1", "collection": "material"}],
+    })
+
+    result = svc.create_wiki_plan(None)
+
+    assert not result["ok"]
+    assert "Select at least one" in result["error"]
+
+
+def test_wiki_topic_without_original_links_does_not_fall_back_to_all_materials(svc, monkeypatch):
+    monkeypatch.setattr(svc, "get_document", lambda document_id: {
+        "ok": True,
+        "document": {"document_id": document_id, "collection": "wiki"},
+        "sections": [{"text": "A Wiki page without source links."}],
+    })
+    monkeypatch.setattr(svc, "list_documents", lambda **kwargs: {
+        "ok": True,
+        "documents": [{"document_id": "doc-1", "collection": "material"}],
+    })
+
+    assert svc._wiki_scope_documents(wiki_document_ids=["wiki-1"]) == []
+
+
+def test_applied_wiki_plan_remains_successful_when_resync_is_deferred(svc, monkeypatch):
+    monkeypatch.setattr(
+        "wiki.workflow.WikiWorkflow.apply_plan",
+        lambda self, plan_id: {
+            "plan_id": plan_id,
+            "status": "applied",
+            "checkpoint_id": "b" * 32,
+            "changes": [],
+        },
+    )
+    monkeypatch.setattr(
+        svc,
+        "_sync_registered_sources",
+        lambda mode, config: (_ for _ in ()).throw(RuntimeError("index busy")),
+    )
+
+    result = svc.apply_wiki_plan("a" * 32)
+
+    assert result["ok"]
+    assert result["status"] == "applied"
+    assert result["sync"]["deferred"] is True
+
+
+def test_delete_managed_document_removes_source_and_resyncs(svc, workspace, monkeypatch):
+    from rag.sqlite_store import KBSQLiteStore
+
+    os.makedirs(svc.managed_sources_dir)
+    source_path = os.path.join(svc.managed_sources_dir, "notes.md")
+    with open(source_path, "w", encoding="utf-8") as handle:
+        handle.write("# Notes")
+
+    store = KBSQLiteStore(workspace)
+    store.init_db()
+    store.upsert_document(
+        "doc-1",
+        "managed/notes.md",
+        "hash",
+        path=source_path,
+        kind="course_document",
+        title="Notes",
+    )
+    store.close()
+
+    class Summary:
+        def to_dict(self):
+            return {"updated_files": 1, "errors": []}
+
+    monkeypatch.setattr(svc, "_sync_registered_sources", lambda mode, config: Summary())
+
+    result = svc.delete_document("doc-1")
+
+    assert result["ok"]
+    assert not os.path.exists(source_path)
 
 
 # --- graph_query ---
@@ -250,6 +531,65 @@ def test_import_files_uses_managed_sources_and_preserves_registered_roots(
     _, roots = captured["roots"]
     assert os.path.abspath(course) in roots
     assert os.path.abspath(svc.managed_sources_dir) in roots
+
+
+def test_portable_library_upload_uses_raw_inbox_without_creating_wiki_pages(tmp_path, monkeypatch):
+    from service.library_service import LibraryService
+    from service.kb_service import KBService
+
+    root = tmp_path / "library"
+    LibraryService(str(tmp_path / "home")).initialize(str(root), name="Portable")
+    portable = KBService(str(root))
+
+    class Summary:
+        def to_dict(self):
+            return {"scanned_files": 1, "errors": []}
+
+    monkeypatch.setattr(portable, "_sync_registered_sources", lambda mode, config: Summary())
+    before = sorted(str(path.relative_to(root / "wiki")) for path in (root / "wiki").rglob("*.md"))
+
+    result = portable.import_files([("lesson.md", b"# Lesson")])
+
+    after = sorted(str(path.relative_to(root / "wiki")) for path in (root / "wiki").rglob("*.md"))
+    assert result["ok"]
+    assert (root / "raw" / "inbox" / "lesson.md").is_file()
+    assert before == after
+
+
+def test_portable_library_delete_archives_raw_and_marks_wiki_stale(tmp_path, monkeypatch):
+    from rag.sqlite_store import KBSQLiteStore
+    from service.library_service import LibraryService
+    from service.kb_service import KBService
+
+    root = tmp_path / "library"
+    LibraryService(str(tmp_path / "home")).initialize(str(root), name="Portable")
+    portable = KBService(str(root))
+    source = root / "raw" / "inbox" / "lesson.md"
+    source.write_text("# Lesson", encoding="utf-8")
+    wiki_page = root / "wiki" / "concepts" / "Lesson.md"
+    wiki_page.write_text(
+        "---\ntype: wiki_concept\ntitle: Lesson\nsources:\n  - course/inbox/lesson.md\nstatus: active\n---\n\n# Lesson\n",
+        encoding="utf-8",
+    )
+    store = KBSQLiteStore(str(root))
+    store.init_db()
+    store.upsert_document(
+        "doc-1", "course/inbox/lesson.md", "hash", path=str(source),
+        kind="course_document", title="Lesson",
+    )
+    store.close()
+
+    class Summary:
+        def to_dict(self):
+            return {"updated_files": 1, "errors": []}
+
+    monkeypatch.setattr(portable, "_sync_registered_sources", lambda mode, config: Summary())
+    result = portable.delete_document("doc-1")
+
+    assert result["ok"]
+    assert not source.exists()
+    assert list((root / ".bobodan" / "archive" / "raw").rglob("lesson.md"))
+    assert "status: needs_update" in wiki_page.read_text(encoding="utf-8")
 
 
 def test_course_scanner_includes_docx_and_pptx(tmp_path):

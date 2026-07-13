@@ -3,6 +3,7 @@ import os
 from dataclasses import dataclass
 
 from .manifest import load_manifest
+from .paths import knowledge_dir
 
 
 @dataclass
@@ -38,7 +39,7 @@ def _count_by_key(items: list[dict], key: str) -> dict[str, int]:
 
 def build_library_summary(workspace: str) -> LibrarySummary:
     """Build a complete summary of the knowledge base."""
-    knowledge_dir = os.path.join(workspace, ".knowledge")
+    storage_dir = knowledge_dir(workspace)
     manifest = load_manifest(workspace)
     documents = manifest.get("documents", [])
     last_sync = manifest.get("last_sync")
@@ -64,7 +65,7 @@ def build_library_summary(workspace: str) -> LibrarySummary:
 
     # If no manifest, fall back to rag_index.json for chunk count
     if total_chunks == 0:
-        rag_path = os.path.join(knowledge_dir, "rag_index.json")
+        rag_path = os.path.join(storage_dir, "rag_index.json")
         if os.path.exists(rag_path):
             try:
                 with open(rag_path, "r", encoding="utf-8") as f:
@@ -80,7 +81,7 @@ def build_library_summary(workspace: str) -> LibrarySummary:
     graph_relationships_by_type: dict[str, int] = {}
     graph_backend = "unknown"
 
-    graph_path = os.path.join(knowledge_dir, "graph_store.json")
+    graph_path = os.path.join(storage_dir, "graph_store.json")
     if os.path.exists(graph_path):
         try:
             with open(graph_path, "r", encoding="utf-8") as f:

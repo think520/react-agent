@@ -3,28 +3,46 @@
 from __future__ import annotations
 
 import logging
+import re
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
 from core.session import Session
 from service.agent_service import AgentService
+from core.skills import find_skill_by_name
+from web.backend.capabilities import WEB_SKILL_NAMES
+from service.kb_service import KBService
 from tools import get_tools_schema
 from web.backend.deps import (
     get_config,
     get_default_provider_name,
+    get_library_runtime_context,
     get_runtime_context,
+    get_request_library_id,
+    get_request_workspace,
     get_session_save_dir,
+    get_workspace,
 )
 from web.backend.errors import APIError
 from web.backend.events import to_web_events
 from web.backend.schemas import ChatRunRequest, ChatSessionUpdateRequest
+from web.backend.schemas import (
+    WikiCheckpointRestoreRequest,
+    WikiFocusConfirmRequest,
+    WikiFocusRequest,
+    WikiFocusReviseRequest,
+    WikiPlanApplyRequest,
+)
 from web.backend.sse import encode_sse
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+_UNTITLED_NAMES = {"", "未命名会话", "Untitled", "Untitled session"}
 
 _WEB_TOOL_NAMES = frozenset({
     "rag_search",
@@ -42,35 +60,56 @@ _WEB_TOOL_NAMES = frozenset({
     "memory_daily_read",
     "memory_promote",
 })
+_MEMORY_TOOL_NAMES = frozenset({
+    "memory_save", "memory_recall", "memory_daily_save", "memory_daily_read", "memory_promote",
+})
 
 
-def _web_tools_schema() -> list[dict]:
+def _runtime_for(workspace: str):
+    if workspace == get_workspace():
+        return get_runtime_context()
+    return get_library_runtime_context(workspace)
+
+
+def _web_tools_schema(allowed_tool_names: frozenset[str] = _WEB_TOOL_NAMES) -> list[dict]:
     return [
         schema for schema in get_tools_schema()
-        if schema.get("function", {}).get("name") in _WEB_TOOL_NAMES
+        if schema.get("function", {}).get("name") in allowed_tool_names
     ]
 
 
-def _load_or_create_session(chat_session_id: str | None, config: dict[str, Any]) -> Session:
-    save_dir = get_session_save_dir(config)
+def _load_or_create_session(
+    chat_session_id: str | None,
+    config: dict[str, Any],
+    workspace: str,
+    library_id: str | None,
+) -> Session:
+    save_dir = get_session_save_dir(config, workspace)
     if chat_session_id:
         result = AgentService.load_session(chat_session_id, save_dir)
         if not result["ok"]:
             raise APIError(404, "session_not_found", result["error"])
-        return result["session"]
+        session = result["session"]
+        if session.library_id and session.library_id != library_id:
+            raise APIError(404, "session_not_found", "Session not found in this library")
+        session.library_id = library_id
+        return session
 
-    runtime = get_runtime_context()
     max_messages = config.get("session", {}).get("max_messages")
-    return Session.new(runtime.workspace, max_messages=max_messages)
+    session = Session.new(workspace, max_messages=max_messages)
+    session.library_id = library_id
+    return session
 
 
 def _session_summary(summary: dict[str, Any]) -> dict[str, Any]:
     return {
         "chat_session_id": summary.get("session_id", ""),
         "name": summary.get("name", ""),
+        "name_source": summary.get("name_source", "fallback"),
         "created_at": summary.get("created_at", ""),
         "last_active": summary.get("last_active", ""),
         "message_count": summary.get("message_count", 0),
+        "library_id": summary.get("library_id"),
     }
 
 
@@ -80,58 +119,537 @@ def _session_detail(session: Session) -> dict[str, Any]:
         role = message.get("role")
         content = message.get("content") or ""
         if role == "user":
-            messages.append({"role": "user", "content": content})
+            item = {"role": "user", "content": content}
+            if isinstance(message.get("artifacts"), list):
+                item["artifacts"] = message["artifacts"]
+            messages.append(item)
         elif role == "assistant" and not message.get("tool_calls") and content:
-            messages.append({"role": "assistant", "content": content})
+            item = {"role": "assistant", "content": content}
+            attribution = _public_attribution(message.get("attribution"))
+            if attribution:
+                item["attribution"] = attribution
+            if isinstance(message.get("artifacts"), list):
+                item["artifacts"] = message["artifacts"]
+            messages.append(item)
     return {
         "chat_session_id": session.session_id,
         "name": session.name,
+        "name_source": session.name_source,
         "created_at": session.created_at,
         "last_active": session.last_active,
         "message_count": len(messages),
+        "library_id": session.library_id,
         "messages": messages,
     }
 
 
+def _public_attribution(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    kind = value.get("kind")
+    if kind not in {"local", "local_extension", "web", "ai", "unverified"}:
+        return None
+    sources = []
+    for source in value.get("sources") or []:
+        if not isinstance(source, dict):
+            continue
+        source_type = source.get("source_type")
+        if source_type not in {"local", "web"}:
+            continue
+        public = {
+            key: source.get(key)
+            for key in (
+                "source_type", "source_id", "title", "document_id",
+                "chunk_id", "heading", "page", "slide",
+                "collection",
+            )
+            if source.get(key) is not None
+        }
+        if source_type == "web" and source.get("url"):
+            public["url"] = source["url"]
+        if public.get("source_id") and public.get("title"):
+            sources.append(public)
+    return {"kind": kind, "sources": sources}
+
+
+def _attach_attribution(session: Session, attribution: dict[str, Any] | None) -> None:
+    public = _public_attribution(attribution)
+    if not public:
+        return
+    for message in reversed(session.messages):
+        if message.get("role") == "assistant" and not message.get("tool_calls") and message.get("content"):
+            message["attribution"] = public
+            return
+
+
+def _append_artifact_message(session: Session, content: str, artifact: dict[str, Any]) -> None:
+    session.messages.append({"role": "assistant", "content": content, "artifacts": [artifact]})
+    from datetime import datetime
+    session.last_active = datetime.now().isoformat()
+    session._trim_messages()
+
+
+def _find_artifact(session: Session, artifact_id: str) -> dict[str, Any] | None:
+    for message in session.messages:
+        for artifact in message.get("artifacts") or []:
+            if isinstance(artifact, dict) and artifact.get("artifact_id") == artifact_id:
+                return artifact
+    return None
+
+
+def _matching_artifacts(session: Session, artifact_id: str):
+    for message in session.messages:
+        for artifact in message.get("artifacts") or []:
+            if isinstance(artifact, dict) and artifact.get("artifact_id") == artifact_id:
+                yield artifact
+
+
+def _wiki_focus_sources(service: KBService, body: WikiFocusRequest) -> tuple[list[dict[str, Any]], str]:
+    documents = service._wiki_scope_documents(
+        body.document_ids,
+        body.course,
+        body.wiki_document_ids,
+    )
+    if not documents:
+        raise APIError(409, "wiki_scope_empty", "Select at least one indexed material first.")
+    excerpts = []
+    used = 0
+    for document in documents:
+        title = document.get("title") or document.get("source") or "Source"
+        text = "\n".join(
+            str(section.get("text") or "").strip()
+            for section in document.get("sections") or []
+            if str(section.get("text") or "").strip()
+        )[:5000]
+        if text:
+            excerpts.append(f"## {title}\n{text}")
+            used += len(text)
+        if used >= 12000:
+            break
+    return documents, "\n\n".join(excerpts)
+
+
+def _save_wiki_session(session: Session, workspace: str, config: dict[str, Any]) -> None:
+    result = AgentService.save_session(session, get_session_save_dir(config, workspace))
+    if not result.get("ok"):
+        raise APIError(500, "session_save_failed", "The Wiki conversation could not be saved.")
+
+
+def _request_context(
+    document_ids: list[str],
+    workspace: str,
+    learning_goal: str = "",
+    web_enabled: bool = False,
+) -> tuple[list[str], str | None]:
+    available = {}
+    if document_ids:
+        result = KBService(workspace).list_documents(collection="all")
+        available = {
+            document["document_id"]: document
+            for document in result.get("documents", [])
+        }
+    selected = [available[item] for item in document_ids if item in available]
+    valid_ids = [item["document_id"] for item in selected]
+    if not selected and not learning_goal.strip() and web_enabled:
+        return [], None
+    lines = [
+        "<!-- bobodan:request-scope -->",
+    ]
+    if learning_goal.strip():
+        lines.append(f"The user's current learning goal is: {learning_goal.strip()}")
+    if selected:
+        lines.append("The user selected these documents as the active study scope:")
+        lines.extend(f"- {item['title'] or item['source']} [{item['document_id']}]" for item in selected)
+        lines.append(
+            "Local retrieval is automatically restricted to this scope. "
+            "Ground answers and generated practice in these documents unless the user explicitly asks to widen the scope."
+        )
+    else:
+        lines.append(
+            "When retrieval returns both Wiki and learning-material results, use Wiki pages to understand concepts and relationships, "
+            "then use original learning materials as the factual evidence. Clearly label Wiki content as AI-organized and never present it as an original quote."
+        )
+    if not web_enabled:
+        lines.append("The user has not enabled web supplementation for this request. Do not claim to have searched the web.")
+    return valid_ids, "\n".join(lines)
+
+
+def _slash_command_prompt(message: str, skills_dir: str) -> str | None:
+    value = message.strip()
+    if value.startswith("/kb search "):
+        query = value[len("/kb search "):].strip()
+        return (
+            "<!-- [explicit_web_command] -->\n"
+            "The user invoked /kb search. Use local RAG search for the query below, "
+            "cite the retrieved local sources, and do not answer from general knowledge when evidence is missing.\n"
+            f"Query: {query}"
+        ) if query else None
+    if value == "/learning today":
+        return (
+            "<!-- [explicit_web_command] -->\n"
+            "The user invoked /learning today. Use the available learning progress and review tools "
+            "to produce a concise, actionable plan for today."
+        )
+    if not value.startswith("/skill "):
+        return None
+    parts = value.split(maxsplit=2)
+    if len(parts) < 2:
+        return None
+    if parts[1] not in WEB_SKILL_NAMES:
+        return None
+    skill = find_skill_by_name(skills_dir, parts[1])
+    if skill is None:
+        return None
+    try:
+        with open(skill.file_path, "r", encoding="utf-8") as handle:
+            instructions = handle.read()
+    except OSError:
+        return None
+    task = parts[2].strip() if len(parts) > 2 else "根据当前学习上下文给出下一步建议。"
+    return (
+        "<!-- [explicit_skill_command] -->\n"
+        f'The user explicitly selected the skill "{skill.name}" for this run.\n'
+        "Follow the skill instructions below, using only the tools allowed in this Web runtime.\n"
+        f"User task: {task}\n\n"
+        f"<selected_skill>\n{instructions}\n</selected_skill>"
+    )
+
+
+def _first_visible_turn(session: Session) -> tuple[str, str]:
+    user_text = ""
+    assistant_text = ""
+    for message in session.messages:
+        role = message.get("role")
+        content = str(message.get("content") or "").strip()
+        if role == "user" and content and not user_text:
+            user_text = content
+        elif role == "assistant" and content and not message.get("tool_calls") and not assistant_text:
+            assistant_text = content
+        if user_text and assistant_text:
+            break
+    return user_text, assistant_text
+
+
+def _fallback_title(text: str) -> str:
+    compact = re.sub(r"\s+", " ", text).strip()
+    return compact[:30].rstrip("，。！？,.!?；;：:") or "新对话"
+
+
+def _clean_generated_title(text: str) -> str:
+    title = re.sub(r"\s+", " ", text).strip()
+    title = title.strip("`#*\"'“”‘’《》")
+    title = re.sub(r"^(标题|会话标题)\s*[:：]\s*", "", title, flags=re.I)
+    return title[:30].rstrip("，。！？,.!?；;：:")
+
+
+def migrate_unnamed_sessions(save_dir: str) -> int:
+    migrated = 0
+    for summary in Session.list_session_summaries(save_dir):
+        if summary.get("name") not in _UNTITLED_NAMES:
+            continue
+        result = AgentService.load_session(summary["session_id"], save_dir)
+        if not result.get("ok"):
+            continue
+        session = result["session"]
+        user_text, _ = _first_visible_turn(session)
+        if not user_text:
+            continue
+        session.name = _fallback_title(user_text)
+        session.name_source = "fallback"
+        AgentService.save_session(session, save_dir)
+        migrated += 1
+    return migrated
+
+
 @router.get("/sessions")
-def list_sessions() -> dict:
-    result = AgentService.list_sessions(get_session_save_dir(get_config()))
+def list_sessions(request: Request) -> dict:
+    workspace = get_request_workspace(request)
+    result = AgentService.list_sessions(get_session_save_dir(get_config(), workspace))
     return {"sessions": [_session_summary(item) for item in result["sessions"]]}
 
 
 @router.get("/sessions/{chat_session_id}")
-def get_session(chat_session_id: str) -> dict:
-    result = AgentService.load_session(chat_session_id, get_session_save_dir(get_config()))
+def get_session(chat_session_id: str, request: Request) -> dict:
+    result = AgentService.load_session(chat_session_id, get_session_save_dir(get_config(), get_request_workspace(request)))
     if not result["ok"]:
         raise APIError(404, "session_not_found", result["error"])
     return _session_detail(result["session"])
 
 
 @router.patch("/sessions/{chat_session_id}")
-def rename_session(chat_session_id: str, request: ChatSessionUpdateRequest) -> dict:
+def rename_session(chat_session_id: str, body: ChatSessionUpdateRequest, request: Request) -> dict:
     result = AgentService.rename_session(
         chat_session_id,
-        get_session_save_dir(get_config()),
-        request.name,
+        get_session_save_dir(get_config(), get_request_workspace(request)),
+        body.name,
     )
     if not result["ok"]:
         raise APIError(404, "session_not_found", result["error"])
-    return {"chat_session_id": result["session_id"], "name": request.name.strip()}
+    return {
+        "chat_session_id": result["session_id"],
+        "name": body.name.strip(),
+        "name_source": "manual",
+    }
+
+
+@router.post("/sessions/{chat_session_id}/title")
+def generate_session_title(chat_session_id: str, request: Request) -> dict:
+    config = get_config()
+    workspace = get_request_workspace(request)
+    save_dir = get_session_save_dir(config, workspace)
+    result = AgentService.load_session(chat_session_id, save_dir)
+    if not result["ok"]:
+        raise APIError(404, "session_not_found", result["error"])
+
+    session = result["session"]
+    if session.name_source == "manual":
+        return {
+            "chat_session_id": session.session_id,
+            "name": session.name,
+            "name_source": "manual",
+        }
+
+    user_text, assistant_text = _first_visible_turn(session)
+    if not user_text:
+        raise APIError(409, "session_has_no_user_message", "The session has no user message yet.")
+
+    title = ""
+    source = "fallback"
+    if assistant_text:
+        try:
+            provider = _runtime_for(workspace).create_provider(get_default_provider_name(config))
+            prompt = (
+                "请根据下面第一轮学习对话生成一个简洁的中文会话标题。"
+                "只输出标题，不加引号、序号或解释，最多 30 个字符。\n\n"
+                f"用户：{user_text[:1200]}\n\n助手：{assistant_text[:1600]}"
+            )
+            executor = ThreadPoolExecutor(max_workers=1)
+            future = executor.submit(provider.complete, [{"role": "user", "content": prompt}])
+            try:
+                response = future.result(timeout=15)
+                title = _clean_generated_title(getattr(response, "content", "") or "")
+            finally:
+                executor.shutdown(wait=False, cancel_futures=True)
+            if title:
+                source = "ai"
+        except Exception as exc:
+            logger.info("Session title generation fell back for %s: %s", chat_session_id, exc)
+
+    if not title:
+        title = _fallback_title(user_text)
+
+    latest = AgentService.load_session(chat_session_id, save_dir)
+    if not latest["ok"]:
+        raise APIError(404, "session_not_found", latest["error"])
+    session = latest["session"]
+    if session.name_source != "manual":
+        session.name = title
+        session.name_source = source
+        AgentService.save_session(session, save_dir)
+    return {
+        "chat_session_id": session.session_id,
+        "name": session.name,
+        "name_source": session.name_source,
+    }
 
 
 @router.delete("/sessions/{chat_session_id}")
-def delete_session(chat_session_id: str) -> dict:
-    result = AgentService.delete_session(chat_session_id, get_session_save_dir(get_config()))
+def delete_session(chat_session_id: str, request: Request) -> dict:
+    result = AgentService.delete_session(chat_session_id, get_session_save_dir(get_config(), get_request_workspace(request)))
     if not result["ok"]:
         raise APIError(404, "session_not_found", result["error"])
     return {"deleted": True, "chat_session_id": result["session_id"]}
 
 
-@router.post("/runs")
-def create_run(request: ChatRunRequest) -> StreamingResponse:
+@router.post("/wiki/focus")
+def create_wiki_focus(body: WikiFocusRequest, request: Request) -> dict:
     config = get_config()
-    runtime = get_runtime_context()
-    provider_name = request.provider or get_default_provider_name(config)
+    workspace = get_request_workspace(request)
+    library_id = get_request_library_id(request)
+    runtime = _runtime_for(workspace)
+    session = _load_or_create_session(body.chat_session_id, config, workspace, library_id)
+    command = "/wiki update" if body.action == "update" else "/wiki plan"
+    if body.instruction.strip():
+        command = f"{command} {body.instruction.strip()}"
+    session.add_message("user", command)
+
+    service = KBService(workspace)
+    documents, excerpts = _wiki_focus_sources(service, body)
+    prompt = (
+        "You are preparing a user-confirmed local learning Wiki plan. "
+        "Summarize the selected materials in concise Chinese and propose 3-6 focus points. "
+        "Do not create Wiki pages yet. Distinguish source facts from suggested organization.\n\n"
+        f"User instruction: {body.instruction.strip() or '(none)'}\n\n{excerpts}"
+    )
+    try:
+        provider = runtime.create_provider(body.provider)
+        response = provider.complete([{"role": "user", "content": prompt}])
+        summary = str(getattr(response, "content", "") or "").strip()
+    except Exception as exc:
+        logger.info("Wiki focus summary fell back: %s", exc)
+        summary = "已读取所选资料。请确认是否围绕核心概念、关键实体、适用条件与原文依据进行整理。"
+
+    artifact = {
+        "artifact_id": uuid.uuid4().hex,
+        "type": "wiki_focus",
+        "library_id": library_id,
+        "operation": body.action,
+        "status": "awaiting_confirmation",
+        "summary": summary,
+        "instruction": body.instruction.strip(),
+        "scope": {
+            "document_ids": [item["document_id"] for item in documents],
+            "wiki_document_ids": body.wiki_document_ids,
+            "course": body.course,
+            "documents": [item.get("title") or item.get("source") for item in documents],
+        },
+    }
+    _append_artifact_message(session, summary, artifact)
+    _save_wiki_session(session, workspace, config)
+    return {"chat_session_id": session.session_id, "artifact": artifact}
+
+
+@router.post("/wiki/focus/{artifact_id}/revise")
+def revise_wiki_focus(
+    artifact_id: str,
+    body: WikiFocusReviseRequest,
+    request: Request,
+) -> dict:
+    config = get_config()
+    workspace = get_request_workspace(request)
+    session = _load_or_create_session(body.chat_session_id, config, workspace, get_request_library_id(request))
+    artifact = _find_artifact(session, artifact_id)
+    if not artifact or artifact.get("type") != "wiki_focus":
+        raise APIError(404, "wiki_focus_not_found", "Wiki focus artifact not found")
+    if artifact.get("status") != "awaiting_confirmation":
+        raise APIError(409, "wiki_focus_not_editable", "This Wiki focus is no longer editable")
+    session.add_message("user", body.revision.strip())
+    artifact["instruction"] = "\n".join(
+        item for item in (str(artifact.get("instruction") or "").strip(), body.revision.strip()) if item
+    )
+    artifact["summary"] = f"已按你的补充调整重点：{body.revision.strip()}"
+    _append_artifact_message(session, artifact["summary"], artifact)
+    _save_wiki_session(session, workspace, config)
+    return {"chat_session_id": session.session_id, "artifact": artifact}
+
+
+@router.post("/wiki/focus/{artifact_id}/confirm")
+def confirm_wiki_focus(
+    artifact_id: str,
+    body: WikiFocusConfirmRequest,
+    request: Request,
+) -> dict:
+    config = get_config()
+    workspace = get_request_workspace(request)
+    library_id = get_request_library_id(request)
+    session = _load_or_create_session(body.chat_session_id, config, workspace, library_id)
+    focus = _find_artifact(session, artifact_id)
+    if not focus or focus.get("type") != "wiki_focus":
+        raise APIError(404, "wiki_focus_not_found", "Wiki focus artifact not found")
+    if focus.get("status") != "awaiting_confirmation":
+        raise APIError(409, "wiki_focus_already_confirmed", "This Wiki focus has already been confirmed")
+    scope = focus.get("scope") or {}
+    try:
+        provider = _runtime_for(workspace).create_provider(body.provider)
+    except ValueError as exc:
+        raise APIError(409, "provider_unavailable", str(exc)) from exc
+    result = KBService(workspace).create_wiki_plan(
+        provider,
+        document_ids=scope.get("document_ids") or [],
+        wiki_document_ids=scope.get("wiki_document_ids") or [],
+        course=scope.get("course"),
+        action="update" if focus.get("operation") == "update" else "generate",
+        instruction=str(focus.get("instruction") or ""),
+    )
+    if not result.get("ok"):
+        raise APIError(409, "wiki_plan_failed", result.get("error") or "Wiki planning failed")
+    for saved_focus in _matching_artifacts(session, artifact_id):
+        saved_focus["status"] = "confirmed"
+    artifact = {
+        "artifact_id": uuid.uuid4().hex,
+        "type": "wiki_plan",
+        "library_id": library_id,
+        "operation": focus.get("operation"),
+        "status": result.get("status", "planned"),
+        "plan_id": result["plan_id"],
+        "plan": {key: value for key, value in result.items() if key != "ok"},
+    }
+    _append_artifact_message(session, "已按确认的重点生成 Wiki 计划，请审查后再写入。", artifact)
+    _save_wiki_session(session, workspace, config)
+    return {"chat_session_id": session.session_id, "artifact": artifact}
+
+
+@router.post("/wiki/plans/{plan_id}/apply")
+def apply_chat_wiki_plan(plan_id: str, body: WikiPlanApplyRequest, request: Request) -> dict:
+    config = get_config()
+    workspace = get_request_workspace(request)
+    library_id = get_request_library_id(request)
+    session = _load_or_create_session(body.chat_session_id, config, workspace, library_id)
+    result = KBService(workspace).apply_wiki_plan(plan_id, config=config)
+    if not result.get("ok"):
+        raise APIError(409, "wiki_plan_not_applicable", result.get("error") or "Wiki plan cannot be applied")
+    for message in session.messages:
+        for existing in message.get("artifacts") or []:
+            if existing.get("type") == "wiki_plan" and existing.get("plan_id") == plan_id:
+                existing["status"] = "applied"
+                existing["plan"] = {key: value for key, value in result.items() if key != "ok"}
+    artifact = {
+        "artifact_id": uuid.uuid4().hex,
+        "type": "wiki_result",
+        "library_id": library_id,
+        "operation": "apply",
+        "status": "applied",
+        "plan_id": plan_id,
+        "checkpoint_id": result.get("checkpoint_id"),
+        "written": result.get("written") or [],
+    }
+    _append_artifact_message(session, "Wiki 已按确认计划写入，并创建了可撤销检查点。", artifact)
+    _save_wiki_session(session, workspace, config)
+    return {"chat_session_id": session.session_id, "artifact": artifact}
+
+
+@router.post("/wiki/checkpoints/{checkpoint_id}/restore")
+def restore_chat_wiki_checkpoint(
+    checkpoint_id: str,
+    body: WikiCheckpointRestoreRequest,
+    request: Request,
+) -> dict:
+    config = get_config()
+    workspace = get_request_workspace(request)
+    session = _load_or_create_session(
+        body.chat_session_id,
+        config,
+        workspace,
+        get_request_library_id(request),
+    )
+    result = KBService(workspace).undo_wiki_checkpoint(checkpoint_id, config=config)
+    if not result.get("ok"):
+        raise APIError(409, "wiki_checkpoint_not_restorable", result.get("error") or "Checkpoint cannot be restored")
+    for message in session.messages:
+        for artifact in message.get("artifacts") or []:
+            if artifact.get("checkpoint_id") == checkpoint_id:
+                artifact["status"] = "restored"
+    restored = {
+        "artifact_id": uuid.uuid4().hex,
+        "type": "wiki_result",
+        "library_id": get_request_library_id(request),
+        "operation": "restore",
+        "status": "restored",
+        "checkpoint_id": checkpoint_id,
+        "restored_at": result.get("restored_at"),
+    }
+    _append_artifact_message(session, "已撤销本轮 Wiki 写入，恢复到检查点版本。", restored)
+    _save_wiki_session(session, workspace, config)
+    return {"chat_session_id": session.session_id, "artifact": restored}
+
+
+@router.post("/runs")
+def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
+    config = get_config()
+    workspace = get_request_workspace(request)
+    library_id = get_request_library_id(request)
+    runtime = _runtime_for(workspace)
+    provider_name = body.provider or get_default_provider_name(config)
     try:
         provider = runtime.create_provider(provider_name)
     except Exception as exc:
@@ -142,7 +660,18 @@ def create_run(request: ChatRunRequest) -> StreamingResponse:
             "The selected AI provider is unavailable. Check its configuration and try again.",
         ) from exc
 
-    session = _load_or_create_session(request.chat_session_id, config)
+    session = _load_or_create_session(body.chat_session_id, config, workspace, library_id)
+    document_ids, request_prompt = _request_context(
+        body.document_ids,
+        runtime.workspace,
+        learning_goal=body.learning_goal,
+        web_enabled=body.web_enabled,
+    )
+    slash_prompt = _slash_command_prompt(body.message, getattr(runtime, "skills_dir", ""))
+    if slash_prompt:
+        request_prompt = f"{request_prompt}\n\n{slash_prompt}" if request_prompt else slash_prompt
+    session.active_document_ids = document_ids
+    allowed_tool_names = _WEB_TOOL_NAMES if body.memory_enabled else _WEB_TOOL_NAMES - _MEMORY_TOOL_NAMES
     run_id = str(uuid.uuid4())
 
     def event_stream():
@@ -152,26 +681,32 @@ def create_run(request: ChatRunRequest) -> StreamingResponse:
             "provider": provider_name,
         })
         try:
-            runtime.refresh_memory()
+            latest_attribution = None
+            if body.memory_enabled:
+                runtime.refresh_memory()
             events = AgentService.run_stream(
                 session=session,
-                user_input=request.message,
+                user_input=body.message,
                 provider=provider,
                 skills_prompt=runtime.skills_prompt,
-                memory_prompt=runtime.memory_prompt,
+                memory_prompt=runtime.memory_prompt if body.memory_enabled else None,
                 trace_writer=runtime.create_trace(session.session_id),
-                tools_schema=_web_tools_schema(),
-                allowed_tool_names=_WEB_TOOL_NAMES,
+                tools_schema=_web_tools_schema(allowed_tool_names),
+                allowed_tool_names=allowed_tool_names,
+                request_prompt=request_prompt,
             )
             termination_reason = "final_answer"
             for event in events:
                 if event.get("type") == "assistant_done":
                     termination_reason = event.get("termination_reason", "final_answer")
                 for web_event, payload in to_web_events(event):
+                    if web_event == "citation":
+                        latest_attribution = payload.get("attribution")
                     yield encode_sse(web_event, {"run_id": run_id, **payload})
 
-            if request.save:
-                save_result = AgentService.save_session(session, get_session_save_dir(config))
+            if body.save:
+                _attach_attribution(session, latest_attribution)
+                save_result = AgentService.save_session(session, get_session_save_dir(config, workspace))
                 if not save_result["ok"]:
                     yield encode_sse("run_failed", {
                         "run_id": run_id,

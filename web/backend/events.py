@@ -28,12 +28,15 @@ def to_web_events(event: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
         return [("status", {
             "phase": "running",
             "message": _TOOL_STATUS.get(tool_name, "正在处理"),
+            "tool_name": tool_name,
         })]
 
     if event_type == "tool_end":
         web_events: list[tuple[str, dict[str, Any]]] = [("status", {
             "phase": "completed" if event.get("ok") else "failed",
             "message": "处理完成" if event.get("ok") else "处理失败",
+            "tool_name": event.get("tool_name"),
+            "elapsed": event.get("elapsed"),
         })]
         for artifact in event.get("artifacts") or []:
             artifact_type = artifact.get("type")

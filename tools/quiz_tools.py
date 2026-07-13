@@ -9,13 +9,19 @@ def question_generate(
     query: str,
     course: str | None = None,
     count: int = 5,
+    document_ids: list[str] | None = None,
     workspace: str = ".",
 ) -> ToolResult:
     """Generate quiz questions from knowledge base content based on a topic or query."""
     try:
         from service.quiz_service import QuizService
         svc = QuizService(workspace)
-        result = svc.generate_questions(query=query, course=course, count=count)
+        result = svc.generate_questions(
+            query=query,
+            course=course,
+            count=count,
+            document_ids=document_ids,
+        )
 
         if not result["ok"]:
             return ToolResult(ok=False, content=result["error"])
@@ -136,6 +142,11 @@ register_tool(
             "count": {
                 "type": "integer",
                 "description": "Number of questions to generate (default 5)",
+            },
+            "document_ids": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Optional active study document IDs",
             },
         },
         "required": ["query"],

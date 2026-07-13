@@ -7,6 +7,60 @@
 ## [未发布]
 
 ### 新增
+- **P5E.1 文件夹资料库与 LLM Wiki 工作流修正**: 将开发工作区知识库升级为可供不同本地用户使用的便携资料库模型。
+  - 一个文件夹对应一个资料库；新增 `BOBODAN_LIBRARY.yaml`、`WIKI_SCHEMA.md`、`raw/`、五类 `wiki/` 页面目录及 `.bobodan/` 本地状态目录。
+  - 新增用户级资料库注册表与创建、打开、切换、同步、取消注册 API；Chat、RAG、Quiz、Review、学习进度和会话按资料库请求上下文隔离。
+  - 首次导入改为用户先选择资料；若尚无资料库，再在同一流程中确认名称和保存位置，创建后自动继续写入 `raw/inbox/` 并建立原文索引。
+  - 原始资料对 AI 保持只读；用户删除改为归档到 `.bobodan/archive/raw/`，关联 Wiki 页面标记为 `needs_update`。
+  - Wiki 扩展为资料摘要、实体、概念、综合分析、问题与发现五类页面，统一 frontmatter、表格索引、顶部操作日志和健康检查。
+  - `/wiki plan`、重点调整、计划确认、执行结果与撤销状态改为会话 artifact 持久化；刷新、切换会话和重启后可恢复。
+  - 旧 Wiki 支持“迁移预览 → 用户确认 → 检查点 → 机械升级”，只补 schema 元数据，不移动文件或改写正文。
+  - 新增 `python agent.py library init|sync|list`，并通过 `BOBODAN_HOME` 隔离测试注册表。
+  - 资料库页面顶部集中显示当前资料库、切换与管理入口；Chat 与资料库空状态共用“导入资料”流程，左下角不再承担新建资料库操作。
+  - 资料库管理新增“接入现有资料文件夹”：先预览可索引资料、文件夹体积、现有 Wiki 和旧资料子目录，确认后原地初始化、同步并自动切换，不要求用户重新上传。
+  - 便携资料库的额外课程目录改为库内相对路径；重新打开已移动的资料库时会自动修复旧绝对路径，避免资料显示为空。
+  - 旧文件夹迁移改为同步成功后再激活；同步或激活失败会恢复迁移前的注册表和活动资料库，不留下半注册状态。
+  - 验证：Python `1066 passed`、Vitest `3 passed`、TypeScript 与生产构建通过、Playwright 多视口 `39 passed`。
+
+- **P5E 用户主动触发的 LLM Wiki 完成**: 将资料导入与 AI 整理彻底分离，只有用户明确发起并确认计划后才写入 Wiki。
+  - 新增持久化 Wiki 计划，支持当前学习范围、指定资料、课程和已有 Wiki 主题；计划展示新增、更新、合并、冲突和跳过项。
+  - Chat 新增 `/wiki plan`、`/wiki update`、`/wiki generate`，Library 新增“整理成 Wiki / 更新 Wiki”入口和可展开页面预览。
+  - 生成概念页与实体页，保存结构化 `source_refs`、双向相关概念链接，以及 heading、PDF 页、PPT 页或 chunk 级原文定位。
+  - 写入前创建本地检查点，支持显式撤销；写入失败自动恢复，用户手写同名页只标记冲突且不会覆盖。
+  - 无指定资料范围时，检索顺序优先用 Wiki 理解概念结构，再以原始资料作为事实证据，并继续在引用中区分 Wiki 与本地资料。
+  - 参考 OpenHanako 的资源卡、渐进披露和预览分栏逻辑，保留 Bobodan 暖纸、墨蓝、仓耳今楷与三花猫品牌体系。
+  - 验证：Python `1049 passed`、Vitest `3 passed`、生产构建通过、Playwright `30 passed`。
+
+- **P5D 最终可用性收尾**: 补齐 Wiki 维护和 Chat Slash 命令 / Skills 入口。
+  - Wiki 分类新增健康检查、孤立页 / 断链 / 过期页统计与详情；“整理并重建索引”只归档 Bobodan 生成的重复页，不删除用户原始资料。
+  - Chat 输入 `/` 弹出贴近 composer 的命令面板，支持文本筛选、方向键、Enter / Tab 选择和 Esc 关闭。
+  - 提供 `/new`、`/library`、`/wiki`、`/practice`、`/review`、`/kb search`、`/learning today`、`/quiz generate` 等 Web 安全命令。
+  - Skills 面板只开放当前 Web runtime 可完整执行的 `course-learning`、`exam-prep`、`study-loop`；显式选择后服务端按本轮临时指令加载对应 `SKILL.md`。
+  - 验证：Python `1037 passed`、Vitest `3 passed`、生产构建通过、Playwright `27 passed`。
+
+- **P5D 本地学习闭环 Web MVP 完成**: 在第二轮 Web UI 基础上补齐首次配置、资料范围约束和 Chat → Practice → Review 纵向闭环。
+  - 新增四步首次配置，覆盖用户与目标、AI 连接、首批学习资料、记忆与联网边界；已有会话或资料的工作区自动兼容。
+  - Library 可维护共享学习范围并选中文字带到 Chat；Chat 与 Practice 请求都会把资料 ID 传到后端，RAG 检索和出题按范围强制过滤。
+  - Chat 回答支持渐进式过程摘要，不暴露原始思维链；生成练习会使用本轮返回的精确题目 ID，避免旧题混入。
+  - Practice 的“问 AI”改为当前题目内的轻量辅导抽屉，桌面、窄屏和移动端均保持在做题流程内。
+  - 验证：Python 全量测试 `1037 passed`，Vitest `3 passed`，生产构建通过，Playwright `27 passed`。
+
+- **P5D Web UI 第二轮完善**: 按 OpenHanako 的字体与工作区交互作为参考，修复第一版的字体覆盖、资料混排、侧栏和会话命名问题。
+  - 字体改为五套 token：Luo 仅用于品牌与固定展示标题，系统黑体用于高频 UI，Noto Serif SC Unicode Range 分片用于 AI 回答，仓耳今楷 W04/W05 用于资料与 Wiki 正文，等宽字体用于代码与路径；Noto 字体及 OFL 许可随项目分发。
+  - Library 增加“学习资料 / Wiki”分类，隐藏 Wiki 结构文件，按 NFKC 与标点归一化去重；两份旧生成页已归档到 `.bobodan/archive/wiki/<timestamp>/`，规范索引重建为 6 页。
+  - 左右栏可独立折叠并保存用户状态；内容不足 720px 时按右栏、左栏顺序自动收起，桌面支持 200ms 边缘悬停预览，移动端继续使用抽屉。
+  - 首轮回答后异步生成短会话标题，15 秒超时或模型失败时使用首问本地回退；手动标题不会被覆盖，会话按今天、昨天、本周、更早分组并显示时间。
+  - 默认提示收敛装饰 Emoji 与重复小猫自称；欢迎、思考、阅读、写作、等待、休息和回答反馈开始使用现有品牌状态图与表情图。
+  - 新增资料分类、Wiki 归档、会话标题和多视口侧栏/字体测试；生产构建、Vitest、Python 聚焦测试和 Playwright 多视口用例通过。
+  - 资料与 Wiki 阅读器进一步采用 Kami 同款仓耳今楷 W04/W05 双字重本地字体；AI 回答继续使用 Noto Serif SC，高频 UI 不受影响。
+
+- **P5D Web UI 第一版**: 建立 React 19 + TypeScript + Vite + Tailwind 本地 Web 应用，并按 `docs/DESIGN.md` 落地 Bobodan 暖纸、墨蓝、Luo 字体和三花猫品牌资产。
+  - 完成桌面三栏、窄屏上下文抽屉、移动端底部导航，以及 Chat / Library / Practice / Review 四个一级入口。
+  - Chat 使用 OpenHanako 式居中起始状态和中央阅读流，普通桌面保持完整侧栏；支持会话恢复、重命名、删除、草稿保存、POST SSE 流式回答、状态摘要、来源标签、失败重试与生成练习入口。
+  - Web 后端与 CLI 一致加载工作区 `.env`，修复已配置 Provider 在浏览器中错误返回 `503 provider_unavailable` 的问题。
+  - Library 支持真实资料列表、详情阅读和 Markdown / PDF / DOCX / PPTX 导入；Practice 支持出题、未完成练习恢复、答题、批改、小结和放弃；Review 支持真实队列与针对性练习。
+  - 本地打包品牌字体与许可证；新增 Vitest API / 组件测试和 Playwright 桌面、移动布局验收。
+
 - **Bobodan 品牌与 Web 视觉参考资产**: 完成三花猫品牌角色规范、正式透明头像、四表情、六学习状态和 Chat 起始插图，并导出前端可直接使用的 PNG / WebP 尺寸。
   - 新增 `docs/assets/brand/BOBODAN_MASCOT.md`，明确品牌角色与用户可配置人设的边界、固定识别特征和后续图片接收规则。
   - 新增 `web/frontend/public/assets/brand/` 前端资源清单，以及 `docs/prototypes/bobodan-study-workspace.html` 静态视觉预览。
@@ -177,11 +231,15 @@
   - `tests/test_wiki.py`: 23 个测试覆盖 schema、index、lint、compiler、REPL 命令。
 
 ### 修复
+- **Review 状态字体与滚动条**: `到期 / 错题 / 薄弱点` 使用 Luo 短标签强调；全局滚动条改为透明轨道与暖灰细滑块，并修复右侧资料名称撑宽面板造成的横向滚动条。
+- **复习出题错误继承当前资料范围**: Review 现在按知识点关联并复用历史题目 ID，不再把用户当前选择的无关资料范围套到历史复习项上；只有没有历史题时才回退到重新生成，避免无资料报错和检索跑偏。
 - **Trace per-run 文件碰撞**: `TraceWriter` 文件名增加微秒时间戳和短 run suffix，同一 session 在同一秒内连续 run 不再写入同一个 JSONL；`list_traces()` 兼容旧秒级文件名。
 - **Workflow 手动掌握度联动**: `ReviewScheduler.mark_manual(..., "mastered")` 后会触发 `PlanWorkflowTracker.check_plan_completion()`，手动标记已掌握后今日任务和计划状态会同步更新。
 - **LearningStore SQLite 文件锁**: `LearningStore._conn()` 改为真正关闭连接的 context manager，避免 Windows 上临时 workspace 或后续 Web runtime 遇到 `bobodan.db` 文件锁。
 
 ### 变更
+- **后续路线调整**: 下一阶段改为 P5E“用户主动触发的 LLM Wiki”。资料导入只建立原文索引，用户要求整理后先生成变更计划，确认后才写入可互链、可回到原文、可撤销的 Wiki；可信联网顺延到 P5F，发布收尾顺延到 P5G。
+- **侧栏品牌头像**: 左上角恢复使用正式主头像 `bobodan-avatar-64.png`，不再把低频 `friendly` 表情图作为固定品牌入口。
 - **Docs cleanup**: 新增 `docs/README.md` 作为文档索引，新增 `docs/DESIGN.md` 作为长期视觉设计参考；将 `docs/OPENAI_AGENT_CODEX_REFERENCE_FOR_BOBODAN.md` 纳入当前工程边界参考；将已实现或历史详细设计移入 `docs/archive/`，当前执行入口收敛到 `docs/NEXT_STEPS_EXECUTION_PLAN.md`。
 - **REPL UI 改进**: thinking 动效增加实时计时器（`⠋ thinking · 3.2s`）。工具调用显示改为 Claude Code 风格（`▸ tool_name(args)` → `✓ preview`），消除多余空白行。thinking 动效在工具执行期间保持可见。
 

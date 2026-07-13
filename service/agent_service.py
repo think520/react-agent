@@ -99,6 +99,7 @@ class AgentService:
         os.makedirs(save_dir, exist_ok=True)
         if name:
             session.name = name
+            session.name_source = "manual"
 
         normalized = session.session_id
         if normalized.endswith(".json"):
@@ -168,6 +169,7 @@ class AgentService:
             return result
         session = result["session"]
         session.name = name.strip()
+        session.name_source = "manual"
         return AgentService.save_session(session, save_dir)
 
     @staticmethod
@@ -193,6 +195,7 @@ class AgentService:
         skills_prompt: str | None = None,
         memory_prompt: str | None = None,
         mcp_prompt: str | None = None,
+        request_prompt: str | None = None,
         trace_writer=None,
         tools_schema: list[dict] | None = None,
         allowed_tool_names: set[str] | frozenset[str] | None = None,
@@ -212,6 +215,7 @@ class AgentService:
             skills_prompt=skills_prompt,
             memory_prompt=memory_prompt,
             mcp_prompt=mcp_prompt,
+            request_prompt=request_prompt,
             trace_writer=trace_writer,
             tools_schema=tools_schema,
             allowed_tool_names=allowed_tool_names,

@@ -1,6 +1,7 @@
 import json
 import os
 import sqlite3
+from knowledge.paths import knowledge_path
 from datetime import datetime, timezone
 
 from .schema import Question, QuizSession, QuizAttempt
@@ -94,7 +95,7 @@ def _row_to_attempt(row: sqlite3.Row) -> QuizAttempt:
 
 class QuizStore:
     def __init__(self, workspace: str):
-        self.db_path = os.path.join(workspace, ".knowledge", DB_FILENAME)
+        self.db_path = knowledge_path(workspace, DB_FILENAME)
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         self._ensure_db()
 
@@ -212,6 +213,23 @@ class QuizStore:
             ).fetchall()
             by_id = {r["id"]: _row_to_question(r) for r in rows}
             return [by_id[i] for i in ids if i in by_id]
+        finally:
+            conn.close()
+
+    def find_question_ids_by_concept(self, concept: str, limit: int = 5) -> list[int]:
+        if not concept:
+            return []
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                """SELECT DISTINCT q.id
+                   FROM questions q, json_each(q.concepts) concept_item
+                   WHERE concept_item.value = ?
+                   ORDER BY q.id DESC
+                   LIMIT ?""",
+                (concept, max(1, limit)),
+            ).fetchall()
+            return [int(row["id"]) for row in rows]
         finally:
             conn.close()
 

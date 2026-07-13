@@ -21,6 +21,12 @@ __pycache__/
 venv/
 .venv/
 
+# Frontend
+web/frontend/node_modules/
+web/frontend/dist/
+web/frontend/playwright-report/
+web/frontend/test-results/
+
 # Local demo data
 demo_vault/
 note/

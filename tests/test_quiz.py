@@ -170,6 +170,16 @@ def test_get_questions_by_ids(tmp_path):
     assert questions[1].question == "Q1"
 
 
+def test_find_question_ids_by_concept_returns_newest_matches(tmp_path):
+    store = QuizStore(str(tmp_path))
+    first = store.add_question(Question(question="Q1", answer="A", concepts=["RAG"]))
+    store.add_question(Question(question="Q2", answer="B", concepts=["其他"]))
+    latest = store.add_question(Question(question="Q3", answer="C", concepts=["RAG"]))
+
+    assert store.find_question_ids_by_concept("RAG") == [latest, first]
+    assert store.find_question_ids_by_concept("不存在") == []
+
+
 def test_count_questions(tmp_path):
     store = QuizStore(str(tmp_path))
     store.add_question(Question(type="single_choice", question="Q1", answer="A"))

@@ -16,6 +16,8 @@ class Session:
     last_active: str = field(default_factory=lambda: datetime.now().isoformat())
     max_messages: Optional[int] = None
     name: str = ""
+    name_source: str = "fallback"
+    library_id: str | None = None
 
     @staticmethod
     def new(cwd: str, max_messages: Optional[int] = None) -> "Session":
@@ -118,6 +120,10 @@ class Session:
             data["workspace_root"] = data.get("cwd", "")
         if "name" not in data:
             data["name"] = ""
+        if "name_source" not in data:
+            data["name_source"] = "manual" if data.get("name") else "fallback"
+        if "library_id" not in data:
+            data["library_id"] = None
         return Session(**data)
 
     @staticmethod
@@ -148,9 +154,13 @@ class Session:
                 summaries.append({
                     "session_id": data.get("session_id", file_name[:-5]),
                     "name": data.get("name", ""),
+                    "name_source": data.get(
+                        "name_source", "manual" if data.get("name") else "fallback"
+                    ),
                     "created_at": data.get("created_at", ""),
                     "last_active": data.get("last_active", ""),
                     "message_count": len(data.get("messages", [])),
+                    "library_id": data.get("library_id"),
                 })
             except (json.JSONDecodeError, OSError):
                 continue

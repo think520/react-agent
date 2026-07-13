@@ -74,6 +74,18 @@ def test_start_quiz_with_existing_questions(store, svc):
         assert "attribution" in q
 
 
+def test_start_quiz_uses_only_requested_question_ids(store, svc):
+    first = _make_question(store, qtype="single_choice")
+    second = _make_question(store, qtype="true_false")
+    _make_question(store, qtype="short_answer")
+
+    result = svc.start_quiz(count=5, question_ids=[second.id, first.id])
+
+    assert result["ok"]
+    assert result["question_ids"] == [second.id, first.id]
+    assert [item["id"] for item in result["questions"]] == [second.id, first.id]
+
+
 def test_start_quiz_with_type_filter(store, svc):
     _make_question(store, qtype="single_choice")
     _make_question(store, qtype="true_false")

@@ -2,6 +2,7 @@ import json
 import os
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
+from .paths import knowledge_path
 
 REPORT_FILENAME = "import_report.json"
 
@@ -27,7 +28,7 @@ class ImportReport:
 
 def save_import_report(workspace: str, report: ImportReport) -> None:
     """Write .knowledge/import_report.json."""
-    path = os.path.join(workspace, ".knowledge", REPORT_FILENAME)
+    path = knowledge_path(workspace, REPORT_FILENAME)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(asdict(report), f, ensure_ascii=False, indent=2)
@@ -35,7 +36,7 @@ def save_import_report(workspace: str, report: ImportReport) -> None:
 
 def load_import_report(workspace: str) -> ImportReport | None:
     """Load .knowledge/import_report.json or None if missing."""
-    path = os.path.join(workspace, ".knowledge", REPORT_FILENAME)
+    path = knowledge_path(workspace, REPORT_FILENAME)
     if not os.path.exists(path):
         return None
     try:

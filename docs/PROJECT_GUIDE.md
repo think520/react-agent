@@ -77,6 +77,7 @@ Bobodan 不照抄任何单一产品。它吸收这些产品的功能骨架，再
 | Agent 管理 | ClawPort / Agent Hub | Agent 状态、任务队列、记忆浏览、MCP/Cron/Logs，但不吸收控制台视觉 |
 | 本地助手 | OpenClaw | local-first、工具执行、设备/渠道连接、隐私感 |
 | 安静桌面工作区 | [OpenHanako](https://github.com/liliMozi/openhanako) | 三栏工作区、角色化欢迎页、工作空间与记忆状态、右侧书桌/便笺、纸面 Token；不吸收办公 Agent 的频道和社交入口 |
+| LLM Wiki | [nashsu/llm_wiki](https://github.com/nashsu/llm_wiki) | 原始资料只读、Schema 约束、两阶段 Wiki 生成、安全增量合并、任务队列、来源依赖和结构 / 语义检查；不吸收自动摄入与知识库后台定位 |
 
 #### 2.2.1 OpenHanako 借鉴边界
 
@@ -93,7 +94,7 @@ OpenHanako 与 Bobodan 都受到 Kami 纸面美学影响，适合作为 Web 工�
 | Composer | 支持附件、资料范围、引用选中文字和短学习动作；模型、工具和推理等级保持低视觉权重 |
 | 纸面设计系统 | 使用本地字体、暖纸 Token、轻纹理、小圆角、细分隔和短时动效；以 `docs/DESIGN.md` 为唯一色彩与排版标准 |
 
-第二优先级，在 P5F 或学习闭环稳定后补：
+第二优先级，在 P5F.1 / P5G 或学习闭环稳定后补：
 
 - 会话正文搜索、归档与恢复。
 - 可查看和管理的学习记忆，明确区分用户画像、长期目标、课程进度、错题薄弱点和临时上下文。
@@ -228,6 +229,28 @@ OpenHanako 当前使用 Electron + React + Zustand + Hono，并拥有大量前�
 
 > Bobodan 是看起来像高级纸质学习笔记本的 Agent Operating System，不是黑色终端风 Agent 控制台。
 
+#### 2.2.3 LLM Wiki 可靠性参考
+
+`nashsu/llm_wiki` 与 Bobodan 都把原始资料视为事实来源，并在原文之上维护可持续更新的 AI Wiki。Bobodan 只吸收其 Wiki 编译与可靠性机制，不改变 chat-first、learning-first 的产品定位。
+
+优先借鉴：
+
+- 将资料分析与文件生成拆成两个阶段；Bobodan 映射为 `wiki_focus → wiki_plan → wiki_result`，用户确认前不写文件。
+- 在写入边界校验 Schema、目录、页面类型、frontmatter、来源引用和输出语言；失败内容进入 staging，不污染正式 Wiki。
+- 增量更新时确定性合并 `sources`、标签和关系，锁定关键元数据，只让模型处理正文，并为异常缩减设置拒绝与回退规则。
+- 使用可恢复的持久化任务队列处理批量资料、长 PDF、Wiki 计划和后续联网研究。
+- 建立来源依赖与影响预览；资料变化或归档时先展示受影响页面，再由用户确认更新计划。
+- 将孤立页、断链、缺失页等结构检查与矛盾、过时内容等 AI 语义检查分开，所有修复仍需确认。
+
+明确不照搬：
+
+- 上传资料后自动生成 Wiki；Bobodan 上传和同步只建立原文索引。
+- 以 Wiki 编辑器、复杂图谱或知识库管理后台作为产品主入口。
+- 为参考项目改写现有 Python + FastAPI + React 技术路线，或直接复制其 Tauri / Rust 架构。
+- 直接复制 GPL-3.0 代码；只参考公开机制、数据边界和交互思想，若未来确需复用代码必须先完成许可证评估。
+
+该项目已暴露过大型 Wiki 聚合文件截断、来源字段损坏、批量队列恢复和文件夹导入反馈不足等问题。Bobodan 必须让结构文件由程序维护、限制模型写入范围，并把失败恢复和规模化测试作为 P5E.2 门槛。
+
 ### 2.3 信息架构
 
 长期信息架构分成 **Study** 和 **Workbench** 两组。
@@ -349,7 +372,13 @@ Memory：
 - Workbench 里提供 Memory Browser。
 - Memory Browser 必须支持查看、编辑、删除、固定。
 
-Memory 不只记录学习数据，还要沉淀：
+Bobodan 的长期知识分为三层，不能混为同一类记忆：
+
+1. 原始资料：用户上传或同步的事实来源，AI 只读。
+2. AI 整理 Wiki：从指定资料编译出的概念、实体和分析，明确标注 AI 整理并由用户确认写入。
+3. 个人学习知识库：用户长期使用后形成的掌握度、错题、学习轨迹、个人总结、稳定偏好和已确认长期知识。
+
+Memory 与个人学习知识库共同沉淀：
 
 - 学习画像。
 - 用户偏好。
@@ -357,18 +386,22 @@ Memory 不只记录学习数据，还要沉淀：
 - 讲解方式偏好。
 - Obsidian 写回偏好。
 - 用户不喜欢的表达方式。
+- 已掌握、学习中和需要复习的知识点。
+- 用户确认的个人总结、观点、问题与跨资料发现。
+
+确定性的做题、掌握度、阅读和复习事件可以自动记录；用户观点、长期结论、画像推断和个人总结只能先进入候选区，确认后才能成为长期知识。敏感画像、健康判断和人格推断默认不自动保存。
 
 ## 3. 全项目复盘结论
 
 ### 3.1 总体判断
 
-Bobodan 已经完成“学习 Agent 引擎”和“Web 产品化基础”阶段，但还没有完成普通用户可持续使用的 Web 产品。
+Bobodan 已经完成“学习 Agent 引擎”“Web 产品化基础”“本地学习闭环 Web MVP”“用户主动触发的 LLM Wiki”和“便携文件夹资料库”主体流程，普通用户可以在浏览器中切换多个本地资料库，完成资料学习与可追溯知识沉淀流程。
 
-现有技术路线不需要推倒重来。Python + FastAPI + SQLite / Qdrant + React Web UI 仍然适合本地优先的个人学习助手。P5C 已把 CLI 能力整理成稳定、可复用、可追踪的 Web 产品合约；下一步进入 P5D，按 Library → Chat → Practice → Review 的纵向闭环实现真实页面。
+现有技术路线不需要推倒重来。Python + FastAPI + SQLite / Qdrant + React Web UI 仍然适合本地优先的个人学习助手。P5C 已整理 Web 产品合约，P5D 已完成 Library → Chat → Practice → Review，P5E 已完成用户确认式 LLM Wiki，P5E.1 已把测试工作区升级为通用文件夹资料库并完成移动与迁移可靠性收尾；下一步进入 P5E.2 Wiki 可靠性增强，再进入可信联网资料扩展与个人学习知识库。
 
 一句话结论：
 
-> 底层能力与 Web 合约已经就绪，下一阶段停止横向扩功能，优先交付“导入资料 → 提问 → 查看来源 → 做题 → 复习”的本地学习闭环。
+> 本地学习与 Wiki 沉淀闭环已经交付；下一阶段先强化 Wiki 的安全增量维护，再在用户确认后联网，并让长期使用自然沉淀为可管理、可追溯的个人学习知识库。
 
 ### 3.2 当前成熟度
 
@@ -376,14 +409,14 @@ Bobodan 已经完成“学习 Agent 引擎”和“Web 产品化基础”阶段�
 |---|---|---|
 | Agent Runtime | 可用且测试充分 | ReAct、流式输出、工具调用、session、provider 已稳定运行 |
 | RAG v2 | 较成熟 | SQLite / FTS5 / Qdrant / hybrid / directory / grep 已具备完整检索骨架 |
-| Quiz / Learning | Web 合约就绪 | 支持题目归因、练习恢复、提交进度、掌握度变化、放弃练习和 Review 聚合 |
-| Memory | Web 合约就绪 | Web Chat 注入并按 run 刷新 memory prompt，公开 API 不返回本地绝对路径 |
+| Quiz / Learning | Web 闭环可用 | 支持范围出题、精确题目会话、题内问 AI、练习恢复、批改、掌握度变化和 Review 聚合 |
+| Memory | 基础合约就绪 | Web Chat 注入并按 run 刷新 memory prompt，公开 API 不返回本地绝对路径；个人学习知识库、候选确认和分层共享尚未实现 |
 | Service Layer | 产品化基础完成 | CLI / Web 共用 runtime、config 与 service，Review / Practice 聚合已补齐 |
-| FastAPI | P5C 完成 | 已有稳定错误结构、流式事件适配、session CRUD、资料导入、Library / Practice / Review API |
-| Web UI | 未开始 | 当前没有 frontend 工程、组件、路由或端到端 Web 流程 |
-| 测试 | 后端较强 | P5C 完成后全量测试 `1020 passed`，Web API 已覆盖安全事件、错误、会话、练习、复习和导入合约 |
+| FastAPI | P5E.1 完成 | 已有稳定错误结构、流式事件、session CRUD、资料库注册与请求隔离、Library / Practice / Review / Wiki API；资料库移动与迁移失败可恢复 |
+| Web UI | P5E.1 完成 | Chat、Library、Practice、Review、多资料库切换、统一导入流程与持久化 Wiki 确认流程已落地 |
+| 测试 | 全栈回归已建立 | Python `1066 passed`；Vitest `3 passed`；TypeScript 与生产构建通过；Playwright 桌面、窄屏和移动端 `39 passed` |
 
-### 3.3 P5C 已解决的问题与剩余边界
+### 3.3 P5C / P5D / P5E 已解决的问题与剩余边界
 
 已解决：
 
@@ -396,9 +429,25 @@ Bobodan 已经完成“学习 Agent 引擎”和“Web 产品化基础”阶段�
 7. Practice 已支持 session detail、attempt、progress、active list 和 abandon；Review 已聚合到期概念、错题和薄弱点。
 8. Web Agent 使用学习 / RAG / memory 工具白名单；文件写入、任意 HTTP、MCP 与 specialist 不进入 Web MVP 运行时。
 
-仍待 P5D / P5F 解决：
+P5D 已补齐：
 
-- React 前端、真实交互状态、Playwright 闭环测试尚未开始。
+- 四步首次配置、学习资料范围选择、选文带到对话、请求级资料范围约束和渐进式过程披露。
+- Chat → Practice → Review 的完整学习闭环，以及不离开当前题目的轻量问 AI 抽屉。
+- 生成题按本轮返回的题目 ID 精确创建练习，避免旧题混入当前会话。
+
+P5E 已补齐：
+
+- 从 Chat、资料页或已有 Wiki 主题发起生成 / 更新计划，支持当前范围、指定资料与课程范围。
+- 计划阶段只保存新增、更新、合并、冲突和跳过草稿；用户确认前不写 Wiki。
+- 确认后生成概念页 / 实体页、双向相关概念链接和原文定位，并重新同步 Wiki 索引。
+- 写入前创建检查点，支持用户撤销；写入中途失败会自动恢复，不留下部分更新。
+- 无指定范围的检索先使用 Wiki 理解结构，再以原始学习资料作为事实证据，并明确标记 AI 整理内容。
+
+仍待 P5E.2 / P5F / P5F.1 / P5G 解决：
+
+- Wiki 写入校验、安全增量合并、持久化任务队列、来源影响预览和结构 / 语义分层检查。
+- 本地资料不足后的用户确认联网、来源候选选择和 `网页来源 / AI 补充 / 待核实` 标注流程。
+- 从学习事件自动沉淀掌握度、错题和进度，并将观点、总结和画像推断作为待确认候选管理。
 - 开发期仍是 Vite + FastAPI 两个进程；单进程静态托管与一键启动留到发布阶段。
 - MCP / specialist 要等请求级 ToolContext 完成后，才能考虑在 Web Workbench 中开放。
 
@@ -536,6 +585,21 @@ SourceRef
 
 ### P5D：本地学习闭环 Web MVP
 
+**状态：已完成（2026-07-11）。** React 工程、混合字体系统、响应式双侧栏、四步首次配置、Chat / Library / Practice / Review 真实 API 交互、资料范围约束和完整学习闭环均已通过验收。
+
+第二轮已完成：
+
+- Luo 不再覆盖全站；高频 UI、阅读正文、品牌与代码分别使用独立字体 token。
+- Library 将用户学习资料和 Bobodan 生成的 Wiki 分开显示；结构文件隐藏，重复生成页只归档不删除原资料。
+- 左右栏独立折叠、持久化、按 720px 主内容宽度自动收起，并支持桌面边缘悬停预览。
+- 首轮回答完成后异步生成会话标题，失败时本地回退，手动标题受保护。
+- 六学习状态图和四表情开始进入真实页面状态，不再使用突兀的右下角大图或装饰 Emoji。
+- Library / Wiki 正文使用 Kami 同款仓耳今楷 W04/W05，AI 回答继续使用 Noto Serif SC，高频 UI 保持系统黑体。
+- 资料选文可直接带入 Chat；当前学习范围会同时约束 Chat 检索和 Practice 出题，不只作为前端标签展示。
+- Practice 的“问 AI”在当前题目内打开轻量抽屉，桌面、窄屏与移动端均不会跳出练习流程。
+- Wiki 分类增加健康检查、断链 / 孤立页 / 过期页详情，以及只归档生成重复页的规范索引重建。
+- Chat composer 输入 `/` 可选择 Web 安全命令与 `course-learning / exam-prep / study-loop` 三个学习 Skills；CLI 管理能力继续隐藏。
+
 #### P5D.1 前端地基
 
 - 建立 `web/frontend`、路由、Vite proxy 和 API client。
@@ -578,14 +642,156 @@ SourceRef
 - 答题自动更新错题、掌握度和复习计划。
 - Review 展示今日到期概念、错题和薄弱点，并能继续生成针对性练习。
 
-P5D 验收：
+P5D 验收结果：通过。
 
 - 新用户能完成“导入资料 → 提问 → 查看来源 → 生成 5 题 → 做题 → 查看批改 → 进入复习”。
 - 关键流程全部使用真实后端数据，无 mock 业务数据。
 - Chat → Practice → Review 至少有一条 Playwright 端到端测试。
 - 刷新和会话切换后，输入草稿、已完成回答和当前学习范围可恢复；短暂断线有明确的重试动作。
+- 验证结果：Python `1037 passed`、Vitest `3 passed`、生产构建通过、Playwright `27 passed`。
 
-### P5E：可信资料扩展
+### P5E：用户主动触发的 LLM Wiki
+
+目标不是在资料导入时自动生成 Wiki，而是在用户明确要求后，将指定资料整理为人和大模型都能阅读、跳转和检索的知识结构。
+
+默认流程：
+
+```text
+导入资料
+→ 只解析、切分并建立原文检索索引
+→ 用户说“把这些资料整理成 Wiki”
+→ AI 生成整理计划，不立即写文件
+→ 展示预计新增、更新、合并和冲突页面
+→ 用户确认
+→ 写入 Wiki、建立互链与原文引用
+→ 重新建立 Wiki 检索索引
+→ 用户审查结果并可撤销
+```
+
+必须实现：
+
+1. 用户主动触发：上传资料本身不得自动创建 Wiki 页面。
+2. 范围选择：支持当前资料范围、指定资料、课程或已有 Wiki 主题。
+3. 计划优先：`/wiki plan` 只输出新增、更新、合并、冲突和跳过计划，不写文件。
+4. 确认写入：`/wiki generate` 与 `/wiki update` 在用户确认后才执行。
+5. 页面结构：生成概念页与实体页，保留摘要、相关概念、来源、更新时间和 AI 整理标记。
+6. 内部跳转：支持 Wiki 页面之间的双向链接和相关概念导航。
+7. 原文定位：每个重要结论可跳回资料标题、heading、PDF 页码、PPT 页或 RAG chunk。
+8. 双层检索：大模型先用 Wiki 理解概念与关系，再回到原始资料核实事实与引用。
+9. 增量更新：资料变化后只更新受影响页面，显示新增、修改、冲突和过期内容。
+10. 可恢复：写入前创建检查点，支持撤销本轮 Wiki 整理。
+
+维护动作必须区分：
+
+- `生成 Wiki`：从资料创建新页面。
+- `更新 Wiki`：根据变化资料更新已有页面。
+- `维护 Wiki`：检查重复、断链、孤立页、冲突和过期内容。
+
+P5E 验收：
+
+- 导入资料后不会自动生成 Wiki。
+- 用户能从 Chat 或 Wiki 页面发起计划，并在确认前看到完整变更摘要。
+- 生成页面能互相跳转，也能跳回原始资料位置。
+- Chat 能区分 Wiki 摘要与原始资料证据，不把 AI 整理内容伪装成原文。
+- 至少有一条“资料 → Wiki 计划 → 确认生成 → 页面互链 → 原文定位”的 Playwright 测试。
+
+P5E 验收结果：通过。
+
+- 导入资料继续只建立原文索引，不会自动创建 Wiki。
+- Chat 支持 `/wiki plan`、`/wiki update` 和 `/wiki generate`；Library 支持从学习资料或已有 Wiki 页面发起。
+- 计划卡在确认前展示完整变更计数与页面预览，冲突用户页面不会被覆盖。
+- 生成页保存结构化 `source_refs`，相关概念与原始资料均可在 Web 阅读器内跳转定位。
+- 写入前检查点、显式撤销和失败自动恢复均有测试覆盖。
+- Playwright 已覆盖“资料 → Wiki 计划 → 确认生成 → 页面预览 → 原文定位”，并通过桌面、窄屏和移动端验证。
+- 验证结果：Python `1049 passed`、Vitest `3 passed`、生产构建通过、Playwright `30 passed`。
+
+### P5E.1：文件夹资料库与持久化 LLM Wiki 工作流
+
+正式产品不再把项目内 `note/vault` 当作用户默认资料。它只保留为开发和自动化测试数据。一个真实资料库就是一个可移动、可备份、可由 Obsidian 打开的本地文件夹：
+
+```text
+<library-root>/
+├── BOBODAN_LIBRARY.yaml
+├── WIKI_SCHEMA.md
+├── raw/
+│   ├── inbox/ assets/ articles/ papers/ books/ misc/
+├── wiki/
+│   ├── index.md log.md templates/
+│   ├── sources/ entities/ concepts/ analyses/ questions/
+└── .bobodan/
+    ├── manifest.json knowledge.db checkpoints/ archive/
+```
+
+核心规则：
+
+1. `BOBODAN_LIBRARY.yaml` 保存 schema version、稳定 UUID、名称和创建时间，不保存密钥。
+2. `~/.bobodan/libraries.json` 只注册资料库 ID、名称、路径和最近打开时间；测试必须设置 `BOBODAN_HOME` 隔离。
+3. 用户可以创建和切换多个资料库，但同时只有一个活动资料库。资料、会话、RAG、题库、练习、复习和学习进度不得串库。
+4. 用户界面的主动作始终是“导入资料”。第一次导入先选择文件；若尚无资料库，再在同一流程中确认资料库名称和父目录，创建结构后自动继续写入 `raw/inbox/` 并初始化原文索引。继续导入只更新当前资料库。
+5. 上传、初始化和同步永远不自动生成 Wiki。文件系统中手动放入资料后，使用 `python agent.py library sync <path>` 建立或更新索引。
+6. AI 对 `raw/` 只有读取权限。用户在 UI 删除原文时，文件进入 `.bobodan/archive/raw/<timestamp>/`，引用它的 Wiki 标记为 `needs_update`。
+7. `WIKI_SCHEMA.md` 是人和所有模型共同读取的规则真相源。AI 只能提出规则变更计划，确认后才能更新。
+
+资料库切换、新建空资料库、打开 Bobodan 资料库和旧文件夹接入统一放在资料库页面顶部的“资料库管理”，不使用左下角按钮承担主要建库操作。旧资料文件夹优先通过 Web 的“资料库管理 → 接入旧文件夹”处理。系统先只读扫描资料数量、文件夹体积、现有 Wiki 与旧资料子目录；用户确认后才增加资料库描述文件、注册只读来源并重建索引。原文件、图片、源码和 Wiki 保持原位，不要求重新上传。CLI 保留为批处理与故障恢复入口。
+
+命令行：
+
+```text
+python agent.py library init <path> [--name <name>]
+python agent.py library sync [path]
+python agent.py library list
+```
+
+Wiki 页面统一为五类：
+
+| 类型 | 目录 | 用途 |
+|---|---|---|
+| `wiki_source` | `wiki/sources/` | 一份原始资料的可追溯摘要，计划中必须至少有一页 |
+| `wiki_entity` | `wiki/entities/` | 人物、组织、系统、算法等实体 |
+| `wiki_concept` | `wiki/concepts/` | 定义、原理、方法和知识点 |
+| `wiki_analysis` | `wiki/analyses/` | 确有价值的跨资料综合分析 |
+| `wiki_question` | `wiki/questions/` | 未解决问题、矛盾与新发现 |
+
+每页 frontmatter 必须包含 `type`、`title`、`summary`、`schema_version`、`generated_by`、`created`、`updated`、`sources`、`source_refs`、`status`、`indexable`。`index.md` 按五类使用“页面 / 摘要 / 来源数 / 更新时间”表格，`log.md` 最新操作写在顶部。模板、索引、日志和内部状态不进入普通检索。
+
+对话工作流固定为：
+
+```text
+用户发送 /wiki plan 或 /wiki update
+→ 命令立即显示并保存为用户消息
+→ AI 阅读资料并给出 wiki_focus 重点卡
+→ 用户确认或用自然语言调整重点
+→ 生成并保存 wiki_plan 计划卡
+→ 用户确认写入
+→ 保存 wiki_result、检查点与撤销状态
+```
+
+命令、重点讨论、计划、执行结果和撤销状态均属于 Chat session artifact，刷新、切换会话和重启后必须恢复。Library 的“整理成 Wiki / 更新 Wiki”只携带范围进入 Chat，不在资料页直接写入。
+
+旧 Wiki 升级固定为“迁移预览 → 用户确认 → 检查点 → 机械升级”。升级只补齐 frontmatter 与 schema version，不移动原文，不调用 LLM 改写正文。健康检查覆盖孤立页、断链、缺失页、索引不同步、过期页和矛盾候选；任何修复都先生成计划，确认前不得修改文件。
+
+P5E.1 主体流程与可靠性收尾已经完成：`source_roots` 使用资料库内相对路径，并能在重新打开已移动资料库时修复旧绝对路径；旧文件夹迁移在同步成功后才激活，失败会恢复迁移前的注册表和活动资料库。下一步进入 P5E.2。
+
+### P5E.2：Wiki 可靠性增强
+
+目标是在不改变用户确认工作流的前提下，让 Wiki 能安全处理持续更新、批量任务和更大规模资料：
+
+1. `index.md`、`log.md`、来源映射和反向链接由程序确定性维护，模型不得直接生成或整体重写结构文件。
+2. 写入前校验 Schema、路径、页面类型、frontmatter 和来源是否存在；无效内容进入 `.bobodan/wiki/staging/` 并显示原因。
+3. 页面更新确定性合并来源、标签与关系，锁定 `type`、`title`、`created` 等元数据；正文异常缩减时拒绝写入并恢复检查点。
+4. Wiki 计划、生成、批量解析和后续联网研究使用按资料库隔离的持久化任务队列，支持重启恢复、重试和取消。
+5. 原始资料变化、归档或删除前生成依赖影响预览；多来源页面保留仍有效的来源贡献，不执行静默级联删除。
+6. 结构检查由程序执行，AI 只提出矛盾、过时和知识缺口候选；重复页面合并与所有修复先生成计划，再由用户确认。
+
+验收：
+
+- 模型输出无法覆盖结构文件或写入资料库外部路径。
+- 无效页面不会进入正式 Wiki，用户能查看失败原因并重试。
+- 同一页面被多份资料更新时不丢失既有来源，异常合并可以恢复。
+- 中断或重启后 Wiki 任务能够继续，切换资料库不会串任务。
+- 资料变更前可看到受影响页面、保留项和建议动作。
+
+### P5F：可信资料扩展
 
 在本地资料闭环稳定后，再补用户已确认的联网资料流程：
 
@@ -601,13 +807,45 @@ P5D 验收：
 - Web 搜索失败不会阻塞本地资料问答与练习。
 - 不允许把搜索摘要或 AI 常识伪装成用户资料。
 
-### P5F：支撑页面与发布收尾
+### P5F.1：个人学习知识库
+
+目标是让用户长期使用 Bobodan 后，系统逐渐理解“学过什么、掌握了什么、容易在哪里出错，以及怎样讲解最有效”，而不是只保存聊天记录。
+
+沉淀规则：
+
+1. `LearningEvent` 记录资料库、事件类型、知识点、结果、来源和时间。做题、掌握度、错题、阅读进度和复习记录属于确定性学习数据，自动保存。
+2. `KnowledgeCandidate` 保存候选内容、形成原因、证据、建议范围和确认状态。用户观点、长期结论、画像推断、个人总结与跨资料发现先进入候选区。
+3. `PersonalKnowledgeItem` 保存已确认知识的全局 / 资料库范围、类型、状态、置信度、证据和更新时间。未确认候选不得作为稳定用户事实。
+4. 称呼、教学偏好和长期目标属于用户级全局数据；掌握度、错题、课程进度、学习笔记和资料相关结论按 `library_id` 隔离。
+5. SQLite 是个人学习知识库的 truth source；确认后的高价值内容可以导出为 Markdown / Obsidian，但导出文件不反向成为第二真相源。
+6. 用户可以查看、确认、拒绝、编辑、固定、删除、导出和清空个人知识；删除后 Chat、Practice 和 Review 的个性化上下文必须同步失效。
+7. Chat、Practice 和 Review 可以使用已确认知识与确定性学习状态调整讲解、出题和复习，并向用户展示形成依据与更新时间。
+
+扩展现有 `MemoryService`，不创建第二套记忆服务。公开接口规划为：
+
+- `GET /api/memory/knowledge`：按全局或当前资料库列出个人知识。
+- `PATCH /api/memory/knowledge/{id}`、`DELETE /api/memory/knowledge/{id}`：编辑、固定、归档或删除。
+- `GET /api/memory/candidates`：列出待确认候选。
+- `POST /api/memory/candidates/{id}/confirm`、`POST /api/memory/candidates/{id}/reject`：确认或拒绝候选。
+- `POST /api/memory/consolidate`：手动触发一次候选整理，不直接提升为长期知识。
+
+资料库级请求继续携带 `X-Bobodan-Library-ID`。自动整理只能读取当前资料库的学习事件；全局偏好由服务端单独合并，不能借此跨库读取资料、错题或课程进度。
+
+验收：
+
+- 做题、阅读和复习事件自动记录，但不会自动创建资料 Wiki 页面。
+- 用户观点只进入候选区，确认前不会成为长期事实或影响高置信度回答。
+- 全局偏好可以跨资料库使用，课程知识和学习状态不会串库。
+- 删除个人知识后，检索、提示词和个性化行为同步更新。
+- 已确认知识可以导出 Markdown，导出文件不参与双向自动同步。
+
+### P5G：支撑页面与发布收尾
 
 按优先级补齐：
 
 1. Library 增强：文档阅读、highlight、摘录回流和相关概念；基础导入与列表已在 P5D 完成。
 2. Roadmap：学习目标、当前阶段和今日任务。
-3. Memory Browser：查看、编辑、删除、固定；用户人设配置后置于此。
+3. Memory Browser：统一查看全局偏好、个人学习知识和待确认候选，支持编辑、删除、固定与导出；用户人设配置后置于此。
 4. 会话增强：正文搜索、归档、恢复和引用历史。
 5. 复习自动化：用户确认后创建间隔复习提醒和阶段总结，不暴露通用 Cron 配置。
 6. 设置增强：设置搜索、学习偏好、回答深度，以及经确认的对话式非敏感配置修改。
@@ -1163,10 +1401,14 @@ MVP 必须跑通：
 实现顺序以第 4 章为唯一执行路线，本节不再维护第二份重复计划。
 
 ```text
-P5C 产品化基础
-→ P5D 本地学习闭环 Web MVP
-→ P5E 可信资料扩展
-→ P5F 支撑页面与发布收尾
+P5C 产品化基础（完成）
+→ P5D 本地学习闭环 Web MVP（完成）
+→ P5E 用户主动触发的 LLM Wiki（完成）
+→ P5E.1 文件夹资料库与持久化 Wiki 工作流（完成）
+→ P5E.2 Wiki 可靠性增强
+→ P5F 可信资料扩展
+→ P5F.1 个人学习知识库
+→ P5G 支撑页面与发布收尾
 ```
 
 P5C 是进入前端开发前的硬门槛。任何阶段都不能只交付静态占位页；进入下一阶段前，当前阶段的验收条件必须成立。
@@ -1185,6 +1427,7 @@ P5C 是进入前端开发前的硬门槛。任何阶段都不能只交付静态�
 - 做题与批改。
 - 今日复习。
 - 学习进度。
+- 基于个人学习知识库的个性化讲解、出题和复习。
 - Obsidian 导入 / 导出。
 
 ### 二等功能
@@ -1250,7 +1493,7 @@ Learning Layer
   quiz / learning / review / mastery
 
 Memory Layer
-  memory / daily memory / permanent memory / FTS5
+  memory / daily memory / permanent memory / personal learning knowledge / FTS5
 
 Storage Layer
   .knowledge / .bobodan / .session / Obsidian vault
@@ -1269,7 +1512,7 @@ Storage Layer
 - `knowledge/` 管知识库状态、manifest、导入报告和统计。
 - `quiz/` 管题库、练习、批改、错题。
 - `learning/` 管学习路径、掌握度、复习。
-- `memory/` 管用户长期上下文，不替代知识库。
+- `memory/` 管用户长期上下文、个人学习知识和候选提升，不替代原始资料库或资料 Wiki。
 - `cli/` 和 `web/` 只负责交互，不写核心业务。
 
 依赖方向：
@@ -1322,6 +1565,14 @@ memory -> cli
 - 不可从索引重建的本地用户数据。
 - 包含 permanent memory、daily memory、trace、memory db，以及 Web 上传资料的托管副本目录 `sources/`。
 - 不应随便删除。
+
+个人学习知识库：
+
+- SQLite 是 `LearningEvent`、`KnowledgeCandidate` 和 `PersonalKnowledgeItem` 的 truth source。
+- 用户级全局数据只保存称呼、低风险偏好和长期目标；掌握度、错题、课程进度、学习笔记和资料相关结论必须带 `library_id`。
+- 未确认候选不得注入为稳定事实；敏感画像、健康判断和人格推断默认不自动保存。
+- 确认后的高价值内容可以导出到 Markdown / Obsidian，但导出文件不与数据库双向自动同步。
+- 用户删除或清空后，memory prompt、Chat 检索、Practice 个性化与 Review 推荐必须在下一次请求前刷新。
 
 `.bobodan/sources/`：
 
@@ -1384,4 +1635,4 @@ Bobodan 后续应该避免做成“知识库后台 + 聊天框”，也不要走
 
 它应该成为：
 
-> 一个像 ChatGPT / Gemini 一样自然的 AI 对话主页，但默认懂用户的本地资料，并能把每次对话沉淀为练习、复习、学习计划和长期进度。
+> 一个像 ChatGPT / Gemini 一样自然的 AI 对话主页，但默认懂用户的本地资料，并能把对话、阅读和练习逐渐沉淀为可管理的个人学习知识库，让它越用越理解用户已经掌握什么、容易在哪里出错，以及怎样教学最有效。
