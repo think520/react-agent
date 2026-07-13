@@ -100,6 +100,36 @@ def test_library_api_unregister_does_not_delete_folder(backend_client, tmp_path)
     assert (root / "BOBODAN_LIBRARY.yaml").is_file()
 
 
+def test_library_migration_preview_and_apply_contract(backend_client, tmp_path, monkeypatch):
+    root = tmp_path / "legacy"
+    root.mkdir()
+    (root / "lesson.md").write_text("# Lesson", encoding="utf-8")
+
+    preview = backend_client.post("/api/libraries/migrate/preview", json={"path": str(root)})
+
+    assert preview.status_code == 200
+    assert preview.json()["material_count"] == 1
+    assert "path" not in preview.text
+
+    monkeypatch.setattr(
+        "service.library_service.LibraryService.migrate",
+        lambda self, path, name, config: {
+            "library": {
+                "library_id": "legacy-id", "name": name, "created_at": "",
+                "last_opened_at": "", "active": True, "available": True,
+            },
+            "preview": {"material_count": 1},
+            "sync": {"scanned_files": 1},
+        },
+    )
+    migrated = backend_client.post("/api/libraries/migrate", json={
+        "path": str(root), "name": "旧资料",
+    })
+
+    assert migrated.status_code == 200
+    assert migrated.json()["library"]["name"] == "旧资料"
+
+
 def test_settings_endpoint_lists_providers_without_absolute_workspace(backend_client):
     response = backend_client.get("/api/settings")
     assert response.status_code == 200

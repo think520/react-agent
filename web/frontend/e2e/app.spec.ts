@@ -64,6 +64,41 @@ test("first upload creates a portable library before indexing the file", async (
   expect(importLibraryHeader).toBe("new-library");
 });
 
+test("legacy folder is previewed and migrated from the Web UI", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("bobodan:onboarding:v1", "complete"));
+  let migrated = false;
+  const library = { library_id: "legacy-library", name: "旧课程资料", created_at: "", last_opened_at: "", active: true, available: true };
+  await page.route("**/api/libraries", async (route) => {
+    if (route.request().method() === "POST") {
+      migrated = true;
+      await route.fulfill({ contentType: "application/json", body: JSON.stringify({ library, preview: { material_count: 55 }, sync: { scanned_files: 55 } }) });
+    } else {
+      await route.fulfill({ contentType: "application/json", body: JSON.stringify({ active_library_id: migrated ? library.library_id : null, libraries: migrated ? [library] : [] }) });
+    }
+  });
+  await page.route("**/api/libraries/migrate/preview", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ folder_name: "vault", already_initialized: false, material_count: 55, size_bytes: 520_000_000, wiki_pages: 6, legacy_source_count: 1 }) }));
+  await page.route("**/api/libraries/migrate", (route) => {
+    migrated = true;
+    return route.fulfill({ contentType: "application/json", body: JSON.stringify({ library, preview: { material_count: 55 }, sync: { scanned_files: 55 } }) });
+  });
+  await page.route("**/api/settings", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ workspace_name: "Bobodan", default_provider: "deepseek", providers: [], mcp_enabled: false, skills: [] }) }));
+  await page.route("**/api/chat/sessions", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ sessions: [] }) }));
+  await page.route("**/api/kb/documents?collection=material", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ documents: [] }) }));
+  await page.route("**/api/learning/review-queue", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ due_concepts: [], wrong_answers: [], weaknesses: [] }) }));
+
+  await page.goto("/chat");
+  await page.getByRole("button", { name: "创建资料库" }).click();
+  await page.getByRole("tab", { name: "升级旧文件夹" }).click();
+  await page.getByLabel("资料库名称").fill("旧课程资料");
+  await page.getByLabel("需要原地升级的旧文件夹").fill("F:\\project\\note\\vault");
+  await page.getByRole("button", { name: "扫描文件夹" }).click();
+  await expect(page.getByRole("region", { name: "迁移扫描结果" })).toContainText("55 份可索引资料");
+  await expect(page.getByRole("region", { name: "迁移扫描结果" })).toContainText("6 个现有 Wiki 页面");
+  await page.getByRole("button", { name: "确认原地升级" }).click();
+  await expect(page).toHaveURL(/\/library/);
+  await expect(page.locator(".profile-row strong")).toHaveText("旧课程资料");
+});
+
 test("selected library scope is sent with chat requests", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("bobodan:onboarding:v1", "complete"));
   const documents = [{ document_id: "doc-1", source: "course/algorithm.md", kind: "course_document", title: "算法设计", collection: "material", content_role: "content", managed: false }];

@@ -81,6 +81,9 @@ TEMPLATES = {
     "question.md": "wiki_question",
 }
 
+MATERIAL_EXTENSIONS = {".md", ".pdf", ".docx", ".pptx"}
+INTERNAL_DIRECTORIES = {"raw", "wiki", ".bobodan", ".obsidian", ".git", "__pycache__"}
+
 
 class LibraryService:
     """Manage the user-level registry without exposing paths in public summaries."""
@@ -138,6 +141,42 @@ class LibraryService:
             "libraries": [self._public(item, registry.get("active_library_id")) for item in registry["libraries"]],
         }
 
+    def preview_migration(self, root: str) -> dict[str, Any]:
+        path = Path(root).expanduser().resolve()
+        if not path.is_dir():
+            raise ValueError("The selected folder does not exist")
+        already_initialized = (path / LIBRARY_DESCRIPTOR).is_file()
+        material_count = 0
+        total_bytes = 0
+        wiki_pages = 0
+        legacy_directories = []
+        for child in path.iterdir():
+            if child.is_dir() and child.name not in INTERNAL_DIRECTORIES and not child.name.startswith("."):
+                legacy_directories.append(child.name)
+        for file_path in path.rglob("*"):
+            if not file_path.is_file():
+                continue
+            relative_parts = file_path.relative_to(path).parts
+            if any(part in {".bobodan", ".git", "__pycache__"} for part in relative_parts):
+                continue
+            try:
+                total_bytes += file_path.stat().st_size
+            except OSError:
+                pass
+            if file_path.suffix.lower() in MATERIAL_EXTENSIONS:
+                material_count += 1
+            if relative_parts and relative_parts[0] == "wiki" and file_path.suffix.lower() == ".md":
+                if file_path.name not in {"index.md", "log.md"} and "templates" not in relative_parts:
+                    wiki_pages += 1
+        return {
+            "folder_name": path.name,
+            "already_initialized": already_initialized,
+            "material_count": material_count,
+            "size_bytes": total_bytes,
+            "wiki_pages": wiki_pages,
+            "legacy_source_count": len(legacy_directories),
+        }
+
     def resolve(self, library_id: str | None = None) -> dict[str, Any] | None:
         registry = self._load()
         selected_id = library_id or registry.get("active_library_id")
@@ -156,6 +195,12 @@ class LibraryService:
     def initialize(self, root: str, name: str | None = None) -> dict[str, Any]:
         path = Path(root).expanduser().resolve()
         path.mkdir(parents=True, exist_ok=True)
+        legacy_source_dirs = [
+            child.resolve() for child in path.iterdir()
+            if child.is_dir()
+            and child.name not in INTERNAL_DIRECTORIES
+            and not child.name.startswith(".")
+        ]
         descriptor_path = path / LIBRARY_DESCRIPTOR
         if descriptor_path.exists():
             descriptor = self._descriptor(path)
@@ -204,7 +249,28 @@ class LibraryService:
         manifest = path / ".bobodan" / "manifest.json"
         if not manifest.exists():
             _atomic_json(manifest, {"schema_version": 1, "last_sync": None, "sources": []})
+        source_roots = path / ".bobodan" / "source_roots.json"
+        existing_roots: dict[str, Any] = {}
+        if source_roots.exists():
+            try:
+                existing_roots = json.loads(source_roots.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                existing_roots = {}
+        registered = [
+            str(Path(item).resolve()) for item in existing_roots.get("course_dirs") or []
+            if Path(item).is_dir()
+        ]
+        for directory in legacy_source_dirs:
+            if str(directory) not in registered:
+                registered.append(str(directory))
+        _atomic_json(source_roots, {"vault_path": None, "course_dirs": registered})
         return self.register(str(path), activate=True)
+
+    def migrate(self, root: str, name: str | None = None, config: dict[str, Any] | None = None) -> dict[str, Any]:
+        preview = self.preview_migration(root)
+        library = self.initialize(root, name=name or preview["folder_name"])
+        sync = self.sync(library["library_id"], config=config)
+        return {"library": library, "preview": preview, "sync": sync}
 
     def create(self, name: str, parent_path: str) -> dict[str, Any]:
         root = Path(parent_path).expanduser().resolve() / _safe_folder_name(name)
@@ -272,4 +338,7 @@ class LibraryService:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else {}
         manifest["last_sync"] = _now()
         _atomic_json(manifest_path, manifest)
-        return result
+        return {
+            key: value for key, value in result.items()
+            if key not in {"rag_index_path", "graph_store_path"}
+        }

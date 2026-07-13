@@ -16,7 +16,8 @@
   - `/wiki plan`、重点调整、计划确认、执行结果与撤销状态改为会话 artifact 持久化；刷新、切换会话和重启后可恢复。
   - 旧 Wiki 支持“迁移预览 → 用户确认 → 检查点 → 机械升级”，只补 schema 元数据，不移动文件或改写正文。
   - 新增 `python agent.py library init|sync|list`，并通过 `BOBODAN_HOME` 隔离测试注册表。
-  - 验证：Python `1061 passed`、Vitest `3 passed`、TypeScript 与生产构建通过、Playwright 多视口 `33 passed`。
+  - 资料库管理新增“升级旧文件夹”：先预览可索引资料、文件夹体积、现有 Wiki 和旧资料子目录，确认后原地初始化、同步并自动切换，不要求用户重新上传。
+  - 验证：Python `1063 passed`、Vitest `3 passed`、TypeScript 与生产构建通过、Playwright 多视口 `36 passed`。
 
 - **P5E 用户主动触发的 LLM Wiki 完成**: 将资料导入与 AI 整理彻底分离，只有用户明确发起并确认计划后才写入 Wiki。
   - 新增持久化 Wiki 计划，支持当前学习范围、指定资料、课程和已有 Wiki 主题；计划展示新增、更新、合并、冲突和跳过项。

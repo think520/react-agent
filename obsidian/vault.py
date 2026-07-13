@@ -1,4 +1,5 @@
 import hashlib
+import json
 import os
 from dataclasses import dataclass
 
@@ -27,6 +28,18 @@ def scan_vault(vault_path: str) -> list[ScannedNote]:
     notes: list[ScannedNote] = []
     vault_path = os.path.abspath(vault_path)
     portable_library = os.path.isfile(os.path.join(vault_path, "BOBODAN_LIBRARY.yaml"))
+    registered_source_names: set[str] = set()
+    if portable_library:
+        roots_path = os.path.join(vault_path, ".bobodan", "source_roots.json")
+        try:
+            with open(roots_path, "r", encoding="utf-8") as handle:
+                roots = json.load(handle)
+            for source_root in roots.get("course_dirs") or []:
+                absolute = os.path.abspath(source_root)
+                if os.path.dirname(absolute) == vault_path:
+                    registered_source_names.add(os.path.basename(absolute))
+        except (OSError, json.JSONDecodeError):
+            pass
 
     for root, dirs, files in os.walk(vault_path):
         dirs[:] = [
@@ -34,6 +47,7 @@ def scan_vault(vault_path: str) -> list[ScannedNote]:
             if name not in SKIP_DIRS
             and not name.startswith(".")
             and not (portable_library and name in {"raw", "templates"})
+            and not (portable_library and root == vault_path and name in registered_source_names)
         ]
         for filename in files:
             if not filename.lower().endswith(".md"):

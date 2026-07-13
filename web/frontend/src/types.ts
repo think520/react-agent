@@ -47,6 +47,15 @@ export interface LibrarySummary {
   available: boolean;
 }
 
+export interface LibraryMigrationPreview {
+  folder_name: string;
+  already_initialized: boolean;
+  material_count: number;
+  size_bytes: number;
+  wiki_pages: number;
+  legacy_source_count: number;
+}
+
 export interface ChatSessionDetail extends ChatSessionSummary {
   messages: ChatMessage[];
 }

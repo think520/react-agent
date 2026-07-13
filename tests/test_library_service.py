@@ -62,3 +62,33 @@ def test_registry_contains_paths_only_in_user_config(tmp_path):
 
     assert registry["libraries"][0]["path"] == str(root.resolve())
     assert str(root) not in json.dumps(library)
+
+
+def test_legacy_folder_preview_and_initialize_registers_course_subfolders(tmp_path):
+    from obsidian.vault import scan_vault
+
+    root = tmp_path / "legacy-vault"
+    course = root / "course-materials"
+    wiki = root / "wiki" / "concepts"
+    course.mkdir(parents=True)
+    wiki.mkdir(parents=True)
+    (root / "note.md").write_text("# Root note", encoding="utf-8")
+    (course / "lesson.md").write_text("# Lesson", encoding="utf-8")
+    (course / "slides.pdf").write_bytes(b"pdf")
+    (wiki / "RAG.md").write_text("# RAG", encoding="utf-8")
+    service = LibraryService(str(tmp_path / "home"))
+
+    preview = service.preview_migration(str(root))
+    library = service.initialize(str(root), name="Legacy")
+    source_roots = json.loads((root / ".bobodan" / "source_roots.json").read_text(encoding="utf-8"))
+    scanned = [item.rel_path for item in scan_vault(str(root))]
+
+    assert preview["already_initialized"] is False
+    assert preview["material_count"] == 4
+    assert preview["wiki_pages"] == 1
+    assert preview["legacy_source_count"] == 1
+    assert library["name"] == "Legacy"
+    assert source_roots["course_dirs"] == [str(course.resolve())]
+    assert "note.md" in scanned
+    assert "wiki/concepts/RAG.md" in scanned
+    assert "course-materials/lesson.md" not in scanned

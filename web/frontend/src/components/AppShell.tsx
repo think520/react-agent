@@ -20,7 +20,7 @@ import {
 import { NavLink, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { api, setActiveLibraryId } from "../lib/api";
-import type { ChatSessionSummary, DocumentSummary, LibrarySummary, ReviewQueue, SettingsSummary } from "../types";
+import type { ChatSessionSummary, DocumentSummary, LibraryMigrationPreview, LibrarySummary, ReviewQueue, SettingsSummary } from "../types";
 import { formatSessionTime, IconButton, LoadingState, textValue } from "./common";
 import { OnboardingDialog } from "./OnboardingDialog";
 import { LibrarySetupDialog } from "./LibrarySetupDialog";
@@ -231,6 +231,21 @@ export function AppShell() {
     await loadScopedData();
   }
 
+  async function previewLibraryMigration(path: string): Promise<LibraryMigrationPreview> {
+    return api.previewLibraryMigration(path);
+  }
+
+  async function migrateLibrary(name: string, path: string) {
+    const result = await api.migrateLibrary(path, name);
+    setActiveLibraryId(result.library.library_id);
+    setActiveLibrary(result.library);
+    setSelectedDocumentIds([]);
+    const registry = await api.libraries();
+    setLibraries(registry.libraries);
+    navigate("/library");
+    await loadScopedData();
+  }
+
   async function switchLibrary(libraryId: string) {
     if (libraryId === activeLibrary?.library_id) return;
     const library = await api.activateLibrary(libraryId);
@@ -436,6 +451,8 @@ export function AppShell() {
         onClose={() => setLibrarySetupOpen(false)}
         onCreate={async (name, parentPath) => { await createLibrary(name, parentPath); }}
         onOpen={openExistingLibrary}
+        onPreviewMigration={previewLibraryMigration}
+        onMigrate={migrateLibrary}
       />}
     </div>
   );

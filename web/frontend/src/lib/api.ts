@@ -9,6 +9,7 @@ import type {
   ReviewQueue,
   SettingsSummary,
   LibrarySummary,
+  LibraryMigrationPreview,
   WikiArtifact,
   WikiHealth,
   WikiPlan,
@@ -73,6 +74,15 @@ export const api = {
     json({ name, parent_path: parentPath }),
   ),
   openLibrary: (path: string) => request<LibrarySummary>("/api/libraries/open", json({ path })),
+  previewLibraryMigration: (path: string) => request<LibraryMigrationPreview>(
+    "/api/libraries/migrate/preview",
+    json({ path }),
+  ),
+  migrateLibrary: (path: string, name: string) => request<{
+    library: LibrarySummary;
+    preview: LibraryMigrationPreview;
+    sync: Record<string, unknown>;
+  }>("/api/libraries/migrate", json({ path, name })),
   activateLibrary: (id: string) => request<LibrarySummary>(
     `/api/libraries/${encodeURIComponent(id)}/activate`,
     { method: "POST" },

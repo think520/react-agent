@@ -21,6 +21,11 @@ class OpenLibraryRequest(BaseModel):
     path: str = Field(..., min_length=1)
 
 
+class MigrateLibraryRequest(BaseModel):
+    path: str = Field(..., min_length=1)
+    name: str | None = Field(default=None, max_length=120)
+
+
 def _bad_request(exc: ValueError) -> APIError:
     return APIError(409, "library_unavailable", str(exc))
 
@@ -42,6 +47,22 @@ def create_library(request: CreateLibraryRequest) -> dict:
 def open_library(request: OpenLibraryRequest) -> dict:
     try:
         return get_library_service().register(request.path, activate=True)
+    except (OSError, ValueError) as exc:
+        raise _bad_request(ValueError(str(exc))) from exc
+
+
+@router.post("/migrate/preview")
+def preview_library_migration(request: OpenLibraryRequest) -> dict:
+    try:
+        return get_library_service().preview_migration(request.path)
+    except (OSError, ValueError) as exc:
+        raise _bad_request(ValueError(str(exc))) from exc
+
+
+@router.post("/migrate")
+def migrate_library(request: MigrateLibraryRequest) -> dict:
+    try:
+        return get_library_service().migrate(request.path, name=request.name, config=get_config())
     except (OSError, ValueError) as exc:
         raise _bad_request(ValueError(str(exc))) from exc
 

@@ -381,7 +381,7 @@ Bobodan 已经完成“学习 Agent 引擎”“Web 产品化基础”“本地�
 | Service Layer | 产品化基础完成 | CLI / Web 共用 runtime、config 与 service，Review / Practice 聚合已补齐 |
 | FastAPI | P5E.1 完成 | 已有稳定错误结构、流式事件、session CRUD、资料库注册与请求隔离、Library / Practice / Review / Wiki API |
 | Web UI | P5E.1 完成 | Chat、Library、Practice、Review、多资料库切换与持久化 Wiki 确认流程已落地 |
-| 测试 | 全栈回归已建立 | Python `1061 passed`；Vitest `3 passed`；TypeScript 与生产构建通过；Playwright 桌面、窄屏和移动端 `33 passed` |
+| 测试 | 全栈回归已建立 | Python `1063 passed`；Vitest `3 passed`；TypeScript 与生产构建通过；Playwright 桌面、窄屏和移动端 `36 passed` |
 
 ### 3.3 P5C / P5D / P5E 已解决的问题与剩余边界
 
@@ -696,6 +696,8 @@ P5E 验收结果：通过。
 5. 上传、初始化和同步永远不自动生成 Wiki。文件系统中手动放入资料后，使用 `python agent.py library sync <path>` 建立或更新索引。
 6. AI 对 `raw/` 只有读取权限。用户在 UI 删除原文时，文件进入 `.bobodan/archive/raw/<timestamp>/`，引用它的 Wiki 标记为 `needs_update`。
 7. `WIKI_SCHEMA.md` 是人和所有模型共同读取的规则真相源。AI 只能提出规则变更计划，确认后才能更新。
+
+旧资料文件夹优先通过 Web 的“资料库管理 → 升级旧文件夹”迁移。系统先只读扫描资料数量、文件夹体积、现有 Wiki 与旧资料子目录；用户确认后才增加资料库描述文件、注册只读来源并重建索引。原文件、图片、源码和 Wiki 保持原位，不要求重新上传。CLI 保留为批处理与故障恢复入口。
 
 命令行：
 
