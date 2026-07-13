@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 import yaml
 
 from .schema import WikiPage, WikiConfig, CompileResult
+from .reliability import read_page
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +88,48 @@ class WikiIndexer:
         if os.path.exists(index_path):
             os.remove(index_path)
         self.update_index(pages)
+
+    def rebuild_from_disk(self) -> dict:
+        """Deterministically rebuild index.md from valid, indexable Wiki pages."""
+        pages: list[WikiPage] = []
+        skipped: list[str] = []
+        for page_type in (
+            "wiki_source", "wiki_entity", "wiki_concept", "wiki_analysis", "wiki_question",
+        ):
+            directory = self.config.page_path(self.vault_path, page_type)
+            if not os.path.isdir(directory):
+                continue
+            for filename in sorted(os.listdir(directory), key=str.casefold):
+                if not filename.lower().endswith(".md"):
+                    continue
+                path = os.path.join(directory, filename)
+                try:
+                    metadata, body = read_page(path)
+                except OSError:
+                    skipped.append(os.path.relpath(path, self.wiki_dir).replace("\\", "/"))
+                    continue
+                actual_type = str(metadata.get("type") or page_type)
+                if actual_type != page_type or not bool(metadata.get("indexable", True)):
+                    skipped.append(os.path.relpath(path, self.wiki_dir).replace("\\", "/"))
+                    continue
+                pages.append(WikiPage(
+                    title=str(metadata.get("title") or os.path.splitext(filename)[0]),
+                    page_type=page_type,
+                    content=body,
+                    tags=list(metadata.get("tags") or []),
+                    sources=list(metadata.get("sources") or []),
+                    links=list(metadata.get("related") or []),
+                    source_refs=list(metadata.get("source_refs") or []),
+                    source_hash=str(metadata.get("source_hash") or ""),
+                    indexable=True,
+                    created=str(metadata.get("created") or ""),
+                    updated=str(metadata.get("updated") or ""),
+                    summary=str(metadata.get("summary") or ""),
+                    schema_version=int(metadata.get("schema_version") or 1),
+                    status=str(metadata.get("status") or "active"),
+                ))
+        self.rebuild_index(pages)
+        return {"pages": len(pages), "skipped": skipped}
 
     def append_log(self, action: str, source: str, result: CompileResult | None = None) -> None:
         """Append an entry to log.md."""

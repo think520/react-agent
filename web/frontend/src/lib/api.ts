@@ -2,17 +2,23 @@ import type {
   Attribution,
   ChatSessionDetail,
   ChatSessionSummary,
+  ChatReference,
   DocumentSection,
   DocumentSummary,
+  DocumentImpact,
   PracticeSession,
   Question,
   ReviewQueue,
   SettingsSummary,
+  RuntimeStatus,
+  SettingsChangeArtifact,
+  UserPreferences,
   LibrarySummary,
   LibraryMigrationPreview,
   WikiArtifact,
   WikiHealth,
   WikiPlan,
+  WikiTask,
 } from "../types";
 
 interface ErrorEnvelope {
@@ -96,6 +102,23 @@ export const api = {
     { method: "DELETE" },
   ),
   settings: () => request<SettingsSummary>("/api/settings"),
+  patchPreferences: (revision: number, patch: Record<string, unknown>) => request<{ preferences: UserPreferences }>(
+    "/api/settings/preferences",
+    { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ revision, patch }) },
+  ),
+  providerTest: (provider: string) => request<{ provider: string; model: string; latency_ms: number; response_received: boolean }>(
+    `/api/settings/providers/${encodeURIComponent(provider)}/test`,
+    { method: "POST" },
+  ),
+  runtimeStatus: () => request<RuntimeStatus>("/api/settings/status"),
+  createSettingsProposal: (message: string, chatSessionId?: string) => request<{ chat_session_id: string; artifact: SettingsChangeArtifact }>(
+    "/api/settings/proposals",
+    json({ message, chat_session_id: chatSessionId || null }),
+  ),
+  resolveSettingsProposal: (proposalId: string, chatSessionId: string, action: "apply" | "reject") => request<{
+    proposal: SettingsChangeArtifact;
+    preferences?: UserPreferences | null;
+  }>(`/api/settings/proposals/${encodeURIComponent(proposalId)}/${action}`, json({ chat_session_id: chatSessionId })),
   sessions: async () => (await request<{ sessions: ChatSessionSummary[] }>("/api/chat/sessions")).sessions,
   session: (id: string) => request<ChatSessionDetail>(`/api/chat/sessions/${encodeURIComponent(id)}`),
   renameSession: (id: string, name: string) => request<{ name: string }>(
@@ -120,6 +143,14 @@ export const api = {
     `/api/kb/documents/${encodeURIComponent(id)}`,
     { method: "DELETE" },
   ),
+  updateSessionProvider: (id: string, provider: string) => request<{ provider_name: string }>(
+    `/api/chat/sessions/${encodeURIComponent(id)}/provider`,
+    { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ provider }) },
+  ),
+  health: () => request<{ ok: boolean }>("/api/health"),
+  documentImpact: (id: string) => request<DocumentImpact>(
+    `/api/kb/documents/${encodeURIComponent(id)}/impact`,
+  ),
   importDocuments: async (files: File[]) => {
     const form = new FormData();
     files.forEach((file) => form.append("files", file));
@@ -131,7 +162,20 @@ export const api = {
   wikiHealth: () => request<WikiHealth>("/api/kb/wiki/maintenance"),
   maintainWiki: () => request<{ archived_count: number; canonical_count: number; health: WikiHealth }>(
     "/api/kb/wiki/maintenance",
-    json({ action: "organize" }),
+    json({ action: "plan" }),
+  ),
+  reviewWikiSemantics: () => request<{ reviews: unknown[]; health: WikiHealth }>(
+    "/api/kb/wiki/maintenance/semantic",
+    json({}),
+  ),
+  wikiTasks: () => request<{ tasks: WikiTask[] }>("/api/kb/wiki/tasks"),
+  retryWikiTask: (id: string) => request<{ retry_of: string; result: Record<string, unknown> }>(
+    `/api/kb/wiki/tasks/${encodeURIComponent(id)}/retry`,
+    json({}),
+  ),
+  cancelWikiTask: (id: string) => request<{ task: WikiTask }>(
+    `/api/kb/wiki/tasks/${encodeURIComponent(id)}/cancel`,
+    { method: "POST" },
   ),
   createWikiPlan: (body: {
     action: "generate" | "update";
@@ -227,7 +271,13 @@ export async function streamChat(
   message: string,
   chatSessionId: string | undefined,
   documentIds: string[],
-  preferences: { learningGoal?: string; memoryEnabled?: boolean; webEnabled?: boolean },
+  preferences: {
+    learningGoal?: string;
+    memoryEnabled?: boolean;
+    webEnabled?: boolean;
+    provider?: string;
+    references?: ChatReference[];
+  },
   onEvent: (event: ChatStreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
@@ -239,6 +289,8 @@ export async function streamChat(
       learning_goal: preferences.learningGoal || "",
       memory_enabled: preferences.memoryEnabled ?? true,
       web_enabled: preferences.webEnabled ?? false,
+      provider: preferences.provider || null,
+      references: preferences.references || [],
       save: true,
     }),
     headers: activeLibraryId ? {

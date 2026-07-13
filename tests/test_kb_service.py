@@ -247,6 +247,71 @@ def test_wiki_health_and_maintenance_use_workspace_vault(svc, workspace):
     assert svc.maintain_wiki("invalid")["ok"] is False
 
 
+def test_document_impact_lists_dependent_wiki_pages(svc, workspace):
+    concepts = os.path.join(workspace, "note", "vault", "wiki", "concepts")
+    os.makedirs(concepts)
+    with open(os.path.join(concepts, "Only.md"), "w", encoding="utf-8") as handle:
+        handle.write(
+            "---\ntitle: Only\ntype: wiki_concept\nsource_refs:\n"
+            "  - {document_id: doc-1, source: course/a.md}\n---\n\n# Only"
+        )
+    with open(os.path.join(concepts, "Shared.md"), "w", encoding="utf-8") as handle:
+        handle.write(
+            "---\ntitle: Shared\ntype: wiki_concept\nsource_refs:\n"
+            "  - {document_id: doc-1, source: course/a.md}\n"
+            "  - {document_id: doc-2, source: course/b.md}\n---\n\n# Shared"
+        )
+
+    impact = svc.document_impact("doc-1", document={"title": "A", "source": "course/a.md"})
+
+    assert impact["ok"]
+    assert impact["affected_count"] == 2
+    actions = {item["title"]: item["action"] for item in impact["affected_pages"]}
+    assert actions == {"Only": "archive_candidate", "Shared": "mark_needs_update"}
+
+
+def test_mark_wiki_sources_stale_uses_resolved_legacy_vault(svc, workspace):
+    concepts = os.path.join(workspace, "note", "vault", "wiki", "concepts")
+    os.makedirs(concepts)
+    page = os.path.join(concepts, "Lesson.md")
+    with open(page, "w", encoding="utf-8") as handle:
+        handle.write(
+            "---\ntitle: Lesson\ntype: wiki_concept\nstatus: active\nsource_refs:\n"
+            "  - {document_id: doc-1, source: course/lesson.md}\n---\n\n# Lesson"
+        )
+
+    svc._mark_wiki_sources_stale("doc-1", "course/lesson.md")
+
+    with open(page, "r", encoding="utf-8") as handle:
+        assert "status: needs_update" in handle.read()
+
+
+def test_failed_apply_task_can_be_retried(svc, workspace, monkeypatch):
+    from wiki.reliability import WikiTaskStore, atomic_json
+
+    store = WikiTaskStore(workspace)
+    atomic_json(store.path, [{
+        "task_id": "failed-task",
+        "operation": "apply",
+        "status": "failed",
+        "retryable": True,
+        "payload": {"plan_id": "plan-1"},
+        "created_at": "2026-01-01T00:00:00+00:00",
+        "updated_at": "2026-01-01T00:00:00+00:00",
+    }])
+    monkeypatch.setattr(
+        svc,
+        "apply_wiki_plan",
+        lambda plan_id, config=None: {"ok": True, "plan_id": plan_id, "status": "applied"},
+    )
+
+    result = svc.retry_wiki_task("failed-task", config={})
+
+    assert result["ok"]
+    assert result["retry_of"] == "failed-task"
+    assert result["result"]["plan_id"] == "plan-1"
+
+
 def test_wiki_plan_requires_confirmation_before_writing(svc, workspace, monkeypatch):
     from providers.types import LLMResponse
     from rag.sqlite_store import KBSQLiteStore, make_chunk_row

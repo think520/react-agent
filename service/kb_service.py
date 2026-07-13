@@ -209,7 +209,9 @@ class KBService:
                 "missing": result.missing_pages,
                 "stale": result.stale_pages,
                 "index_mismatches": result.index_mismatches,
+                "duplicate_candidates": result.duplicate_candidates,
                 "contradiction_candidates": result.contradiction_candidates,
+                "semantic_candidates": result.semantic_candidates,
                 "errors": result.errors,
                 "healthy": result.healthy and not result.errors,
             })
@@ -222,9 +224,27 @@ class KBService:
             missing_count=sum(len(item["missing"]) for item in details),
             stale_count=sum(len(item["stale"]) for item in details),
             index_mismatch_count=sum(len(item["index_mismatches"]) for item in details),
+            duplicate_candidate_count=sum(len(item["duplicate_candidates"]) for item in details),
             contradiction_candidate_count=sum(len(item["contradiction_candidates"]) for item in details),
+            semantic_candidate_count=sum(len(item["semantic_candidates"]) for item in details),
             vaults=details,
         )
+
+    def review_wiki_semantics(self, llm_provider) -> dict[str, Any]:
+        from wiki.lint import WikiLinter
+
+        reviews = []
+        try:
+            for vault in self._wiki_vaults():
+                result = WikiLinter(vault).semantic_review(llm_provider)
+                reviews.append({
+                    "vault": os.path.relpath(vault, self.workspace).replace("\\", "/"),
+                    **result,
+                })
+        except (OSError, ValueError) as exc:
+            return _err(str(exc))
+        health = self.wiki_health()
+        return _ok(reviews=reviews, health={key: value for key, value in health.items() if key != "ok"})
 
     def maintain_wiki(self, action: str) -> dict[str, Any]:
         if action == "check":
@@ -247,6 +267,8 @@ class KBService:
                     "broken_links": health.get("broken_link_count", 0),
                     "missing": health.get("missing_count", 0),
                     "stale": health.get("stale_count", 0),
+                    "duplicates": health.get("duplicate_candidate_count", 0),
+                    "semantic": health.get("semantic_candidate_count", 0),
                 },
             },
             health={key: value for key, value in health.items() if key != "ok"},
@@ -369,6 +391,61 @@ class KBService:
         except Exception as exc:
             sync = {"errors": [{"error": str(exc)}], "deferred": True}
         return _ok(**restored, sync=sync)
+
+    def wiki_tasks(self) -> dict[str, Any]:
+        from wiki.workflow import WikiWorkflow
+
+        tasks = WikiWorkflow(self.workspace, self._wiki_target_vault()).list_tasks()
+        return _ok(tasks=tasks)
+
+    def cancel_wiki_task(self, task_id: str) -> dict[str, Any]:
+        try:
+            from wiki.workflow import WikiWorkflow
+
+            task = WikiWorkflow(self.workspace, self._wiki_target_vault()).cancel_task(task_id)
+        except (FileNotFoundError, ValueError) as exc:
+            return _err(str(exc))
+        return _ok(task=task)
+
+    def retry_wiki_task(
+        self,
+        task_id: str,
+        llm_provider=None,
+        config: dict | None = None,
+    ) -> dict[str, Any]:
+        try:
+            from wiki.workflow import WikiWorkflow
+
+            workflow = WikiWorkflow(self.workspace, self._wiki_target_vault())
+            task = workflow.get_task(task_id)
+        except (FileNotFoundError, ValueError) as exc:
+            return _err(str(exc))
+        if not task.get("retryable") or task.get("status") != "failed":
+            return _err("This Wiki task is not retryable")
+        payload = task.get("payload") or {}
+        if task.get("operation") == "plan":
+            if llm_provider is None:
+                return _err("No configured model is available for Wiki planning")
+            result = self.create_wiki_plan(
+                llm_provider,
+                document_ids=list(payload.get("document_ids") or []),
+                action=str(payload.get("action") or "generate"),
+                instruction=str(payload.get("instruction") or ""),
+            )
+        elif task.get("operation") == "apply":
+            plan_id = str(payload.get("plan_id") or task.get("plan_id") or "")
+            result = self.apply_wiki_plan(plan_id, config=config)
+        else:
+            return _err("This Wiki task type cannot be retried")
+        if not result.get("ok"):
+            return result
+        workflow.tasks.update(
+            task_id,
+            status="completed",
+            retryable=False,
+            retried_by=result.get("task_id") or result.get("plan_id"),
+        )
+        return _ok(retry_of=task_id, result={key: value for key, value in result.items() if key != "ok"})
 
     @staticmethod
     def _is_within_workspace(path: str, workspace: str) -> bool:
@@ -569,6 +646,10 @@ class KBService:
         if document is None:
             return _err(f"Document not found: {document_id}")
 
+        impact = self.document_impact(document_id, document=document)
+        if not impact.get("ok"):
+            return impact
+
         path = document.get("path")
         if not path or not self._is_within_workspace(path, self.managed_sources_dir):
             return _err("This knowledge source is read-only and cannot be deleted here")
@@ -587,18 +668,77 @@ class KBService:
                 os.makedirs(archive_dir, exist_ok=True)
                 target = os.path.join(archive_dir, os.path.basename(path))
                 shutil.move(path, target)
-                self._mark_wiki_sources_stale(document.get("source") or path)
+                self._mark_wiki_sources_stale(document_id, document.get("source") or path)
             else:
                 os.remove(path)
 
         summary = self._sync_registered_sources(mode="incremental", config=config or {})
-        return _ok(document_id=document_id, sync=summary.to_dict())
+        return _ok(document_id=document_id, impact=impact.get("affected_pages", []), sync=summary.to_dict())
 
-    def _mark_wiki_sources_stale(self, source: str) -> None:
+    def document_impact(self, document_id: str, document: dict[str, Any] | None = None) -> dict[str, Any]:
+        if document is None:
+            detail = self.get_document(document_id)
+            if not detail.get("ok") or detail.get("document", {}).get("collection") != "material":
+                return _err(f"Document not found: {document_id}")
+            document = detail["document"]
+        source = str(document.get("source") or "").replace("\\", "/")
+        affected = []
+        wiki_dir = os.path.join(self._wiki_target_vault(), "wiki")
+        if os.path.isdir(wiki_dir):
+            import yaml
+
+            for root, dirs, files in os.walk(wiki_dir):
+                dirs[:] = [name for name in dirs if name != "templates"]
+                for filename in files:
+                    if not filename.endswith(".md") or filename in {"index.md", "log.md"}:
+                        continue
+                    path = os.path.join(root, filename)
+                    try:
+                        with open(path, "r", encoding="utf-8") as handle:
+                            content = handle.read()
+                    except OSError:
+                        continue
+                    if not content.startswith("---"):
+                        continue
+                    end = content.find("---", 3)
+                    if end < 0:
+                        continue
+                    try:
+                        metadata = yaml.safe_load(content[3:end]) or {}
+                    except yaml.YAMLError:
+                        continue
+                    refs = [item for item in metadata.get("source_refs") or [] if isinstance(item, dict)]
+                    sources = [str(item).replace("\\", "/") for item in metadata.get("sources") or []]
+                    matches = any(str(item.get("document_id") or "") == document_id for item in refs)
+                    matches = matches or source in sources or any(
+                        source.endswith(item) or item.endswith(source) for item in sources if item and source
+                    )
+                    if not matches:
+                        continue
+                    identities = {
+                        str(item.get("document_id") or item.get("source") or "").strip()
+                        for item in refs
+                        if item.get("document_id") or item.get("source")
+                    } or set(sources)
+                    affected.append({
+                        "title": str(metadata.get("title") or os.path.splitext(filename)[0]),
+                        "page_type": str(metadata.get("type") or ""),
+                        "target": os.path.relpath(path, wiki_dir).replace("\\", "/"),
+                        "source_count": len(identities),
+                        "action": "archive_candidate" if len(identities) <= 1 else "mark_needs_update",
+                    })
+        return _ok(
+            document_id=document_id,
+            title=document.get("title") or document.get("source") or "",
+            affected_pages=affected,
+            affected_count=len(affected),
+        )
+
+    def _mark_wiki_sources_stale(self, document_id: str, source: str) -> None:
         """Mark generated pages for review when an original source is archived."""
         import yaml
 
-        wiki_dir = os.path.join(self.workspace, "wiki")
+        wiki_dir = os.path.join(self._wiki_target_vault(), "wiki")
         if not os.path.isdir(wiki_dir):
             return
         normalized = str(source).replace("\\", "/")
@@ -610,7 +750,8 @@ class KBService:
                     continue
                 path = os.path.join(root, filename)
                 try:
-                    content = open(path, "r", encoding="utf-8").read()
+                    with open(path, "r", encoding="utf-8") as handle:
+                        content = handle.read()
                 except OSError:
                     continue
                 if not content.startswith("---"):
@@ -622,13 +763,16 @@ class KBService:
                     metadata = yaml.safe_load(content[3:end]) or {}
                 except yaml.YAMLError:
                     continue
+                refs = [item for item in metadata.get("source_refs") or [] if isinstance(item, dict)]
                 sources = [str(item).replace("\\", "/") for item in metadata.get("sources") or []]
-                if normalized not in sources and not any(normalized.endswith(item) or item.endswith(normalized) for item in sources):
+                referenced = any(str(item.get("document_id") or "") == document_id for item in refs)
+                if not referenced and normalized not in sources and not any(normalized.endswith(item) or item.endswith(normalized) for item in sources):
                     continue
                 metadata["status"] = "needs_update"
                 rendered = yaml.safe_dump(metadata, allow_unicode=True, sort_keys=False).strip()
-                with open(path, "w", encoding="utf-8") as handle:
-                    handle.write(f"---\n{rendered}\n---{content[end + 3:]}")
+                from wiki.reliability import atomic_text
+
+                atomic_text(path, f"---\n{rendered}\n---{content[end + 3:]}")
 
     @staticmethod
     def _public_section(chunk: dict[str, Any]) -> dict[str, Any]:

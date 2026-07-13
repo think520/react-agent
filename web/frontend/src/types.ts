@@ -25,7 +25,15 @@ export interface ChatMessage {
   pending?: boolean;
   failed?: boolean;
   process?: Array<{ phase: string; message: string; toolName?: string; elapsed?: number }>;
-  artifacts?: WikiArtifact[];
+  artifacts?: ChatArtifact[];
+  references?: ChatReference[];
+}
+
+export interface ChatReference {
+  type: "document" | "session";
+  id: string;
+  title: string;
+  collection?: "material" | "wiki";
 }
 
 export interface ChatSessionSummary {
@@ -36,6 +44,7 @@ export interface ChatSessionSummary {
   last_active: string;
   message_count: number;
   library_id?: string | null;
+  provider_name?: string | null;
 }
 
 export interface LibrarySummary {
@@ -126,9 +135,53 @@ export interface ReviewQueue {
 export interface SettingsSummary {
   workspace_name: string;
   default_provider: string;
-  providers: Array<{ name: string; configured: boolean; type?: string }>;
+  providers: Array<{ name: string; configured: boolean; type?: string; model?: string; is_default?: boolean }>;
   mcp_enabled: boolean;
-  skills: Array<{ name: string; description: string }>;
+  skills: Array<{
+    name: string;
+    description: string;
+    enabled: boolean;
+    source: string;
+    capabilities: string[];
+  }>;
+  preferences: UserPreferences;
+}
+
+export interface UserPreferences {
+  schema_version: 1;
+  revision: number;
+  assistant: {
+    display_name: string;
+    teaching_style: "guided" | "explanatory" | "practice";
+    answer_depth: "concise" | "standard" | "deep";
+    feedback_strength: "gentle" | "direct";
+  };
+  user: {
+    display_name: string;
+    profile: string;
+    long_term_goal: string;
+  };
+  appearance: {
+    reading_font: "jin-kai" | "noto-serif";
+    body_font_size: 15 | 16 | 17 | 18;
+    content_width: 640 | 720 | 800;
+    paper_texture: boolean;
+    session_density: "comfortable" | "compact";
+    motion: "system" | "reduced";
+  };
+  ai: { default_provider: string };
+  memory: { enabled: boolean };
+  skills: { enabled_names: string[] };
+}
+
+export interface RuntimeStatus {
+  backend: "connected" | "disconnected";
+  version: string;
+  active_library: LibrarySummary | null;
+  knowledge: { state: "ready" | "empty" | "not_selected"; documents: number };
+  memory: { enabled: boolean };
+  skills: { enabled: number; available: number };
+  providers: { configured: number; available: number; default: string };
 }
 
 export interface WikiHealth {
@@ -138,6 +191,8 @@ export interface WikiHealth {
   broken_link_count: number;
   missing_count: number;
   stale_count: number;
+  duplicate_candidate_count?: number;
+  semantic_candidate_count?: number;
   vaults: Array<{
     vault: string;
     total_pages: number;
@@ -145,6 +200,10 @@ export interface WikiHealth {
     broken_links: Array<{ source: string; target: string }>;
     missing: string[];
     stale: string[];
+    index_mismatches?: string[];
+    contradiction_candidates?: string[];
+    duplicate_candidates?: Array<{ canonical_title: string; pages: string[] }>;
+    semantic_candidates?: Array<{ type: string; pages: string[]; reason: string }>;
     errors: string[];
     healthy: boolean;
   }>;
@@ -156,7 +215,7 @@ export interface WikiPlanChange {
   change_id: string;
   kind: WikiChangeKind;
   title: string;
-  page_type: "wiki_entity" | "wiki_concept";
+  page_type: "wiki_source" | "wiki_entity" | "wiki_concept" | "wiki_analysis" | "wiki_question";
   summary: string;
   related: string[];
   source_count: number;
@@ -176,6 +235,34 @@ export interface WikiPlan {
   summary: Record<WikiChangeKind, number>;
   changes: WikiPlanChange[];
   written?: string[];
+  task_id?: string;
+  last_error?: string;
+  staging?: Array<{ change_id: string; path: string; errors: string[] }>;
+}
+
+export interface DocumentImpact {
+  document_id: string;
+  title: string;
+  affected_count: number;
+  affected_pages: Array<{
+    title: string;
+    page_type: string;
+    target: string;
+    source_count: number;
+    action: "archive_candidate" | "mark_needs_update";
+  }>;
+}
+
+export interface WikiTask {
+  task_id: string;
+  operation: "plan" | "apply" | string;
+  status: "running" | "completed" | "failed" | "cancelled";
+  attempts: number;
+  retryable: boolean;
+  error?: string;
+  plan_id?: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface WikiFocusArtifact {
@@ -212,3 +299,13 @@ export interface WikiResultArtifact {
 }
 
 export type WikiArtifact = WikiFocusArtifact | WikiPlanArtifact | WikiResultArtifact;
+
+export interface SettingsChangeArtifact {
+  artifact_id: string;
+  type: "settings_change";
+  proposal_id: string;
+  status: "pending" | "applied" | "rejected";
+  changes: Array<{ key: string; label: string; before: unknown; after: unknown }>;
+}
+
+export type ChatArtifact = WikiArtifact | SettingsChangeArtifact;

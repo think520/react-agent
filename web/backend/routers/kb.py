@@ -8,8 +8,10 @@ from fastapi import APIRouter, File, Request, UploadFile
 from pydantic import BaseModel, Field
 
 from service.kb_service import KBService
+from service.preference_service import PreferenceService
+from web.backend.capabilities import WEB_SKILL_NAMES
 from web.backend.deps import (
-    get_config, get_library_runtime_context, get_request_workspace,
+    get_config, get_default_provider_name, get_library_runtime_context, get_request_workspace,
     get_runtime_context, get_workspace,
 )
 from web.backend.errors import APIError, unwrap_service_result
@@ -42,6 +44,14 @@ class WikiMaintenanceRequest(BaseModel):
     action: str
 
 
+class WikiSemanticReviewRequest(BaseModel):
+    provider: str | None = None
+
+
+class WikiTaskRetryRequest(BaseModel):
+    provider: str | None = None
+
+
 class WikiPlanRequest(BaseModel):
     action: Literal["generate", "update"] = "generate"
     document_ids: list[str] = Field(default_factory=list, max_length=50)
@@ -59,6 +69,16 @@ def _runtime_for(workspace: str):
     if workspace == get_workspace():
         return get_runtime_context()
     return get_library_runtime_context(workspace)
+
+
+def _preferred_provider(requested: str | None) -> str | None:
+    if requested:
+        return requested
+    config = get_config()
+    return PreferenceService(
+        get_default_provider_name(config),
+        sorted(WEB_SKILL_NAMES),
+    ).get().get("ai", {}).get("default_provider")
 
 
 def _public_sync(result: dict) -> dict:
@@ -130,11 +150,24 @@ def maintain_wiki(body: WikiMaintenanceRequest, request: Request) -> dict:
     return unwrap_service_result(_service(request).maintain_wiki(body.action))
 
 
+@router.post("/wiki/maintenance/semantic")
+def semantic_wiki_review(body: WikiSemanticReviewRequest, request: Request) -> dict:
+    workspace = get_request_workspace(request)
+    try:
+        provider = _runtime_for(workspace).create_provider(_preferred_provider(body.provider))
+    except ValueError as exc:
+        raise APIError(409, "provider_unavailable", str(exc)) from exc
+    return unwrap_service_result(
+        _service(request).review_wiki_semantics(provider),
+        code="wiki_semantic_review_failed",
+    )
+
+
 @router.post("/wiki/plans")
 def create_wiki_plan(body: WikiPlanRequest, request: Request) -> dict:
     workspace = get_request_workspace(request)
     try:
-        provider = _runtime_for(workspace).create_provider(body.provider)
+        provider = _runtime_for(workspace).create_provider(_preferred_provider(body.provider))
     except ValueError as exc:
         raise APIError(409, "provider_unavailable", str(exc)) from exc
     return unwrap_service_result(
@@ -185,12 +218,53 @@ def restore_wiki_checkpoint(checkpoint_id: str, request: Request) -> dict:
     )
 
 
+@router.get("/wiki/tasks")
+def wiki_tasks(request: Request) -> dict:
+    return unwrap_service_result(_service(request).wiki_tasks())
+
+
+@router.post("/wiki/tasks/{task_id}/cancel")
+def cancel_wiki_task(task_id: str, request: Request) -> dict:
+    return unwrap_service_result(
+        _service(request).cancel_wiki_task(task_id),
+        status_code=409,
+        code="wiki_task_not_cancellable",
+    )
+
+
+@router.post("/wiki/tasks/{task_id}/retry")
+def retry_wiki_task(task_id: str, body: WikiTaskRetryRequest, request: Request) -> dict:
+    workspace = get_request_workspace(request)
+    service = _service(request)
+    task = next((item for item in service.wiki_tasks().get("tasks", []) if item.get("task_id") == task_id), None)
+    provider = None
+    if task and task.get("operation") == "plan":
+        try:
+            provider = _runtime_for(workspace).create_provider(_preferred_provider(body.provider))
+        except ValueError as exc:
+            raise APIError(409, "provider_unavailable", str(exc)) from exc
+    return unwrap_service_result(
+        service.retry_wiki_task(task_id, provider, config=get_config()),
+        status_code=409,
+        code="wiki_task_not_retryable",
+    )
+
+
 @router.get("/documents/{document_id}")
 def document_detail(document_id: str, request: Request) -> dict:
     result = _service(request).get_document(document_id)
     if not result.get("ok"):
         raise APIError(404, "document_not_found", result["error"])
     return result
+
+
+@router.get("/documents/{document_id}/impact")
+def document_impact(document_id: str, request: Request) -> dict:
+    return unwrap_service_result(
+        _service(request).document_impact(document_id),
+        status_code=404,
+        code="document_not_found",
+    )
 
 
 @router.delete("/documents/{document_id}")

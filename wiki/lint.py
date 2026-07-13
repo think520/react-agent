@@ -1,5 +1,6 @@
 """Wiki health checker — finds orphans, broken links, missing pages, stale pages."""
 
+import json
 import os
 import re
 import logging
@@ -13,6 +14,13 @@ from .schema import WikiConfig
 logger = logging.getLogger(__name__)
 
 WIKILINK_RE = re.compile(r'\[\[([^\]|]+?)(?:\|[^\]]+)?\]\]')
+SEMANTIC_PROMPT = """Review these Wiki page excerpts. Return JSON only:
+{{"issues":[{{"type":"contradiction|stale|missing-knowledge","pages":["title"],"reason":"short explanation"}}]}}
+
+Do not edit pages. Report only high-confidence review candidates grounded in the supplied excerpts.
+
+{pages}
+"""
 
 
 @dataclass
@@ -24,7 +32,9 @@ class LintResult:
     missing_pages: list[str] = field(default_factory=list)      # 被引用但不存在
     stale_pages: list[str] = field(default_factory=list)        # 超过 N 天未更新
     index_mismatches: list[str] = field(default_factory=list)
+    duplicate_candidates: list[dict] = field(default_factory=list)
     contradiction_candidates: list[str] = field(default_factory=list)
+    semantic_candidates: list[dict] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
     @property
@@ -32,6 +42,7 @@ class LintResult:
         return (
             not self.orphan_pages and not self.broken_links
             and not self.missing_pages and not self.index_mismatches
+            and not self.duplicate_candidates
         )
 
 
@@ -55,7 +66,8 @@ class WikiLinter:
         pages = {}          # title -> filepath
         links_from = {}     # filepath -> set of link targets
         all_links = set()   # all link targets
-        page_bodies: dict[str, set[str]] = {}
+        pages_by_canonical: dict[str, list[dict]] = {}
+        page_count = 0
 
         for dir_name in self.config.page_dirs():
             dir_path = os.path.join(self.wiki_dir, dir_name)
@@ -72,8 +84,21 @@ class WikiLinter:
                     # Extract title from frontmatter or first heading
                     title = self._extract_title(content, filename)
                     pages[title] = filepath
+                    page_count += 1
                     canonical = re.sub(r"[^0-9a-z\u4e00-\u9fff]+", "", title.casefold())
-                    page_bodies.setdefault(canonical, set()).add(content.strip())
+                    page_type = ""
+                    if content.startswith("---"):
+                        end = content.find("---", 3)
+                        if end >= 0:
+                            try:
+                                page_type = str((yaml.safe_load(content[3:end]) or {}).get("type") or "")
+                            except yaml.YAMLError:
+                                pass
+                    duplicate_key = f"{page_type}:{canonical}"
+                    pages_by_canonical.setdefault(duplicate_key, []).append({
+                        "title": title,
+                        "path": os.path.relpath(filepath, self.wiki_dir).replace("\\", "/"),
+                    })
 
                     # Extract wikilinks
                     links = set(WIKILINK_RE.findall(content))
@@ -83,11 +108,28 @@ class WikiLinter:
                 except Exception as e:
                     result.errors.append(f"Error reading {filepath}: {e}")
 
-        result.total_pages = len(pages)
-        result.contradiction_candidates = sorted(
-            title for title in pages
-            if len(page_bodies.get(re.sub(r"[^0-9a-z\u4e00-\u9fff]+", "", title.casefold()), set())) > 1
-        )
+        result.total_pages = page_count
+        result.duplicate_candidates = [
+            {
+                "canonical_title": sorted(items, key=lambda item: (len(item["title"]), item["title"].casefold()))[0]["title"],
+                "pages": sorted(item["path"] for item in items),
+            }
+            for items in pages_by_canonical.values()
+            if len(items) > 1
+        ]
+        semantic_path = os.path.join(self.wiki_dir, ".semantic-review.json")
+        try:
+            with open(semantic_path, "r", encoding="utf-8") as handle:
+                semantic = json.load(handle)
+            result.semantic_candidates = list(semantic.get("issues") or [])
+            result.contradiction_candidates = sorted({
+                str(page)
+                for item in result.semantic_candidates
+                if item.get("type") == "contradiction"
+                for page in item.get("pages") or []
+            })
+        except (OSError, json.JSONDecodeError):
+            pass
 
         try:
             from .index import WikiIndexer
@@ -103,9 +145,14 @@ class WikiLinter:
             result.index_mismatches = ["index_unreadable"]
 
         # Find broken links and missing pages
+        canonical_pages = {
+            re.sub(r"[^0-9a-z\u4e00-\u9fff]+", "", title.casefold()): title
+            for title in pages
+        }
         for filepath, links in links_from.items():
             for link in links:
-                if link not in pages:
+                canonical_link = re.sub(r"[^0-9a-z\u4e00-\u9fff]+", "", link.casefold())
+                if canonical_link not in canonical_pages:
                     result.broken_links.append({
                         "source": filepath,
                         "target": link,
@@ -116,7 +163,9 @@ class WikiLinter:
         # Find orphan pages (no inbound links, except source pages)
         pages_with_inbound = set()
         for links in links_from.values():
-            pages_with_inbound.update(links)
+            pages_with_inbound.update(
+                re.sub(r"[^0-9a-z\u4e00-\u9fff]+", "", link.casefold()) for link in links
+            )
 
         for title, filepath in pages.items():
             # Source pages are not orphans by definition
@@ -125,7 +174,8 @@ class WikiLinter:
             # Index and log are not orphans
             if title in ("Wiki Index", "Wiki Log"):
                 continue
-            if title not in pages_with_inbound:
+            canonical_title = re.sub(r"[^0-9a-z\u4e00-\u9fff]+", "", title.casefold())
+            if canonical_title not in pages_with_inbound:
                 result.orphan_pages.append(title)
 
         # Find stale pages
@@ -139,6 +189,63 @@ class WikiLinter:
                 pass
 
         return result
+
+    def semantic_review(self, llm_provider) -> dict:
+        """Generate advisory semantic issues and persist them without changing Wiki pages."""
+        if llm_provider is None:
+            raise ValueError("No configured model is available for semantic Wiki review")
+        excerpts = []
+        for dir_name in self.config.page_dirs():
+            directory = os.path.join(self.wiki_dir, dir_name)
+            if not os.path.isdir(directory):
+                continue
+            for filename in sorted(os.listdir(directory), key=str.casefold):
+                if not filename.endswith(".md"):
+                    continue
+                path = os.path.join(directory, filename)
+                try:
+                    with open(path, "r", encoding="utf-8") as handle:
+                        content = handle.read()
+                except OSError:
+                    continue
+                title = self._extract_title(content, filename)
+                excerpts.append(f"## {title}\n{content[:1200]}")
+                if sum(len(item) for item in excerpts) >= 30000:
+                    break
+            if sum(len(item) for item in excerpts) >= 30000:
+                break
+        if not excerpts:
+            payload = {"created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "issues": []}
+        else:
+            from .compiler import _parse_llm_json
+
+            response = llm_provider.complete([{
+                "role": "user",
+                "content": SEMANTIC_PROMPT.format(pages="\n\n".join(excerpts)),
+            }])
+            parsed = _parse_llm_json(response.content or "")
+            if not isinstance(parsed, dict) or not isinstance(parsed.get("issues"), list):
+                raise ValueError("The model did not return a valid semantic Wiki review")
+            issues = []
+            for item in parsed["issues"][:50]:
+                if not isinstance(item, dict) or item.get("type") not in {
+                    "contradiction", "stale", "missing-knowledge",
+                }:
+                    continue
+                reason = str(item.get("reason") or "").strip()
+                pages = [str(page).strip() for page in item.get("pages") or [] if str(page).strip()]
+                if reason:
+                    issues.append({"type": item["type"], "pages": pages, "reason": reason})
+            payload = {
+                "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "issues": issues,
+            }
+        os.makedirs(self.wiki_dir, exist_ok=True)
+        temporary = os.path.join(self.wiki_dir, ".semantic-review.json.tmp")
+        with open(temporary, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False, indent=2)
+        os.replace(temporary, os.path.join(self.wiki_dir, ".semantic-review.json"))
+        return payload
 
     def _extract_title(self, content: str, filename: str) -> str:
         """Extract title from frontmatter or first heading."""
