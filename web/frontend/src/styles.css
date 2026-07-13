@@ -387,6 +387,12 @@ kbd { color: var(--faint); font-family: inherit; font-size: 10px; }
 .runtime-grid small, .settings-empty { color: var(--faint); font-size: 10px; }
 .settings-error, .settings-notice { display: flex; align-items: center; gap: 7px; border-left: 2px solid var(--danger); margin-bottom: 14px; padding: 8px 10px; background: rgba(147,77,67,.04); color: var(--danger); font-size: 11px; }
 .settings-notice { border-color: var(--sage); background: var(--sage-wash); color: #4f6e4c; }
+.settings-unavailable { min-height: 440px; }
+.settings-unavailable-main { display: grid; min-height: 360px; place-content: center; justify-items: center; gap: 17px; padding: 36px; text-align: center; }
+.settings-unavailable-icon { display: grid; width: 48px; height: 48px; place-items: center; border-radius: 50%; background: var(--clay-wash); color: var(--clay); }
+.settings-unavailable-main > div > span { color: var(--clay); font-size: 10px; font-weight: 700; text-transform: uppercase; }
+.settings-unavailable-main h2 { margin: 6px 0; color: var(--blue); font-family: var(--font-reading); font-size: 26px; font-weight: 500; }
+.settings-unavailable-main p { max-width: 420px; margin: 0; color: var(--muted); font-size: 13px; line-height: 1.7; }
 
 [data-session-density="compact"] .session-row { min-height: 40px; }
 [data-session-density="compact"] .session-main { padding-top: 2px; padding-bottom: 2px; }
@@ -400,6 +406,7 @@ kbd { color: var(--faint); font-family: inherit; font-size: 10px; }
 @media (max-width: 700px) {
   .settings-backdrop { padding: 0; background: var(--paper-soft); backdrop-filter: none; }
   .settings-dialog { width: 100%; height: 100dvh; max-height: none; min-height: 0; border: 0; border-radius: 0; box-shadow: none; }
+  .settings-unavailable-main { min-height: calc(100dvh - 58px); }
   .settings-dialog-header { grid-template-columns: 38px minmax(0,1fr) 38px; min-height: 58px; padding: 0 10px; }
   .settings-dialog-header > strong { display: none; }
   .settings-dialog-header h2 { color: var(--blue); font-size: 17px; }
