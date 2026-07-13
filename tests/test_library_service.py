@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
+import pytest
 import yaml
 
+from service.kb_service import KBService
 from service.library_service import LibraryService
 
 
@@ -88,7 +91,81 @@ def test_legacy_folder_preview_and_initialize_registers_course_subfolders(tmp_pa
     assert preview["wiki_pages"] == 1
     assert preview["legacy_source_count"] == 1
     assert library["name"] == "Legacy"
-    assert source_roots["course_dirs"] == [str(course.resolve())]
+    assert source_roots["version"] == 2
+    assert source_roots["course_dirs"] == ["course-materials"]
     assert "note.md" in scanned
     assert "wiki/concepts/RAG.md" in scanned
     assert "course-materials/lesson.md" not in scanned
+
+
+def test_moved_library_rewrites_legacy_absolute_source_roots(tmp_path):
+    service = LibraryService(str(tmp_path / "home"))
+    original = tmp_path / "original" / "library"
+    course = original / "course-materials"
+    course.mkdir(parents=True)
+    (course / "lesson.md").write_text("# Lesson", encoding="utf-8")
+    library = service.initialize(str(original), name="Portable")
+    source_roots_path = original / ".bobodan" / "source_roots.json"
+    source_roots_path.write_text(json.dumps({
+        "vault_path": None,
+        "course_dirs": [str(course.resolve())],
+    }), encoding="utf-8")
+
+    moved = tmp_path / "moved" / "library"
+    moved.parent.mkdir()
+    shutil.move(str(original), str(moved))
+    reopened = service.register(str(moved), activate=True)
+    roots = json.loads((moved / ".bobodan" / "source_roots.json").read_text(encoding="utf-8"))
+    vault, course_dirs = KBService(str(moved))._registered_roots()
+
+    assert reopened["library_id"] == library["library_id"]
+    assert service.resolve()["path"] == str(moved.resolve())
+    assert roots["version"] == 2
+    assert roots["course_dirs"] == ["course-materials"]
+    assert vault == str(moved.resolve())
+    assert course_dirs == [str((moved / "raw").resolve()), str((moved / "course-materials").resolve())]
+
+
+def test_migration_failure_restores_registry_and_active_library(tmp_path, monkeypatch):
+    service = LibraryService(str(tmp_path / "home"))
+    active = service.initialize(str(tmp_path / "active"), name="Active")
+    legacy = tmp_path / "legacy"
+    legacy.mkdir()
+    (legacy / "lesson.md").write_text("# Lesson", encoding="utf-8")
+    registry_before = json.loads(service.registry_path.read_text(encoding="utf-8"))
+
+    def fail_sync(_library_id, config=None):
+        del config
+        raise ValueError("sync failed")
+
+    monkeypatch.setattr(service, "sync", fail_sync)
+
+    with pytest.raises(ValueError, match="sync failed"):
+        service.migrate(str(legacy), name="Legacy")
+
+    registry_after = json.loads(service.registry_path.read_text(encoding="utf-8"))
+    assert registry_after == registry_before
+    assert service.list_libraries()["active_library_id"] == active["library_id"]
+    assert [item["name"] for item in service.list_libraries()["libraries"]] == ["Active"]
+
+
+def test_migration_activates_library_only_after_sync(tmp_path, monkeypatch):
+    service = LibraryService(str(tmp_path / "home"))
+    active = service.initialize(str(tmp_path / "active"), name="Active")
+    legacy = tmp_path / "legacy"
+    legacy.mkdir()
+    (legacy / "lesson.md").write_text("# Lesson", encoding="utf-8")
+    observed_active_ids = []
+
+    def successful_sync(library_id, config=None):
+        del config
+        observed_active_ids.append(service.list_libraries()["active_library_id"])
+        return {"ok": True, "library_id": library_id}
+
+    monkeypatch.setattr(service, "sync", successful_sync)
+
+    result = service.migrate(str(legacy), name="Legacy")
+
+    assert observed_active_ids == [active["library_id"]]
+    assert result["library"]["active"] is True
+    assert service.list_libraries()["active_library_id"] == result["library"]["library_id"]

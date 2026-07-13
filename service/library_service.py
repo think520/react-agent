@@ -33,6 +33,28 @@ def _safe_folder_name(name: str) -> str:
     return value or "Bobodan Library"
 
 
+def _relative_source_root(root: Path, value: str | Path) -> str | None:
+    """Return an existing library-internal source directory as a portable path."""
+    candidate = Path(value).expanduser()
+    resolved = candidate.resolve() if candidate.is_absolute() else (root / candidate).resolve()
+    try:
+        relative = resolved.relative_to(root)
+    except ValueError:
+        # Older libraries stored absolute top-level course paths. After the
+        # library moves, recover them by their directory name when unambiguous.
+        fallback = (root / candidate.name).resolve()
+        if not fallback.is_dir():
+            return None
+        resolved = fallback
+        try:
+            relative = resolved.relative_to(root)
+        except ValueError:
+            return None
+    if not resolved.is_dir() or relative == Path("."):
+        return None
+    return relative.as_posix()
+
+
 WIKI_SCHEMA = """# Bobodan LLM Wiki Schema
 
 This file is the shared source of truth for people and AI models maintaining this library.
@@ -108,6 +130,28 @@ class LibraryService:
 
     def _save(self, registry: dict[str, Any]) -> None:
         _atomic_json(self.registry_path, registry)
+
+    @staticmethod
+    def _normalize_source_roots(root: Path, additional: list[Path] | None = None) -> None:
+        source_roots = root / ".bobodan" / "source_roots.json"
+        existing: dict[str, Any] = {}
+        if source_roots.exists():
+            try:
+                existing = json.loads(source_roots.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                existing = {}
+        candidates: list[str | Path] = list(existing.get("course_dirs") or [])
+        candidates.extend(additional or [])
+        normalized = []
+        for item in candidates:
+            relative = _relative_source_root(root, item)
+            if relative and relative not in normalized:
+                normalized.append(relative)
+        _atomic_json(source_roots, {
+            "version": 2,
+            "vault_path": None,
+            "course_dirs": normalized,
+        })
 
     @staticmethod
     def _descriptor(root: Path) -> dict[str, Any]:
@@ -192,7 +236,12 @@ class LibraryService:
             return {**record, "path": str(root)}
         raise ValueError("Unknown or unregistered Bobodan library")
 
-    def initialize(self, root: str, name: str | None = None) -> dict[str, Any]:
+    def initialize(
+        self,
+        root: str,
+        name: str | None = None,
+        activate: bool = True,
+    ) -> dict[str, Any]:
         path = Path(root).expanduser().resolve()
         path.mkdir(parents=True, exist_ok=True)
         legacy_source_dirs = [
@@ -249,27 +298,23 @@ class LibraryService:
         manifest = path / ".bobodan" / "manifest.json"
         if not manifest.exists():
             _atomic_json(manifest, {"schema_version": 1, "last_sync": None, "sources": []})
-        source_roots = path / ".bobodan" / "source_roots.json"
-        existing_roots: dict[str, Any] = {}
-        if source_roots.exists():
-            try:
-                existing_roots = json.loads(source_roots.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                existing_roots = {}
-        registered = [
-            str(Path(item).resolve()) for item in existing_roots.get("course_dirs") or []
-            if Path(item).is_dir()
-        ]
-        for directory in legacy_source_dirs:
-            if str(directory) not in registered:
-                registered.append(str(directory))
-        _atomic_json(source_roots, {"vault_path": None, "course_dirs": registered})
-        return self.register(str(path), activate=True)
+        self._normalize_source_roots(path, legacy_source_dirs)
+        return self.register(str(path), activate=activate)
 
     def migrate(self, root: str, name: str | None = None, config: dict[str, Any] | None = None) -> dict[str, Any]:
         preview = self.preview_migration(root)
-        library = self.initialize(root, name=name or preview["folder_name"])
-        sync = self.sync(library["library_id"], config=config)
+        registry_before = self._load()
+        try:
+            staged = self.initialize(
+                root,
+                name=name or preview["folder_name"],
+                activate=False,
+            )
+            sync = self.sync(staged["library_id"], config=config)
+            library = self.activate(staged["library_id"])
+        except Exception:
+            self._save(registry_before)
+            raise
         return {"library": library, "preview": preview, "sync": sync}
 
     def create(self, name: str, parent_path: str) -> dict[str, Any]:
@@ -281,6 +326,7 @@ class LibraryService:
     def register(self, root: str, activate: bool = True) -> dict[str, Any]:
         path = Path(root).expanduser().resolve()
         descriptor = self._descriptor(path)
+        self._normalize_source_roots(path)
         registry = self._load()
         now = _now()
         record = {

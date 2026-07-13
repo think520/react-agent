@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BookOpen,
   ChevronLeft,
@@ -23,7 +23,12 @@ import { api, setActiveLibraryId } from "../lib/api";
 import type { ChatSessionSummary, DocumentSummary, LibraryMigrationPreview, LibrarySummary, ReviewQueue, SettingsSummary } from "../types";
 import { formatSessionTime, IconButton, LoadingState, textValue } from "./common";
 import { OnboardingDialog } from "./OnboardingDialog";
-import { LibrarySetupDialog } from "./LibrarySetupDialog";
+import { LibrarySetupDialog, type LibrarySetupMode } from "./LibrarySetupDialog";
+
+export interface LibrarySetupOptions {
+  initialMode?: LibrarySetupMode;
+  importCount?: number;
+}
 
 export interface AppOutletContext {
   sessions: ChatSessionSummary[];
@@ -37,8 +42,14 @@ export interface AppOutletContext {
   clearDocumentScope: () => void;
   libraries: LibrarySummary[];
   activeLibrary: LibrarySummary | null;
-  openLibrarySetup: () => void;
+  openLibrarySetup: (options?: LibrarySetupOptions) => void;
   createLibrary: (name: string, parentPath: string) => Promise<LibrarySummary>;
+  switchLibrary: (libraryId: string) => Promise<void>;
+  startDocumentImport: () => void;
+  documentImporting: boolean;
+  documentImportNotice: string;
+  documentImportError: string;
+  documentImportVersion: number;
   libraryReady: boolean;
 }
 
@@ -159,6 +170,13 @@ export function AppShell() {
   const [libraries, setLibraries] = useState<LibrarySummary[]>([]);
   const [activeLibrary, setActiveLibrary] = useState<LibrarySummary | null>(null);
   const [librarySetupOpen, setLibrarySetupOpen] = useState(false);
+  const [librarySetupOptions, setLibrarySetupOptions] = useState<LibrarySetupOptions>({});
+  const documentImportInput = useRef<HTMLInputElement>(null);
+  const pendingDocumentFiles = useRef<File[]>([]);
+  const [documentImporting, setDocumentImporting] = useState(false);
+  const [documentImportNotice, setDocumentImportNotice] = useState("");
+  const [documentImportError, setDocumentImportError] = useState("");
+  const [documentImportVersion, setDocumentImportVersion] = useState(0);
 
   const refreshSessions = useCallback(async () => {
     try {
@@ -175,6 +193,58 @@ export function AppShell() {
       api.reviewQueue().then(setReview).catch(() => setReview(null)),
     ]);
   }, [refreshSessions]);
+
+  const uploadDocuments = useCallback(async (files: File[]) => {
+    setDocumentImporting(true);
+    setDocumentImportNotice("");
+    setDocumentImportError("");
+    try {
+      const result = await api.importDocuments(files);
+      const rejected = result.rejected.length ? `，${result.rejected.length} 份未能导入` : "";
+      setDocumentImportNotice(`已导入 ${result.imported.length} 份资料并建立索引${rejected}。`);
+      setDocumentImportVersion((current) => current + 1);
+      await loadScopedData();
+    } catch (reason) {
+      setDocumentImportError(reason instanceof Error ? reason.message : "资料导入失败。");
+    } finally {
+      setDocumentImporting(false);
+      navigate("/library");
+    }
+  }, [loadScopedData, navigate]);
+
+  function openLibrarySetup(options: LibrarySetupOptions = {}) {
+    setLibrarySetupOptions(options);
+    setLibrarySetupOpen(true);
+  }
+
+  function cancelLibrarySetup() {
+    if (librarySetupOptions.importCount) pendingDocumentFiles.current = [];
+    setLibrarySetupOpen(false);
+    setLibrarySetupOptions({});
+  }
+
+  function completeLibrarySetup() {
+    setLibrarySetupOpen(false);
+    setLibrarySetupOptions({});
+  }
+
+  function startDocumentImport() {
+    setDocumentImportNotice("");
+    setDocumentImportError("");
+    documentImportInput.current?.click();
+  }
+
+  async function selectDocumentsForImport(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files || []);
+    event.target.value = "";
+    if (!files.length) return;
+    if (!activeLibrary) {
+      pendingDocumentFiles.current = files;
+      openLibrarySetup({ initialMode: "create", importCount: files.length });
+      return;
+    }
+    await uploadDocuments(files);
+  }
 
   useEffect(() => {
     void Promise.all([api.settings().then(setSettings).catch(() => setSettings(null)), api.libraries()])
@@ -198,6 +268,13 @@ export function AppShell() {
       .catch(() => setLoadingSessions(false))
       .finally(() => setInitialDataLoaded(true));
   }, [loadScopedData]);
+
+  useEffect(() => {
+    if (!activeLibrary || !pendingDocumentFiles.current.length) return;
+    const files = pendingDocumentFiles.current;
+    pendingDocumentFiles.current = [];
+    void uploadDocuments(files);
+  }, [activeLibrary?.library_id, uploadDocuments]);
 
   useEffect(() => {
     localStorage.setItem("bobodan:scope:documents", JSON.stringify(selectedDocumentIds));
@@ -248,6 +325,8 @@ export function AppShell() {
 
   async function switchLibrary(libraryId: string) {
     if (libraryId === activeLibrary?.library_id) return;
+    setDocumentImportNotice("");
+    setDocumentImportError("");
     const library = await api.activateLibrary(libraryId);
     setActiveLibraryId(library.library_id);
     setActiveLibrary(library);
@@ -393,8 +472,6 @@ export function AppShell() {
         <div className="profile-row">
           <span className="profile-avatar">库</span>
           <span><strong>{activeLibrary?.name || "尚未选择资料库"}</strong><small>{settings?.default_provider || "等待连接 AI"}</small></span>
-          {libraries.length > 0 && <select aria-label="切换资料库" value={activeLibrary?.library_id || ""} onChange={(event) => void switchLibrary(event.target.value)}>{libraries.filter((item) => item.available).map((library) => <option value={library.library_id} key={library.library_id}>{library.name}</option>)}</select>}
-          <IconButton label="管理资料库" onClick={() => setLibrarySetupOpen(true)}><Plus size={15} /></IconButton>
         </div>
       </aside>
 
@@ -418,8 +495,14 @@ export function AppShell() {
           clearDocumentScope: () => setSelectedDocumentIds([]),
           libraries,
           activeLibrary,
-          openLibrarySetup: () => setLibrarySetupOpen(true),
+          openLibrarySetup,
           createLibrary,
+          switchLibrary,
+          startDocumentImport,
+          documentImporting,
+          documentImportNotice,
+          documentImportError,
+          documentImportVersion,
           libraryReady: initialDataLoaded,
         } satisfies AppOutletContext} />
       </main>
@@ -448,12 +531,16 @@ export function AppShell() {
         }}
       />}
       {librarySetupOpen && <LibrarySetupDialog
-        onClose={() => setLibrarySetupOpen(false)}
+        onClose={cancelLibrarySetup}
+        onComplete={completeLibrarySetup}
         onCreate={async (name, parentPath) => { await createLibrary(name, parentPath); }}
         onOpen={openExistingLibrary}
         onPreviewMigration={previewLibraryMigration}
         onMigrate={migrateLibrary}
+        initialMode={librarySetupOptions.initialMode}
+        importCount={librarySetupOptions.importCount}
       />}
+      <input ref={documentImportInput} className="visually-hidden" type="file" multiple accept=".md,.pdf,.docx,.pptx" onChange={(event) => void selectDocumentsForImport(event)} />
     </div>
   );
 }

@@ -1,5 +1,5 @@
-import { ChangeEvent, useEffect, useRef, useState } from "react";
-import { BookmarkCheck, CheckCircle2, FilePlus2, FileText, FolderOpen, Plus, Quote, RefreshCw, Search, ShieldCheck, Sparkles, Trash2, Upload, Wrench, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { BookmarkCheck, CheckCircle2, FilePlus2, FileText, FolderOpen, Library, Plus, Quote, RefreshCw, Search, Settings2, ShieldCheck, Sparkles, Trash2, Upload, Wrench, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useNavigate, useOutletContext, useSearchParams } from "react-router-dom";
@@ -11,7 +11,19 @@ import { api } from "../lib/api";
 import type { DocumentSection, DocumentSummary, WikiHealth, WikiPlan } from "../types";
 
 export function LibraryPage() {
-  const { activeLibrary, openLibrarySetup, selectedDocumentIds, toggleDocumentScope } = useOutletContext<AppOutletContext>();
+  const {
+    activeLibrary,
+    libraries,
+    openLibrarySetup,
+    switchLibrary,
+    startDocumentImport,
+    documentImporting,
+    documentImportNotice,
+    documentImportError,
+    documentImportVersion,
+    selectedDocumentIds,
+    toggleDocumentScope,
+  } = useOutletContext<AppOutletContext>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [documents, setDocuments] = useState<DocumentSummary[]>([]);
@@ -22,7 +34,6 @@ export function LibraryPage() {
   const [sections, setSections] = useState<DocumentSection[]>([]);
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
-  const [importing, setImporting] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -37,8 +48,6 @@ export function LibraryPage() {
   const [wikiPlanLoading, setWikiPlanLoading] = useState(false);
   const [wikiInstruction, setWikiInstruction] = useState("");
   const [wikiScopeMode, setWikiScopeMode] = useState<"selection" | "document" | "course">("selection");
-  const fileInput = useRef<HTMLInputElement>(null);
-  const pendingFiles = useRef<File[]>([]);
 
   async function loadDocuments() {
     if (!activeLibrary) {
@@ -67,7 +76,7 @@ export function LibraryPage() {
     }
   }
 
-  useEffect(() => { void loadDocuments(); }, [activeLibrary?.library_id, collection]);
+  useEffect(() => { void loadDocuments(); }, [activeLibrary?.library_id, collection, documentImportVersion]);
 
   useEffect(() => {
     const requestedCollection = searchParams.get("collection") === "wiki" ? "wiki" : "material";
@@ -93,40 +102,6 @@ export function LibraryPage() {
     setHighlightedChunk(chunkId);
     target.scrollIntoView({ block: "center", behavior: "smooth" });
   }, [detailLoading, searchParams, sections]);
-
-  async function importFiles(event: ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(event.target.files || []);
-    event.target.value = "";
-    if (!files.length) return;
-    if (!activeLibrary) {
-      pendingFiles.current = files;
-      openLibrarySetup();
-      return;
-    }
-    await uploadFiles(files);
-  }
-
-  async function uploadFiles(files: File[]) {
-    setImporting(true);
-    setError("");
-    setNotice("");
-    try {
-      const result = await api.importDocuments(files);
-      setNotice(`已导入 ${result.imported.length} 份资料，并更新本地索引。`);
-      await loadDocuments();
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "资料导入失败。" );
-    } finally {
-      setImporting(false);
-    }
-  }
-
-  useEffect(() => {
-    if (!activeLibrary || !pendingFiles.current.length) return;
-    const files = pendingFiles.current;
-    pendingFiles.current = [];
-    void uploadFiles(files);
-  }, [activeLibrary?.library_id]);
 
   async function checkWiki() {
     setMaintenanceLoading(true);
@@ -280,16 +255,25 @@ export function LibraryPage() {
     <section className="page-scroll">
       <div className="page-container library-container">
         <header className="page-heading">
-          <div><span>Library</span><h2>资料库</h2><p>{collection === "material" ? "导入的资料只保存在本地工作区，并建立可追踪的学习索引。" : "Wiki 是由 Bobodan 从学习资料中整理出的规范概念页。"}</p></div>
+          <div><span>Library</span><h2>资料库</h2><p>{collection === "material" ? "把学习材料放在这里，Bobodan 会建立可追踪的本地索引。" : "Wiki 是由 Bobodan 从学习资料中整理出的规范概念页。"}</p></div>
           <div className="heading-actions">
-            <button className="quiet-button" onClick={() => void loadDocuments()}><RefreshCw size={16} />刷新</button>
+            {activeLibrary && <button className="quiet-button" onClick={() => void loadDocuments()}><RefreshCw size={16} />刷新</button>}
             {collection === "wiki" && <button className="quiet-button" onClick={() => void openWikiMaintenance()}><Wrench size={16} />维护 Wiki</button>}
             {collection === "wiki" && <button className="primary-button" disabled={!selectedId} onClick={() => { setWikiPlan(null); setWikiPlanOpen(true); }}><Sparkles size={16} />更新 Wiki</button>}
-            {collection === "material" && <button className="quiet-button" disabled={!documents.length} onClick={() => { setWikiScopeMode(selectedDocumentIds.length ? "selection" : "document"); setWikiPlan(null); setWikiPlanOpen(true); }}><Sparkles size={16} />整理成 Wiki</button>}
-            {collection === "material" && <button className="primary-button" disabled={importing} onClick={() => fileInput.current?.click()}><Upload size={16} />{importing ? "正在导入" : "导入资料"}</button>}
-            <input ref={fileInput} className="visually-hidden" type="file" multiple accept=".md,.pdf,.docx,.pptx" onChange={(event) => void importFiles(event)} />
+            {collection === "material" && documents.length > 0 && <button className="quiet-button" onClick={() => { setWikiScopeMode(selectedDocumentIds.length ? "selection" : "document"); setWikiPlan(null); setWikiPlanOpen(true); }}><Sparkles size={16} />整理成 Wiki</button>}
+            {collection === "material" && <button className="primary-button" disabled={documentImporting} onClick={startDocumentImport}><Upload size={16} />{documentImporting ? "正在建立索引" : "导入资料"}</button>}
           </div>
         </header>
+        <section className="library-context-bar" aria-label="当前资料库">
+          <div className="library-context-copy">
+            <span className="library-context-icon"><Library size={18} /></span>
+            <div><span>当前资料库</span><strong>{activeLibrary?.name || "尚未创建资料库"}</strong><small>{activeLibrary ? "资料、Wiki、对话和学习进度保存在这个本地文件夹中" : "导入第一份资料时，Bobodan 会引导你创建保存位置"}</small></div>
+          </div>
+          <div className="library-context-actions">
+            {libraries.filter((item) => item.available).length > 0 && <label className="library-switcher"><span>切换</span><select aria-label="切换资料库" value={activeLibrary?.library_id || ""} onChange={(event) => void switchLibrary(event.target.value)}>{libraries.filter((item) => item.available).map((library) => <option value={library.library_id} key={library.library_id}>{library.name}</option>)}</select></label>}
+            <button className="quiet-button" onClick={() => openLibrarySetup()}><Settings2 size={16} />资料库管理</button>
+          </div>
+        </section>
         <div className="library-tabs" role="tablist" aria-label="资料库分类">
           <button role="tab" aria-selected={collection === "material"} className={collection === "material" ? "active" : ""} onClick={() => selectCollection("material")}>学习资料</button>
           <button role="tab" aria-selected={collection === "wiki"} className={collection === "wiki" ? "active" : ""} onClick={() => selectCollection("wiki")}>Wiki</button>
@@ -340,7 +324,8 @@ export function LibraryPage() {
           </>}
           <footer><button className="quiet-button" disabled={maintenanceLoading} onClick={() => void checkWiki()}><RefreshCw size={15} />重新检查</button><button className="primary-button" disabled={maintenanceLoading} onClick={() => void organizeWiki()}><Wrench size={15} />{maintenanceLoading ? "正在整理" : "整理并重建索引"}</button></footer>
         </section>}
-        {notice && <div className="success-notice"><CheckCircle2 size={17} />{notice}</div>}
+        {(documentImportNotice || notice) && <div className="success-notice"><CheckCircle2 size={17} />{documentImportNotice || notice}</div>}
+        {documentImportError && <ErrorNotice message={documentImportError} />}
         {error && <ErrorNotice message={error} action={<button className="quiet-button" onClick={() => void loadDocuments()}>重试</button>} />}
         {loading ? <div className="illustrated-loading"><BrandIllustration state="reading" size={76} /><LoadingState label={collection === "wiki" ? "正在整理 Wiki…" : "正在读取本地资料…"} /></div> : documents.length ? (
           <div className="library-workspace">
@@ -379,8 +364,8 @@ export function LibraryPage() {
         ) : (
           <EmptyState state={collection === "wiki" ? "listening" : "reading"}
             title={collection === "wiki" ? "还没有 Wiki 页面" : "先放进第一份学习资料"}
-            description={collection === "wiki" ? "从学习资料生成的概念与实体会整理在这里。" : "支持 Markdown、PDF、Word 和 PowerPoint，单个文件最大 25 MB。"}
-            action={collection === "material" ? <button className="primary-button" onClick={() => fileInput.current?.click()}><FilePlus2 size={17} />选择本地文件</button> : undefined}
+            description={collection === "wiki" ? "从学习资料生成的概念与实体会整理在这里。" : "支持 Markdown、PDF、Word 和 PowerPoint。没有资料库也没关系，选择文件后会继续引导。"}
+            action={collection === "material" ? <div className="library-empty-actions"><button className="primary-button" onClick={startDocumentImport}><FilePlus2 size={17} />导入资料</button><button className="quiet-button" onClick={() => openLibrarySetup({ initialMode: "open" })}><FolderOpen size={16} />打开或接入已有资料库</button></div> : undefined}
           />
         )}
       </div>

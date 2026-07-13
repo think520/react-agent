@@ -44,6 +44,8 @@ export function ChatPage() {
     clearDocumentScope,
     activeLibrary,
     openLibrarySetup,
+    startDocumentImport,
+    documentImporting,
     libraryReady,
   } = useOutletContext<AppOutletContext>();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -474,7 +476,7 @@ export function ChatPage() {
             <div className="starter-actions">
               <button onClick={() => usePrompt("根据我的资料，帮我梳理今天最值得学习的三个知识点。")}>梳理学习重点</button>
               <button onClick={() => usePrompt("请先用直觉解释，再给出严谨推导。")}>先讲直觉，再补证明</button>
-              <button onClick={() => activeLibrary ? navigate("/library") : openLibrarySetup()}><FilePlus2 size={15} />{activeLibrary ? "导入资料" : "创建资料库"}</button>
+              <button disabled={documentImporting} onClick={startDocumentImport}><FilePlus2 size={15} />{documentImporting ? "正在导入" : "导入资料"}</button>
               <button onClick={() => navigate("/practice")}><BookOpen size={15} />开始练习</button>
             </div>
           </div>

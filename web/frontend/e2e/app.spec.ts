@@ -54,13 +54,17 @@ test("first upload creates a portable library before indexing the file", async (
     return route.fulfill({ contentType: "application/json", body: JSON.stringify({ imported: ["lesson.md"], rejected: [], sync: {} }) });
   });
 
-  await page.goto("/library");
-  await page.locator('input[type="file"]').setInputFiles({ name: "lesson.md", mimeType: "text/markdown", buffer: Buffer.from("# Lesson") });
-  await expect(page.getByRole("heading", { name: "创建本地资料库" })).toBeVisible();
+  await page.goto("/chat");
+  const fileChooserPromise = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "导入资料" }).click();
+  const fileChooser = await fileChooserPromise;
+  await fileChooser.setFiles({ name: "lesson.md", mimeType: "text/markdown", buffer: Buffer.from("# Lesson") });
+  await expect(page.getByRole("heading", { name: "准备导入 1 份资料" })).toBeVisible();
   await page.getByLabel("资料库名称").fill("算法资料");
   await page.getByLabel("保存到这个目录").fill("D:\\Learning");
-  await page.getByRole("button", { name: "创建资料库" }).click();
-  await expect(page.getByText("已导入 1 份资料，并更新本地索引。")).toBeVisible();
+  await page.getByRole("button", { name: "创建并继续导入" }).click();
+  await expect(page.getByText("已导入 1 份资料并建立索引。")).toBeVisible();
+  await expect(page).toHaveURL(/\/library/);
   expect(importLibraryHeader).toBe("new-library");
 });
 
@@ -86,17 +90,49 @@ test("legacy folder is previewed and migrated from the Web UI", async ({ page })
   await page.route("**/api/kb/documents?collection=material", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ documents: [] }) }));
   await page.route("**/api/learning/review-queue", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ due_concepts: [], wrong_answers: [], weaknesses: [] }) }));
 
-  await page.goto("/chat");
-  await page.getByRole("button", { name: "创建资料库" }).click();
-  await page.getByRole("tab", { name: "升级旧文件夹" }).click();
+  await page.goto("/library");
+  await page.getByRole("button", { name: "资料库管理" }).click();
+  await page.getByRole("tab", { name: "接入旧文件夹" }).click();
   await page.getByLabel("资料库名称").fill("旧课程资料");
-  await page.getByLabel("需要原地升级的旧文件夹").fill("F:\\project\\note\\vault");
+  await page.getByLabel("需要原地接入的资料文件夹").fill("F:\\project\\note\\vault");
   await page.getByRole("button", { name: "扫描文件夹" }).click();
-  await expect(page.getByRole("region", { name: "迁移扫描结果" })).toContainText("55 份可索引资料");
-  await expect(page.getByRole("region", { name: "迁移扫描结果" })).toContainText("6 个现有 Wiki 页面");
-  await page.getByRole("button", { name: "确认原地升级" }).click();
+  await expect(page.getByRole("region", { name: "接入扫描结果" })).toContainText("55 份可索引资料");
+  await expect(page.getByRole("region", { name: "接入扫描结果" })).toContainText("6 个现有 Wiki 页面");
+  await page.getByRole("button", { name: "确认原地接入" }).click();
   await expect(page).toHaveURL(/\/library/);
   await expect(page.locator(".profile-row strong")).toHaveText("旧课程资料");
+});
+
+test("initialized folder is opened instead of migrated again", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("bobodan:onboarding:v1", "complete"));
+  let opened = false;
+  let migrated = false;
+  const library = { library_id: "existing-library", name: "已有资料库", created_at: "", last_opened_at: "", active: true, available: true };
+  await page.route("**/api/libraries", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ active_library_id: opened ? library.library_id : null, libraries: opened ? [library] : [] }) }));
+  await page.route("**/api/libraries/open", (route) => {
+    opened = true;
+    return route.fulfill({ contentType: "application/json", body: JSON.stringify(library) });
+  });
+  await page.route("**/api/libraries/migrate/preview", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ folder_name: "vault", already_initialized: true, material_count: 62, size_bytes: 520_000_000, wiki_pages: 7, legacy_source_count: 1 }) }));
+  await page.route("**/api/libraries/migrate", (route) => {
+    migrated = true;
+    return route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: { message: "不应再次迁移" } }) });
+  });
+  await page.route("**/api/settings", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ workspace_name: "Bobodan", default_provider: "deepseek", providers: [], mcp_enabled: false, skills: [] }) }));
+  await page.route("**/api/chat/sessions", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ sessions: [] }) }));
+  await page.route("**/api/kb/documents?collection=material", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ documents: [] }) }));
+  await page.route("**/api/learning/review-queue", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ due_concepts: [], wrong_answers: [], weaknesses: [] }) }));
+
+  await page.goto("/library");
+  await page.getByRole("button", { name: "资料库管理" }).click();
+  await page.getByRole("tab", { name: "接入旧文件夹" }).click();
+  await page.getByLabel("需要原地接入的资料文件夹").fill("F:\\project\\note\\vault");
+  await page.getByRole("button", { name: "扫描文件夹" }).click();
+  await expect(page.getByRole("region", { name: "接入扫描结果" })).toContainText("这是一个 Bobodan 资料库");
+  await page.getByRole("button", { name: "打开这个资料库" }).click();
+  await expect(page.locator(".profile-row strong")).toHaveText("已有资料库");
+  expect(opened).toBe(true);
+  expect(migrated).toBe(false);
 });
 
 test("selected library scope is sent with chat requests", async ({ page }) => {
@@ -337,6 +373,12 @@ test("chat answer becomes practice and returns to review", async ({ page }) => {
 test("Chat and primary study routes render without overlap", async ({ page }, testInfo) => {
   await page.addInitScript(() => localStorage.setItem("bobodan:onboarding:v1", "complete"));
   await page.route("**/api/settings", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ workspace_name: "本地工作区", default_provider: "deepseek", providers: [{ name: "deepseek", configured: true }], mcp_enabled: false, skills: [] }) }));
+  const document = { document_id: "visual-doc", source: "course/visual.md", kind: "course_document", title: "视觉测试资料", collection: "material", content_role: "content", managed: false };
+  await page.route("**/api/chat/sessions", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ sessions: [] }) }));
+  await page.route("**/api/kb/documents?collection=material", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ documents: [document] }) }));
+  await page.route("**/api/kb/documents/visual-doc", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ document, sections: [{ chunk_id: "visual-chunk", heading: "资料正文", text: "这是一段用于检查阅读字体、宽度和页面布局的本地资料。" }] }) }));
+  await page.route("**/api/quiz/sessions/active", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ sessions: [] }) }));
+  await page.route("**/api/learning/review-queue", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ due_concepts: [{ concept: "视觉测试知识点" }], wrong_answers: [], weaknesses: [] }) }));
   await page.goto("/chat");
   await expect(page.getByRole("heading", { name: "今天想学点什么？", level: 2 })).toBeVisible();
   await expect(page.locator(".composer")).toBeVisible();

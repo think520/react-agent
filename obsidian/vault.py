@@ -35,7 +35,12 @@ def scan_vault(vault_path: str) -> list[ScannedNote]:
             with open(roots_path, "r", encoding="utf-8") as handle:
                 roots = json.load(handle)
             for source_root in roots.get("course_dirs") or []:
-                absolute = os.path.abspath(source_root)
+                source_root = str(source_root)
+                absolute = os.path.abspath(
+                    source_root if os.path.isabs(source_root) else os.path.join(vault_path, source_root)
+                )
+                if not os.path.isdir(absolute) and os.path.isabs(source_root):
+                    absolute = os.path.join(vault_path, os.path.basename(os.path.normpath(source_root)))
                 if os.path.dirname(absolute) == vault_path:
                     registered_source_names.add(os.path.basename(absolute))
         except (OSError, json.JSONDecodeError):

@@ -116,10 +116,15 @@ class KBService:
     def _registered_roots(self) -> tuple[str, list[str]]:
         if self.is_portable_library:
             roots = self._load_source_roots()
-            course_dirs = [
-                path for path in roots.get("course_dirs", [])
-                if os.path.isdir(path) and self._is_within_workspace(path, self.workspace)
-            ]
+            course_dirs = []
+            for stored_path in roots.get("course_dirs", []):
+                path = str(stored_path)
+                candidate = path if os.path.isabs(path) else os.path.join(self.workspace, path)
+                candidate = os.path.abspath(candidate)
+                if not os.path.isdir(candidate) and os.path.isabs(path):
+                    candidate = os.path.join(self.workspace, os.path.basename(os.path.normpath(path)))
+                if os.path.isdir(candidate) and self._is_within_workspace(candidate, self.workspace):
+                    course_dirs.append(candidate)
             raw_dir = os.path.join(self.workspace, "raw")
             if os.path.isdir(raw_dir):
                 course_dirs.insert(0, raw_dir)
