@@ -244,29 +244,44 @@ def _matching_artifacts(session: Session, artifact_id: str):
                 yield artifact
 
 
-def _wiki_focus_sources(service: KBService, body: WikiFocusRequest) -> tuple[list[dict[str, Any]], str]:
-    documents = service._wiki_scope_documents(
-        body.document_ids,
-        body.course,
-        body.wiki_document_ids,
-    )
+def _wiki_focus_sources(
+    service: KBService,
+    body: WikiFocusRequest,
+) -> tuple[list[dict[str, Any]], str, list[dict[str, Any]]]:
+    orchestrated = "scope_mode" in body.model_fields_set
+    if body.wiki_document_ids or not orchestrated:
+        documents = service._wiki_scope_documents(
+            body.document_ids,
+            body.course,
+            body.wiki_document_ids,
+        )
+        coverage = []
+    else:
+        try:
+            documents, coverage = service._wiki_run_documents(
+                body.scope_mode,
+                document_ids=body.document_ids,
+                course=body.course,
+                topic=body.topic,
+                instruction=body.instruction,
+                config=get_config(),
+            )
+        except ValueError as exc:
+            raise APIError(409, "wiki_scope_invalid", str(exc)) from exc
     if not documents:
-        raise APIError(409, "wiki_scope_empty", "Select at least one indexed material first.")
+        raise APIError(409, "wiki_scope_empty", "No uncovered or matching indexed materials were found.")
+    per_document = max(200, min(2500, 12000 // max(1, len(documents))))
     excerpts = []
-    used = 0
     for document in documents:
         title = document.get("title") or document.get("source") or "Source"
         text = "\n".join(
             str(section.get("text") or "").strip()
             for section in document.get("sections") or []
             if str(section.get("text") or "").strip()
-        )[:5000]
+        )[:per_document]
         if text:
             excerpts.append(f"## {title}\n{text}")
-            used += len(text)
-        if used >= 12000:
-            break
-    return documents, "\n\n".join(excerpts)
+    return documents, "\n\n".join(excerpts), coverage
 
 
 def _save_wiki_session(session: Session, workspace: str, config: dict[str, Any]) -> None:
@@ -376,20 +391,23 @@ def _attach_user_references(session: Session, references: list) -> None:
 
 def _request_context(
     document_ids: list[str],
+    preferred_document_ids: list[str],
     workspace: str,
     learning_goal: str = "",
     search_permission: str = "ask",
     web_evidence: dict[str, Any] | None = None,
-) -> tuple[list[str], str | None]:
+) -> tuple[list[str], list[str], str]:
     available = {}
-    if document_ids:
+    if document_ids or preferred_document_ids:
         result = KBService(workspace).list_documents(collection="all")
         available = {
             document["document_id"]: document
             for document in result.get("documents", [])
         }
     selected = [available[item] for item in document_ids if item in available]
+    preferred = [available[item] for item in preferred_document_ids if item in available and item not in document_ids]
     valid_ids = [item["document_id"] for item in selected]
+    valid_preferred_ids = [item["document_id"] for item in preferred]
     lines = [
         "<!-- bobodan:request-scope -->",
     ]
@@ -407,6 +425,9 @@ def _request_context(
             "When retrieval returns both Wiki and learning-material results, use Wiki pages to understand concepts and relationships, "
             "then use original learning materials as the factual evidence. Clearly label Wiki content as AI-organized and never present it as an original quote."
         )
+    if preferred:
+        lines.append("The user marked these documents as preferred starting points, but retrieval must still search the whole active library:")
+        lines.extend(f"- {item['title'] or item['source']} [{item['document_id']}]" for item in preferred)
     if web_evidence:
         lines.extend([
             "The user explicitly selected the following public web evidence. Use only these snapshots for web-grounded claims.",
@@ -429,7 +450,7 @@ def _request_context(
         "do not reproduce the full generated question set in the chat response. If it reports missing evidence, use the available "
         "trusted web workflow and then call question_generate again with the resulting evidence."
     )
-    return valid_ids, "\n".join(lines)
+    return valid_ids, valid_preferred_ids, "\n".join(lines)
 
 
 def _slash_command_prompt(
@@ -792,11 +813,13 @@ def create_wiki_focus(body: WikiFocusRequest, request: Request) -> dict:
     session.add_message("user", command)
 
     service = KBService(workspace)
-    documents, excerpts = _wiki_focus_sources(service, body)
+    documents, excerpts, coverage = _wiki_focus_sources(service, body)
     prompt = (
         "You are preparing a user-confirmed local learning Wiki plan. "
         "Summarize the selected materials in concise Chinese and propose 3-6 focus points. "
         "Do not create Wiki pages yet. Distinguish source facts from suggested organization.\n\n"
+        f"Scope mode: {body.scope_mode}\n"
+        f"Topic: {body.topic.strip() or '(whole library)'}\n"
         f"User instruction: {body.instruction.strip() or '(none)'}\n\n{excerpts}"
     )
     try:
@@ -818,10 +841,15 @@ def create_wiki_focus(body: WikiFocusRequest, request: Request) -> dict:
         "summary": summary,
         "instruction": body.instruction.strip(),
         "scope": {
+            "orchestrated": "scope_mode" in body.model_fields_set and not body.wiki_document_ids,
+            "mode": body.scope_mode,
+            "seed_document_ids": body.document_ids,
             "document_ids": [item["document_id"] for item in documents],
             "wiki_document_ids": body.wiki_document_ids,
             "course": body.course,
+            "topic": body.topic.strip(),
             "documents": [item.get("title") or item.get("source") for item in documents],
+            "coverage": coverage,
         },
     }
     _append_artifact_message(session, summary, artifact)
@@ -875,28 +903,47 @@ def confirm_wiki_focus(
         )
     except ValueError as exc:
         raise APIError(409, "provider_unavailable", str(exc)) from exc
-    result = KBService(workspace).create_wiki_plan(
-        provider,
-        document_ids=scope.get("document_ids") or [],
-        wiki_document_ids=scope.get("wiki_document_ids") or [],
-        course=scope.get("course"),
-        action="update" if focus.get("operation") == "update" else "generate",
-        instruction=str(focus.get("instruction") or ""),
-    )
+    service = KBService(workspace)
+    if scope.get("wiki_document_ids") or not scope.get("orchestrated"):
+        result = service.create_wiki_plan(
+            provider,
+            document_ids=scope.get("document_ids") or [],
+            wiki_document_ids=scope.get("wiki_document_ids") or [],
+            course=scope.get("course"),
+            action="update" if focus.get("operation") == "update" else "generate",
+            instruction=str(focus.get("instruction") or ""),
+        )
+    else:
+        result = service.start_wiki_run(
+            provider,
+            action="update" if focus.get("operation") == "update" else "generate",
+            scope_mode=str(scope.get("mode") or "smart_library"),
+            document_ids=list(scope.get("seed_document_ids") or []),
+            course=scope.get("course"),
+            topic=str(scope.get("topic") or ""),
+            instruction=str(focus.get("instruction") or ""),
+            config=config,
+        )
     if not result.get("ok"):
         raise APIError(409, "wiki_plan_failed", result.get("error") or "Wiki planning failed")
     for saved_focus in _matching_artifacts(session, artifact_id):
         saved_focus["status"] = "confirmed"
+    plan_id = str(result.get("plan_id") or result.get("run_id") or "")
     artifact = {
         "artifact_id": uuid.uuid4().hex,
         "type": "wiki_plan",
         "library_id": library_id,
         "operation": focus.get("operation"),
         "status": result.get("status", "planned"),
-        "plan_id": result["plan_id"],
+        "plan_id": plan_id,
         "plan": {key: value for key, value in result.items() if key != "ok"},
     }
-    _append_artifact_message(session, "已按确认的重点生成 Wiki 计划，请审查后再写入。", artifact)
+    message = (
+        "已开始分批阅读资料并生成 Wiki 计划，完成后会在这里恢复。"
+        if result.get("status") == "planning"
+        else "已按确认的重点生成 Wiki 计划，请审查后再写入。"
+    )
+    _append_artifact_message(session, message, artifact)
     _save_wiki_session(session, workspace, config)
     return {"chat_session_id": session.session_id, "artifact": artifact}
 
@@ -935,6 +982,42 @@ def apply_chat_wiki_plan(plan_id: str, body: WikiPlanApplyRequest, request: Requ
     _append_artifact_message(session, "Wiki 已按确认计划写入，并创建了可撤销检查点。", artifact)
     _save_wiki_session(session, workspace, config)
     return {"chat_session_id": session.session_id, "artifact": artifact}
+
+
+@router.post("/wiki/runs/{run_id}/apply")
+def apply_chat_wiki_run(run_id: str, body: WikiPlanApplyRequest, request: Request) -> dict:
+    return apply_chat_wiki_plan(run_id, body, request)
+
+
+@router.post("/wiki/runs/{run_id}/cancel")
+def cancel_chat_wiki_run(run_id: str, body: WikiPlanApplyRequest, request: Request) -> dict:
+    config = get_config()
+    workspace = get_request_workspace(request)
+    session = _load_or_create_session(
+        body.chat_session_id,
+        config,
+        workspace,
+        get_request_library_id(request),
+    )
+    result = KBService(workspace).cancel_wiki_run(run_id)
+    if not result.get("ok"):
+        raise APIError(409, "wiki_run_not_cancellable", result.get("error") or "Wiki run cannot be cancelled")
+    for message in session.messages:
+        for artifact in message.get("artifacts") or []:
+            if artifact.get("type") == "wiki_plan" and artifact.get("plan_id") == run_id:
+                artifact["status"] = "cancelled"
+                artifact["plan"] = {key: value for key, value in result.items() if key != "ok"}
+    _save_wiki_session(session, workspace, config)
+    return {"chat_session_id": session.session_id, "run": {key: value for key, value in result.items() if key != "ok"}}
+
+
+@router.post("/wiki/runs/{run_id}/restore")
+def restore_chat_wiki_run(run_id: str, body: WikiPlanApplyRequest, request: Request) -> dict:
+    workspace = get_request_workspace(request)
+    plan = KBService(workspace).get_wiki_run(run_id)
+    if not plan.get("ok") or not plan.get("checkpoint_id"):
+        raise APIError(409, "wiki_run_not_restorable", "This Wiki run has no restorable checkpoint")
+    return restore_chat_wiki_checkpoint(str(plan["checkpoint_id"]), WikiCheckpointRestoreRequest(chat_session_id=body.chat_session_id), request)
 
 
 @router.post("/wiki/plans/{plan_id}/recover")
@@ -979,23 +1062,29 @@ def recover_chat_wiki_plan(plan_id: str, body: WikiPlanRecoveryRequest, request:
         }
         _append_artifact_message(session, "已保留问题页面的原内容，并生成其余可安全写入的 Wiki 页面。", artifact)
     else:
+        replacement_id = str(result.get("plan_id") or result.get("run_id") or "")
         for message in session.messages:
             for existing in message.get("artifacts") or []:
                 if existing.get("type") == "wiki_plan" and existing.get("plan_id") == plan_id:
                     existing["status"] = "replaced"
                     if isinstance(existing.get("plan"), dict):
                         existing["plan"]["status"] = "replaced"
-                        existing["plan"]["replacement_plan_id"] = result["plan_id"]
+                        existing["plan"]["replacement_plan_id"] = replacement_id
         artifact = {
             "artifact_id": uuid.uuid4().hex,
             "type": "wiki_plan",
             "library_id": library_id,
             "operation": "update" if result.get("action") == "update" else "generate",
-            "status": "planned",
-            "plan_id": result["plan_id"],
+            "status": result.get("status", "planned"),
+            "plan_id": replacement_id,
             "plan": {key: value for key, value in result.items() if key != "ok"},
         }
-        _append_artifact_message(session, "已根据校验问题补全要求并重新生成计划，请再次审查。", artifact)
+        message = (
+            "已根据校验问题启动新的分批规划，完成后会在这里恢复。"
+            if result.get("status") == "planning"
+            else "已根据校验问题补全要求并重新生成计划，请再次审查。"
+        )
+        _append_artifact_message(session, message, artifact)
     _save_wiki_session(session, workspace, config)
     return {"chat_session_id": session.session_id, "artifact": artifact}
 
@@ -1073,8 +1162,9 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
             raise APIError(409, "web_evidence_unavailable", "The selected web sources are no longer available.")
         initial_attribution = {"kind": "web", "sources": web_evidence["sources"]}
     reference_document_ids = [item.id for item in body.references if item.type == "document"]
-    document_ids, request_prompt = _request_context(
-        list(dict.fromkeys([*body.document_ids, *reference_document_ids])),
+    document_ids, preferred_document_ids, request_prompt = _request_context(
+        list(dict.fromkeys(body.document_ids)),
+        list(dict.fromkeys([*body.preferred_document_ids, *reference_document_ids])),
         runtime.workspace,
         learning_goal=body.learning_goal,
         search_permission=search_permission,
@@ -1100,6 +1190,7 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
     if slash_prompt:
         request_prompt = f"{request_prompt}\n\n{slash_prompt}" if request_prompt else slash_prompt
     session.active_document_ids = document_ids
+    session.preferred_document_ids = preferred_document_ids
     session.active_web_research_id = body.web_research_id
     session.search_provider = search_preferences.get("provider", "auto")
     session.jina_fallback = bool(search_preferences.get("jina_fallback", True))

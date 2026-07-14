@@ -707,6 +707,82 @@ def test_chat_wiki_recovery_keeps_existing_page_and_persists_result(backend_clie
     assert results[0]["written"] == ["concepts/Transformer.md"]
 
 
+def test_wiki_coverage_and_orchestrated_run_routes(backend_client, monkeypatch):
+    coverage = {
+        "ok": True,
+        "documents": [{
+            "document_id": "doc-1", "status": "uncovered", "source_page_id": None,
+            "linked_page_count": 0, "source_fingerprint": "abc", "covered_at": None,
+        }],
+        "counts": {"uncovered": 1, "partial": 0, "covered": 0, "stale": 0},
+    }
+    plan = {
+        "ok": True, "plan_id": "c" * 32, "run_id": "c" * 32,
+        "status": "planned", "action": "generate", "instruction": "", "created_at": "2026-07-14T00:00:00Z",
+        "scope": {"mode": "uncovered", "document_ids": ["doc-1"], "documents": ["Lesson"]},
+        "batches": [{"batch_id": "batch-1", "index": 1, "document_ids": ["doc-1"], "documents": ["Lesson"], "status": "planned"}],
+        "summary": {"add": 1, "update": 0, "merge": 0, "conflict": 0, "skip": 0, "split": 0},
+        "changes": [],
+    }
+    monkeypatch.setattr("web.backend.routers.kb.KBService.wiki_coverage", lambda self: coverage)
+    monkeypatch.setattr("web.backend.routers.kb.KBService.start_wiki_run", lambda self, provider, **kwargs: plan)
+    monkeypatch.setattr(
+        "web.backend.routers.kb.get_runtime_context",
+        lambda: SimpleNamespace(create_provider=lambda _name: object()),
+    )
+
+    coverage_response = backend_client.get("/api/kb/wiki/coverage")
+    run_response = backend_client.post("/api/kb/wiki/runs", json={"scope_mode": "uncovered"})
+
+    assert coverage_response.status_code == 200
+    assert coverage_response.json()["counts"]["uncovered"] == 1
+    assert run_response.status_code == 200
+    assert run_response.json()["batches"][0]["document_ids"] == ["doc-1"]
+
+
+def test_chat_wiki_focus_uses_orchestrated_run_when_scope_mode_is_explicit(backend_client, monkeypatch):
+    document = {
+        "document_id": "doc-1", "title": "LLM Lesson", "source": "raw/inbox/llm.md",
+        "sections": [{"chunk_id": "chunk-1", "text": "Large language model overview."}],
+    }
+    provider = SimpleNamespace(complete=lambda _messages: SimpleNamespace(content="围绕核心概念整理。"))
+    monkeypatch.setattr(
+        "web.backend.routers.chat.get_runtime_context",
+        lambda: SimpleNamespace(create_provider=lambda _name: provider),
+    )
+    monkeypatch.setattr(
+        "web.backend.routers.chat.KBService._wiki_run_documents",
+        lambda self, *args, **kwargs: ([document], [{
+            "document_id": "doc-1", "status": "uncovered", "source_page_id": None,
+            "linked_page_count": 0, "source_fingerprint": "abc", "covered_at": None,
+        }]),
+    )
+    planned = {
+        "ok": True, "plan_id": "b" * 32, "run_id": "b" * 32, "status": "planned",
+        "action": "generate", "instruction": "", "created_at": "2026-07-14T00:00:00Z",
+        "scope": {"mode": "smart_library", "document_ids": ["doc-1"], "documents": ["LLM Lesson"]},
+        "batches": [],
+        "summary": {"add": 1, "update": 0, "merge": 0, "conflict": 0, "skip": 0, "split": 0},
+        "changes": [],
+    }
+    monkeypatch.setattr(
+        "web.backend.routers.chat.KBService.start_wiki_run",
+        lambda self, llm_provider, **kwargs: planned,
+    )
+
+    focused = backend_client.post("/api/chat/wiki/focus", json={
+        "action": "generate", "scope_mode": "smart_library", "document_ids": ["doc-1"], "topic": "LLM",
+    }).json()
+    confirmed = backend_client.post(
+        f"/api/chat/wiki/focus/{focused['artifact']['artifact_id']}/confirm",
+        json={"chat_session_id": focused["chat_session_id"]},
+    )
+
+    assert confirmed.status_code == 200
+    assert focused["artifact"]["scope"]["orchestrated"] is True
+    assert confirmed.json()["artifact"]["plan"]["scope"]["mode"] == "smart_library"
+
+
 def test_chat_wiki_apply_failure_persists_recovery_state(backend_client, monkeypatch):
     document = {
         "document_id": "doc-1", "title": "LLM Lesson", "source": "raw/inbox/llm.md",
@@ -790,9 +866,10 @@ def test_explicit_skill_slash_command_loads_selected_skill(tmp_path):
 
 
 def test_chat_request_context_distinguishes_wiki_from_original_evidence(tmp_path):
-    document_ids, prompt = _request_context([], str(tmp_path))
+    document_ids, preferred_ids, prompt = _request_context([], [], str(tmp_path))
 
     assert document_ids == []
+    assert preferred_ids == []
     assert "use Wiki pages to understand concepts and relationships" in prompt
     assert "original learning materials as the factual evidence" in prompt
 

@@ -28,6 +28,7 @@ def rag_search(
     top_k: int = 5,
     mode: str = "auto",
     document_ids: list[str] | None = None,
+    preferred_document_ids: list[str] | None = None,
     workspace: str = ".",
 ) -> ToolResult:
     """Search the workspace-local knowledge index."""
@@ -41,6 +42,7 @@ def rag_search(
             top_k=top_k,
             mode=mode,
             document_ids=document_ids,
+            preferred_document_ids=preferred_document_ids,
             config=config,
         )
         if not result["ok"]:
@@ -100,6 +102,11 @@ register_tool(
                 "type": "array",
                 "items": {"type": "string"},
                 "description": "Optional document IDs selected by the user as the active study scope",
+            },
+            "preferred_document_ids": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Optional document IDs to rank first while still searching the whole library",
             },
         },
         "required": ["query"],

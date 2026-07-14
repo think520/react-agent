@@ -133,6 +133,82 @@ def test_search_respects_selected_document_ids(svc, workspace):
     assert {item["document_id"] for item in result["results"]} == {allowed}
 
 
+def test_search_prefers_selected_documents_without_excluding_the_library(svc, workspace):
+    knowledge_dir = os.path.join(workspace, ".knowledge")
+    os.makedirs(knowledge_dir)
+    from rag.vector_store import LocalVectorStore
+    from rag.chunker import TextChunk
+
+    store = LocalVectorStore(os.path.join(knowledge_dir, "rag_index.json"))
+    store.upsert([
+        TextChunk(id="c1", text="Graph shortest path algorithm", source="course/one.md", metadata={"title": "One"}),
+        TextChunk(id="c2", text="Graph shortest path algorithm", source="course/two.md", metadata={"title": "Two"}),
+    ])
+    documents = svc.list_documents()["documents"]
+    preferred = next(item["document_id"] for item in documents if item["title"] == "Two")
+
+    result = svc.search("shortest path", preferred_document_ids=[preferred], top_k=5)
+
+    assert result["ok"]
+    assert {item["document_id"] for item in result["results"]} == {item["document_id"] for item in documents}
+    assert result["results"][0]["document_id"] == preferred
+
+
+def test_wiki_run_starts_in_background_and_persists_completion(svc, monkeypatch):
+    import time
+    from wiki.reliability import atomic_json
+
+    document = {
+        "document_id": "doc-1", "title": "Lesson", "source": "raw/inbox/lesson.md",
+        "sections": [{"chunk_id": "chunk-1", "text": "Grounded lesson."}],
+    }
+    coverage = [{
+        "document_id": "doc-1", "status": "uncovered", "source_page_id": None,
+        "linked_page_count": 0, "source_fingerprint": "abc", "covered_at": None,
+    }]
+    monkeypatch.setattr(svc, "_wiki_run_documents", lambda *args, **kwargs: ([document], coverage))
+
+    def finish(self, documents, *, run_id, progress, **kwargs):
+        plan = {
+            "plan_id": run_id, "run_id": run_id, "status": "planned", "action": "generate",
+            "instruction": "", "created_at": "2026-07-14T00:00:00Z",
+            "scope": {"mode": "uncovered", "document_ids": ["doc-1"], "documents": ["Lesson"]},
+            "batches": [],
+            "summary": {"add": 1, "update": 0, "merge": 0, "conflict": 0, "skip": 0, "split": 0},
+            "changes": [],
+        }
+        atomic_json(self.workflow._plan_path(run_id), plan)
+        progress(status="planned", phase="planned", plan_id=run_id, plan=plan)
+        return plan
+
+    monkeypatch.setattr("wiki.orchestration.WikiOrchestrator.create_plan", finish)
+
+    started = svc.start_wiki_run(object(), scope_mode="uncovered")
+
+    assert started["ok"]
+    assert started["status"] == "planning"
+    for _ in range(50):
+        current = svc.get_wiki_run(started["run_id"])
+        if current.get("status") == "planned":
+            break
+        time.sleep(0.01)
+    assert current["status"] == "planned"
+    assert current["plan_id"] == started["run_id"]
+
+
+def test_smart_wiki_scope_does_not_fall_back_to_the_whole_library_when_topic_search_fails(svc, monkeypatch):
+    documents = [
+        {"document_id": "doc-1", "title": "LangChain", "source": "raw/langchain.md", "sections": [{"chunk_id": "c1", "text": "Chains"}]},
+        {"document_id": "doc-2", "title": "Dijkstra", "source": "raw/dijkstra.md", "sections": [{"chunk_id": "c2", "text": "Graphs"}]},
+    ]
+    monkeypatch.setattr(svc, "_all_wiki_materials", lambda: documents)
+    monkeypatch.setattr(svc, "search", lambda **kwargs: {"ok": False, "error": "index unavailable"})
+
+    selected, _coverage = svc._wiki_run_documents("smart_library", topic="Transformer")
+
+    assert selected == []
+
+
 def test_search_top_k_clamped(svc, workspace):
     knowledge_dir = os.path.join(workspace, ".knowledge")
     os.makedirs(knowledge_dir)
@@ -312,6 +388,35 @@ def test_failed_apply_task_can_be_retried(svc, workspace, monkeypatch):
     assert result["result"]["plan_id"] == "plan-1"
 
 
+def test_failed_orchestration_task_restarts_as_a_background_run(svc, workspace, monkeypatch):
+    from wiki.reliability import WikiTaskStore, atomic_json
+
+    store = WikiTaskStore(workspace)
+    atomic_json(store.path, [{
+        "task_id": "failed-run",
+        "operation": "orchestrate",
+        "status": "failed",
+        "retryable": True,
+        "payload": {
+            "scope_mode": "smart_library", "document_ids": ["doc-1"],
+            "topic": "RAG", "instruction": "整理概念",
+        },
+        "created_at": "2026-01-01T00:00:00+00:00",
+        "updated_at": "2026-01-01T00:00:00+00:00",
+    }])
+    monkeypatch.setattr(
+        svc,
+        "start_wiki_run",
+        lambda provider, **kwargs: {"ok": True, "run_id": "new-run", "status": "planning"},
+    )
+
+    result = svc.retry_wiki_task("failed-run", llm_provider=object(), config={})
+
+    assert result["ok"]
+    assert result["result"]["run_id"] == "new-run"
+    assert store.get("failed-run")["retried_by"] == "new-run"
+
+
 def test_wiki_plan_requires_confirmation_before_writing(svc, workspace, monkeypatch):
     from providers.types import LLMResponse
     from rag.sqlite_store import KBSQLiteStore, make_chunk_row
@@ -470,6 +575,37 @@ def test_regenerate_wiki_plan_reuses_scope_and_marks_old_plan_replaced(svc, monk
     assert "不要用更短的草稿覆盖现有页面" in captured["instruction"]
     assert workflow.get_plan(old_plan_id)["status"] == "replaced"
     assert workflow.get_plan(old_plan_id)["replacement_plan_id"] == new_plan_id
+
+
+def test_regenerate_orchestrated_plan_starts_a_new_background_run(svc, monkeypatch):
+    from wiki.workflow import WikiWorkflow
+
+    old_plan_id = "c" * 32
+    new_run_id = "d" * 32
+    workflow = WikiWorkflow(svc.workspace, svc._wiki_target_vault())
+    os.makedirs(workflow.plan_dir, exist_ok=True)
+    with open(workflow._plan_path(old_plan_id), "w", encoding="utf-8") as handle:
+        json.dump({
+            "plan_id": old_plan_id, "run_id": old_plan_id, "status": "planned", "action": "update",
+            "topic": "LLM", "instruction": "整理模型概念",
+            "scope": {"mode": "smart_library", "seed_document_ids": ["doc-1"], "document_ids": ["doc-1"], "documents": ["LLM"]},
+            "summary": {"add": 0, "update": 1, "merge": 0, "conflict": 0, "skip": 0, "split": 0},
+            "changes": [], "staging": [{"change_id": "change-1", "path": "draft.json", "errors": ["body shrink"]}],
+        }, handle)
+    captured = {}
+
+    def start_run(provider, **kwargs):
+        captured.update(kwargs)
+        return {"ok": True, "run_id": new_run_id, "status": "planning", "scope": {"documents": ["LLM"]}}
+
+    monkeypatch.setattr(svc, "start_wiki_run", start_run)
+
+    result = svc.recover_wiki_plan(old_plan_id, "regenerate", llm_provider=object())
+
+    assert result["status"] == "planning"
+    assert captured["scope_mode"] == "smart_library"
+    assert captured["action"] == "update"
+    assert workflow.get_plan(old_plan_id)["replacement_plan_id"] == new_run_id
 
 
 def test_delete_managed_document_removes_source_and_resyncs(svc, workspace, monkeypatch):

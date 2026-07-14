@@ -94,10 +94,10 @@ def execute_tool(name: str, args: dict, session=None) -> Any:
                 call_args.setdefault("cwd", session.cwd)
             if "workspace" in sig.parameters:
                 call_args.setdefault("workspace", session.workspace_root)
-            if "document_ids" in sig.parameters:
-                call_args.setdefault(
-                    "document_ids", getattr(session, "active_document_ids", None)
-                )
+            if "document_ids" in sig.parameters and hasattr(session, "active_document_ids"):
+                call_args["document_ids"] = getattr(session, "active_document_ids")
+            if "preferred_document_ids" in sig.parameters and hasattr(session, "preferred_document_ids"):
+                call_args["preferred_document_ids"] = getattr(session, "preferred_document_ids")
             if "web_research_id" in sig.parameters:
                 call_args.setdefault(
                     "web_research_id", getattr(session, "active_web_research_id", None)

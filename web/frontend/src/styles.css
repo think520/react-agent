@@ -8,6 +8,36 @@
   font-display: swap;
 }
 
+.document-bulk-tools { display: grid; grid-template-columns: 1fr; gap: 6px; margin: 0 4px 10px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+.document-bulk-tools button, .document-bulk-tools select { min-height: 31px; border: 1px solid var(--border); border-radius: 6px; padding: 0 8px; background: transparent; color: var(--muted); font-size: 10px; }
+.document-bulk-tools button { display: flex; align-items: center; gap: 6px; justify-content: center; }
+.document-bulk-tools button:active { transform: scale(.98); }
+.document-scope { opacity: .62; }
+.document-scope.selected { opacity: 1; }
+.wiki-plan-compose input { min-height: 40px; border: 1px solid var(--border-strong); border-radius: 7px; padding: 0 10px; background: var(--paper-soft); color: var(--ink); outline: 0; }
+.wiki-plan-compose input:focus { border-color: var(--blue-soft); }
+.wiki-run-scope { display: grid; grid-template-columns: repeat(3, 1fr); border-bottom: 1px solid var(--border); background: rgba(237,229,214,.2); }
+.wiki-run-scope > div { display: grid; gap: 3px; padding: 12px 20px; }
+.wiki-run-scope > div + div { border-left: 1px solid var(--border); }
+.wiki-run-scope strong, .wiki-run-scope small { color: var(--muted); font-size: 10px; }
+.wiki-run-scope span { color: var(--blue); font-family: Georgia, serif; font-size: 20px; }
+.wiki-run-thinking { display: flex; min-height: 58px; align-items: center; justify-content: center; gap: 8px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); background: rgba(237,229,214,.18); }
+.wiki-run-thinking i { width: 7px; height: 7px; border-radius: 50%; background: var(--blue); opacity: .28; animation: wiki-ink-thought 1.35s var(--ease-in-out) infinite; }
+.wiki-run-thinking i:nth-child(2) { width: 9px; height: 9px; animation-delay: 160ms; }
+.wiki-run-thinking i:nth-child(3) { animation-delay: 320ms; }
+@keyframes wiki-ink-thought { 0%, 100% { opacity: .22; transform: translateY(1px); } 45% { opacity: .78; transform: translateY(-1px); } }
+.composer-scope .scope-mode-toggle { width: auto; height: 22px; border: 1px solid rgba(27,54,93,.16); border-radius: 5px; padding: 0 6px; background: rgba(27,54,93,.05); color: var(--blue); font-size: 9px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .wiki-run-thinking i { animation: none; opacity: .48; transform: none; }
+}
+
+@media (max-width: 767px) {
+  .document-bulk-tools { min-width: 190px; flex: 0 0 auto; margin: 0; padding: 0 8px 0 0; border-right: 1px solid var(--border); border-bottom: 0; }
+  .wiki-run-scope { grid-template-columns: 1fr; }
+  .wiki-run-scope > div + div { border-top: 1px solid var(--border); border-left: 0; }
+}
+
 @font-face {
   font-family: "TsangerJinKai02";
   src: url("/assets/fonts/kami-reading/TsangerJinKai02-W04.ttf") format("truetype");

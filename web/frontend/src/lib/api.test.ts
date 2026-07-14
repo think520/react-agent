@@ -27,7 +27,10 @@ describe("api client", () => {
 
     expect(events).toEqual(["run_started", "message_delta"]);
     expect(vi.mocked(fetch)).toHaveBeenCalledWith("/api/chat/runs", expect.objectContaining({
-      body: expect.stringContaining('"document_ids":["doc-1"]'),
+      body: expect.stringContaining('"document_ids":[]'),
+    }));
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith("/api/chat/runs", expect.objectContaining({
+      body: expect.stringContaining('"preferred_document_ids":["doc-1"]'),
     }));
     expect(vi.mocked(fetch)).toHaveBeenCalledWith("/api/chat/runs", expect.objectContaining({
       body: expect.stringContaining('"memory_enabled":false'),

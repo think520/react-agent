@@ -146,6 +146,7 @@ class WikiWorkflow:
                     "path": path,
                     "relative_path": os.path.relpath(path, wiki_dir).replace("\\", "/"),
                     "body": body[:2400],
+                    "body_length": len(body),
                 })
         return pages
 
@@ -513,7 +514,7 @@ class WikiWorkflow:
                 if duplicate != target and os.path.commonpath([duplicate, wiki_dir]) == os.path.abspath(wiki_dir):
                     existing_paths.append(duplicate)
             prepared = dict(change)
-            prepared["source_hash"] = hashlib.sha256(
+            prepared["source_hash"] = str(change.get("source_hash") or "") or hashlib.sha256(
                 json.dumps(change.get("source_refs") or [], sort_keys=True).encode("utf-8")
             ).hexdigest()[:16]
             try:
@@ -603,7 +604,7 @@ class WikiWorkflow:
                 raise ValueError("The pages waiting for correction are no longer part of this plan")
             plan["summary"] = {
                 kind: sum(1 for item in plan.get("changes") or [] if item.get("kind") == kind)
-                for kind in ("add", "update", "merge", "conflict", "skip")
+                for kind in ("add", "update", "merge", "conflict", "skip", "split")
             }
             plan.pop("staging", None)
             plan.pop("last_error", None)
@@ -627,6 +628,19 @@ class WikiWorkflow:
             plan["replaced_at"] = _now()
             plan["replacement_plan_id"] = replacement_plan_id
             _atomic_json(self._plan_path(plan_id), plan)
+            return plan
+
+    def cancel_plan(self, plan_id: str) -> dict:
+        with WIKI_WRITE_LOCK:
+            plan = self.get_plan(plan_id)
+            if plan.get("status") != "planned":
+                raise ValueError("This Wiki run can no longer be cancelled")
+            plan["status"] = "cancelled"
+            plan["cancelled_at"] = _now()
+            _atomic_json(self._plan_path(plan_id), plan)
+            task_id = plan.get("task_id")
+            if task_id:
+                self.tasks.update(str(task_id), status="cancelled", retryable=False)
             return plan
 
     def _apply_plan(self, plan_id: str) -> dict:
