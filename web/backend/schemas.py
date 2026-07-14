@@ -33,6 +33,7 @@ class ChatRunRequest(BaseModel):
     learning_goal: str = Field(default="", max_length=500)
     memory_enabled: bool = True
     web_enabled: bool = False
+    web_research_id: str | None = Field(default=None, max_length=64)
     references: list[ChatReference] = Field(default_factory=list, max_length=8)
 
 
@@ -106,6 +107,10 @@ class SourceRef(BaseModel):
     page: int | None = None
     slide: int | None = None
     collection: Literal["material", "wiki"] | None = None
+    domain: str | None = None
+    accessed_at: str | None = None
+    snapshot_id: str | None = None
+    reader: Literal["direct", "jina"] | None = None
 
 
 class Attribution(BaseModel):

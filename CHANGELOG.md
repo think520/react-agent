@@ -7,6 +7,15 @@
 ## [未发布]
 
 ### 新增
+- **P5F 可信联网资料扩展**: 在本地资料不足时提供用户确认优先、来源可选择、证据可复现的普通网页研究流程。
+  - 新增 Tavily / Exa SearchProvider 与 `auto` 有序降级；Exa 通过现有 MCP 客户端连接公共 MCP，不向 Web Agent 开放任意 MCP 或 HTTP 工具。
+  - 新增直接网页读取、逐跳 SSRF 校验、响应与上下文上限，以及明确标注的 Jina Reader 后备；用户提供的 URL 可直接进入候选流程。
+  - 每个资料库使用独立 `research.db` 保存搜索、候选和不可变证据快照；网页不会自动进入 `raw/`、RAG、Wiki 或个人知识库。
+  - Chat 增加联网确认、候选来源和证据 artifact；候选默认不勾选，用户选择 1–4 个来源后才读取正文并继续回答。
+  - Composer 增加一次性联网入口和 `/web search`；设置中心增加搜索 Provider、真实连接测试和 Jina 后备开关，偏好 schema 升级为 v2。
+  - `SourceRef` 增加域名、访问时间、快照 ID 和读取方式；联网回答与基于回答生成的练习共用 `Attribution(kind="web")`。
+  - 验证：Python `1095 passed`、Vitest `5 passed`、TypeScript 与生产构建通过、Playwright 多视口 `45 passed`；Exa 真实连接测试通过。
+
 - **P5E.3 Web UI 系统体验与设置中心**: 在进入联网资料扩展前，补齐本地学习产品的用户偏好、模型与通用交互基础。
   - 新增用户级 `preferences.json`，使用 schema、revision 和原子写入保存助手、用户、阅读、Provider、记忆和 Web Skills 偏好；旧浏览器学习资料可一次性迁移。
   - 新增桌面居中 / 移动全屏设置中心，支持中文搜索、键盘选择、URL 深链接、阅读字体与字号、内容宽度、纸纹、会话密度和减少动效。

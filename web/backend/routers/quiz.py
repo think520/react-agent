@@ -17,6 +17,7 @@ class GenerateQuestionsRequest(BaseModel):
     course: str | None = None
     count: int = Field(default=5, ge=1, le=15)
     document_ids: list[str] = Field(default_factory=list, max_length=50)
+    web_research_id: str | None = Field(default=None, max_length=64)
 
 
 class StartQuizRequest(BaseModel):
@@ -43,6 +44,7 @@ def generate_questions(body: GenerateQuestionsRequest, request: Request) -> dict
         course=body.course,
         count=body.count,
         document_ids=body.document_ids,
+        web_research_id=body.web_research_id,
     ))
 
 

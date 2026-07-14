@@ -19,6 +19,7 @@ import type {
   WikiHealth,
   WikiPlan,
   WikiTask,
+  WebArtifact,
 } from "../types";
 
 interface ErrorEnvelope {
@@ -108,6 +109,10 @@ export const api = {
   ),
   providerTest: (provider: string) => request<{ provider: string; model: string; latency_ms: number; response_received: boolean }>(
     `/api/settings/providers/${encodeURIComponent(provider)}/test`,
+    { method: "POST" },
+  ),
+  searchProviderTest: (provider: "auto" | "tavily" | "exa") => request<{ provider: string; latency_ms: number; result_count: number }>(
+    `/api/settings/search/${encodeURIComponent(provider)}/test`,
     { method: "POST" },
   ),
   runtimeStatus: () => request<RuntimeStatus>("/api/settings/status"),
@@ -217,13 +222,28 @@ export const api = {
     `/api/chat/wiki/checkpoints/${encodeURIComponent(checkpointId)}/restore`,
     json({ chat_session_id: chatSessionId }),
   ),
+  createWebSearch: (query: string, chatSessionId?: string, consentArtifactId?: string, appendUserMessage = false) => request<{ chat_session_id: string; artifact: WebArtifact }>(
+    "/api/chat/web/searches",
+    json({ query, chat_session_id: chatSessionId || null, consent_artifact_id: consentArtifactId || null, append_user_message: appendUserMessage }),
+  ),
+  rejectWebConsent: (artifactId: string, chatSessionId: string) => request<{ artifact: WebArtifact }>(
+    `/api/chat/web/consents/${encodeURIComponent(artifactId)}/reject`,
+    json({ chat_session_id: chatSessionId }),
+  ),
+  selectWebSources: (searchId: string, chatSessionId: string, candidateIds: string[]) => request<{ chat_session_id: string; artifact: WebArtifact }>(
+    `/api/chat/web/searches/${encodeURIComponent(searchId)}/select`,
+    json({ chat_session_id: chatSessionId, candidate_ids: candidateIds }),
+  ),
+  webSource: (snapshotId: string) => request<{ source: Record<string, unknown> }>(
+    `/api/chat/web/sources/${encodeURIComponent(snapshotId)}`,
+  ),
   activePractice: () => request<{ sessions: Array<{ practice_session_id: number; updated_at: string; question_count: number }> }>(
     "/api/quiz/sessions/active",
   ),
   practice: (id: number) => request<PracticeSession>(`/api/quiz/sessions/${id}`),
-  generateQuestions: (query: string, course?: string, documentIds: string[] = []) => request<{ question_ids: number[]; questions: Question[] }>(
+  generateQuestions: (query: string, course?: string, documentIds: string[] = [], webResearchId?: string) => request<{ question_ids: number[]; questions: Question[] }>(
     "/api/quiz/questions",
-    json({ query, course: course || null, count: 5, document_ids: documentIds }),
+    json({ query, course: course || null, count: 5, document_ids: documentIds, web_research_id: webResearchId || null }),
   ),
   startPractice: (course?: string, questionIds: number[] = []) => request<{ practice_session_id: number; questions: Question[] }>(
     "/api/quiz/sessions",
@@ -252,6 +272,7 @@ export type ChatStreamEvent =
   | { event: "message_delta"; data: { content: string } }
   | { event: "status"; data: { phase: string; message: string; tool_name?: string; elapsed?: number } }
   | { event: "citation"; data: { attribution: Attribution } }
+  | { event: "chat_artifact"; data: { artifact: WebArtifact } }
   | { event: "practice" | "learning_update"; data: Record<string, unknown> }
   | { event: "run_completed"; data: { chat_session_id: string; termination_reason: string } }
   | { event: "run_failed"; data: { error: { code: string; message: string } } };
@@ -275,6 +296,7 @@ export async function streamChat(
     learningGoal?: string;
     memoryEnabled?: boolean;
     webEnabled?: boolean;
+    webResearchId?: string;
     provider?: string;
     references?: ChatReference[];
   },
@@ -289,6 +311,7 @@ export async function streamChat(
       learning_goal: preferences.learningGoal || "",
       memory_enabled: preferences.memoryEnabled ?? true,
       web_enabled: preferences.webEnabled ?? false,
+      web_research_id: preferences.webResearchId || null,
       provider: preferences.provider || null,
       references: preferences.references || [],
       save: true,

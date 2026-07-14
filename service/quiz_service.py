@@ -74,6 +74,7 @@ class QuizService:
         course: str | None = None,
         count: int = 5,
         document_ids: list[str] | None = None,
+        web_research_id: str | None = None,
     ) -> dict[str, Any]:
         try:
             llm = _get_llm_provider(self.config)
@@ -82,12 +83,20 @@ class QuizService:
 
         store = QuizStore(self.workspace)
         generator = QuestionGenerator(self.workspace, llm)
-        questions = generator.generate_from_query(
-            query,
-            course=course,
-            count=count,
-            document_ids=document_ids,
-        )
+        if web_research_id:
+            from service.research_service import ResearchService
+            try:
+                evidence = ResearchService(self.workspace).evidence(web_research_id)
+            except FileNotFoundError:
+                return _err("选中的网页证据不存在或已失效。")
+            questions = generator.generate_from_web_evidence(evidence["content"], evidence["sources"], count=count)
+        else:
+            questions = generator.generate_from_query(
+                query,
+                course=course,
+                count=count,
+                document_ids=document_ids,
+            )
 
         if not questions:
             return _err(

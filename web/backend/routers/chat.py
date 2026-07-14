@@ -18,6 +18,7 @@ from core.skills import build_skills_system_prompt, find_skill_by_name
 from web.backend.capabilities import WEB_SKILL_NAMES
 from service.kb_service import KBService
 from service.preference_service import PreferenceService
+from service.research_service import ResearchService
 from tools import get_tools_schema
 from web.backend.deps import (
     get_config,
@@ -61,6 +62,7 @@ _WEB_TOOL_NAMES = frozenset({
     "memory_daily_save",
     "memory_daily_read",
     "memory_promote",
+    "request_web_search",
 })
 _MEMORY_TOOL_NAMES = frozenset({
     "memory_save", "memory_recall", "memory_daily_save", "memory_daily_read", "memory_promote",
@@ -174,7 +176,7 @@ def _public_attribution(value: Any) -> dict[str, Any] | None:
             for key in (
                 "source_type", "source_id", "title", "document_id",
                 "chunk_id", "heading", "page", "slide",
-                "collection",
+                "collection", "domain", "accessed_at", "snapshot_id", "reader",
             )
             if source.get(key) is not None
         }
@@ -192,6 +194,17 @@ def _attach_attribution(session: Session, attribution: dict[str, Any] | None) ->
     for message in reversed(session.messages):
         if message.get("role") == "assistant" and not message.get("tool_calls") and message.get("content"):
             message["attribution"] = public
+            return
+
+
+def _attach_artifacts(session: Session, artifacts: list[dict[str, Any]]) -> None:
+    if not artifacts:
+        return
+    for message in reversed(session.messages):
+        if message.get("role") == "assistant" and not message.get("tool_calls"):
+            current = message.setdefault("artifacts", [])
+            known = {item.get("artifact_id") for item in current if isinstance(item, dict)}
+            current.extend(item for item in artifacts if item.get("artifact_id") not in known)
             return
 
 
@@ -341,6 +354,7 @@ def _request_context(
     workspace: str,
     learning_goal: str = "",
     web_enabled: bool = False,
+    web_evidence: dict[str, Any] | None = None,
 ) -> tuple[list[str], str | None]:
     available = {}
     if document_ids:
@@ -351,7 +365,7 @@ def _request_context(
         }
     selected = [available[item] for item in document_ids if item in available]
     valid_ids = [item["document_id"] for item in selected]
-    if not selected and not learning_goal.strip() and web_enabled:
+    if not selected and not learning_goal.strip() and web_enabled and not web_evidence:
         return [], None
     lines = [
         "<!-- bobodan:request-scope -->",
@@ -370,8 +384,19 @@ def _request_context(
             "When retrieval returns both Wiki and learning-material results, use Wiki pages to understand concepts and relationships, "
             "then use original learning materials as the factual evidence. Clearly label Wiki content as AI-organized and never present it as an original quote."
         )
-    if not web_enabled:
+    if not web_enabled and not web_evidence:
         lines.append("The user has not enabled web supplementation for this request. Do not claim to have searched the web.")
+    if web_evidence:
+        lines.extend([
+            "The user explicitly selected the following public web evidence. Use only these snapshots for web-grounded claims.",
+            "Search snippets are not evidence. Clearly distinguish web evidence from local materials and general AI knowledge.",
+            web_evidence.get("content", ""),
+        ])
+    else:
+        lines.append(
+            "If local evidence is insufficient, call request_web_search with a concise query and reason. "
+            "That tool does not access the network; after calling it, wait for user confirmation."
+        )
     return valid_ids, "\n".join(lines)
 
 
@@ -807,12 +832,23 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
         ) from exc
 
     session.provider_name = provider_name
+    web_evidence = None
+    initial_attribution = None
+    if body.web_research_id:
+        try:
+            web_evidence = ResearchService(workspace).evidence(body.web_research_id, session.session_id)
+        except FileNotFoundError as exc:
+            raise APIError(404, "web_research_not_found", str(exc)) from exc
+        if not web_evidence.get("sources"):
+            raise APIError(409, "web_evidence_unavailable", "The selected web sources are no longer available.")
+        initial_attribution = {"kind": "web", "sources": web_evidence["sources"]}
     reference_document_ids = [item.id for item in body.references if item.type == "document"]
     document_ids, request_prompt = _request_context(
         list(dict.fromkeys([*body.document_ids, *reference_document_ids])),
         runtime.workspace,
         learning_goal=body.learning_goal,
         web_enabled=body.web_enabled,
+        web_evidence=web_evidence,
     )
     prompt_parts = [item for item in (
         request_prompt,
@@ -840,6 +876,8 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
         and preferences.get("memory", {}).get("enabled", True)
     )
     allowed_tool_names = _WEB_TOOL_NAMES if memory_enabled else _WEB_TOOL_NAMES - _MEMORY_TOOL_NAMES
+    if web_evidence:
+        allowed_tool_names = allowed_tool_names - {"rag_search", "request_web_search"}
     skills_dir = getattr(runtime, "skills_dir", "")
     skills_prompt = (
         build_skills_system_prompt(skills_dir, enabled_skills)
@@ -855,7 +893,10 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
             "provider": provider_name,
         })
         try:
-            latest_attribution = None
+            latest_attribution = initial_attribution
+            pending_artifacts: list[dict[str, Any]] = []
+            if initial_attribution:
+                yield encode_sse("citation", {"run_id": run_id, "attribution": initial_attribution})
             if memory_enabled:
                 runtime.refresh_memory()
             events = AgentService.run_stream(
@@ -876,11 +917,14 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
                 for web_event, payload in to_web_events(event):
                     if web_event == "citation":
                         latest_attribution = payload.get("attribution")
+                    if web_event == "chat_artifact" and isinstance(payload.get("artifact"), dict):
+                        pending_artifacts.append(payload["artifact"])
                     yield encode_sse(web_event, {"run_id": run_id, **payload})
 
             if body.save:
                 _attach_user_references(session, body.references)
                 _attach_attribution(session, latest_attribution)
+                _attach_artifacts(session, pending_artifacts)
                 save_result = AgentService.save_session(session, get_session_save_dir(config, workspace))
                 if not save_result["ok"]:
                     yield encode_sse("run_failed", {

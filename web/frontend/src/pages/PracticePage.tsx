@@ -24,6 +24,7 @@ export function PracticePage() {
   const [session, setSession] = useState<PracticeSession | null>(null);
   const [active, setActive] = useState<Array<{ practice_session_id: number; updated_at: string; question_count: number }>>([]);
   const [topic, setTopic] = useState(() => localStorage.getItem("bobodan:practice-topic") || "");
+  const [webResearchId] = useState(() => localStorage.getItem("bobodan:practice-web-research") || "");
   const [answer, setAnswer] = useState("");
   const [result, setResult] = useState<AnswerResult | null>(null);
   const [loading, setLoading] = useState(Boolean(id));
@@ -50,6 +51,7 @@ export function PracticePage() {
 
   useEffect(() => {
     localStorage.removeItem("bobodan:practice-topic");
+    localStorage.removeItem("bobodan:practice-web-research");
     setAnswer("");
     setResult(null);
     setAiOpen(false);
@@ -72,7 +74,7 @@ export function PracticePage() {
       const scopeTopic = selectedDocuments.map((document) => document.title || document.source).join("、");
       const query = topic.trim() || scopeTopic;
       const generated = query
-        ? await api.generateQuestions(query, undefined, selectedDocumentIds)
+        ? await api.generateQuestions(query, undefined, selectedDocumentIds, webResearchId || undefined)
         : null;
       const created = await api.startPractice(undefined, generated?.question_ids || []);
       navigate(`/practice/${created.practice_session_id}`);

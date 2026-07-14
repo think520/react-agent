@@ -11,6 +11,10 @@ export interface SourceRef {
   page?: number | null;
   slide?: number | null;
   collection?: "material" | "wiki" | null;
+  domain?: string | null;
+  accessed_at?: string | null;
+  snapshot_id?: string | null;
+  reader?: "direct" | "jina" | null;
 }
 
 export interface Attribution {
@@ -136,6 +140,7 @@ export interface SettingsSummary {
   workspace_name: string;
   default_provider: string;
   providers: Array<{ name: string; configured: boolean; type?: string; model?: string; is_default?: boolean }>;
+  search_providers: Array<{ name: "auto" | "tavily" | "exa"; configured: boolean }>;
   mcp_enabled: boolean;
   skills: Array<{
     name: string;
@@ -148,7 +153,7 @@ export interface SettingsSummary {
 }
 
 export interface UserPreferences {
-  schema_version: 1;
+  schema_version: 2;
   revision: number;
   assistant: {
     display_name: string;
@@ -171,6 +176,7 @@ export interface UserPreferences {
   };
   ai: { default_provider: string };
   memory: { enabled: boolean };
+  search: { provider: "auto" | "tavily" | "exa"; jina_fallback: boolean };
   skills: { enabled_names: string[] };
 }
 
@@ -182,6 +188,7 @@ export interface RuntimeStatus {
   memory: { enabled: boolean };
   skills: { enabled: number; available: number };
   providers: { configured: number; available: number; default: string };
+  search: { default: string; tavily_configured: boolean; exa_configured: boolean; jina_fallback: boolean };
 }
 
 export interface WikiHealth {
@@ -308,4 +315,45 @@ export interface SettingsChangeArtifact {
   changes: Array<{ key: string; label: string; before: unknown; after: unknown }>;
 }
 
-export type ChatArtifact = WikiArtifact | SettingsChangeArtifact;
+export interface WebConsentArtifact {
+  artifact_id: string;
+  type: "web_consent";
+  status: "pending" | "approved" | "rejected";
+  query: string;
+  reason: string;
+}
+
+export interface WebSourceCandidate {
+  candidate_id: string;
+  title: string;
+  url: string;
+  domain: string;
+  snippet: string;
+  published_at?: string | null;
+  rank: number;
+  provider: string;
+  quality_hint: "official" | "reference" | "community" | "unknown";
+}
+
+export interface WebCandidatesArtifact {
+  artifact_id: string;
+  type: "web_candidates";
+  search_id: string;
+  status: "ready" | "fetching" | "partial" | "failed" | "used";
+  query: string;
+  provider: string;
+  candidates: WebSourceCandidate[];
+  error_kind?: string;
+}
+
+export interface WebEvidenceArtifact {
+  artifact_id: string;
+  type: "web_evidence";
+  research_id: string;
+  status: "ready" | "partial" | "failed";
+  sources: SourceRef[];
+  failed_source_ids: string[];
+}
+
+export type WebArtifact = WebConsentArtifact | WebCandidatesArtifact | WebEvidenceArtifact;
+export type ChatArtifact = WikiArtifact | SettingsChangeArtifact | WebArtifact;

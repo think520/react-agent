@@ -5,16 +5,18 @@ function settingsPayload(overrides: Record<string, unknown> = {}) {
     workspace_name: "测试空间",
     default_provider: "deepseek",
     providers: [{ name: "deepseek", configured: true, model: "deepseek-chat" }],
+    search_providers: [{ name: "auto", configured: true }, { name: "tavily", configured: false }, { name: "exa", configured: true }],
     mcp_enabled: false,
     skills: [],
     preferences: {
-      schema_version: 1,
+      schema_version: 2,
       revision: 0,
       assistant: { display_name: "Bobodan", teaching_style: "guided", answer_depth: "standard", feedback_strength: "gentle" },
       user: { display_name: "", profile: "", long_term_goal: "" },
       appearance: { reading_font: "jin-kai", body_font_size: 16, content_width: 720, paper_texture: true, session_density: "comfortable", motion: "system" },
       ai: { default_provider: "deepseek" },
       memory: { enabled: true },
+      search: { provider: "auto", jina_fallback: true },
       skills: { enabled_names: [] },
     },
     ...overrides,
@@ -357,6 +359,50 @@ test("settings deep links and @ references stay usable across viewports", async 
   await expect(page.getByText("已结合引用回答。", { exact: true })).toBeVisible();
   expect(requestBody.provider).toBe("deepseek");
   expect(requestBody.references).toEqual([{ type: "document", id: "doc-wiki", title: "RAG Wiki", collection: "wiki" }]);
+});
+
+test("confirmed web research keeps source selection explicit and traceable", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("bobodan:onboarding:v1", "complete"));
+  await page.route("**/api/settings", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(settingsPayload()) }));
+  await page.route("**/api/chat/sessions", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ sessions: [] }) }));
+  await page.route("**/api/kb/documents?collection=material", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ documents: [] }) }));
+  await page.route("**/api/learning/review-queue", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ due_concepts: [], wrong_answers: [], weaknesses: [] }) }));
+
+  const candidate = { candidate_id: "candidate-1", title: "Official guide", url: "https://example.com/guide", domain: "example.com", snippet: "Search preview only", published_at: null, rank: 1, provider: "exa", quality_hint: "reference" };
+  const candidatesArtifact: any = { type: "web_candidates", artifact_id: "web-candidates-1", search_id: "search-1", status: "ready", query: "RAG 最新资料", provider: "exa", candidates: [candidate] };
+  const evidenceArtifact = { type: "web_evidence", artifact_id: "web-evidence-1", research_id: "research-1", status: "ready", failed_source_ids: [], sources: [{ source_type: "web", source_id: "snapshot-1", snapshot_id: "snapshot-1", title: "Official guide", url: "https://example.com/guide", domain: "example.com", accessed_at: "2026-07-14T00:00:00Z", reader: "direct" }] };
+  let messages: any[] = [];
+  let runBody: Record<string, any> = {};
+
+  await page.route("**/api/chat/web/searches", async (route) => {
+    messages = [{ role: "user", content: "RAG 最新资料" }, { role: "assistant", content: "已整理联网候选来源，请选择需要读取的网页。", artifacts: [candidatesArtifact] }];
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ chat_session_id: "web-session", artifact: candidatesArtifact }) });
+  });
+  await page.route("**/api/chat/web/searches/search-1/select", async (route) => {
+    candidatesArtifact.status = "used";
+    messages.push({ role: "assistant", content: "选中的网页证据已经准备好，可以继续回答。", artifacts: [evidenceArtifact] });
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ chat_session_id: "web-session", artifact: evidenceArtifact }) });
+  });
+  await page.route("**/api/chat/web/sources/snapshot-1", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ source: { id: "snapshot-1", final_url: "https://example.com/guide", title: "Official guide", domain: "example.com", excerpt: "当时保存的可核实引用片段。", accessed_at: "2026-07-14T00:00:00Z", reader: "direct" } }) }));
+  await page.route("**/api/chat/sessions/web-session", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ chat_session_id: "web-session", name: "网页研究", name_source: "fallback", created_at: "", last_active: "", message_count: messages.length, provider_name: "deepseek", messages }) }));
+  await page.route("**/api/chat/runs", async (route) => {
+    runBody = route.request().postDataJSON();
+    await route.fulfill({ status: 200, headers: { "Content-Type": "text/event-stream; charset=utf-8" }, body: `event: run_started\ndata: {"run_id":"web-run","chat_session_id":"web-session"}\n\nevent: citation\ndata: {"attribution":{"kind":"web","sources":[{"source_type":"web","source_id":"snapshot-1","snapshot_id":"snapshot-1","title":"Official guide","url":"https://example.com/guide","domain":"example.com","accessed_at":"2026-07-14T00:00:00Z","reader":"direct"}]}}\n\nevent: message_delta\ndata: {"content":"这是基于已选网页证据的回答。"}\n\nevent: run_completed\ndata: {"chat_session_id":"web-session","termination_reason":"final_answer"}\n\n` });
+  });
+  await page.route("**/api/chat/sessions/web-session/title", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ name: "网页研究", name_source: "ai" }) }));
+
+  await page.goto("/chat");
+  await page.getByRole("button", { name: "本轮搜索网页候选" }).click();
+  await page.getByLabel("消息").fill("RAG 最新资料");
+  await page.getByRole("button", { name: "发送" }).click();
+  await expect(page.getByRole("checkbox", { name: /Official guide/ })).not.toBeChecked();
+  await page.getByRole("checkbox", { name: /Official guide/ }).check();
+  await page.getByRole("button", { name: "使用选中来源" }).click();
+  await expect(page.getByText("这是基于已选网页证据的回答。")).toBeVisible();
+  expect(runBody.web_research_id).toBe("research-1");
+  await expect(page.locator(".source-chip.web")).toContainText("网页来源");
+  await page.locator(".source-chip.web").click();
+  await expect(page.getByText("当时保存的可核实引用片段。" )).toBeVisible();
 });
 
 test("slash palette exposes commands and local skills", async ({ page }) => {
