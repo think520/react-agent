@@ -13,9 +13,18 @@
 - Practice 生成增加资料标题模糊匹配、选中资料章节回退和一次 LLM JSON 修复重试；`langchian` 等拼写问题可解析为对应本地资料，资料不足时按联网权限继续，而不是直接显示通用错误。
 - `question_generate` 改为返回可持久化的“练习已就绪”卡片；点击后幂等创建 Practice session 并进入一题一卡页面，不再把完整题目堆在 Chat 正文。
 - Chat 处理状态改为正文流内的 Bobodan `thinking / reading / writing / ready` 图片状态；只展示工具、资料和任务进度，不展示模型原始思维链。
-- 用户偏好升级为 schema v3；验证：Python `1102 passed`、Vitest `5 passed`、TypeScript 与生产构建通过、Playwright 多视口 `51 passed`。
+- 用户偏好升级为 schema v3；验证：Python `1102 passed`、Vitest `5 passed`、TypeScript 与生产构建通过、Playwright 多视口 `57 passed`。
 
 ### 新增
+- **P5F.1 个人学习知识库**: 在现有 `MemoryService` 上完成确定性学习事件、待确认候选和已确认长期知识三层体系。
+  - 新增全局 `personal-knowledge.db` 与资料库内 `bobodan.db` 分层存储；全局偏好可跨资料库使用，课程知识、候选、事件和阅读进度保持资料库隔离。
+  - 做题、练习完成、复习、阅读进度和 Chat 完成自动记录为幂等学习事件；阅读器可见满 10 秒后记录打开，进度按 10% 档位更新。
+  - Chat 在 90 秒无新消息后通过持久化单并发任务整理最多 3 条候选，支持重启恢复和 `1m → 5m → 30m` 重试；候选确认前不会进入提示词。
+  - 新增无写入副作用的 `request_memory_confirmation` 与 Chat 确认卡；Web Agent 不再获得 `memory_save`、`memory_daily_save` 或自动 promotion 权限，秘密信息始终拒绝保存。
+  - Chat、Practice 和 Review 只使用已确认知识与确定性掌握度，并显示可展开的“个性化依据”；旧 daily Markdown 保持只读。
+  - 设置中心“记忆与数据”新增个人知识管理浮层，支持已确认知识、待确认候选、学习记录和旧记忆迁移，以及搜索、编辑、置顶、删除和 Markdown 导出。
+- 验证：Python `1115 passed`、Vitest `5 passed`、TypeScript 与生产构建通过、Playwright 桌面 / 窄屏 / 移动端 `60 passed`。
+
 - **P5F 可信联网资料扩展**: 在本地资料不足时提供用户确认优先、来源可选择、证据可复现的普通网页研究流程。
   - 新增 Tavily / Exa SearchProvider 与 `auto` 有序降级；Exa 通过现有 MCP 客户端连接公共 MCP，不向 Web Agent 开放任意 MCP 或 HTTP 工具。
   - 新增直接网页读取、逐跳 SSRF 校验、响应与上下文上限，以及明确标注的 Jina Reader 后备；用户提供的 URL 可直接进入候选流程。
@@ -23,7 +32,7 @@
   - Chat 增加联网确认、候选来源和证据 artifact；候选默认不勾选，用户选择 1–4 个来源后才读取正文并继续回答。
   - Composer 增加一次性联网入口和 `/web search`；设置中心增加搜索 Provider、真实连接测试和 Jina 后备开关，偏好 schema 升级为 v2。
   - `SourceRef` 增加域名、访问时间、快照 ID 和读取方式；联网回答与基于回答生成的练习共用 `Attribution(kind="web")`。
-  - 验证：Python `1095 passed`、Vitest `5 passed`、TypeScript 与生产构建通过、Playwright 多视口 `45 passed`；Exa 真实连接测试通过。
+  - 验证：Python `1095 passed`、Vitest `5 passed`、TypeScript 与生产构建通过、Playwright 多视口 `57 passed`；Exa 真实连接测试通过。
 
 - **P5E.3 Web UI 系统体验与设置中心**: 在进入联网资料扩展前，补齐本地学习产品的用户偏好、模型与通用交互基础。
   - 新增用户级 `preferences.json`，使用 schema、revision 和原子写入保存助手、用户、阅读、Provider、记忆和 Web Skills 偏好；旧浏览器学习资料可一次性迁移。

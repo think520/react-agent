@@ -17,6 +17,7 @@ from service.agent_service import AgentService
 from core.skills import build_skills_system_prompt, find_skill_by_name
 from web.backend.capabilities import WEB_SKILL_NAMES
 from service.kb_service import KBService
+from service.memory_service import MemoryService
 from service.preference_service import PreferenceService
 from service.quiz_service import QuizService
 from service.research_service import ResearchService
@@ -33,7 +34,10 @@ from web.backend.deps import (
 )
 from web.backend.errors import APIError
 from web.backend.events import to_web_events
-from web.backend.schemas import ChatRunRequest, ChatSessionProviderRequest, ChatSessionUpdateRequest, PracticeArtifactStartRequest
+from web.backend.schemas import (
+    ChatRunRequest, ChatSessionProviderRequest, ChatSessionUpdateRequest,
+    MemoryProposalResolutionRequest, PracticeArtifactStartRequest,
+)
 from web.backend.schemas import (
     WikiCheckpointRestoreRequest,
     WikiFocusConfirmRequest,
@@ -58,16 +62,12 @@ _WEB_TOOL_NAMES = frozenset({
     "learning_path",
     "learning_progress",
     "learning_review",
-    "memory_save",
-    "memory_recall",
-    "memory_daily_save",
-    "memory_daily_read",
-    "memory_promote",
+    "request_memory_confirmation",
     "request_web_search",
     "web_research",
 })
 _MEMORY_TOOL_NAMES = frozenset({
-    "memory_save", "memory_recall", "memory_daily_save", "memory_daily_read", "memory_promote",
+    "request_memory_confirmation",
 })
 
 
@@ -146,6 +146,8 @@ def _session_detail(session: Session) -> dict[str, Any]:
                 item["attribution"] = attribution
             if isinstance(message.get("artifacts"), list):
                 item["artifacts"] = message["artifacts"]
+            if isinstance(message.get("personalization"), list):
+                item["personalization"] = message["personalization"]
             messages.append(item)
     return {
         "chat_session_id": session.session_id,
@@ -210,6 +212,15 @@ def _attach_artifacts(session: Session, artifacts: list[dict[str, Any]]) -> None
             return
 
 
+def _attach_personalization(session: Session, references: list[dict[str, Any]]) -> None:
+    if not references:
+        return
+    for message in reversed(session.messages):
+        if message.get("role") == "assistant" and not message.get("tool_calls") and message.get("content"):
+            message["personalization"] = references
+            return
+
+
 def _append_artifact_message(session: Session, content: str, artifact: dict[str, Any]) -> None:
     session.messages.append({"role": "assistant", "content": content, "artifacts": [artifact]})
     from datetime import datetime
@@ -261,6 +272,17 @@ def _save_wiki_session(session: Session, workspace: str, config: dict[str, Any])
     result = AgentService.save_session(session, get_session_save_dir(config, workspace))
     if not result.get("ok"):
         raise APIError(500, "session_save_failed", "The Wiki conversation could not be saved.")
+
+
+def _personalization_prompt(content: str) -> str | None:
+    if not content.strip():
+        return None
+    return (
+        "<!-- bobodan:confirmed-personal-knowledge -->\n"
+        "The following entries are confirmed user knowledge or deterministic mastery summaries. "
+        "Use them only when relevant, never override source evidence, and do not reveal internal identifiers.\n"
+        f"{content}"
+    )
 
 
 def _preference_prompt(preferences: dict[str, Any]) -> str:
@@ -655,6 +677,8 @@ def start_practice_artifact(artifact_id: str, body: PracticeArtifactStartRequest
     result = QuizService(workspace, config=config).start_quiz(
         count=len(question_ids),
         question_ids=question_ids,
+        origin="chat",
+        personalization=artifact.get("personalization") or [],
     )
     if not result.get("ok"):
         raise APIError(409, "practice_start_failed", result.get("error") or "The practice could not be started.")
@@ -666,6 +690,92 @@ def start_practice_artifact(artifact_id: str, body: PracticeArtifactStartRequest
         "artifact": artifact,
         "practice_session_id": result["session_id"],
     }
+
+
+@router.post("/memory/proposals/{artifact_id}/confirm")
+def confirm_memory_proposal(
+    artifact_id: str,
+    body: MemoryProposalResolutionRequest,
+    request: Request,
+) -> dict:
+    config = get_config()
+    preferences = _preferences(config)
+    if not (
+        config.get("memory", {}).get("enabled", True)
+        and preferences.get("memory", {}).get("enabled", True)
+    ):
+        raise APIError(409, "memory_disabled", "Learning memory is disabled. Enable it before confirming this memory.")
+    workspace = get_request_workspace(request)
+    session = _load_or_create_session(
+        body.chat_session_id,
+        config,
+        workspace,
+        get_request_library_id(request),
+    )
+    artifact = _find_artifact(session, artifact_id)
+    if not artifact or artifact.get("type") != "memory_confirmation":
+        raise APIError(404, "memory_proposal_not_found", "The memory proposal is no longer available.")
+    if artifact.get("status") != "pending":
+        return {"chat_session_id": session.session_id, "artifact": artifact}
+    if artifact.get("requires_warning") and not body.warning_acknowledged:
+        raise APIError(409, "memory_sensitive_confirmation_required", "Confirm the sensitive-data warning before saving this memory.")
+
+    service = MemoryService(workspace, legacy_workspace=get_workspace())
+    target_item_id = str(artifact.get("target_item_id") or "")
+    if target_item_id:
+        existing = service.get_knowledge(target_item_id)
+        if not existing.get("ok"):
+            raise APIError(409, "memory_target_missing", "The knowledge item being updated no longer exists.")
+        result = service.update_knowledge(
+            target_item_id,
+            int(existing["item"]["revision"]),
+            {
+                "title": artifact.get("title"),
+                "content": artifact.get("content"),
+                "kind": artifact.get("kind"),
+            },
+        )
+    else:
+        result = service.create_knowledge(
+            scope=str(artifact.get("scope") or "library"),
+            kind=str(artifact.get("kind") or "profile_fact"),
+            title=str(artifact.get("title") or "需要记住的内容"),
+            content=str(artifact.get("content") or ""),
+            evidence=[{
+                "source_type": "chat",
+                "source_id": session.session_id,
+                "locator": artifact_id,
+            }],
+        )
+    if not result.get("ok"):
+        raise APIError(409, "memory_proposal_invalid", result.get("error") or "The memory could not be saved.")
+    artifact["status"] = "confirmed"
+    artifact["knowledge_item_id"] = result["item"]["id"]
+    _save_wiki_session(session, workspace, config)
+    return {"chat_session_id": session.session_id, "artifact": artifact, "item": result["item"]}
+
+
+@router.post("/memory/proposals/{artifact_id}/reject")
+def reject_memory_proposal(
+    artifact_id: str,
+    body: MemoryProposalResolutionRequest,
+    request: Request,
+) -> dict:
+    config = get_config()
+    workspace = get_request_workspace(request)
+    session = _load_or_create_session(
+        body.chat_session_id,
+        config,
+        workspace,
+        get_request_library_id(request),
+    )
+    artifact = _find_artifact(session, artifact_id)
+    if not artifact or artifact.get("type") != "memory_confirmation":
+        raise APIError(404, "memory_proposal_not_found", "The memory proposal is no longer available.")
+    if artifact.get("status") == "pending":
+        artifact["status"] = "rejected"
+        _save_wiki_session(session, workspace, config)
+    return {"chat_session_id": session.session_id, "artifact": artifact}
 
 
 @router.post("/wiki/focus")
@@ -927,6 +1037,15 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
         and config.get("memory", {}).get("enabled", True)
         and preferences.get("memory", {}).get("enabled", True)
     )
+    personalization = {"content": "", "references": []}
+    if memory_enabled:
+        personalization = MemoryService(
+            workspace,
+            legacy_workspace=get_workspace(),
+        ).personalization_context(body.message)
+        personal_prompt = _personalization_prompt(personalization.get("content", ""))
+        if personal_prompt:
+            request_prompt = f"{request_prompt}\n\n{personal_prompt}" if request_prompt else personal_prompt
     allowed_tool_names = _WEB_TOOL_NAMES if memory_enabled else _WEB_TOOL_NAMES - _MEMORY_TOOL_NAMES
     if search_permission == "auto":
         allowed_tool_names = allowed_tool_names - {"request_web_search"}
@@ -953,14 +1072,17 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
             pending_artifacts: list[dict[str, Any]] = []
             if initial_attribution:
                 yield encode_sse("citation", {"run_id": run_id, "attribution": initial_attribution})
-            if memory_enabled:
-                runtime.refresh_memory()
+            if personalization.get("references"):
+                yield encode_sse("personalization", {
+                    "run_id": run_id,
+                    "references": personalization["references"],
+                })
             events = AgentService.run_stream(
                 session=session,
                 user_input=body.message,
                 provider=provider,
                 skills_prompt=skills_prompt,
-                memory_prompt=runtime.memory_prompt if memory_enabled else None,
+                memory_prompt=None,
                 trace_writer=runtime.create_trace(session.session_id),
                 tools_schema=_web_tools_schema(allowed_tool_names),
                 allowed_tool_names=allowed_tool_names,
@@ -981,6 +1103,7 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
                 _attach_user_references(session, body.references)
                 _attach_attribution(session, latest_attribution)
                 _attach_artifacts(session, pending_artifacts)
+                _attach_personalization(session, personalization.get("references") or [])
                 save_result = AgentService.save_session(session, get_session_save_dir(config, workspace))
                 if not save_result["ok"]:
                     yield encode_sse("run_failed", {
@@ -991,6 +1114,17 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
                         },
                     })
                     return
+                if memory_enabled:
+                    try:
+                        from service.memory_consolidation import MemoryConsolidationService
+                        MemoryConsolidationService(
+                            workspace,
+                            config=config,
+                            session_dir=get_session_save_dir(config, workspace),
+                            legacy_workspace=get_workspace(),
+                        ).schedule_session(session.session_id, len(session.messages), delay_seconds=90)
+                    except Exception as exc:
+                        logger.warning("Could not schedule memory consolidation: %s", exc)
 
             yield encode_sse("run_completed", {
                 "run_id": run_id,

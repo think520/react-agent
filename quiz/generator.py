@@ -24,6 +24,9 @@ QUESTION_GENERATION_PROMPT = """你是一个题目生成器。根据以下课程
 8. 每道题提供 source_ids，只能选择课程材料中实际出现的来源编号
 9. 所有内容用中文
 
+个性化要求：
+{personalization}
+
 课程材料：
 {material}
 
@@ -115,9 +118,14 @@ class QuestionGenerator:
         self.llm = llm_provider
         self.resolved_query = ""
         self.failure_kind = ""
+        self.personalization_context = ""
 
     def _question_items(self, material: str, count: int) -> list[dict]:
-        prompt = QUESTION_GENERATION_PROMPT.format(count=count, material=material)
+        prompt = QUESTION_GENERATION_PROMPT.format(
+            count=count,
+            material=material,
+            personalization=self.personalization_context or "无。按资料本身生成题目。",
+        )
         for attempt in range(2):
             try:
                 messages = [{"role": "user", "content": prompt}]

@@ -35,6 +35,47 @@ test.beforeEach(async ({ page }) => {
   }));
 });
 
+test("personal knowledge is managed from settings with confirmation", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("bobodan:onboarding:v1", "complete"));
+  let candidates = [{
+    id: "candidate-1", scope: "library", kind: "learning_strategy", operation: "create",
+    title: "复习方式", content: "先主动回忆，再查看答案", target_item_id: null,
+    confidence: .8, reason: "学习对话中多次出现", evidence: [{ excerpt: "我想先自己回忆" }],
+    status: "pending", created_at: "2026-07-14T10:00:00Z", updated_at: "2026-07-14T10:00:00Z",
+  }];
+  let knowledge = [{
+    id: "knowledge-1", scope: "global", kind: "preference", title: "讲解偏好",
+    content: "先给直觉，再给严格定义", pinned: true, confidence: 1, evidence: [],
+    created_at: "2026-07-13T10:00:00Z", updated_at: "2026-07-14T09:00:00Z", revision: 1,
+  }];
+  await page.route("**/api/settings", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(settingsPayload()) }));
+  await page.route("**/api/chat/sessions", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ sessions: [] }) }));
+  await page.route("**/api/kb/documents?collection=material", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ documents: [] }) }));
+  await page.route("**/api/learning/review-queue", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ due_concepts: [], wrong_answers: [], weaknesses: [], personalization: [] }) }));
+  await page.route("**/api/memory/overview", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ knowledge_count: knowledge.length, global_count: 1, library_count: 0, pending_candidate_count: candidates.length, event_count: 1, jobs: { pending: 0, failed: 0 } }) }));
+  await page.route("**/api/memory/knowledge?scope=all&query=", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ items: knowledge }) }));
+  await page.route("**/api/memory/candidates", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ candidates }) }));
+  await page.route("**/api/memory/events?limit=200", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ events: [{ id: "event-1", type: "practice_completed", source_type: "quiz", source_id: "7", payload: { correct: 4 }, occurred_at: "2026-07-14T11:00:00Z" }] }) }));
+  await page.route("**/api/memory/candidates/candidate-1/confirm", (route) => {
+    const item = { ...knowledge[0], id: "knowledge-2", scope: "library", kind: "learning_strategy", title: candidates[0].title, content: candidates[0].content, pinned: false };
+    knowledge = [...knowledge, item];
+    candidates = [];
+    return route.fulfill({ contentType: "application/json", body: JSON.stringify({ item, candidate: { id: "candidate-1", status: "confirmed" } }) });
+  });
+
+  await page.goto("/chat?settings=memory");
+  await expect(page.getByRole("heading", { name: "记忆与数据" }).last()).toBeVisible();
+  await page.getByRole("button", { name: /管理个人知识/ }).click();
+  await expect(page.getByRole("heading", { name: "管理个人知识" })).toBeVisible();
+  await expect(page.getByText("讲解偏好")).toBeVisible();
+  await page.getByRole("button", { name: /待确认/ }).click();
+  await expect(page.getByText("复习方式")).toBeVisible();
+  await page.getByText("查看证据与编辑").click();
+  await expect(page.getByRole("textbox", { name: "内容" })).toHaveValue("先主动回忆，再查看答案");
+  await page.getByRole("button", { name: "确认并保存" }).click();
+  await expect(page.getByText("目前没有等待确认的知识候选。")).toBeVisible();
+});
+
 test("new workspace completes the four-step setup", async ({ page }) => {
   await page.route("**/api/chat/sessions", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ sessions: [] }) }));
   await page.route("**/api/kb/documents?collection=material", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ documents: [] }) }));
@@ -516,7 +557,15 @@ test("chat question generation shows Bobodan process and opens prepared practice
   await page.getByRole("button", { name: "发送" }).click();
   await expect(page.locator('.bobodan-process img[src*="bobodan-state-writing"]')).toBeVisible();
   await expect(page.locator(".bobodan-process-line")).toBeVisible();
-  expect(await page.locator(".bobodan-process-line").evaluate((element) => getComputedStyle(element).animationName)).toBe("process-line");
+  const processAnimation = await page.evaluate(() => {
+    for (const styleSheet of Array.from(document.styleSheets)) {
+      for (const rule of Array.from(styleSheet.cssRules)) {
+        if (rule instanceof CSSStyleRule && rule.selectorText === ".bobodan-process-line") return rule.style.animation;
+      }
+    }
+    return "";
+  });
+  expect(processAnimation).toContain("process-line");
   await expect(page.getByText("1 道题已经准备好")).toBeVisible();
   await page.getByRole("button", { name: "开始练习" }).click();
   await expect(page).toHaveURL(/\/practice\/9/);

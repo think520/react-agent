@@ -17,6 +17,13 @@ import type {
   UserPreferences,
   LibrarySummary,
   LibraryMigrationPreview,
+  KnowledgeCandidate,
+  LearningEvent,
+  LegacyMemoryPreview,
+  MemoryConfirmationArtifact,
+  MemoryOverview,
+  PersonalKnowledgeItem,
+  PersonalizationRef,
   WikiArtifact,
   WikiHealth,
   WikiPlan,
@@ -252,6 +259,7 @@ export const api = {
     query?: string;
     reason?: string;
     suggested_query?: string;
+    personalization?: PersonalizationRef[];
   }>(
     "/api/quiz/questions",
     json({ query, course: course || null, count: 5, document_ids: documentIds, web_research_id: webResearchId || null, web_confirmed: webConfirmed }),
@@ -260,9 +268,14 @@ export const api = {
     `/api/chat/practice/${encodeURIComponent(artifactId)}/start`,
     json({ chat_session_id: chatSessionId }),
   ),
-  startPractice: (course?: string, questionIds: number[] = []) => request<{ practice_session_id: number; questions: Question[] }>(
+  startPractice: (
+    course?: string,
+    questionIds: number[] = [],
+    origin: "practice" | "review" | "chat" = "practice",
+    personalization: PersonalizationRef[] = [],
+  ) => request<{ practice_session_id: number; questions: Question[] }>(
     "/api/quiz/sessions",
-    json({ count: 5, course: course || null, question_ids: questionIds }),
+    json({ count: 5, course: course || null, question_ids: questionIds, origin, personalization }),
   ),
   submitAnswer: (practiceSessionId: number, questionId: number, answer: string) => request<{
     is_correct: boolean;
@@ -280,6 +293,47 @@ export const api = {
   })),
   abandonPractice: (id: number) => request(`/api/quiz/sessions/${id}`, { method: "DELETE" }),
   reviewQueue: () => request<ReviewQueue>("/api/learning/review-queue"),
+  memoryOverview: () => request<MemoryOverview>("/api/memory/overview"),
+  memoryKnowledge: (scope = "all", query = "") => request<{ items: PersonalKnowledgeItem[] }>(
+    `/api/memory/knowledge?scope=${encodeURIComponent(scope)}&query=${encodeURIComponent(query)}`,
+  ),
+  createMemoryKnowledge: (body: Pick<PersonalKnowledgeItem, "scope" | "kind" | "title" | "content"> & { pinned?: boolean }) => request<{ item: PersonalKnowledgeItem }>(
+    "/api/memory/knowledge", json(body),
+  ),
+  updateMemoryKnowledge: (id: string, revision: number, patch: Record<string, unknown>) => request<{ item: PersonalKnowledgeItem }>(
+    `/api/memory/knowledge/${encodeURIComponent(id)}`,
+    { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ revision, patch }) },
+  ),
+  deleteMemoryKnowledge: (id: string) => request<{ deleted: boolean }>(
+    `/api/memory/knowledge/${encodeURIComponent(id)}`, { method: "DELETE" },
+  ),
+  memoryCandidates: () => request<{ candidates: KnowledgeCandidate[] }>("/api/memory/candidates"),
+  confirmMemoryCandidate: (id: string, edits: Record<string, unknown>) => request<{ item: PersonalKnowledgeItem; candidate: KnowledgeCandidate }>(
+    `/api/memory/candidates/${encodeURIComponent(id)}/confirm`, json({ edits }),
+  ),
+  rejectMemoryCandidate: (id: string) => request<{ candidate: KnowledgeCandidate }>(
+    `/api/memory/candidates/${encodeURIComponent(id)}/reject`, json({}),
+  ),
+  memoryEvents: () => request<{ events: LearningEvent[] }>("/api/memory/events?limit=200"),
+  updateReadingProgress: (documentId: string, progress: number, opened = false) => request<{ progress: { document_id: string; progress: number } }>(
+    `/api/memory/reading-progress/${encodeURIComponent(documentId)}`,
+    { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ progress, opened }) },
+  ),
+  legacyMemoryPreview: () => request<LegacyMemoryPreview>("/api/memory/legacy/preview"),
+  importLegacyMemory: (selections: Array<{ name: string; scope: "global" | "library"; kind: string }>) => request<{ created: KnowledgeCandidate[]; skipped: string[] }>(
+    "/api/memory/legacy/import", json({ selections }),
+  ),
+  exportMemory: async (scope: "global" | "library" | "all" = "all") => {
+    const headers = new Headers();
+    if (activeLibraryId) headers.set("X-Bobodan-Library-ID", activeLibraryId);
+    const response = await fetch(`/api/memory/export?scope=${scope}`, { headers });
+    if (!response.ok) throw new ApiError(`导出失败 (${response.status})`, "memory_export_failed", response.status);
+    return response.text();
+  },
+  resolveMemoryProposal: (artifactId: string, chatSessionId: string, action: "confirm" | "reject", warningAcknowledged = false) => request<{ artifact: MemoryConfirmationArtifact }>(
+    `/api/chat/memory/proposals/${encodeURIComponent(artifactId)}/${action}`,
+    json({ chat_session_id: chatSessionId, warning_acknowledged: warningAcknowledged }),
+  ),
 };
 
 export type ChatStreamEvent =
@@ -288,6 +342,7 @@ export type ChatStreamEvent =
   | { event: "status"; data: { phase: string; message: string; tool_name?: string; elapsed?: number } }
   | { event: "citation"; data: { attribution: Attribution } }
   | { event: "chat_artifact"; data: { artifact: ChatArtifact } }
+  | { event: "personalization"; data: { references: PersonalizationRef[] } }
   | { event: "practice" | "learning_update"; data: Record<string, unknown> }
   | { event: "run_completed"; data: { chat_session_id: string; termination_reason: string } }
   | { event: "run_failed"; data: { error: { code: string; message: string } } };

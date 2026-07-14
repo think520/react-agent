@@ -80,6 +80,7 @@ class QuizService:
         search_permission: str = "ask",
         search_provider: str = "auto",
         jina_fallback: bool = True,
+        memory_enabled: bool = True,
     ) -> dict[str, Any]:
         try:
             llm = _get_llm_provider(self.config)
@@ -88,6 +89,15 @@ class QuizService:
 
         store = QuizStore(self.workspace)
         generator = QuestionGenerator(self.workspace, llm)
+        personalization: list[dict[str, Any]] = []
+        if memory_enabled:
+            try:
+                from service.memory_service import MemoryService
+                context = MemoryService(self.workspace).personalization_context(query)
+                generator.personalization_context = context.get("content", "")
+                personalization = context.get("references", [])
+            except Exception as exc:
+                logger.warning("Could not load question personalization: %s", exc)
         web_attempted = False
         active_web_research_id = web_research_id
         if active_web_research_id:
@@ -178,6 +188,7 @@ class QuizService:
             questions=question_list,
             resolved_query=generator.resolved_query or query,
             web_research_id=active_web_research_id,
+            personalization=personalization,
         )
 
     # --- Quiz session ---
@@ -188,6 +199,8 @@ class QuizService:
         course: str | None = None,
         question_type: str | None = None,
         question_ids: list[int] | None = None,
+        origin: str = "practice",
+        personalization: list[dict] | None = None,
     ) -> dict[str, Any]:
         store = QuizStore(self.workspace)
         if question_ids:
@@ -217,7 +230,24 @@ class QuizService:
             return _err("题库为空。请先使用 question_generate 生成题目，或确保知识库中有资料。")
 
         question_ids = [q.id for q in questions if q.id is not None]
-        session = store.create_session(question_ids)
+        session = store.create_session(
+            question_ids,
+            origin=origin,
+            personalization=personalization,
+        )
+
+        if session.origin == "review":
+            try:
+                from service.memory_service import MemoryService
+                MemoryService(self.workspace).record_event(
+                    event_type="review_started",
+                    source_type="review",
+                    source_id=str(session.id),
+                    payload={"question_ids": question_ids},
+                    dedupe_key=f"review_started:{session.id}",
+                )
+            except Exception as exc:
+                logger.warning("Could not record review start: %s", exc)
 
         question_list = [self._question_for_practice(q) for q in questions]
 
@@ -264,7 +294,26 @@ class QuizService:
             feedback=feedback,
             answered_at=datetime.now(timezone.utc).isoformat(),
         )
-        store.record_attempt(attempt_record)
+        attempt_id = store.record_attempt(attempt_record)
+
+        try:
+            from service.memory_service import MemoryService
+            MemoryService(self.workspace).record_event(
+                event_type="quiz_answered",
+                source_type="quiz",
+                source_id=str(attempt_id),
+                concept=question.concepts[0] if question.concepts else None,
+                payload={
+                    "session_id": session_id,
+                    "question_id": question_id,
+                    "origin": session.origin,
+                    "is_correct": is_correct,
+                    "concepts": question.concepts,
+                },
+                dedupe_key=f"quiz_answered:{attempt_id}",
+            )
+        except Exception as exc:
+            logger.warning("Could not record quiz event: %s", exc)
 
         # Record learning effect
         mastery_changes = []
@@ -301,6 +350,27 @@ class QuizService:
             )
         except Exception as e:
             logger.warning("Failed to check session completion: %s", e)
+
+        if session_completed:
+            try:
+                from service.memory_service import MemoryService
+                attempts = store.get_attempts_for_session(session_id)
+                correct = sum(1 for item in attempts if item.is_correct)
+                event_type = "review_completed" if session.origin == "review" else "practice_completed"
+                source_type = "review" if session.origin == "review" else "quiz"
+                MemoryService(self.workspace).record_event(
+                    event_type=event_type,
+                    source_type=source_type,
+                    source_id=str(session_id),
+                    payload={
+                        "origin": session.origin,
+                        "question_count": len(session.question_ids),
+                        "correct": correct,
+                    },
+                    dedupe_key=f"{event_type}:{session_id}",
+                )
+            except Exception as exc:
+                logger.warning("Could not record session completion: %s", exc)
 
         session_state = self.get_session_state(session_id)
         progress = session_state.get("progress", {}) if session_state.get("ok") else {}
@@ -355,6 +425,8 @@ class QuizService:
             started_at=session.started_at,
             updated_at=session.updated_at,
             completed_at=session.completed_at,
+            origin=session.origin,
+            personalization=session.personalization,
             questions=[self._question_for_practice(question) for question in questions],
             attempts=attempt_items,
             progress={
@@ -375,6 +447,7 @@ class QuizService:
                 "started_at": session.started_at,
                 "updated_at": session.updated_at,
                 "question_count": len(session.question_ids),
+                "origin": session.origin,
             }
             for session in sessions
         ])

@@ -5,8 +5,9 @@ import {
 } from "lucide-react";
 
 import { api } from "../lib/api";
-import type { LibrarySummary, RuntimeStatus, SettingsSummary, UserPreferences } from "../types";
+import type { LibrarySummary, MemoryOverview, RuntimeStatus, SettingsSummary, UserPreferences } from "../types";
 import { BrandIllustration, IconButton } from "./common";
+import { MemoryManagerDialog } from "./MemoryManagerDialog";
 
 type SectionId = "assistant" | "user" | "appearance" | "ai" | "memory" | "skills" | "status";
 
@@ -64,6 +65,8 @@ export function SettingsDialog({
   const [providerTest, setProviderTest] = useState<Record<string, string>>({});
   const [searchTest, setSearchTest] = useState<Record<string, string>>({});
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus | null>(null);
+  const [memoryOverview, setMemoryOverview] = useState<MemoryOverview | null>(null);
+  const [memoryManagerOpen, setMemoryManagerOpen] = useState(false);
   const dialogRef = useRef<HTMLElement>(null);
   const activeNavRef = useRef<HTMLButtonElement>(null);
 
@@ -84,6 +87,11 @@ export function SettingsDialog({
     if (active !== "status" || runtimeStatus) return;
     void api.runtimeStatus().then(setRuntimeStatus).catch((reason: Error) => setError(reason.message));
   }, [active, runtimeStatus]);
+
+  useEffect(() => {
+    if (!activeLibrary) { setMemoryOverview(null); return; }
+    void api.memoryOverview().then(setMemoryOverview).catch(() => setMemoryOverview(null));
+  }, [activeLibrary?.library_id]);
 
   const matches = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
@@ -183,16 +191,18 @@ export function SettingsDialog({
       </section>
     </>;
     if (active === "memory") return <>
-      <section className="settings-group"><header><h3>学习记忆</h3><p>关闭后新对话不会读取或写入学习记忆，已有内容不会自动删除。</p></header><SettingRow label="启用学习记忆"><Toggle label="启用学习记忆" checked={preferences.memory.enabled} onChange={(value) => void patchPreferences({ memory: { enabled: value } })} /></SettingRow></section>
+      <section className="settings-group"><header><h3>学习记忆</h3><p>关闭后停止候选整理、长期知识写入和个性化；做题进度、错题和掌握度仍会保存。</p></header><SettingRow label="启用学习记忆"><Toggle label="启用学习记忆" checked={preferences.memory.enabled} onChange={(value) => void patchPreferences({ memory: { enabled: value } })} /></SettingRow><SettingRow label="个人知识" hint={`${memoryOverview?.knowledge_count || 0} 条已确认 · ${memoryOverview?.pending_candidate_count || 0} 条待确认`}><button className="quiet-button" disabled={!activeLibrary} onClick={() => setMemoryManagerOpen(true)}><Brain size={15} />管理个人知识</button></SettingRow></section>
       <section className="settings-boundary"><ShieldCheck size={20} /><div><strong>本地数据边界</strong><p>原始资料只读，设置不会把资料上传到 Bobodan 服务。当前资料库：{activeLibrary?.name || "尚未选择"}。</p></div></section>
     </>;
     if (active === "skills") return <section className="settings-group"><header><h3>Web 安全 Skills</h3><p>这里只显示浏览器运行时能够完整执行的学习技能。</p></header>{settings.skills.length ? settings.skills.map((skill) => <SettingRow key={skill.name} label={skill.name} hint={`${skill.description} · 能力：${skill.capabilities.join("、")} · 来源：${skill.source}`}><Toggle label={`${skill.name} 技能`} checked={preferences.skills.enabled_names.includes(skill.name)} onChange={(value) => { const names = value ? [...preferences.skills.enabled_names, skill.name] : preferences.skills.enabled_names.filter((item) => item !== skill.name); void patchPreferences({ skills: { enabled_names: names } }); }} /></SettingRow>) : <p className="settings-empty">当前没有可用于 Web 的 Skills。</p>}</section>;
     return <section className="settings-group"><header><h3>运行状态</h3><p>只展示普通用户能理解并采取行动的状态。</p></header>{runtimeStatus ? <div className="runtime-grid"><div><Activity /><span><strong>后端</strong><small>连接正常</small></span></div><div><Cpu /><span><strong>AI</strong><small>{runtimeStatus.providers.configured}/{runtimeStatus.providers.available} 已配置</small></span></div><div><Search /><span><strong>联网搜索</strong><small>{runtimeStatus.search.permission === "auto" ? "模型自动" : "每次询问"} · {runtimeStatus.search.default} · {runtimeStatus.search.jina_fallback ? "Jina 后备开启" : "仅直接读取"}</small></span></div><div><Database /><span><strong>资料索引</strong><small>{runtimeStatus.knowledge.state === "ready" ? `${runtimeStatus.knowledge.documents} 份资料` : "等待资料"}</small></span></div><div><Brain /><span><strong>记忆</strong><small>{runtimeStatus.memory.enabled ? "已启用" : "已关闭"}</small></span></div><div><Wrench /><span><strong>Skills</strong><small>{runtimeStatus.skills.enabled}/{runtimeStatus.skills.available} 已启用</small></span></div><div><Gauge /><span><strong>版本</strong><small>{runtimeStatus.version}</small></span></div></div> : <p className="settings-empty">正在读取状态…</p>}</section>;
   }
 
+  if (memoryManagerOpen) return <div className="settings-backdrop" role="presentation"><MemoryManagerDialog memoryEnabled={preferences.memory.enabled} onClose={() => { setMemoryManagerOpen(false); void api.memoryOverview().then(setMemoryOverview).catch(() => undefined); }} /></div>;
+
   return <div className="settings-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="settings-dialog" role="dialog" aria-modal="true" aria-label="设置" tabIndex={-1} ref={dialogRef}>
     <header className="settings-dialog-header"><button className="settings-back" onClick={onClose} aria-label="返回"><ChevronLeft /></button><strong>设置</strong><h2>{sections.find((item) => item.id === active)?.label}</h2><IconButton label="关闭设置" onClick={onClose}><X /></IconButton></header>
-    <div className="settings-dialog-body"><nav className="settings-nav" aria-label="设置分类"><label className="settings-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (!matches.length) return; if (event.key === "ArrowDown") { event.preventDefault(); setSearchIndex((current) => (current + 1) % matches.length); } else if (event.key === "ArrowUp") { event.preventDefault(); setSearchIndex((current) => (current - 1 + matches.length) % matches.length); } else if (event.key === "Enter") { event.preventDefault(); onSectionChange(matches[Math.min(searchIndex, matches.length - 1)].id); } }} placeholder="搜索设置" />{query && <button onClick={() => setQuery("")} aria-label="清空搜索"><X size={13} /></button>}</label>{matches.map(({ id, label, icon: Icon }, index) => <button ref={active === id ? activeNavRef : undefined} className={`${active === id ? "active" : ""} ${query && searchIndex === index ? "search-active" : ""}`} key={id} onClick={() => onSectionChange(id)}><Icon size={17} /><span>{label}</span></button>)}</nav><main className="settings-main">{error && <div className="settings-error">{error}</div>}{notice && <div className="settings-notice"><Check size={14} />{notice}</div>}<div className="settings-page-heading"><Sparkles size={16} /><span>Bobodan Settings</span><h2>{sections.find((item) => item.id === active)?.label}</h2></div>{sectionContent()}</main></div>
+    <div className="settings-dialog-body"><nav className="settings-nav" aria-label="设置分类"><label className="settings-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (!matches.length) return; if (event.key === "ArrowDown") { event.preventDefault(); setSearchIndex((current) => (current + 1) % matches.length); } else if (event.key === "ArrowUp") { event.preventDefault(); setSearchIndex((current) => (current - 1 + matches.length) % matches.length); } else if (event.key === "Enter") { event.preventDefault(); onSectionChange(matches[Math.min(searchIndex, matches.length - 1)].id); } }} placeholder="搜索设置" />{query && <button onClick={() => setQuery("")} aria-label="清空搜索"><X size={13} /></button>}</label>{matches.map(({ id, label, icon: Icon }, index) => <button ref={active === id ? activeNavRef : undefined} className={`${active === id ? "active" : ""} ${query && searchIndex === index ? "search-active" : ""}`} key={id} onClick={() => onSectionChange(id)}><Icon size={17} /><span>{label}</span>{id === "memory" && Boolean(memoryOverview?.pending_candidate_count) && <i className="settings-nav-badge">{memoryOverview?.pending_candidate_count}</i>}</button>)}</nav><main className="settings-main">{error && <div className="settings-error">{error}</div>}{notice && <div className="settings-notice"><Check size={14} />{notice}</div>}<div className="settings-page-heading"><Sparkles size={16} /><span>Bobodan Settings</span><h2>{sections.find((item) => item.id === active)?.label}</h2></div>{sectionContent()}</main></div>
   </section></div>;
 }
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BookmarkCheck, CheckCircle2, FilePlus2, FileText, FolderOpen, Library, Plus, Quote, RefreshCw, Search, Settings2, ShieldCheck, Sparkles, Trash2, Upload, Wrench, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -49,6 +49,9 @@ export function LibraryPage() {
   const [wikiTasks, setWikiTasks] = useState<WikiTask[]>([]);
   const [wikiInstruction, setWikiInstruction] = useState("");
   const [wikiScopeMode, setWikiScopeMode] = useState<"selection" | "document" | "course">("selection");
+  const pageRef = useRef<HTMLElement>(null);
+  const readingOpenedRef = useRef(false);
+  const lastProgressRef = useRef(0);
 
   async function loadDocuments() {
     if (!activeLibrary) {
@@ -93,6 +96,32 @@ export function LibraryPage() {
       .catch((reason: Error) => setError(reason.message))
       .finally(() => setDetailLoading(false));
   }, [selectedId]);
+
+  useEffect(() => {
+    readingOpenedRef.current = false;
+    lastProgressRef.current = 0;
+    if (!selectedId || detailLoading || !sections.length) return;
+    let visibleSeconds = 0;
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      visibleSeconds += 1;
+      if (visibleSeconds < 10 || readingOpenedRef.current) return;
+      readingOpenedRef.current = true;
+      void api.updateReadingProgress(selectedId, lastProgressRef.current, true).catch(() => undefined);
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [selectedId, detailLoading, sections.length]);
+
+  function recordReadingProgress() {
+    const element = pageRef.current;
+    if (!element || !selectedId || !readingOpenedRef.current) return;
+    const available = element.scrollHeight - element.clientHeight;
+    const raw = available > 0 ? Math.round((element.scrollTop / available) * 100) : 100;
+    const progress = raw >= 100 ? 100 : Math.floor(raw / 10) * 10;
+    if (progress < 10 || progress <= lastProgressRef.current) return;
+    lastProgressRef.current = progress;
+    void api.updateReadingProgress(selectedId, progress).catch(() => undefined);
+  }
 
   useEffect(() => {
     const chunkId = searchParams.get("chunk");
@@ -306,7 +335,7 @@ export function LibraryPage() {
   });
 
   return (
-    <section className="page-scroll">
+    <section className="page-scroll" ref={pageRef} onScroll={recordReadingProgress}>
       <div className="page-container library-container">
         <header className="page-heading">
           <div><span>Library</span><h2>资料库</h2><p>{collection === "material" ? "把学习材料放在这里，Bobodan 会建立可追踪的本地索引。" : "Wiki 是由 Bobodan 从学习资料中整理出的规范概念页。"}</p></div>

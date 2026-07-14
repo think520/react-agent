@@ -23,10 +23,24 @@ def create_app() -> FastAPI:
                     record = get_library_service().resolve(library["library_id"])
                     if record:
                         chat.migrate_unnamed_sessions(get_session_save_dir(get_config(), record["path"]))
+                        from service.memory_consolidation import MemoryConsolidationService
+                        MemoryConsolidationService(
+                            record["path"],
+                            config=get_config(),
+                            session_dir=get_session_save_dir(get_config(), record["path"]),
+                            legacy_workspace=get_workspace(),
+                        ).resume_pending()
                 except (OSError, ValueError):
                     continue
         else:
             chat.migrate_unnamed_sessions(get_session_save_dir(get_config()))
+            from service.memory_consolidation import MemoryConsolidationService
+            MemoryConsolidationService(
+                get_workspace(),
+                config=get_config(),
+                session_dir=get_session_save_dir(get_config()),
+                legacy_workspace=get_workspace(),
+            ).resume_pending()
         yield
 
     app = FastAPI(title="Bobodan API", version="0.1.0", lifespan=lifespan)
@@ -35,7 +49,7 @@ def create_app() -> FastAPI:
     async def resolve_library(request: Request, call_next):
         scoped_prefixes = (
             "/api/chat", "/api/kb", "/api/quiz", "/api/learning",
-            "/api/settings/proposals",
+            "/api/memory", "/api/settings/proposals",
         )
         if request.url.path.startswith(scoped_prefixes):
             service = get_library_service()

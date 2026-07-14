@@ -6,7 +6,10 @@ from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
 from service.learning_service import LearningService
-from web.backend.deps import get_config, get_request_workspace
+from service.memory_service import MemoryService
+from service.preference_service import PreferenceService
+from web.backend.capabilities import WEB_SKILL_NAMES
+from web.backend.deps import get_config, get_default_provider_name, get_request_workspace
 from web.backend.errors import unwrap_service_result
 
 router = APIRouter()
@@ -63,7 +66,40 @@ def reviews(request: Request, limit: int = 20) -> dict:
 
 @router.get("/review-queue")
 def review_queue(request: Request, limit: int = 20) -> dict:
-    return _unwrap(_service(request).get_review_queue(limit=max(1, min(limit, 50))))
+    result = _unwrap(_service(request).get_review_queue(limit=max(1, min(limit, 50))))
+    preferences = PreferenceService(
+        get_default_provider_name(get_config()),
+        sorted(WEB_SKILL_NAMES),
+    ).get()
+    if not preferences.get("memory", {}).get("enabled", True):
+        result["personalization"] = []
+        return result
+
+    records = [
+        *result.get("due_concepts", []),
+        *result.get("wrong_answers", []),
+        *result.get("weaknesses", []),
+    ]
+    query = " ".join(
+        str(record.get(key) or "")
+        for record in records
+        for key in ("concept", "question", "title")
+    )
+    context = MemoryService(get_request_workspace(request)).personalization_context(query)
+    content = context.get("content", "").casefold()
+
+    def priority(record: dict) -> int:
+        values = [str(record.get(key) or "").strip().casefold() for key in ("concept", "question", "title")]
+        return 0 if any(value and value in content for value in values) else 1
+
+    matched = any(priority(record) == 0 for record in records)
+    if matched:
+        for key in ("due_concepts", "wrong_answers", "weaknesses"):
+            result[key] = sorted(result.get(key, []), key=priority)
+        result["personalization"] = context.get("references", [])
+    else:
+        result["personalization"] = []
+    return result
 
 
 @router.post("/mastery")

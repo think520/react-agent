@@ -1,4 +1,6 @@
-"""Agent tools for memory save, recall, daily memory, and promotion."""
+"""Agent tools for memory recall and user-confirmed memory proposals."""
+
+import uuid
 
 from tools.base import register_tool, ToolResult
 
@@ -129,6 +131,58 @@ def memory_promote(dry_run: bool = False, session=None) -> ToolResult:
         return ToolResult(ok=False, content=f"Error checking promotions: {e}")
 
 
+def request_memory_confirmation(
+    title: str,
+    content: str,
+    scope: str = "library",
+    kind: str = "profile_fact",
+    target_item_id: str | None = None,
+    session=None,
+) -> ToolResult:
+    """Prepare a memory proposal without writing long-term knowledge."""
+    from service.memory_service import MemoryService
+
+    service = MemoryService(_get_workspace(session))
+    if service.contains_secret(f"{title}\n{content}"):
+        return ToolResult(
+            ok=False,
+            content="This contains a password, token, API key, or other secret and cannot be remembered.",
+        )
+    if scope not in {"global", "library"}:
+        scope = "library"
+    if kind not in {
+        "preference", "goal", "profile_fact", "learning_strategy",
+        "course_insight", "study_pattern",
+    }:
+        kind = "profile_fact"
+    before = None
+    if target_item_id:
+        existing = service.get_knowledge(target_item_id)
+        before = existing.get("item") if existing.get("ok") else None
+        if not before:
+            target_item_id = None
+    artifact = {
+        "type": "memory_confirmation",
+        "artifact_id": uuid.uuid4().hex,
+        "status": "pending",
+        "scope": scope,
+        "kind": kind,
+        "title": title.strip()[:120] or "需要记住的内容",
+        "content": content.strip()[:5000],
+        "target_item_id": target_item_id,
+        "before": before,
+        "requires_warning": service.is_sensitive(f"{title}\n{content}"),
+    }
+    return ToolResult(
+        ok=True,
+        content=(
+            "A memory confirmation card is visible to the user. "
+            "Do not claim the information was saved until the user confirms it."
+        ),
+        artifacts=[artifact],
+    )
+
+
 register_tool(
     name="memory_save",
     description="Save a persistent memory about the user, their preferences, learning context, or feedback. "
@@ -239,4 +293,28 @@ register_tool(
         "required": [],
     },
     func=memory_promote,
+)
+
+register_tool(
+    name="request_memory_confirmation",
+    description=(
+        "Prepare a confirmation card when the user explicitly asks Bobodan to remember durable learning context. "
+        "This tool does not write memory. Do not use it for display name, teaching style, answer depth, feedback strength, "
+        "or configured long-term goal; those use settings. Never propose passwords, tokens, API keys, or secrets."
+    ),
+    params_schema={
+        "type": "object",
+        "properties": {
+            "title": {"type": "string", "description": "Short user-readable memory title"},
+            "content": {"type": "string", "description": "The exact durable fact or preference to confirm"},
+            "scope": {"type": "string", "enum": ["global", "library"]},
+            "kind": {
+                "type": "string",
+                "enum": ["preference", "goal", "profile_fact", "learning_strategy", "course_insight", "study_pattern"],
+            },
+            "target_item_id": {"type": "string", "description": "Optional confirmed knowledge item to update"},
+        },
+        "required": ["title", "content"],
+    },
+    func=request_memory_confirmation,
 )

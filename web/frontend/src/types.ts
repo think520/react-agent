@@ -31,6 +31,16 @@ export interface ChatMessage {
   process?: Array<{ phase: string; message: string; toolName?: string; elapsed?: number }>;
   artifacts?: ChatArtifact[];
   references?: ChatReference[];
+  personalization?: PersonalizationRef[];
+}
+
+export interface PersonalizationRef {
+  id: string;
+  title: string;
+  scope: "global" | "library";
+  kind: KnowledgeKind | "mastery";
+  content: string;
+  updated_at: string;
 }
 
 export interface ChatReference {
@@ -114,6 +124,8 @@ export interface Question {
 export interface PracticeSession {
   practice_session_id: number;
   status: string;
+  origin: "practice" | "review" | "chat";
+  personalization?: PersonalizationRef[];
   questions: Question[];
   attempts: Array<{
     question_id: number;
@@ -134,6 +146,7 @@ export interface ReviewQueue {
   due_concepts: Array<Record<string, unknown>>;
   wrong_answers: Array<Record<string, unknown>>;
   weaknesses: Array<Record<string, unknown>>;
+  personalization?: PersonalizationRef[];
 }
 
 export interface SettingsSummary {
@@ -178,6 +191,69 @@ export interface UserPreferences {
   memory: { enabled: boolean };
   search: { provider: "auto" | "tavily" | "exa"; permission: "ask" | "auto"; jina_fallback: boolean };
   skills: { enabled_names: string[] };
+}
+
+export type KnowledgeKind = "preference" | "goal" | "profile_fact" | "learning_strategy" | "course_insight" | "study_pattern";
+
+export interface PersonalKnowledgeItem {
+  id: string;
+  scope: "global" | "library";
+  kind: KnowledgeKind;
+  title: string;
+  content: string;
+  pinned: boolean;
+  confidence: number;
+  evidence: Array<Record<string, unknown>>;
+  created_at: string;
+  updated_at: string;
+  revision: number;
+}
+
+export interface KnowledgeCandidate {
+  id: string;
+  scope: "global" | "library";
+  kind: KnowledgeKind;
+  operation: "create" | "update";
+  title: string;
+  content: string;
+  target_item_id?: string | null;
+  confidence: number;
+  reason: string;
+  evidence: Array<Record<string, unknown>>;
+  status: "pending" | "confirmed" | "rejected" | "superseded";
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LearningEvent {
+  id: string;
+  type: "quiz_answered" | "practice_completed" | "review_started" | "review_completed" | "document_opened" | "reading_progress" | "chat_completed";
+  source_type: "quiz" | "review" | "document" | "chat";
+  source_id: string;
+  concept?: string | null;
+  payload: Record<string, unknown>;
+  occurred_at: string;
+}
+
+export interface MemoryOverview {
+  knowledge_count: number;
+  global_count: number;
+  library_count: number;
+  pending_candidate_count: number;
+  event_count: number;
+  jobs: { pending: number; failed: number };
+}
+
+export interface LegacyMemoryPreview {
+  entries: Array<{
+    name: string;
+    type: string;
+    description: string;
+    content_preview: string;
+    suggested_scope: "global" | "library";
+    suggested_kind: KnowledgeKind;
+  }>;
+  daily_files: string[];
 }
 
 export interface RuntimeStatus {
@@ -366,7 +442,22 @@ export interface PracticeReadyArtifact {
   attribution: Attribution;
   practice_session_id?: number;
   chat_session_id?: string;
+  personalization?: PersonalizationRef[];
+}
+
+export interface MemoryConfirmationArtifact {
+  artifact_id: string;
+  type: "memory_confirmation";
+  status: "pending" | "confirmed" | "rejected";
+  scope: "global" | "library";
+  kind: KnowledgeKind;
+  title: string;
+  content: string;
+  target_item_id?: string | null;
+  before?: PersonalKnowledgeItem | null;
+  requires_warning: boolean;
+  knowledge_item_id?: string;
 }
 
 export type WebArtifact = WebConsentArtifact | WebCandidatesArtifact | WebEvidenceArtifact;
-export type ChatArtifact = WikiArtifact | SettingsChangeArtifact | WebArtifact | PracticeReadyArtifact;
+export type ChatArtifact = WikiArtifact | SettingsChangeArtifact | WebArtifact | PracticeReadyArtifact | MemoryConfirmationArtifact;

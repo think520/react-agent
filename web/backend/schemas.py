@@ -49,6 +49,11 @@ class PracticeArtifactStartRequest(BaseModel):
     chat_session_id: str = Field(..., min_length=1, max_length=64)
 
 
+class MemoryProposalResolutionRequest(BaseModel):
+    chat_session_id: str = Field(..., min_length=1, max_length=64)
+    warning_acknowledged: bool = False
+
+
 class WikiFocusRequest(BaseModel):
     chat_session_id: str | None = None
     action: Literal["generate", "update", "repair", "migrate"] = "generate"
@@ -83,6 +88,7 @@ class ChatMessage(BaseModel):
     content: str
     artifacts: list[dict[str, Any]] = Field(default_factory=list)
     references: list[ChatReference] = Field(default_factory=list)
+    personalization: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class ChatSessionSummary(BaseModel):

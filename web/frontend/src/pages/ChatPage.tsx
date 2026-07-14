@@ -8,7 +8,7 @@ import type { AppOutletContext } from "../components/AppShell";
 import { AttributionBadges, BrandIllustration, ErrorNotice, IconButton, LoadingState } from "../components/common";
 import { WikiPlanCard } from "../components/WikiPlanCard";
 import { api, streamChat } from "../lib/api";
-import type { ChatArtifact, ChatMessage, ChatReference, PracticeReadyArtifact, SettingsChangeArtifact, WebCandidatesArtifact, WebConsentArtifact, WebEvidenceArtifact, WikiFocusArtifact, WikiPlanArtifact, WikiResultArtifact } from "../types";
+import type { ChatArtifact, ChatMessage, ChatReference, MemoryConfirmationArtifact, PersonalizationRef, PracticeReadyArtifact, SettingsChangeArtifact, WebCandidatesArtifact, WebConsentArtifact, WebEvidenceArtifact, WikiFocusArtifact, WikiPlanArtifact, WikiResultArtifact } from "../types";
 
 interface SlashItem {
   value: string;
@@ -58,6 +58,11 @@ function BobodanProcess({ state, detail }: { state: ProcessBrandState; detail: s
     <BrandIllustration key={state} state={state} size={52} />
     <div><strong>{processTitle(state)}</strong><small>{detail}</small><span className="bobodan-process-line" aria-hidden="true" /></div>
   </div>;
+}
+
+function PersonalizationChip({ references }: { references?: PersonalizationRef[] }) {
+  if (!references?.length) return null;
+  return <details className="personalization-chip"><summary><Brain size={13} />个性化依据 <span>{references.length}</span></summary><div>{references.map((reference) => <section key={reference.id}><strong>{reference.title}</strong><p>{reference.content}</p><small>{reference.scope === "global" ? "全局" : "当前资料库"} · {new Date(reference.updated_at).toLocaleDateString("zh-CN")}</small></section>)}</div></details>;
 }
 
 function displaySettingValue(value: unknown) {
@@ -293,6 +298,11 @@ export function ChatPage() {
           setBrandState("reading");
           setMessages((current) => current.map((item, index) => index === current.length - 1
             ? { ...item, attribution: streamEvent.data.attribution }
+            : item));
+        }
+        if (streamEvent.event === "personalization") {
+          setMessages((current) => current.map((item, index) => index === current.length - 1
+            ? { ...item, personalization: streamEvent.data.references }
             : item));
         }
         if (streamEvent.event === "chat_artifact") {
@@ -609,6 +619,25 @@ export function ChatPage() {
     }
   }
 
+  async function resolveMemoryProposal(artifact: MemoryConfirmationArtifact, action: "confirm" | "reject") {
+    if (!sessionId) return;
+    setSending(true);
+    setError("");
+    try {
+      await api.resolveMemoryProposal(
+        artifact.artifact_id,
+        sessionId,
+        action,
+        action === "confirm" && artifact.requires_warning,
+      );
+      await refreshChatSession(sessionId);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "无法更新这条记忆。" );
+    } finally {
+      setSending(false);
+    }
+  }
+
   function removeReference(reference: ChatReference) {
     setReferences((current) => current.filter((item) => !(item.type === reference.type && item.id === reference.id)));
   }
@@ -684,6 +713,14 @@ export function ChatPage() {
   }
 
   function artifactSurface(artifact: ChatArtifact) {
+    if (artifact.type === "memory_confirmation") {
+      return <section className={`memory-confirmation-card ${artifact.status}`} key={artifact.artifact_id}>
+        <header><span><Brain size={15} />个人知识</span><strong>{artifact.status === "pending" ? "确认后才会长期记住" : artifact.status === "confirmed" ? "已经记住" : "没有保存"}</strong></header>
+        <div className="memory-confirmation-content"><small>{artifact.scope === "global" ? "所有资料库" : "当前资料库"} · {artifact.kind}</small><h4>{artifact.title}</h4>{artifact.before && <del>{artifact.before.content}</del>}<p>{artifact.content}</p></div>
+        {artifact.requires_warning && artifact.status === "pending" && <div className="memory-sensitive-warning">这可能涉及健康、身份或其他敏感信息。确认后只保存在本地，你可以随时编辑或删除。</div>}
+        {artifact.status === "pending" && <footer><button className="quiet-button" disabled={sending} onClick={() => void resolveMemoryProposal(artifact, "reject")}>不保存</button><button className="primary-button" disabled={sending} onClick={() => void resolveMemoryProposal(artifact, "confirm")}><Check size={15} />{artifact.requires_warning ? "了解并记住" : "确认记住"}</button></footer>}
+      </section>;
+    }
     if (artifact.type === "settings_change") {
       return <section className={`settings-change-card ${artifact.status}`} key={artifact.artifact_id}>
         <header><span>设置变更</span><strong>{artifact.status === "pending" ? "确认后才会生效" : artifact.status === "applied" ? "设置已更新" : "已取消修改"}</strong></header>
@@ -859,6 +896,7 @@ export function ChatPage() {
                 <div className="answer-prose"><ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content || (message.pending ? "正在整理回答…" : message.failed ? "回答没有完成。" : "本轮没有生成可显示的内容。")}</ReactMarkdown></div>
                 {message.artifacts?.map(artifactSurface)}
                 <AttributionBadges attribution={message.attribution} />
+                <PersonalizationChip references={message.personalization} />
                 {!message.pending && message.process?.length ? <details className="process-disclosure">
                   <summary>查看处理过程</summary>
                   <div>{message.process.map((item, processIndex) => <p key={processIndex}><span>{item.phase === "failed" ? "未完成" : item.phase === "completed" ? "完成" : "进行中"}</span>{item.message}{typeof item.elapsed === "number" ? <small>{item.elapsed.toFixed(1)}s</small> : null}</p>)}</div>

@@ -395,13 +395,13 @@ Memory 与个人学习知识库共同沉淀：
 
 ### 3.1 总体判断
 
-Bobodan 已经完成“学习 Agent 引擎”“Web 产品化基础”“本地学习闭环 Web MVP”“用户主动触发的 LLM Wiki”“便携文件夹资料库”“Wiki 可靠性增强”“Web UI 系统体验与设置中心”和“可信联网资料扩展”主体流程，普通用户可以在浏览器中切换多个本地资料库，完成资料学习、个性化设置、用户确认式网页研究与可追溯知识沉淀流程。
+Bobodan 已经完成“学习 Agent 引擎”“Web 产品化基础”“本地学习闭环 Web MVP”“用户主动触发的 LLM Wiki”“便携文件夹资料库”“Wiki 可靠性增强”“Web UI 系统体验与设置中心”“可信联网资料扩展”和“个人学习知识库”主体流程。普通用户可以在浏览器中切换多个本地资料库，完成资料学习、个性化设置、用户确认式网页研究，以及可查看、确认、编辑和删除的长期个人知识沉淀。
 
-现有技术路线不需要推倒重来。Python + FastAPI + SQLite / Qdrant + React Web UI 仍然适合本地优先的个人学习助手。P5C 已整理 Web 产品合约，P5D 已完成 Library → Chat → Practice → Review，P5E 已完成用户确认式 LLM Wiki，P5E.1 已把测试工作区升级为通用文件夹资料库，P5E.2 已补齐 Wiki 可靠性，P5E.3 已补齐用户偏好与设置中心，P5F 已补齐可信联网候选、证据快照和网页来源练习；下一步进入 P5F.1 个人学习知识库。
+现有技术路线不需要推倒重来。Python + FastAPI + SQLite / Qdrant + React Web UI 仍然适合本地优先的个人学习助手。P5C 已整理 Web 产品合约，P5D 已完成 Library → Chat → Practice → Review，P5E 已完成用户确认式 LLM Wiki，P5E.1 已把测试工作区升级为通用文件夹资料库，P5E.2 已补齐 Wiki 可靠性，P5E.3 已补齐用户偏好与设置中心，P5F 已补齐可信联网候选、证据快照和网页来源练习，P5F.1 已补齐确定性学习事件、候选确认和已确认个人知识；下一步进入 P5G 发布收尾。
 
 一句话结论：
 
-> 本地资料、用户确认式 Wiki 与可信联网证据闭环已经交付；下一阶段让长期学习事件自然沉淀为可管理、可追溯的个人学习知识库。
+> 本地资料、用户确认式 Wiki、可信联网证据与个人学习知识库已经形成闭环；下一阶段集中完成发布、恢复和支撑页面收尾。
 
 ### 3.2 当前成熟度
 
@@ -410,11 +410,11 @@ Bobodan 已经完成“学习 Agent 引擎”“Web 产品化基础”“本地�
 | Agent Runtime | 可用且测试充分 | ReAct、流式输出、工具调用、session、provider 已稳定运行 |
 | RAG v2 | 较成熟 | SQLite / FTS5 / Qdrant / hybrid / directory / grep 已具备完整检索骨架 |
 | Quiz / Learning | Web 闭环可用 | 支持范围出题、精确题目会话、题内问 AI、练习恢复、批改、掌握度变化和 Review 聚合 |
-| Memory | 基础合约就绪 | Web Chat 注入并按 run 刷新 memory prompt，公开 API 不返回本地绝对路径；个人学习知识库、候选确认和分层共享尚未实现 |
+| Memory | P5F.1 完成 | 全局 / 资料库双层 SQLite、确定性学习事件、90 秒对话整理、候选确认、显式记忆卡、旧记忆迁移、Markdown 导出和个性化依据已落地；旧 daily Markdown 保持只读 |
 | Service Layer | 产品化基础完成 | CLI / Web 共用 runtime、config 与 service，Review / Practice 聚合已补齐 |
-| FastAPI | P5F 完成 | 已有稳定错误结构、流式事件、资料库隔离、Wiki 可靠性、用户偏好、会话模型，以及联网确认、候选选择、证据快照和搜索 Provider 测试 API |
-| Web UI | P5F 完成 | Chat、Library、Practice、Review、设置中心、`@资料 / @会话`、一次性联网、来源候选、网页证据与来源练习已落地 |
-| 测试 | 全栈回归已建立 | Python `1095 passed`；Vitest `5 passed`；TypeScript 与生产构建通过；Playwright 桌面、窄屏和移动端 `45 passed` |
+| FastAPI | P5F.1 完成 | 已有稳定错误结构、流式事件、资料库隔离、Wiki / 联网证据、个人知识 CRUD、候选确认、阅读进度、旧记忆迁移和 Chat 记忆确认 API |
+| Web UI | P5F.1 完成 | Chat、Library、Practice、Review、设置中心、个人知识管理浮层、个性化依据、阅读进度和显式记忆确认已落地 |
+| 测试 | 全栈回归已建立 | Python `1115 passed`；Vitest `5 passed`；TypeScript 与生产构建通过；Playwright 桌面、窄屏和移动端 `60 passed` |
 
 ### 3.3 P5C / P5D / P5E 已解决的问题与剩余边界
 
@@ -458,7 +458,14 @@ P5F 已补齐：
 - Tavily 与 Exa 支持手动选择和自动降级；直接读取失败时可使用明确标注的 Jina Reader 后备。
 - 网页证据按资料库保存为不可变快照，并与 Chat、Question、Practice、Review 共用 `Attribution + SourceRef`。
 
-仍待 P5F.1 / P5G 解决：
+P5F.1 已补齐：
+
+- 做题、练习完成、复习、阅读和 Chat 整理以确定性学习事件保存，不再自动写入旧 daily Markdown。
+- 用户观点、学习策略和课程结论只进入待确认候选；明确“请记住”使用 Chat 确认卡，秘密信息拒绝保存，敏感内容显示二次警告。
+- 只有已确认知识和确定性掌握度摘要进入 Chat、Practice 和 Review；界面显示可展开的“个性化依据”。
+- 设置中心“记忆与数据”可管理已确认知识、候选、学习记录与旧记忆迁移，并支持置顶、编辑、删除和 Markdown 导出。
+
+仍待 P5G 解决：
 
 - 从学习事件自动沉淀掌握度、错题和进度，并将观点、总结和画像推断作为待确认候选管理。
 - 开发期仍是 Vite + FastAPI 两个进程；单进程静态托管与一键启动留到发布阶段。
@@ -843,9 +850,9 @@ P5F 收尾修正进一步补齐：
 - Web 搜索失败不会阻塞本地资料问答与练习。
 - 不允许把搜索摘要或 AI 常识伪装成用户资料。
 
-验收结果：Python `1102 passed`；Vitest `5 passed`；TypeScript 与生产构建通过；Playwright 桌面、窄屏和移动端 `51 passed`。下一步进入 P5F.1。
+验收结果：Python `1102 passed`；Vitest `5 passed`；TypeScript 与生产构建通过；Playwright 桌面、窄屏和移动端 `57 passed`。下一步进入 P5F.1。
 
-### P5F.1：个人学习知识库
+### P5F.1：个人学习知识库（完成）
 
 目标是让用户长期使用 Bobodan 后，系统逐渐理解“学过什么、掌握了什么、容易在哪里出错，以及怎样讲解最有效”，而不是只保存聊天记录。
 
@@ -859,13 +866,24 @@ P5F 收尾修正进一步补齐：
 6. 用户可以查看、确认、拒绝、编辑、固定、删除、导出和清空个人知识；删除后 Chat、Practice 和 Review 的个性化上下文必须同步失效。
 7. Chat、Practice 和 Review 可以使用已确认知识与确定性学习状态调整讲解、出题和复习，并向用户展示形成依据与更新时间。
 
-扩展现有 `MemoryService`，不创建第二套记忆服务。公开接口规划为：
+实现继续扩展现有 `MemoryService`，没有创建第二套记忆服务。当前数据边界为：
 
-- `GET /api/memory/knowledge`：按全局或当前资料库列出个人知识。
-- `PATCH /api/memory/knowledge/{id}`、`DELETE /api/memory/knowledge/{id}`：编辑、固定、归档或删除。
+- 全局已确认知识与全局候选：`BOBODAN_HOME/personal-knowledge.db`。
+- 资料库知识、候选、学习事件、阅读进度与整理任务：`<library>/.bobodan/bobodan.db`。
+- 称呼、教学方式、回答深度和长期目标：`BOBODAN_HOME/preferences.json`。
+- 旧 `.bobodan/memory/*.md` 与 `.bobodan/daily/*.md`：只读迁移来源，不再自动写入或注入提示词。
+
+已实现接口：
+
+- `GET /api/memory/overview`、`GET /api/memory/knowledge`、`POST /api/memory/knowledge`：读取概览、筛选和新增个人知识。
+- `PATCH /api/memory/knowledge/{id}`、`DELETE /api/memory/knowledge/{id}`：编辑、固定或删除。
 - `GET /api/memory/candidates`：列出待确认候选。
 - `POST /api/memory/candidates/{id}/confirm`、`POST /api/memory/candidates/{id}/reject`：确认或拒绝候选。
-- `POST /api/memory/consolidate`：手动触发一次候选整理，不直接提升为长期知识。
+- `GET /api/memory/events`、`PUT /api/memory/reading-progress/{document_id}`：读取学习时间线并更新阅读进度。
+- `POST /api/memory/consolidate`：手动触发候选整理，不直接提升为长期知识。
+- `GET /api/memory/legacy/preview`、`POST /api/memory/legacy/import`：把旧 Markdown 记忆预览为待确认候选。
+- `GET /api/memory/export`：导出已确认知识；导出文件不反向参与运行时检索。
+- `POST /api/chat/memory/proposals/{artifact_id}/confirm|reject`：处理 Chat 中的明确记忆确认卡。
 
 资料库级请求继续携带 `X-Bobodan-Library-ID`。自动整理只能读取当前资料库的学习事件；全局偏好由服务端单独合并，不能借此跨库读取资料、错题或课程进度。
 
@@ -877,13 +895,15 @@ P5F 收尾修正进一步补齐：
 - 删除个人知识后，检索、提示词和个性化行为同步更新。
 - 已确认知识可以导出 Markdown，导出文件不参与双向自动同步。
 
+阶段验收结果：Python `1115 passed`；Vitest `5 passed`；TypeScript 与生产构建通过；Playwright 桌面、窄屏和移动端 `60 passed`。
+
 ### P5G：支撑页面与发布收尾
 
 按优先级补齐：
 
 1. Library 增强：文档阅读、highlight、摘录回流和相关概念；基础导入与列表已在 P5D 完成。
 2. Roadmap：学习目标、当前阶段和今日任务。
-3. Memory Browser：统一查看全局偏好、个人学习知识和待确认候选，支持编辑、删除、固定与导出；用户人设配置后置于此。
+3. 完整 Memory Browser：在 P5F.1 设置管理浮层基础上补跨资料库浏览、完整搜索和发布级数据恢复；基础查看、确认、编辑、删除、固定、导出已经完成。
 4. 会话增强：正文搜索、归档、恢复和引用历史。
 5. 复习自动化：用户确认后创建间隔复习提醒和阶段总结，不暴露通用 Cron 配置。
 6. 数据保护：资料编辑检查点、备份恢复、记忆导出和安全审计入口。
@@ -1445,7 +1465,7 @@ P5C 产品化基础（完成）
 → P5E.2 Wiki 可靠性增强（完成）
 → P5E.3 Web UI 系统体验与设置中心（完成）
 → P5F 可信资料扩展（完成）
-→ P5F.1 个人学习知识库
+→ P5F.1 个人学习知识库（完成）
 → P5G 支撑页面与发布收尾
 ```
 
