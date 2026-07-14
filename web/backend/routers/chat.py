@@ -909,6 +909,13 @@ def apply_chat_wiki_plan(plan_id: str, body: WikiPlanApplyRequest, request: Requ
     session = _load_or_create_session(body.chat_session_id, config, workspace, library_id)
     result = KBService(workspace).apply_wiki_plan(plan_id, config=config)
     if not result.get("ok"):
+        refreshed = KBService(workspace).get_wiki_plan(plan_id)
+        if refreshed.get("ok"):
+            for message in session.messages:
+                for existing in message.get("artifacts") or []:
+                    if existing.get("type") == "wiki_plan" and existing.get("plan_id") == plan_id:
+                        existing["plan"] = {key: value for key, value in refreshed.items() if key != "ok"}
+            _save_wiki_session(session, workspace, config)
         raise APIError(409, "wiki_plan_not_applicable", result.get("error") or "Wiki plan cannot be applied")
     for message in session.messages:
         for existing in message.get("artifacts") or []:

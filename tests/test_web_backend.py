@@ -707,6 +707,72 @@ def test_chat_wiki_recovery_keeps_existing_page_and_persists_result(backend_clie
     assert results[0]["written"] == ["concepts/Transformer.md"]
 
 
+def test_chat_wiki_apply_failure_persists_recovery_state(backend_client, monkeypatch):
+    document = {
+        "document_id": "doc-1", "title": "LLM Lesson", "source": "raw/inbox/llm.md",
+        "sections": [{"chunk_id": "chunk-1", "text": "Large language model overview."}],
+    }
+    monkeypatch.setattr(
+        "web.backend.routers.chat.KBService._wiki_scope_documents",
+        lambda self, document_ids, course, wiki_document_ids: [document],
+    )
+    provider = SimpleNamespace(complete=lambda _messages: SimpleNamespace(content="确认大模型整理重点。"))
+    monkeypatch.setattr(
+        "web.backend.routers.chat.get_runtime_context",
+        lambda: SimpleNamespace(create_provider=lambda _name: provider),
+    )
+    plan_id = "d" * 32
+    planned = {
+        "ok": True, "plan_id": plan_id, "status": "planned", "action": "generate",
+        "instruction": "", "created_at": "2026-07-14T00:00:00Z",
+        "scope": {"document_ids": ["doc-1"], "documents": ["LLM Lesson"]},
+        "summary": {"add": 1, "update": 1, "merge": 0, "conflict": 0, "skip": 0},
+        "changes": [],
+    }
+    staged = {
+        **planned,
+        "staging": [{
+            "change_id": "change-1", "path": "draft.json",
+            "errors": ["incoming body is unexpectedly shorter than the existing page"],
+        }],
+    }
+    monkeypatch.setattr(
+        "web.backend.routers.chat.KBService.create_wiki_plan",
+        lambda self, llm_provider, **kwargs: planned,
+    )
+    monkeypatch.setattr(
+        "web.backend.routers.chat.KBService.apply_wiki_plan",
+        lambda self, requested_plan_id, config: {
+            "ok": False, "error": "incoming body is unexpectedly shorter than the existing page",
+        },
+    )
+    monkeypatch.setattr(
+        "web.backend.routers.chat.KBService.get_wiki_plan",
+        lambda self, requested_plan_id: staged,
+    )
+
+    focused = backend_client.post("/api/chat/wiki/focus", json={
+        "action": "generate", "document_ids": ["doc-1"],
+    }).json()
+    session_id = focused["chat_session_id"]
+    focus_id = focused["artifact"]["artifact_id"]
+    backend_client.post(f"/api/chat/wiki/focus/{focus_id}/confirm", json={"chat_session_id": session_id})
+
+    failed = backend_client.post(f"/api/chat/wiki/plans/{plan_id}/apply", json={
+        "chat_session_id": session_id,
+    })
+
+    assert failed.status_code == 409
+    detail = backend_client.get(f"/api/chat/sessions/{session_id}").json()
+    plans = [
+        artifact
+        for message in detail["messages"]
+        for artifact in message.get("artifacts", [])
+        if artifact["type"] == "wiki_plan"
+    ]
+    assert plans[0]["plan"]["staging"][0]["change_id"] == "change-1"
+
+
 def test_explicit_skill_slash_command_loads_selected_skill(tmp_path):
     skill_dir = tmp_path / "skills" / "exam-prep"
     skill_dir.mkdir(parents=True)
