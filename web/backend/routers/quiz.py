@@ -28,6 +28,8 @@ class StartQuizRequest(BaseModel):
     course: str | None = None
     question_type: str | None = None
     question_ids: list[int] = Field(default_factory=list, max_length=15)
+    origin: str = Field(default="practice", pattern="^(practice|review|chat)$")
+    personalization: list[dict] = Field(default_factory=list, max_length=8)
 
 
 class SubmitAnswerRequest(BaseModel):
@@ -58,6 +60,7 @@ def generate_questions(body: GenerateQuestionsRequest, request: Request) -> dict
         search_permission=search.get("permission", "ask"),
         search_provider=search.get("provider", "auto"),
         jina_fallback=bool(search.get("jina_fallback", True)),
+        memory_enabled=bool(preferences.get("memory", {}).get("enabled", True)),
     ))
 
 
@@ -68,6 +71,8 @@ def start_quiz(body: StartQuizRequest, request: Request) -> dict:
         course=body.course,
         question_type=body.question_type,
         question_ids=body.question_ids,
+        origin=body.origin,
+        personalization=body.personalization,
     ))
     return {
         "practice_session_id": result["session_id"],

@@ -28,6 +28,8 @@ class QuizSession:
     completed_at: str | None = None
     updated_at: str = ""
     status: str = "active"
+    origin: str = "practice"
+    personalization: list[dict] = field(default_factory=list)
 
 
 @dataclass

@@ -61,6 +61,7 @@ def question_generate(
             "question_ids": result["question_ids"],
             "count": result["count"],
             "attribution": {"kind": attribution_kind, "sources": sources[:6]},
+            "personalization": result.get("personalization") or [],
         }
 
         return ToolResult(ok=True, content=(

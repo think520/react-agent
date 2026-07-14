@@ -12,6 +12,8 @@ fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 
 from core.session import Session
+from core.memory import MemoryManager
+from service.memory_service import MemoryService
 from web.backend.app import create_app
 from web.backend.deps import reset_dependency_caches
 from web.backend.routers.chat import _preference_prompt, _request_context, _slash_command_prompt
@@ -733,7 +735,7 @@ def test_chat_run_maps_safe_events_and_injects_runtime(backend_client, monkeypat
     assert "SECRET" not in body
     assert "C:\\private" not in body
     assert captured["skills_prompt"] == "skills prompt"
-    assert captured["memory_prompt"] == "memory prompt"
+    assert captured["memory_prompt"] is None
     assert captured["trace_writer"] is not None
     assert "Lesson 1" in captured["request_prompt"]
     assert captured["session"].active_document_ids == ["doc-1"]
@@ -868,7 +870,7 @@ def test_practice_ready_artifact_starts_once_and_persists(backend_client, monkey
     starts = []
     monkeypatch.setattr("web.backend.routers.chat.get_runtime_context", lambda: runtime)
     monkeypatch.setattr("web.backend.routers.chat.AgentService.run_stream", fake_run_stream)
-    monkeypatch.setattr("web.backend.routers.chat.QuizService.start_quiz", lambda self, count, question_ids: starts.append(question_ids) or {
+    monkeypatch.setattr("web.backend.routers.chat.QuizService.start_quiz", lambda self, count, question_ids, **kwargs: starts.append((question_ids, kwargs)) or {
         "ok": True, "session_id": 77, "question_ids": question_ids, "questions": [],
     })
 
@@ -879,7 +881,7 @@ def test_practice_ready_artifact_starts_once_and_persists(backend_client, monkey
 
     assert first.status_code == second.status_code == 200
     assert first.json()["practice_session_id"] == second.json()["practice_session_id"] == 77
-    assert starts == [[11, 12]]
+    assert starts == [([11, 12], {"origin": "chat", "personalization": []})]
     detail = backend_client.get(f"/api/chat/sessions/{session_id}").json()
     saved = [item for message in detail["messages"] for item in message.get("artifacts", [])][0]
     assert saved["status"] == "started"
@@ -1170,3 +1172,136 @@ def test_memory_daily_and_promotion_strip_paths(backend_client, monkeypatch):
     promoted = backend_client.post("/api/memory/promote?dry_run=true")
     assert saved.json() == {"ok": True, "date": "2026-07-10"}
     assert "C:\\private" not in promoted.text
+
+
+def test_personal_knowledge_api_is_library_scoped(backend_client, tmp_path):
+    first, first_root = create_test_library(backend_client, tmp_path, "FirstMemory")
+    first_headers = {"X-Bobodan-Library-ID": first["library_id"]}
+
+    created = backend_client.post("/api/memory/knowledge", headers=first_headers, json={
+        "scope": "library", "kind": "course_insight", "title": "RAG 结论",
+        "content": "回答前先检索证据", "pinned": True,
+    })
+    assert created.status_code == 200
+    item = created.json()["item"]
+    assert item["scope"] == "library"
+
+    backend_client.put(
+        "/api/memory/reading-progress/doc-1",
+        headers=first_headers,
+        json={"progress": 20, "opened": True},
+    )
+    assert backend_client.get("/api/memory/events", headers=first_headers).json()["events"]
+
+    second, _ = create_test_library(backend_client, tmp_path, "SecondMemory")
+    second_headers = {"X-Bobodan-Library-ID": second["library_id"]}
+    assert backend_client.get("/api/memory/knowledge?scope=library", headers=second_headers).json()["items"] == []
+    assert backend_client.get("/api/memory/events", headers=second_headers).json()["events"] == []
+
+    updated = backend_client.patch(
+        f"/api/memory/knowledge/{item['id']}",
+        headers=first_headers,
+        json={"revision": item["revision"], "patch": {"content": "先检索，再核实原文"}},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["item"]["content"] == "先检索，再核实原文"
+
+
+def test_disabling_memory_blocks_knowledge_writes_but_keeps_learning_events(backend_client, tmp_path):
+    library, _ = create_test_library(backend_client, tmp_path, "DisabledMemory")
+    headers = {"X-Bobodan-Library-ID": library["library_id"]}
+    preferences = backend_client.get("/api/settings").json()["preferences"]
+    disabled = backend_client.patch("/api/settings/preferences", json={
+        "revision": preferences["revision"],
+        "patch": {"memory": {"enabled": False}},
+    })
+    assert disabled.status_code == 200
+
+    blocked = backend_client.post("/api/memory/knowledge", headers=headers, json={
+        "scope": "library", "kind": "course_insight", "title": "不应保存",
+        "content": "记忆关闭后不能写入长期知识",
+    })
+    assert blocked.status_code == 409
+    assert blocked.json()["error"]["code"] == "memory_disabled"
+
+    progress = backend_client.put(
+        "/api/memory/reading-progress/doc-1",
+        headers=headers,
+        json={"progress": 20, "opened": True},
+    )
+    assert progress.status_code == 200
+    assert backend_client.get("/api/memory/events", headers=headers).json()["events"]
+
+
+def test_candidate_confirmation_and_legacy_preview(backend_client, tmp_path):
+    library, root = create_test_library(backend_client, tmp_path, "CandidateMemory")
+    headers = {"X-Bobodan-Library-ID": library["library_id"]}
+    candidate = MemoryService(str(root), legacy_workspace=str(backend_client.workspace)).add_candidate(
+        scope="library", kind="learning_strategy", operation="create",
+        title="复习策略", content="先回忆再看答案", confidence=.8,
+        reason="学习对话整理",
+    )["candidate"]
+
+    confirmed = backend_client.post(
+        f"/api/memory/candidates/{candidate['id']}/confirm",
+        headers=headers,
+        json={"edits": {"scope": "global"}},
+    )
+    assert confirmed.status_code == 200
+    assert confirmed.json()["item"]["scope"] == "global"
+
+    MemoryManager(str(backend_client.workspace)).save(
+        "legacy-style", "旧偏好", "喜欢先看例子", "user",
+    )
+    preview = backend_client.get("/api/memory/legacy/preview", headers=headers)
+    assert preview.status_code == 200
+    assert preview.json()["entries"][0]["name"] == "legacy-style"
+    imported = backend_client.post("/api/memory/legacy/import", headers=headers, json={
+        "selections": [{"name": "legacy-style", "scope": "global", "kind": "preference"}],
+    })
+    assert imported.status_code == 200
+    assert imported.json()["created"][0]["status"] == "pending"
+
+
+def test_chat_memory_confirmation_requires_user_action(backend_client, monkeypatch):
+    runtime = SimpleNamespace(
+        workspace=str(backend_client.workspace), skills_prompt=None, memory_prompt="legacy",
+        create_provider=lambda _name: object(), refresh_memory=lambda: None,
+        create_trace=lambda _session_id: object(),
+    )
+    artifact = {
+        "type": "memory_confirmation", "artifact_id": "memory-artifact-1",
+        "status": "pending", "scope": "global", "kind": "learning_strategy",
+        "title": "复习方式", "content": "先主动回忆，再查看答案",
+        "target_item_id": None, "before": None, "requires_warning": False,
+    }
+
+    def fake_run_stream(**kwargs):
+        kwargs["session"].add_message("user", kwargs["user_input"])
+        kwargs["session"].add_message("assistant", "请确认是否记住。")
+        yield {"type": "tool_end", "tool_name": "request_memory_confirmation", "ok": True, "artifacts": [artifact]}
+        yield {"type": "assistant_delta", "content": "请确认是否记住。"}
+        yield {"type": "assistant_done", "content": "请确认是否记住。", "termination_reason": "final_answer"}
+
+    monkeypatch.setattr("web.backend.routers.chat.get_runtime_context", lambda: runtime)
+    monkeypatch.setattr("web.backend.routers.chat.AgentService.run_stream", fake_run_stream)
+    response = backend_client.post("/api/chat/runs", json={"message": "请记住我复习时先主动回忆"})
+    session_id = response.text.split('"chat_session_id": "', 1)[1].split('"', 1)[0]
+
+    assert backend_client.get("/api/memory/knowledge").json()["items"] == []
+    confirmed = backend_client.post(
+        "/api/chat/memory/proposals/memory-artifact-1/confirm",
+        json={"chat_session_id": session_id},
+    )
+    assert confirmed.status_code == 200
+    assert confirmed.json()["artifact"]["status"] == "confirmed"
+    assert backend_client.get("/api/memory/knowledge?scope=global").json()["items"][0]["title"] == "复习方式"
+
+
+def test_web_chat_exposes_only_confirmable_memory_tool():
+    from web.backend.routers.chat import _WEB_TOOL_NAMES
+
+    assert "request_memory_confirmation" in _WEB_TOOL_NAMES
+    assert "memory_save" not in _WEB_TOOL_NAMES
+    assert "memory_daily_save" not in _WEB_TOOL_NAMES
+    assert "memory_promote" not in _WEB_TOOL_NAMES

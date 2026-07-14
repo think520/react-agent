@@ -1,14 +1,9 @@
-"""Tests for learning.quiz_integration — quiz → memory + mastery bridge."""
-
-import os
-import glob
+"""Tests for learning.quiz_integration — quiz → mastery bridge."""
 
 from learning.quiz_integration import record_quiz_learning_effect, record_quiz_session_summary
 from learning.store import LearningStore
-from learning.scheduler import ReviewScheduler
-from learning.progress import ProgressTracker
 from quiz.store import QuizStore
-from quiz.schema import Question, QuizSession, QuizAttempt
+from quiz.schema import Question, QuizAttempt
 
 
 def test_record_quiz_learning_effect_updates_mastery(tmp_path):
@@ -55,8 +50,8 @@ def test_record_quiz_learning_effect_two_correct_makes_mastered(tmp_path):
     assert results[0].consecutive_correct == 2
 
 
-def test_record_quiz_learning_effect_writes_daily_memory(tmp_path):
-    """Daily memory file is created with quiz entry."""
+def test_record_quiz_learning_effect_keeps_legacy_daily_memory_read_only(tmp_path):
+    """New quiz activity no longer writes the legacy Markdown memory pipeline."""
     ws = str(tmp_path)
     record_quiz_learning_effect(
         workspace=ws,
@@ -65,31 +60,17 @@ def test_record_quiz_learning_effect_writes_daily_memory(tmp_path):
         feedback="很好",
     )
 
-    daily_dir = os.path.join(ws, ".bobodan", "daily")
-    assert os.path.isdir(daily_dir)
-    files = glob.glob(os.path.join(daily_dir, "*.md"))
-    assert len(files) == 1
-
-    with open(files[0], encoding="utf-8") as f:
-        content = f.read()
-    assert "quiz" in content
-    assert "哈希表" in content
-    assert "做题" in content
+    assert not (tmp_path / ".bobodan" / "daily").exists()
 
 
-def test_record_quiz_learning_effect_daily_memory_tags(tmp_path):
-    """Daily memory frontmatter includes quiz and concept tags."""
+def test_record_quiz_learning_effect_persists_each_concept(tmp_path):
+    """Each concept is stored in deterministic mastery state."""
     ws = str(tmp_path)
     record_quiz_learning_effect(ws, ["链表", "栈"], True, "正确")
 
-    daily_dir = os.path.join(ws, ".bobodan", "daily")
-    files = glob.glob(os.path.join(daily_dir, "*.md"))
-    with open(files[0], encoding="utf-8") as f:
-        content = f.read()
-
-    assert "quiz" in content
-    assert "链表" in content
-    assert "栈" in content
+    store = LearningStore(ws)
+    assert store.get_mastery("链表") is not None
+    assert store.get_mastery("栈") is not None
 
 
 def test_record_quiz_learning_effect_independent_of_agent(tmp_path):
@@ -108,16 +89,13 @@ def test_record_quiz_learning_effect_independent_of_agent(tmp_path):
 
 
 def test_record_quiz_learning_effect_empty_concepts(tmp_path):
-    """Empty concepts list returns empty mastery list, still writes memory."""
+    """Empty concepts do not create mastery or legacy memory files."""
     ws = str(tmp_path)
     results = record_quiz_learning_effect(ws, [], True, "正确")
 
     assert results == []
 
-    # Memory still written
-    daily_dir = os.path.join(ws, ".bobodan", "daily")
-    files = glob.glob(os.path.join(daily_dir, "*.md"))
-    assert len(files) == 1
+    assert not (tmp_path / ".bobodan" / "daily").exists()
 
 
 def test_record_quiz_learning_effect_multiple_calls_accumulate(tmp_path):
@@ -166,17 +144,12 @@ def test_session_summary_not_triggered_until_complete(tmp_path):
     result = record_quiz_session_summary(ws, session.id, session.question_ids, attempts)
     assert result is False
 
-    # No summary in daily memory
-    daily_dir = os.path.join(ws, ".bobodan", "daily")
-    if os.path.isdir(daily_dir):
-        files = glob.glob(os.path.join(daily_dir, "*.md"))
-        for f in files:
-            with open(f, encoding="utf-8") as fh:
-                assert "练习完成" not in fh.read()
+    assert qstore.get_session(session.id).status == "active"
+    assert not (tmp_path / ".bobodan" / "daily").exists()
 
 
 def test_session_summary_triggered_on_completion(tmp_path):
-    """Summary is written when all questions are answered."""
+    """All answered questions complete the session without writing legacy Markdown."""
     ws = str(tmp_path)
     session, qstore, qids = _create_quiz_session(ws, ["概念A", "概念B", "概念C"])
 
@@ -188,14 +161,8 @@ def test_session_summary_triggered_on_completion(tmp_path):
     result = record_quiz_session_summary(ws, session.id, session.question_ids, attempts)
     assert result is True
 
-    # Summary in daily memory
-    daily_dir = os.path.join(ws, ".bobodan", "daily")
-    files = glob.glob(os.path.join(daily_dir, "*.md"))
-    with open(files[0], encoding="utf-8") as f:
-        content = f.read()
-    assert "练习完成" in content
-    assert "2" in content and "3" in content
-    assert "67%" in content
+    assert qstore.get_session(session.id).status == "completed"
+    assert not (tmp_path / ".bobodan" / "daily").exists()
 
 
 def test_session_summary_marks_session_complete(tmp_path):
@@ -213,8 +180,7 @@ def test_session_summary_marks_session_complete(tmp_path):
     assert updated.completed_at is not None
 
 
-def test_session_summary_weak_concepts(tmp_path):
-    """Summary includes weak concepts from wrong answers."""
+def test_session_summary_weak_concepts_do_not_write_legacy_memory(tmp_path):
     ws = str(tmp_path)
     session, qstore, qids = _create_quiz_session(ws, [["强概念"], ["弱概念"]])
 
@@ -224,15 +190,12 @@ def test_session_summary_weak_concepts(tmp_path):
     ]
     record_quiz_session_summary(ws, session.id, session.question_ids, attempts)
 
-    daily_dir = os.path.join(ws, ".bobodan", "daily")
-    files = glob.glob(os.path.join(daily_dir, "*.md"))
-    with open(files[0], encoding="utf-8") as f:
-        content = f.read()
-    assert "弱概念" in content
+    assert qstore.get_session(session.id).status == "completed"
+    assert not (tmp_path / ".bobodan" / "daily").exists()
 
 
 def test_session_summary_all_correct(tmp_path):
-    """All correct session has no weak points."""
+    """All-correct sessions complete normally without legacy memory output."""
     ws = str(tmp_path)
     session, qstore, qids = _create_quiz_session(ws, ["A", "B"])
 
@@ -242,9 +205,5 @@ def test_session_summary_all_correct(tmp_path):
     ]
     record_quiz_session_summary(ws, session.id, session.question_ids, attempts)
 
-    daily_dir = os.path.join(ws, ".bobodan", "daily")
-    files = glob.glob(os.path.join(daily_dir, "*.md"))
-    with open(files[0], encoding="utf-8") as f:
-        content = f.read()
-    assert "100%" in content
-    assert "无" in content
+    assert qstore.get_session(session.id).status == "completed"
+    assert not (tmp_path / ".bobodan" / "daily").exists()

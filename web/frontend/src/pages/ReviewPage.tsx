@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, BookOpenCheck, CheckCircle2, RefreshCw, Target } from "lucide-react";
+import { ArrowRight, BookOpenCheck, Brain, CheckCircle2, RefreshCw, Target } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import { EmptyState, ErrorNotice, LoadingState, textValue } from "../components/common";
@@ -54,7 +54,7 @@ export function ReviewPage() {
       const ids = item.questionIds.length
         ? item.questionIds
         : (await api.generateQuestions(item.title)).question_ids;
-      const practice = await api.startPractice(undefined, ids);
+      const practice = await api.startPractice(undefined, ids, "review");
       navigate(`/practice/${practice.practice_session_id}`);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "无法准备复习题。" );
@@ -68,6 +68,7 @@ export function ReviewPage() {
         <header className="page-heading"><div><span>Review</span><h2>今天的复习</h2><p>先处理到期内容，再回到新的学习任务。</p></div><button className="quiet-button" onClick={() => void loadQueue()}><RefreshCw size={16} />刷新</button></header>
         {error && <ErrorNotice message={error} />}
         {loading ? <LoadingState label="正在整理复习队列…" /> : items.length ? <>
+          {queue?.personalization?.length ? <details className="personalization-chip review-personalization"><summary><Brain size={13} />复习排序依据 <span>{queue.personalization.length}</span></summary><div>{queue.personalization.map((reference) => <section key={reference.id}><strong>{reference.title}</strong><p>{reference.content}</p><small>{reference.scope === "global" ? "全局" : "当前资料库"}</small></section>)}</div></details> : null}
           <div className="review-summary">
             <div><strong>{queue?.due_concepts.length || 0}</strong><span>到期知识点</span></div>
             <div><strong>{queue?.wrong_answers.length || 0}</strong><span>需要回看的错题</span></div>

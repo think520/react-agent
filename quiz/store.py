@@ -30,7 +30,9 @@ CREATE TABLE IF NOT EXISTS quiz_sessions (
     started_at TEXT NOT NULL,
     completed_at TEXT,
     updated_at TEXT NOT NULL DEFAULT '',
-    status TEXT NOT NULL DEFAULT 'active'
+    status TEXT NOT NULL DEFAULT 'active',
+    origin TEXT NOT NULL DEFAULT 'practice',
+    personalization TEXT NOT NULL DEFAULT '[]'
 );
 
 CREATE TABLE IF NOT EXISTS quiz_attempts (
@@ -78,6 +80,8 @@ def _row_to_session(row: sqlite3.Row) -> QuizSession:
         completed_at=row["completed_at"],
         updated_at=row["updated_at"],
         status=row["status"],
+        origin=row["origin"] if "origin" in row.keys() else "practice",
+        personalization=json.loads(row["personalization"]) if "personalization" in row.keys() else [],
     )
 
 
@@ -132,6 +136,14 @@ class QuizStore:
             if "status" not in session_columns:
                 conn.execute(
                     "ALTER TABLE quiz_sessions ADD COLUMN status TEXT NOT NULL DEFAULT 'active'"
+                )
+            if "origin" not in session_columns:
+                conn.execute(
+                    "ALTER TABLE quiz_sessions ADD COLUMN origin TEXT NOT NULL DEFAULT 'practice'"
+                )
+            if "personalization" not in session_columns:
+                conn.execute(
+                    "ALTER TABLE quiz_sessions ADD COLUMN personalization TEXT NOT NULL DEFAULT '[]'"
                 )
             conn.execute(
                 """UPDATE quiz_sessions
@@ -245,14 +257,22 @@ class QuizStore:
 
     # --- Quiz Sessions ---
 
-    def create_session(self, question_ids: list[int]) -> QuizSession:
+    def create_session(
+        self,
+        question_ids: list[int],
+        origin: str = "practice",
+        personalization: list[dict] | None = None,
+    ) -> QuizSession:
+        if origin not in {"practice", "review", "chat"}:
+            origin = "practice"
         conn = self._connect()
         try:
             now = _now_iso()
             cur = conn.execute(
                 """INSERT INTO quiz_sessions
-                   (question_ids, started_at, updated_at, status) VALUES (?, ?, ?, 'active')""",
-                (json.dumps(question_ids), now, now),
+                   (question_ids, started_at, updated_at, status, origin, personalization)
+                   VALUES (?, ?, ?, 'active', ?, ?)""",
+                (json.dumps(question_ids), now, now, origin, json.dumps(personalization or [], ensure_ascii=False)),
             )
             conn.commit()
             return QuizSession(
@@ -261,6 +281,8 @@ class QuizStore:
                 started_at=now,
                 updated_at=now,
                 status="active",
+                origin=origin,
+                personalization=personalization or [],
             )
         finally:
             conn.close()

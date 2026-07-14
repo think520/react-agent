@@ -1,5 +1,5 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowRight, BookOpen, CheckCircle2, CircleHelp, Globe2, LogOut, Play, RotateCcw, Send, X } from "lucide-react";
+import { ArrowRight, BookOpen, Brain, CheckCircle2, CircleHelp, Globe2, LogOut, Play, RotateCcw, Send, X } from "lucide-react";
 import { useNavigate, useOutletContext, useParams } from "react-router-dom";
 
 import type { AppOutletContext } from "../components/AppShell";
@@ -114,7 +114,12 @@ export function PracticePage() {
         });
         return;
       }
-      const created = await api.startPractice(undefined, generated?.question_ids || []);
+      const created = await api.startPractice(
+        undefined,
+        generated?.question_ids || [],
+        "practice",
+        generated?.personalization || [],
+      );
       const resolved = generated?.resolved_query || query;
       if (query && resolved && resolved.toLocaleLowerCase() !== query.toLocaleLowerCase()) {
         sessionStorage.setItem(`bobodan:practice-resolution:${created.practice_session_id}`, JSON.stringify({ original: query, resolved }));
@@ -243,6 +248,7 @@ export function PracticePage() {
       <div className="practice-container">
         <header className="practice-header"><div><span>{questionTypeLabel(currentQuestion.type, currentQuestion.type_label)} · {difficultyLabel(currentQuestion.difficulty)}</span><strong>第 {session.progress.current_index + 1} / {session.progress.total} 题</strong>{resolution && <small>已将“{resolution.original}”按“{resolution.resolved}”理解</small>}</div><button className="quiet-button" onClick={() => void abandon()}><LogOut size={15} />退出练习</button></header>
         <div className="progress-track"><span style={{ width: `${progress}%` }} /></div>
+        {session.personalization?.length ? <details className="personalization-chip practice-personalization"><summary><Brain size={13} />本轮个性化依据 <span>{session.personalization.length}</span></summary><div>{session.personalization.map((reference) => <section key={reference.id}><strong>{reference.title}</strong><p>{reference.content}</p><small>{reference.scope === "global" ? "全局" : "当前资料库"}</small></section>)}</div></details> : null}
         <form className="question-sheet" onSubmit={(event) => void submitAnswer(event)}>
           <h2>{currentQuestion.question}</h2>
           {answerChoices.length ? <div className="answer-options">{answerChoices.map((choice) => (
