@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -175,8 +176,8 @@ def test_settings_endpoint_lists_local_skills(backend_client):
 
 def test_preferences_patch_revision_and_provider_validation(backend_client, monkeypatch):
     initial = backend_client.get("/api/settings").json()["preferences"]
-    assert initial["schema_version"] == 2
-    assert initial["search"] == {"provider": "auto", "jina_fallback": True}
+    assert initial["schema_version"] == 3
+    assert initial["search"] == {"provider": "auto", "permission": "ask", "jina_fallback": True}
     updated = backend_client.patch("/api/settings/preferences", json={
         "revision": initial["revision"],
         "patch": {"assistant": {"answer_depth": "deep"}},
@@ -201,6 +202,22 @@ def test_preferences_patch_revision_and_provider_validation(backend_client, monk
     })
     assert unavailable.status_code == 422
     assert unavailable.json()["error"]["code"] == "invalid_preference"
+
+
+def test_preferences_schema_two_migrates_to_ask_permission(backend_client):
+    home = backend_client.workspace / ".bobodan-home"
+    home.mkdir(exist_ok=True)
+    (home / "preferences.json").write_text(json.dumps({
+        "schema_version": 2,
+        "revision": 4,
+        "search": {"provider": "exa", "jina_fallback": False},
+    }), encoding="utf-8")
+
+    preferences = backend_client.get("/api/settings").json()["preferences"]
+
+    assert preferences["schema_version"] == 3
+    assert preferences["revision"] == 4
+    assert preferences["search"] == {"provider": "exa", "permission": "ask", "jina_fallback": False}
 
 
 def test_web_search_candidates_and_evidence_persist_in_session(backend_client, tmp_path, monkeypatch):
@@ -791,6 +808,82 @@ def test_confirmed_web_evidence_is_injected_and_persisted_as_attribution(backend
     source = backend_client.get(f"/api/chat/sessions/{session_id}").json()["messages"][-1]["attribution"]["sources"][0]
     assert source["reader"] == "jina"
     assert source["snapshot_id"] == "snapshot-1"
+
+
+def test_chat_web_tool_changes_with_search_permission(backend_client, monkeypatch):
+    runtime = SimpleNamespace(
+        workspace=str(backend_client.workspace), skills_prompt=None, memory_prompt=None,
+        create_provider=lambda _name: object(), refresh_memory=lambda: None,
+        create_trace=lambda _session_id: object(),
+    )
+    captured = []
+
+    def fake_run_stream(**kwargs):
+        captured.append(kwargs["allowed_tool_names"])
+        kwargs["session"].add_message("user", kwargs["user_input"])
+        kwargs["session"].add_message("assistant", "ok")
+        yield {"type": "assistant_delta", "content": "ok"}
+        yield {"type": "assistant_done", "content": "ok", "termination_reason": "final_answer"}
+
+    monkeypatch.setattr("web.backend.routers.chat.get_runtime_context", lambda: runtime)
+    monkeypatch.setattr("web.backend.routers.chat.AgentService.run_stream", fake_run_stream)
+
+    asked = backend_client.post("/api/chat/runs", json={"message": "latest docs"})
+    assert asked.status_code == 200
+    assert "request_web_search" in captured[-1]
+    assert "web_research" not in captured[-1]
+
+    preferences = backend_client.get("/api/settings").json()["preferences"]
+    updated = backend_client.patch("/api/settings/preferences", json={
+        "revision": preferences["revision"],
+        "patch": {"search": {"permission": "auto"}},
+    })
+    assert updated.status_code == 200
+
+    automatic = backend_client.post("/api/chat/runs", json={"message": "latest docs"})
+    assert automatic.status_code == 200
+    assert "web_research" in captured[-1]
+    assert "request_web_search" not in captured[-1]
+
+
+def test_practice_ready_artifact_starts_once_and_persists(backend_client, monkeypatch):
+    runtime = SimpleNamespace(
+        workspace=str(backend_client.workspace), skills_prompt=None, memory_prompt=None,
+        create_provider=lambda _name: object(), refresh_memory=lambda: None,
+        create_trace=lambda _session_id: object(),
+    )
+    artifact = {
+        "type": "practice_ready", "artifact_id": "practice-artifact-1", "status": "ready",
+        "topic": "LangChain", "question_ids": [11, 12], "count": 2,
+        "attribution": {"kind": "local_extension", "sources": []},
+    }
+
+    def fake_run_stream(**kwargs):
+        kwargs["session"].add_message("user", kwargs["user_input"])
+        kwargs["session"].add_message("assistant", "题目已准备好。")
+        yield {"type": "tool_end", "tool_name": "question_generate", "ok": True, "artifacts": [artifact]}
+        yield {"type": "assistant_delta", "content": "题目已准备好。"}
+        yield {"type": "assistant_done", "content": "题目已准备好。", "termination_reason": "final_answer"}
+
+    starts = []
+    monkeypatch.setattr("web.backend.routers.chat.get_runtime_context", lambda: runtime)
+    monkeypatch.setattr("web.backend.routers.chat.AgentService.run_stream", fake_run_stream)
+    monkeypatch.setattr("web.backend.routers.chat.QuizService.start_quiz", lambda self, count, question_ids: starts.append(question_ids) or {
+        "ok": True, "session_id": 77, "question_ids": question_ids, "questions": [],
+    })
+
+    response = backend_client.post("/api/chat/runs", json={"message": "生成 LangChain 练习"})
+    session_id = response.text.split('"chat_session_id": "', 1)[1].split('"', 1)[0]
+    first = backend_client.post("/api/chat/practice/practice-artifact-1/start", json={"chat_session_id": session_id})
+    second = backend_client.post("/api/chat/practice/practice-artifact-1/start", json={"chat_session_id": session_id})
+
+    assert first.status_code == second.status_code == 200
+    assert first.json()["practice_session_id"] == second.json()["practice_session_id"] == 77
+    assert starts == [[11, 12]]
+    detail = backend_client.get(f"/api/chat/sessions/{session_id}").json()
+    saved = [item for message in detail["messages"] for item in message.get("artifacts", [])][0]
+    assert saved["status"] == "started"
+    assert saved["practice_session_id"] == 77
 
 
 def test_chat_stream_error_does_not_leak_internal_details(backend_client, monkeypatch):

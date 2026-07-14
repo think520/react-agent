@@ -45,6 +45,10 @@ class ChatSessionProviderRequest(BaseModel):
     provider: str = Field(..., min_length=1, max_length=80)
 
 
+class PracticeArtifactStartRequest(BaseModel):
+    chat_session_id: str = Field(..., min_length=1, max_length=64)
+
+
 class WikiFocusRequest(BaseModel):
     chat_session_id: str | None = None
     action: Literal["generate", "update", "repair", "migrate"] = "generate"

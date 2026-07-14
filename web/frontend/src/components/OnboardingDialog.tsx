@@ -80,7 +80,7 @@ export function OnboardingDialog({
 
           {step === 3 && <div className="boundary-settings">
             <label><span><strong>沉淀学习记忆</strong><small>记住目标、偏好和长期进度</small></span><input type="checkbox" checked={memoryEnabled} onChange={(event) => setMemoryEnabled(event.target.checked)} /></label>
-            <label><span><strong>允许联网补充</strong><small>本地资料不足时才使用，并明确标注来源</small></span><input type="checkbox" checked={webEnabled} onChange={(event) => setWebEnabled(event.target.checked)} /></label>
+            <label><span><strong>允许模型自动联网</strong><small>本地资料不足或需要最新信息时使用，并明确标注来源</small></span><input type="checkbox" checked={webEnabled} onChange={(event) => setWebEnabled(event.target.checked)} /></label>
           </div>}
         </div>
 

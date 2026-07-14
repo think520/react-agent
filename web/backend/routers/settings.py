@@ -217,6 +217,7 @@ def runtime_status() -> dict:
         },
         "search": {
             "default": preferences.get("search", {}).get("provider", "auto"),
+            "permission": preferences.get("search", {}).get("permission", "ask"),
             "tavily_configured": bool(os.getenv("TAVILY_API_KEY")),
             "exa_configured": True,
             "jina_fallback": bool(preferences.get("search", {}).get("jina_fallback", True)),

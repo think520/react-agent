@@ -1,4 +1,5 @@
 import logging
+import uuid
 
 from .base import register_tool, ToolResult
 
@@ -10,6 +11,7 @@ def question_generate(
     course: str | None = None,
     count: int = 5,
     document_ids: list[str] | None = None,
+    web_research_id: str | None = None,
     workspace: str = ".",
 ) -> ToolResult:
     """Generate quiz questions from knowledge base content based on a topic or query."""
@@ -21,25 +23,54 @@ def question_generate(
             course=course,
             count=count,
             document_ids=document_ids,
+            web_research_id=web_research_id,
         )
 
         if not result["ok"]:
             return ToolResult(ok=False, content=result["error"])
+        if result.get("status") == "web_consent_required":
+            return ToolResult(
+                ok=False,
+                content=(
+                    "The local knowledge base does not contain enough evidence to generate grounded questions. "
+                    "Use the available trusted web workflow, then call question_generate again with the confirmed web evidence. "
+                    f"Suggested query: {result.get('query') or query}"
+                ),
+                data={"reason": "no_local_evidence", "query": result.get("query") or query},
+            )
 
-        lines = [f"已生成 {result['count']} 道题目：\n"]
-        for q in result["questions"]:
-            lines.append(f"{q['id']}. [{q['type_label']}] {q['question']}")
-            if q.get("options"):
-                for opt in q["options"]:
-                    lines.append(f"   {opt}")
-            lines.append(f"   知识点: {', '.join(q['concepts'])}")
-            lines.append("")
+        sources = []
+        seen = set()
+        kinds = []
+        for question in result["questions"]:
+            attribution = question.get("attribution") or {}
+            if attribution.get("kind"):
+                kinds.append(attribution["kind"])
+            for source in attribution.get("sources") or []:
+                key = (source.get("source_type"), source.get("source_id"))
+                if key in seen:
+                    continue
+                seen.add(key)
+                sources.append(source)
+        attribution_kind = "web" if kinds and all(kind == "web" for kind in kinds) else "local_extension"
+        artifact = {
+            "type": "practice_ready",
+            "artifact_id": uuid.uuid4().hex,
+            "status": "ready",
+            "topic": result.get("resolved_query") or query,
+            "question_ids": result["question_ids"],
+            "count": result["count"],
+            "attribution": {"kind": attribution_kind, "sources": sources[:6]},
+        }
 
-        return ToolResult(ok=True, content="\n".join(lines), data={
+        return ToolResult(ok=True, content=(
+            f"Generated and saved {result['count']} grounded practice questions. "
+            "A practice-ready card is visible to the user. Do not reproduce the full questions in chat; briefly invite the user to start the practice."
+        ), data={
             "question_ids": result["question_ids"],
             "count": result["count"],
             "types": result["types"],
-        })
+        }, artifacts=[artifact])
     except Exception as e:
         logger.error("Question generation failed: %s", e)
         return ToolResult(ok=False, content=f"题目生成失败: {e}")

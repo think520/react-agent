@@ -8,6 +8,9 @@ from research.reader import canonical_url, evidence_excerpt, fetch_page
 from research.store import ResearchStore
 
 
+_QUALITY_ORDER = {"official": 0, "reference": 1, "unknown": 2, "community": 3}
+
+
 def _quality_hint(url: str) -> str:
     host = (urlsplit(url).hostname or "").lower()
     if host.endswith((".gov", ".gov.cn", ".edu", ".edu.cn")):
@@ -134,6 +137,52 @@ class ResearchService:
         status = "ready" if sources and not failed else "partial" if sources else "failed"
         self.store.finish_research(research_id, status)
         return {"research_id": research_id, "status": status, "sources": sources, "failed_source_ids": failed}
+
+    def auto_research(
+        self,
+        session_id: str,
+        query: str,
+        provider_name: str = "auto",
+        jina_fallback: bool = True,
+        max_sources: int = 3,
+    ) -> dict:
+        search = self.search(session_id, query, provider_name)
+        ordered = sorted(
+            search["candidates"],
+            key=lambda item: (_QUALITY_ORDER.get(item.get("quality_hint"), 9), int(item.get("rank") or 0)),
+        )
+        selected = []
+        domains = set()
+        for candidate in ordered:
+            domain = str(candidate.get("domain") or "").casefold()
+            if domain and domain in domains:
+                continue
+            selected.append(candidate)
+            if domain:
+                domains.add(domain)
+            if len(selected) >= max(1, min(max_sources, 3)):
+                break
+        if not selected:
+            raise SearchProviderError("The search provider returned no usable sources", "empty")
+        result = self.select(
+            search["search_id"],
+            session_id,
+            [item["candidate_id"] for item in selected],
+            jina_fallback=jina_fallback,
+        )
+        evidence = self.evidence(result["research_id"], session_id) if result["sources"] else {
+            "content": "",
+            "sources": [],
+        }
+        return {
+            **result,
+            "search_id": search["search_id"],
+            "query": search["query"],
+            "provider": search["provider"],
+            "candidates": search["candidates"],
+            "selected_candidate_ids": [item["candidate_id"] for item in selected],
+            "content": evidence["content"],
+        }
 
     def evidence(self, research_id: str, session_id: str | None = None, max_chars: int = 18_000) -> dict:
         research = self.store.get_research(research_id)

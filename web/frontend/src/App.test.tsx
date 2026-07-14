@@ -25,14 +25,14 @@ describe("Bobodan app shell", () => {
         mcp_enabled: false,
         skills: [],
         preferences: {
-          schema_version: 2,
+          schema_version: 3,
           revision: 0,
           assistant: { display_name: "Bobodan", teaching_style: "guided", answer_depth: "standard", feedback_strength: "gentle" },
           user: { display_name: "", profile: "", long_term_goal: "" },
           appearance: { reading_font: "jin-kai", body_font_size: 16, content_width: 720, paper_texture: true, session_density: "comfortable", motion: "system" },
           ai: { default_provider: "local" },
           memory: { enabled: true },
-          search: { provider: "auto", jina_fallback: true },
+          search: { provider: "auto", permission: "ask", jina_fallback: true },
           skills: { enabled_names: [] },
         },
       });

@@ -9,14 +9,14 @@ function settingsPayload(overrides: Record<string, unknown> = {}) {
     mcp_enabled: false,
     skills: [],
     preferences: {
-      schema_version: 2,
+      schema_version: 3,
       revision: 0,
       assistant: { display_name: "Bobodan", teaching_style: "guided", answer_depth: "standard", feedback_strength: "gentle" },
       user: { display_name: "", profile: "", long_term_goal: "" },
       appearance: { reading_font: "jin-kai", body_font_size: 16, content_width: 720, paper_texture: true, session_density: "comfortable", motion: "system" },
       ai: { default_provider: "deepseek" },
       memory: { enabled: true },
-      search: { provider: "auto", jina_fallback: true },
+      search: { provider: "auto", permission: "ask", jina_fallback: true },
       skills: { enabled_names: [] },
     },
     ...overrides,
@@ -491,6 +491,58 @@ test("chat answer becomes practice and returns to review", async ({ page }) => {
   await page.getByRole("button", { name: /查看复习建议/ }).click();
   await expect(page.getByRole("heading", { name: "今天的复习" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Dijkstra", level: 3 })).toBeVisible();
+});
+
+test("chat question generation shows Bobodan process and opens prepared practice", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("bobodan:onboarding:v1", "complete"));
+  const question = { id: 51, type: "true_false", type_label: "判断", question: "LangChain 是否使用 Runnable 抽象？", options: [], concepts: ["LangChain"], difficulty: "easy", attribution: { kind: "local_extension", sources: [] } };
+  const artifact = { type: "practice_ready", artifact_id: "practice-ready-1", status: "ready", topic: "LangChain", question_ids: [51], count: 1, attribution: { kind: "local_extension", sources: [] } };
+  await page.route("**/api/settings", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(settingsPayload()) }));
+  await page.route("**/api/chat/sessions", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ sessions: [] }) }));
+  await page.route("**/api/kb/documents?collection=material", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ documents: [] }) }));
+  await page.route("**/api/learning/review-queue", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ due_concepts: [], wrong_answers: [], weaknesses: [] }) }));
+  await page.route("**/api/chat/runs", (route) => route.fulfill({
+    status: 200,
+    headers: { "Content-Type": "text/event-stream; charset=utf-8" },
+    body: `event: run_started\ndata: {"run_id":"practice-run","chat_session_id":"practice-chat"}\n\nevent: status\ndata: {"phase":"running","message":"正在生成练习题","tool_name":"question_generate"}\n\nevent: chat_artifact\ndata: {"artifact":${JSON.stringify(artifact)}}\n\nevent: message_delta\ndata: {"content":"题目已经准备好，开始练习吧。"}\n\n`,
+  }));
+  await page.route("**/api/chat/sessions/practice-chat/title", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ name: "LangChain 练习", name_source: "ai" }) }));
+  await page.route("**/api/chat/practice/practice-ready-1/start", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ chat_session_id: "practice-chat", artifact: { ...artifact, status: "started", practice_session_id: 9 }, practice_session_id: 9 }) }));
+  await page.route("**/api/quiz/sessions/9", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ practice_session_id: 9, status: "active", questions: [question], attempts: [], progress: { answered: 0, total: 1, correct: 0, current_index: 0, completed: false } }) }));
+
+  await page.goto("/chat");
+  await page.getByRole("textbox", { name: "消息" }).fill("帮我生成 LangChain 练习题");
+  await page.getByRole("button", { name: "发送" }).click();
+  await expect(page.locator('.bobodan-process img[src*="bobodan-state-writing"]')).toBeVisible();
+  await expect(page.getByText("1 道题已经准备好")).toBeVisible();
+  await page.getByRole("button", { name: "开始练习" }).click();
+  await expect(page).toHaveURL(/\/practice\/9/);
+  await expect(page.getByText("LangChain 是否使用 Runnable 抽象？")).toBeVisible();
+});
+
+test("practice asks before web fallback and keeps the topic", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("bobodan:onboarding:v1", "complete"));
+  const question = { id: 61, type: "true_false", type_label: "判断", question: "LangChain 是 LLM 应用框架吗？", options: [], concepts: ["LangChain"], difficulty: "easy", attribution: { kind: "web", sources: [] } };
+  await page.route("**/api/settings", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(settingsPayload()) }));
+  await page.route("**/api/quiz/sessions/active", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ sessions: [] }) }));
+  await page.route("**/api/learning/review-queue", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ due_concepts: [], wrong_answers: [], weaknesses: [] }) }));
+  await page.route("**/api/quiz/questions", (route) => {
+    const body = route.request().postDataJSON();
+    return route.fulfill({ contentType: "application/json", body: JSON.stringify(body.web_confirmed
+      ? { status: "ready", question_ids: [61], questions: [question], resolved_query: "LangChain", web_research_id: "research-61" }
+      : { status: "web_consent_required", query: "LangChain", suggested_query: "LangChain", reason: "当前资料库中没有足够的相关内容。" }) });
+  });
+  await page.route("**/api/quiz/sessions", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ practice_session_id: 10, questions: [question] }) }));
+  await page.route("**/api/quiz/sessions/10", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ practice_session_id: 10, status: "active", questions: [question], attempts: [], progress: { answered: 0, total: 1, correct: 0, current_index: 0, completed: false } }) }));
+
+  await page.goto("/practice");
+  await page.getByLabel("想练习什么？").fill("langchian");
+  await page.getByRole("button", { name: "生成 5 题" }).click();
+  await expect(page.getByText("本地资料暂时不足")).toBeVisible();
+  await expect(page.getByText(/建议按“LangChain”/)).toBeVisible();
+  await page.getByRole("button", { name: "联网找资料出题" }).click();
+  await expect(page).toHaveURL(/\/practice\/10/);
+  await expect(page.getByText(/已将“langchian”按“LangChain”理解/)).toBeVisible();
 });
 
 test("Chat and primary study routes render without overlap", async ({ page }, testInfo) => {

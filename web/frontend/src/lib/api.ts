@@ -1,5 +1,6 @@
 import type {
   Attribution,
+  ChatArtifact,
   ChatSessionDetail,
   ChatSessionSummary,
   ChatReference,
@@ -7,6 +8,7 @@ import type {
   DocumentSummary,
   DocumentImpact,
   PracticeSession,
+  PracticeReadyArtifact,
   Question,
   ReviewQueue,
   SettingsSummary,
@@ -241,9 +243,22 @@ export const api = {
     "/api/quiz/sessions/active",
   ),
   practice: (id: number) => request<PracticeSession>(`/api/quiz/sessions/${id}`),
-  generateQuestions: (query: string, course?: string, documentIds: string[] = [], webResearchId?: string) => request<{ question_ids: number[]; questions: Question[] }>(
+  generateQuestions: (query: string, course?: string, documentIds: string[] = [], webResearchId?: string, webConfirmed = false) => request<{
+    status: "ready" | "web_consent_required";
+    question_ids?: number[];
+    questions?: Question[];
+    resolved_query?: string;
+    web_research_id?: string;
+    query?: string;
+    reason?: string;
+    suggested_query?: string;
+  }>(
     "/api/quiz/questions",
-    json({ query, course: course || null, count: 5, document_ids: documentIds, web_research_id: webResearchId || null }),
+    json({ query, course: course || null, count: 5, document_ids: documentIds, web_research_id: webResearchId || null, web_confirmed: webConfirmed }),
+  ),
+  startChatPractice: (artifactId: string, chatSessionId: string) => request<{ chat_session_id: string; artifact: PracticeReadyArtifact; practice_session_id: number }>(
+    `/api/chat/practice/${encodeURIComponent(artifactId)}/start`,
+    json({ chat_session_id: chatSessionId }),
   ),
   startPractice: (course?: string, questionIds: number[] = []) => request<{ practice_session_id: number; questions: Question[] }>(
     "/api/quiz/sessions",
@@ -272,7 +287,7 @@ export type ChatStreamEvent =
   | { event: "message_delta"; data: { content: string } }
   | { event: "status"; data: { phase: string; message: string; tool_name?: string; elapsed?: number } }
   | { event: "citation"; data: { attribution: Attribution } }
-  | { event: "chat_artifact"; data: { artifact: WebArtifact } }
+  | { event: "chat_artifact"; data: { artifact: ChatArtifact } }
   | { event: "practice" | "learning_update"; data: Record<string, unknown> }
   | { event: "run_completed"; data: { chat_session_id: string; termination_reason: string } }
   | { event: "run_failed"; data: { error: { code: string; message: string } } };

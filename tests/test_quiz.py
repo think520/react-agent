@@ -514,6 +514,58 @@ def test_generator_uses_selected_source_ids():
     assert questions[0].sources[0]["title"] == "second.md"
 
 
+def test_generator_repairs_invalid_model_output_once():
+    class MockProvider:
+        def __init__(self):
+            self.calls = 0
+
+        def complete(self, _messages):
+            self.calls += 1
+            content = "not json" if self.calls == 1 else json.dumps([{
+                "type": "true_false", "question": "Q?", "answer": "true",
+            }])
+            return type("Response", (), {"content": content})()
+
+    from quiz.generator import QuestionGenerator
+    provider = MockProvider()
+    questions = QuestionGenerator(str("/tmp"), provider).generate_from_chunks([
+        {"text": "source material", "source": "lesson.md"},
+    ], count=1)
+
+    assert provider.calls == 2
+    assert len(questions) == 1
+
+
+def test_generator_fuzzy_matches_langchian_to_local_document(monkeypatch):
+    class MockProvider:
+        def complete(self, _messages):
+            return type("Response", (), {"content": json.dumps([{
+                "type": "true_false", "question": "LangChain uses runnables?", "answer": "true",
+            }])})()
+
+    monkeypatch.setattr("quiz.generator.search_index", lambda *args, **kwargs: [])
+    monkeypatch.setattr("service.kb_service.KBService.list_documents", lambda self, collection="all": {
+        "ok": True,
+        "documents": [{
+            "document_id": "doc-langchain", "title": "LangChain 基础", "course": "LangChain",
+            "source": "langchain.md", "collection": "material",
+        }],
+    })
+    monkeypatch.setattr("service.kb_service.KBService.get_document", lambda self, document_id: {
+        "ok": True,
+        "document": {"document_id": document_id},
+        "sections": [{"chunk_id": "chunk-1", "heading": "Runnable", "text": "LangChain uses Runnable abstractions."}],
+    })
+
+    from quiz.generator import QuestionGenerator
+    generator = QuestionGenerator(str("/tmp"), MockProvider())
+    questions = generator.generate_from_query("langchian", count=1)
+
+    assert len(questions) == 1
+    assert generator.resolved_query == "LangChain 基础"
+    assert questions[0].sources[0]["document_id"] == "doc-langchain"
+
+
 # --- Tool integration tests ---
 
 def test_question_generate_tool_no_llm(tmp_path, monkeypatch):

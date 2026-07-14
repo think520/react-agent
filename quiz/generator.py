@@ -1,7 +1,9 @@
 import json
 import logging
 import re
+import unicodedata
 from datetime import datetime, timezone
+from difflib import SequenceMatcher
 
 from rag.retriever import search_index
 
@@ -111,6 +113,91 @@ class QuestionGenerator:
     def __init__(self, workspace: str, llm_provider):
         self.workspace = workspace
         self.llm = llm_provider
+        self.resolved_query = ""
+        self.failure_kind = ""
+
+    def _question_items(self, material: str, count: int) -> list[dict]:
+        prompt = QUESTION_GENERATION_PROMPT.format(count=count, material=material)
+        for attempt in range(2):
+            try:
+                messages = [{"role": "user", "content": prompt}]
+                if attempt:
+                    messages[0]["content"] += (
+                        "\n\n上一次返回没有形成可解析的题目数组。请重新生成，只输出严格 JSON 数组，"
+                        "不要使用 Markdown 代码块，不要添加解释文字。"
+                    )
+                response = self.llm.complete(messages)
+                raw_text = response.content if hasattr(response, "content") else str(response)
+            except Exception as exc:
+                logger.error("LLM call failed during question generation: %s", exc)
+                self.failure_kind = "model_error"
+                return []
+            parsed = [item for item in _parse_json_from_llm(raw_text) if _validate_question(item)]
+            if parsed:
+                return parsed
+        self.failure_kind = "invalid_model_output"
+        return []
+
+    @staticmethod
+    def _normalized_label(value: str) -> str:
+        normalized = unicodedata.normalize("NFKC", value).casefold()
+        return re.sub(r"[^\w\u3400-\u9fff]+", "", normalized)
+
+    def _fallback_documents(self, query: str, document_ids: list[str] | None) -> tuple[list[dict], str]:
+        from service.kb_service import KBService
+
+        service = KBService(self.workspace)
+        documents = service.list_documents(collection="material").get("documents", [])
+        if document_ids:
+            allowed = set(document_ids)
+            matched = [item for item in documents if item.get("document_id") in allowed]
+            resolved = query
+        else:
+            needle = self._normalized_label(query)
+            scored = []
+            for document in documents:
+                values = [document.get("title"), document.get("course"), document.get("source")]
+                best = 0.0
+                for raw in values:
+                    candidate = self._normalized_label(str(raw or ""))
+                    if not needle or not candidate:
+                        continue
+                    score = 0.96 if needle in candidate or candidate in needle else SequenceMatcher(None, needle, candidate).ratio()
+                    best = max(best, score)
+                if best >= 0.72:
+                    scored.append((best, document))
+            scored.sort(key=lambda item: (-item[0], str(item[1].get("title") or item[1].get("source") or "")))
+            matched = [item[1] for item in scored[:3]]
+            resolved = str(matched[0].get("title") or query) if matched else query
+
+        chunks = []
+        remaining = 18_000
+        for document in matched:
+            detail = service.get_document(str(document.get("document_id") or ""))
+            if not detail.get("ok"):
+                continue
+            for section in detail.get("sections", []):
+                text = str(section.get("text") or "").strip()
+                if not text or remaining <= 0 or len(chunks) >= 8:
+                    continue
+                text = text[:remaining]
+                chunks.append({
+                    "chunk_id": section.get("chunk_id"),
+                    "document_id": document.get("document_id"),
+                    "title": document.get("title") or document.get("source"),
+                    "source": document.get("source") or document.get("title") or "local material",
+                    "text": text,
+                    "metadata": {
+                        "title": document.get("title"),
+                        "heading_text": section.get("heading"),
+                        "page_start": section.get("page_start"),
+                        "slide_start": section.get("slide_start"),
+                    },
+                })
+                remaining -= len(text)
+                if len(chunks) >= 8:
+                    break
+        return chunks, resolved
 
     def generate_from_chunks(
         self, chunks: list[dict], count: int = 5
@@ -140,16 +227,7 @@ class QuestionGenerator:
             material_parts.append(f"[来源 {source_id}: {source}]\n{text}")
         material = "\n\n".join(material_parts)
 
-        prompt = QUESTION_GENERATION_PROMPT.format(count=count, material=material)
-
-        try:
-            response = self.llm.complete([{"role": "user", "content": prompt}])
-            raw_text = response.content if hasattr(response, "content") else str(response)
-        except Exception as e:
-            logger.error("LLM call failed during question generation: %s", e)
-            return []
-
-        parsed = _parse_json_from_llm(raw_text)
+        parsed = self._question_items(material, count)
         questions = []
         for item in parsed:
             if not _validate_question(item):
@@ -192,17 +270,8 @@ class QuestionGenerator:
         material = evidence_content
         for index in range(len(sources), 0, -1):
             material = material.replace(f"[Web source {index}:", f"[来源 S{index}:")
-        prompt = QUESTION_GENERATION_PROMPT.format(count=count, material=material)
-        try:
-            response = self.llm.complete([{"role": "user", "content": prompt}])
-            raw_text = response.content if hasattr(response, "content") else str(response)
-        except Exception as e:
-            logger.error("LLM call failed during web question generation: %s", e)
-            return []
         questions = []
-        for item in _parse_json_from_llm(raw_text):
-            if not _validate_question(item):
-                continue
+        for item in self._question_items(material, count):
             selected_sources = [source_refs[value] for value in item.get("source_ids", []) if value in source_refs]
             if not selected_sources:
                 selected_sources = list(source_refs.values())[:3]
@@ -225,6 +294,8 @@ class QuestionGenerator:
         document_ids: list[str] | None = None,
     ) -> list[Question]:
         """Search RAG for relevant chunks, then generate questions."""
+        self.resolved_query = query
+        self.failure_kind = ""
         try:
             if document_ids:
                 from service.kb_service import KBService
@@ -239,10 +310,13 @@ class QuestionGenerator:
                 chunks = search_index(self.workspace, query, course=course, top_k=8)
         except Exception as e:
             logger.error("RAG search failed: %s", e)
-            return []
+            chunks = []
 
         if not chunks:
+            chunks, self.resolved_query = self._fallback_documents(query, document_ids)
+        if not chunks:
             logger.warning("No relevant chunks found for query: %s", query)
+            self.failure_kind = "no_evidence"
             return []
 
         return self.generate_from_chunks(chunks, count=count)

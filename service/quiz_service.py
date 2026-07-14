@@ -7,6 +7,7 @@ Returns structured dicts, no ANSI/HTML formatting.
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import datetime, timezone
 from typing import Any
 
@@ -75,6 +76,10 @@ class QuizService:
         count: int = 5,
         document_ids: list[str] | None = None,
         web_research_id: str | None = None,
+        web_confirmed: bool = False,
+        search_permission: str = "ask",
+        search_provider: str = "auto",
+        jina_fallback: bool = True,
     ) -> dict[str, Any]:
         try:
             llm = _get_llm_provider(self.config)
@@ -83,10 +88,12 @@ class QuizService:
 
         store = QuizStore(self.workspace)
         generator = QuestionGenerator(self.workspace, llm)
-        if web_research_id:
+        web_attempted = False
+        active_web_research_id = web_research_id
+        if active_web_research_id:
             from service.research_service import ResearchService
             try:
-                evidence = ResearchService(self.workspace).evidence(web_research_id)
+                evidence = ResearchService(self.workspace).evidence(active_web_research_id)
             except FileNotFoundError:
                 return _err("选中的网页证据不存在或已失效。")
             questions = generator.generate_from_web_evidence(evidence["content"], evidence["sources"], count=count)
@@ -98,7 +105,40 @@ class QuizService:
                 document_ids=document_ids,
             )
 
+        if not questions and not active_web_research_id and generator.failure_kind == "no_evidence":
+            if search_permission == "auto" or web_confirmed:
+                web_attempted = True
+                from service.research_service import ResearchService
+                try:
+                    research = ResearchService(self.workspace).auto_research(
+                        f"practice-{uuid.uuid4().hex}",
+                        generator.resolved_query or query,
+                        provider_name=search_provider,
+                        jina_fallback=jina_fallback,
+                    )
+                except Exception as exc:
+                    logger.warning("Practice web research failed: %s", exc)
+                    research = None
+                if research and research.get("sources"):
+                    active_web_research_id = research["research_id"]
+                    questions = generator.generate_from_web_evidence(
+                        research["content"],
+                        research["sources"],
+                        count=count,
+                    )
+            else:
+                return _ok(
+                    status="web_consent_required",
+                    query=generator.resolved_query or query,
+                    reason="当前资料库中没有找到足够的相关内容。确认后可以联网读取公开资料并据此出题。",
+                    suggested_query=(generator.resolved_query if generator.resolved_query != query else None),
+                )
+
         if not questions:
+            if generator.failure_kind == "invalid_model_output":
+                return _err("模型没有返回可用的题目格式。已自动重试一次，请稍后再试。")
+            if web_attempted:
+                return _err("本地资料不足，联网来源也暂时没有返回可用于出题的正文。请调整主题或稍后重试。")
             return _err(
                 "未能生成题目。可能原因：\n"
                 "1. 知识库中没有与该主题相关的资料（先用 /kb search 验证）\n"
@@ -131,10 +171,13 @@ class QuizService:
             types[q.type] = types.get(q.type, 0) + 1
 
         return _ok(
+            status="ready",
             question_ids=saved_ids,
             count=len(saved_ids),
             types=types,
             questions=question_list,
+            resolved_query=generator.resolved_query or query,
+            web_research_id=active_web_research_id,
         )
 
     # --- Quiz session ---

@@ -6,6 +6,13 @@
 
 ## [未发布]
 
+### 修复
+- **P5F 自主联网与练习闭环修正**: 联网权限升级为“每次询问 / 模型自动”双模式，默认保持询问；自动模式下模型可调用受限 `web_research`，程序按来源类型、排名和域名去重自动读取最多 3 个来源。
+- Practice 生成增加资料标题模糊匹配、选中资料章节回退和一次 LLM JSON 修复重试；`langchian` 等拼写问题可解析为对应本地资料，资料不足时按联网权限继续，而不是直接显示通用错误。
+- `question_generate` 改为返回可持久化的“练习已就绪”卡片；点击后幂等创建 Practice session 并进入一题一卡页面，不再把完整题目堆在 Chat 正文。
+- Chat 处理状态改为正文流内的 Bobodan `thinking / reading / writing / ready` 图片状态；只展示工具、资料和任务进度，不展示模型原始思维链。
+- 用户偏好升级为 schema v3；验证：Python `1102 passed`、Vitest `5 passed`、TypeScript 与生产构建通过、Playwright 多视口 `51 passed`。
+
 ### 新增
 - **P5F 可信联网资料扩展**: 在本地资料不足时提供用户确认优先、来源可选择、证据可复现的普通网页研究流程。
   - 新增 Tavily / Exa SearchProvider 与 `auto` 有序降级；Exa 通过现有 MCP 客户端连接公共 MCP，不向 Web Agent 开放任意 MCP 或 HTTP 工具。

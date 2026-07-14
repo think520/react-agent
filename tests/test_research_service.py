@@ -143,3 +143,32 @@ def test_research_is_scoped_to_its_session(tmp_path):
 
     with pytest.raises(FileNotFoundError):
         service.select(search["search_id"], "session-2", [search["candidates"][0]["candidate_id"]])
+
+
+def test_auto_research_prefers_quality_and_distinct_domains(tmp_path):
+    provider = FakeProvider("exa", [
+        SearchCandidate("Community", "https://reddit.com/topic", provider="exa", rank=1),
+        SearchCandidate("Official", "https://docs.example.com/guide", provider="exa", rank=2),
+        SearchCandidate("Same domain", "https://docs.example.com/api", provider="exa", rank=3),
+        SearchCandidate("University", "https://example.edu/course", provider="exa", rank=4),
+    ])
+
+    def fetch(url, **_kwargs):
+        return SimpleNamespace(
+            final_url=url, title=url, domain=httpx.URL(url).host,
+            content=f"Evidence from {url}", content_hash=url, reader="direct",
+        )
+
+    service = ResearchService(
+        str(tmp_path),
+        providers={"tavily": provider, "exa": provider},
+        page_fetcher=fetch,
+    )
+    result = service.auto_research("session-1", "topic", "exa")
+
+    by_id = {item["candidate_id"]: item for item in result["candidates"]}
+    selected = [by_id[item] for item in result["selected_candidate_ids"]]
+    assert [item["title"] for item in selected] == ["University", "Official", "Community"]
+    assert len({item["domain"] for item in selected}) == 3
+    assert len(result["sources"]) == 3
+    assert "Evidence from" in result["content"]

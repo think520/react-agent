@@ -1,5 +1,5 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowRight, BookOpen, CheckCircle2, CircleHelp, LogOut, Play, RotateCcw, Send, X } from "lucide-react";
+import { ArrowRight, BookOpen, CheckCircle2, CircleHelp, Globe2, LogOut, Play, RotateCcw, Send, X } from "lucide-react";
 import { useNavigate, useOutletContext, useParams } from "react-router-dom";
 
 import type { AppOutletContext } from "../components/AppShell";
@@ -16,6 +16,12 @@ interface AnswerResult {
   session_completed: boolean;
 }
 
+interface WebPracticeConsent {
+  query: string;
+  reason: string;
+  suggestedQuery?: string;
+}
+
 export function PracticePage() {
   const { practiceSessionId } = useParams();
   const navigate = useNavigate();
@@ -30,6 +36,8 @@ export function PracticePage() {
   const [loading, setLoading] = useState(Boolean(id));
   const [working, setWorking] = useState(false);
   const [error, setError] = useState("");
+  const [webConsent, setWebConsent] = useState<WebPracticeConsent | null>(null);
+  const [resolution, setResolution] = useState<{ original: string; resolved: string } | null>(null);
   const [aiOpen, setAiOpen] = useState(false);
   const [aiQuestion, setAiQuestion] = useState("给我一个不直接揭示答案的提示。");
   const [aiAnswer, setAiAnswer] = useState("");
@@ -57,6 +65,13 @@ export function PracticePage() {
     setAiOpen(false);
     setAiAnswer("");
     setAiError("");
+    setWebConsent(null);
+    if (id) {
+      try { setResolution(JSON.parse(sessionStorage.getItem(`bobodan:practice-resolution:${id}`) || "null")); }
+      catch { setResolution(null); }
+    } else {
+      setResolution(null);
+    }
     if (id) void loadSession(id);
     else void api.activePractice().then((value) => setActive(value.sessions)).catch(() => setActive([]));
   }, [id, loadSession]);
@@ -66,17 +81,30 @@ export function PracticePage() {
     return session.questions[Math.min(session.progress.current_index, session.questions.length - 1)] || null;
   }, [session]);
 
-  async function createPractice(event: FormEvent) {
-    event.preventDefault();
+  async function createPractice(event?: FormEvent, webConfirmed = false) {
+    event?.preventDefault();
     setWorking(true);
     setError("");
+    if (!webConfirmed) setWebConsent(null);
     try {
       const scopeTopic = selectedDocuments.map((document) => document.title || document.source).join("、");
       const query = topic.trim() || scopeTopic;
       const generated = query
-        ? await api.generateQuestions(query, undefined, selectedDocumentIds, webResearchId || undefined)
+        ? await api.generateQuestions(query, undefined, selectedDocumentIds, webResearchId || undefined, webConfirmed)
         : null;
+      if (generated?.status === "web_consent_required") {
+        setWebConsent({
+          query: generated.query || query,
+          reason: generated.reason || "当前本地资料不足。",
+          suggestedQuery: generated.suggested_query,
+        });
+        return;
+      }
       const created = await api.startPractice(undefined, generated?.question_ids || []);
+      const resolved = generated?.resolved_query || query;
+      if (query && resolved && resolved.toLocaleLowerCase() !== query.toLocaleLowerCase()) {
+        sessionStorage.setItem(`bobodan:practice-resolution:${created.practice_session_id}`, JSON.stringify({ original: query, resolved }));
+      }
       navigate(`/practice/${created.practice_session_id}`);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "暂时无法创建练习。请先导入相关资料。" );
@@ -161,9 +189,14 @@ export function PracticePage() {
         <form className="practice-create" onSubmit={(event) => void createPractice(event)}>
           <label htmlFor="practice-topic">想练习什么？</label>
           {working && <BrandIllustration state="writing" size={64} />}
-          <div><input id="practice-topic" value={topic} onChange={(event) => setTopic(event.target.value)} placeholder="例如：Dijkstra 的贪心证明" /><button className="primary-button" disabled={working}><Play size={16} />{working ? "正在准备" : "生成 5 题"}</button></div>
+          <div><input id="practice-topic" value={topic} onChange={(event) => { setTopic(event.target.value); setWebConsent(null); }} placeholder="例如：Dijkstra 的贪心证明" /><button className="primary-button" disabled={working}><Play size={16} />{working ? "正在准备" : "生成 5 题"}</button></div>
           <small>留空时会从现有题库与资料重点中选择。</small>
           {selectedDocuments.length > 0 && <div className="practice-scope"><BookOpen size={15} /><span>当前范围：{selectedDocuments.map((document) => document.title || document.source).slice(0, 3).join("、")}{selectedDocuments.length > 3 ? ` 等 ${selectedDocuments.length} 份` : ""}</span></div>}
+          {webConsent && <section className="practice-web-consent">
+            <BrandIllustration state="reading" size={54} />
+            <div><strong>本地资料暂时不足</strong><p>{webConsent.reason}</p>{webConsent.suggestedQuery && <small>建议按“{webConsent.suggestedQuery}”继续查找</small>}</div>
+            <button type="button" className="primary-button" disabled={working} onClick={() => void createPractice(undefined, true)}><Globe2 size={15} />联网找资料出题</button>
+          </section>}
         </form>
         {active.length > 0 && <section className="resume-section"><h3>继续未完成练习</h3>{active.map((item) => (
           <button className="resume-row" key={item.practice_session_id} onClick={() => navigate(`/practice/${item.practice_session_id}`)}>
@@ -184,7 +217,7 @@ export function PracticePage() {
   return (
     <section className="page-scroll practice-page">
       <div className="practice-container">
-        <header className="practice-header"><div><span>{currentQuestion.type_label} · {currentQuestion.difficulty || "自适应"}</span><strong>第 {session.progress.current_index + 1} / {session.progress.total} 题</strong></div><button className="quiet-button" onClick={() => void abandon()}><LogOut size={15} />退出练习</button></header>
+        <header className="practice-header"><div><span>{currentQuestion.type_label} · {currentQuestion.difficulty || "自适应"}</span><strong>第 {session.progress.current_index + 1} / {session.progress.total} 题</strong>{resolution && <small>已将“{resolution.original}”按“{resolution.resolved}”理解</small>}</div><button className="quiet-button" onClick={() => void abandon()}><LogOut size={15} />退出练习</button></header>
         <div className="progress-track"><span style={{ width: `${progress}%` }} /></div>
         <form className="question-sheet" onSubmit={(event) => void submitAnswer(event)}>
           <h2>{currentQuestion.question}</h2>
