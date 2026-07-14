@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
@@ -51,7 +51,7 @@ def default_preferences(default_provider: str = "", skill_names: list[str] | Non
         },
         "ai": {"default_provider": default_provider},
         "memory": {"enabled": True},
-        "search": {"provider": "auto", "jina_fallback": True},
+        "search": {"provider": "auto", "permission": "ask", "jina_fallback": True},
         "skills": {"enabled_names": sorted(set(skill_names or []))},
     }
 
@@ -66,6 +66,7 @@ _ENUMS = {
     "appearance.session_density": {"comfortable", "compact"},
     "appearance.motion": {"system", "reduced"},
     "search.provider": {"auto", "tavily", "exa"},
+    "search.permission": {"ask", "auto"},
 }
 _STRINGS = {
     "assistant.display_name": 60,

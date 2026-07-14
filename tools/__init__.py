@@ -11,7 +11,7 @@ from .quiz_tools import question_generate, quiz_start, quiz_submit
 from .learning_tools import learning_path, learning_progress, learning_review
 from .wiki_tools import wiki_ingest, wiki_lint
 from .obsidian_export import obsidian_export_plan, obsidian_export_quiz_summary
-from .web_research import request_web_search
+from .web_research import request_web_search, web_research
 
 __all__ = ["TOOL_REGISTRY", "get_tools_schema", "execute_tool", "ToolResult",
            "read_file", "write_file", "list_dir", "change_dir", "stat_path",
@@ -21,4 +21,4 @@ __all__ = ["TOOL_REGISTRY", "get_tools_schema", "execute_tool", "ToolResult",
            "learning_path", "learning_progress", "learning_review",
            "wiki_ingest", "wiki_lint",
            "obsidian_export_plan", "obsidian_export_quiz_summary",
-           "request_web_search"]
+           "request_web_search", "web_research"]

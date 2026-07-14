@@ -342,8 +342,11 @@ class AgentLoop:
         return LLMResponse(content="".join(content_parts), tool_calls=tool_calls)
 
     def _sync_session_state(self, tool_name: str, result: ToolResult) -> None:
-        if tool_name != "change_dir":
-            return
-        new_cwd = result.data.get("cwd")
-        if new_cwd:
-            self.session.cwd = os.path.abspath(new_cwd)
+        if tool_name == "change_dir":
+            new_cwd = result.data.get("cwd")
+            if new_cwd:
+                self.session.cwd = os.path.abspath(new_cwd)
+        elif tool_name == "web_research":
+            research_id = result.data.get("web_research_id")
+            if research_id:
+                self.session.active_web_research_id = research_id

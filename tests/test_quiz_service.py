@@ -41,8 +41,12 @@ def _make_question(store, qid=None, qtype="single_choice", concepts=None):
 
 # --- generate_questions ---
 
-def test_generate_questions_no_llm(svc):
+def test_generate_questions_no_llm(svc, monkeypatch):
     """Without LLM, should return error."""
+    def unavailable(_config=None):
+        raise RuntimeError("not configured")
+
+    monkeypatch.setattr("service.quiz_service._get_llm_provider", unavailable)
     result = svc.generate_questions("test topic")
     assert not result["ok"]
     assert "LLM" in result["error"]
@@ -68,6 +72,28 @@ def test_generate_questions_from_confirmed_web_evidence(svc, monkeypatch):
     assert result["ok"] is True
     assert result["questions"][0]["attribution"]["kind"] == "web"
     assert result["questions"][0]["attribution"]["sources"][0]["snapshot_id"] == "snapshot-1"
+
+
+def test_generate_questions_requests_web_consent_when_local_evidence_is_missing(svc, monkeypatch):
+    class Generator:
+        failure_kind = "no_evidence"
+        resolved_query = "LangChain"
+
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def generate_from_query(self, *_args, **_kwargs):
+            return []
+
+    monkeypatch.setattr("service.quiz_service._get_llm_provider", lambda config=None: object())
+    monkeypatch.setattr("service.quiz_service.QuestionGenerator", Generator)
+
+    result = svc.generate_questions("langchian", count=1, search_permission="ask")
+
+    assert result["ok"] is True
+    assert result["status"] == "web_consent_required"
+    assert result["query"] == "LangChain"
+    assert result["suggested_query"] == "LangChain"
 
 
 # --- start_quiz ---

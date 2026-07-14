@@ -18,6 +18,7 @@ from core.skills import build_skills_system_prompt, find_skill_by_name
 from web.backend.capabilities import WEB_SKILL_NAMES
 from service.kb_service import KBService
 from service.preference_service import PreferenceService
+from service.quiz_service import QuizService
 from service.research_service import ResearchService
 from tools import get_tools_schema
 from web.backend.deps import (
@@ -32,7 +33,7 @@ from web.backend.deps import (
 )
 from web.backend.errors import APIError
 from web.backend.events import to_web_events
-from web.backend.schemas import ChatRunRequest, ChatSessionProviderRequest, ChatSessionUpdateRequest
+from web.backend.schemas import ChatRunRequest, ChatSessionProviderRequest, ChatSessionUpdateRequest, PracticeArtifactStartRequest
 from web.backend.schemas import (
     WikiCheckpointRestoreRequest,
     WikiFocusConfirmRequest,
@@ -63,6 +64,7 @@ _WEB_TOOL_NAMES = frozenset({
     "memory_daily_read",
     "memory_promote",
     "request_web_search",
+    "web_research",
 })
 _MEMORY_TOOL_NAMES = frozenset({
     "memory_save", "memory_recall", "memory_daily_save", "memory_daily_read", "memory_promote",
@@ -353,7 +355,7 @@ def _request_context(
     document_ids: list[str],
     workspace: str,
     learning_goal: str = "",
-    web_enabled: bool = False,
+    search_permission: str = "ask",
     web_evidence: dict[str, Any] | None = None,
 ) -> tuple[list[str], str | None]:
     available = {}
@@ -365,8 +367,6 @@ def _request_context(
         }
     selected = [available[item] for item in document_ids if item in available]
     valid_ids = [item["document_id"] for item in selected]
-    if not selected and not learning_goal.strip() and web_enabled and not web_evidence:
-        return [], None
     lines = [
         "<!-- bobodan:request-scope -->",
     ]
@@ -384,19 +384,28 @@ def _request_context(
             "When retrieval returns both Wiki and learning-material results, use Wiki pages to understand concepts and relationships, "
             "then use original learning materials as the factual evidence. Clearly label Wiki content as AI-organized and never present it as an original quote."
         )
-    if not web_enabled and not web_evidence:
-        lines.append("The user has not enabled web supplementation for this request. Do not claim to have searched the web.")
     if web_evidence:
         lines.extend([
             "The user explicitly selected the following public web evidence. Use only these snapshots for web-grounded claims.",
             "Search snippets are not evidence. Clearly distinguish web evidence from local materials and general AI knowledge.",
             web_evidence.get("content", ""),
         ])
+    elif search_permission == "auto":
+        lines.append(
+            "The user has enabled automatic trusted web research. When local evidence is insufficient, current information is required, "
+            "or the user explicitly asks to search the web, call web_research. Use only its fetched page snapshots as web evidence; "
+            "search snippets are never evidence."
+        )
     else:
         lines.append(
             "If local evidence is insufficient, call request_web_search with a concise query and reason. "
             "That tool does not access the network; after calling it, wait for user confirmation."
         )
+    lines.append(
+        "When the user asks to generate questions or a quiz, call question_generate. It returns a practice-ready UI card; "
+        "do not reproduce the full generated question set in the chat response. If it reports missing evidence, use the available "
+        "trusted web workflow and then call question_generate again with the resulting evidence."
+    )
     return valid_ids, "\n".join(lines)
 
 
@@ -621,6 +630,44 @@ def delete_session(chat_session_id: str, request: Request) -> dict:
     return {"deleted": True, "chat_session_id": result["session_id"]}
 
 
+@router.post("/practice/{artifact_id}/start")
+def start_practice_artifact(artifact_id: str, body: PracticeArtifactStartRequest, request: Request) -> dict:
+    config = get_config()
+    workspace = get_request_workspace(request)
+    session = _load_or_create_session(
+        body.chat_session_id,
+        config,
+        workspace,
+        get_request_library_id(request),
+    )
+    artifact = _find_artifact(session, artifact_id)
+    if not artifact or artifact.get("type") != "practice_ready":
+        raise APIError(404, "practice_artifact_not_found", "The prepared practice is no longer available.")
+    if artifact.get("status") == "started" and artifact.get("practice_session_id"):
+        return {
+            "chat_session_id": session.session_id,
+            "artifact": artifact,
+            "practice_session_id": artifact["practice_session_id"],
+        }
+    question_ids = [int(item) for item in artifact.get("question_ids") or []]
+    if not question_ids:
+        raise APIError(409, "practice_artifact_empty", "The prepared practice does not contain questions.")
+    result = QuizService(workspace, config=config).start_quiz(
+        count=len(question_ids),
+        question_ids=question_ids,
+    )
+    if not result.get("ok"):
+        raise APIError(409, "practice_start_failed", result.get("error") or "The practice could not be started.")
+    artifact["status"] = "started"
+    artifact["practice_session_id"] = result["session_id"]
+    _save_wiki_session(session, workspace, config)
+    return {
+        "chat_session_id": session.session_id,
+        "artifact": artifact,
+        "practice_session_id": result["session_id"],
+    }
+
+
 @router.post("/wiki/focus")
 def create_wiki_focus(body: WikiFocusRequest, request: Request) -> dict:
     config = get_config()
@@ -814,6 +861,8 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
     library_id = get_request_library_id(request)
     runtime = _runtime_for(workspace)
     preferences = _preferences(config)
+    search_preferences = preferences.get("search") or {}
+    search_permission = search_preferences.get("permission", "ask")
     session = _load_or_create_session(body.chat_session_id, config, workspace, library_id)
     provider_name = (
         body.provider
@@ -847,7 +896,7 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
         list(dict.fromkeys([*body.document_ids, *reference_document_ids])),
         runtime.workspace,
         learning_goal=body.learning_goal,
-        web_enabled=body.web_enabled,
+        search_permission=search_permission,
         web_evidence=web_evidence,
     )
     prompt_parts = [item for item in (
@@ -870,14 +919,21 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
     if slash_prompt:
         request_prompt = f"{request_prompt}\n\n{slash_prompt}" if request_prompt else slash_prompt
     session.active_document_ids = document_ids
+    session.active_web_research_id = body.web_research_id
+    session.search_provider = search_preferences.get("provider", "auto")
+    session.jina_fallback = bool(search_preferences.get("jina_fallback", True))
     memory_enabled = bool(
         body.memory_enabled
         and config.get("memory", {}).get("enabled", True)
         and preferences.get("memory", {}).get("enabled", True)
     )
     allowed_tool_names = _WEB_TOOL_NAMES if memory_enabled else _WEB_TOOL_NAMES - _MEMORY_TOOL_NAMES
+    if search_permission == "auto":
+        allowed_tool_names = allowed_tool_names - {"request_web_search"}
+    else:
+        allowed_tool_names = allowed_tool_names - {"web_research"}
     if web_evidence:
-        allowed_tool_names = allowed_tool_names - {"rag_search", "request_web_search"}
+        allowed_tool_names = allowed_tool_names - {"rag_search", "request_web_search", "web_research"}
     skills_dir = getattr(runtime, "skills_dir", "")
     skills_prompt = (
         build_skills_system_prompt(skills_dir, enabled_skills)

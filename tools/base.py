@@ -98,6 +98,20 @@ def execute_tool(name: str, args: dict, session=None) -> Any:
                 call_args.setdefault(
                     "document_ids", getattr(session, "active_document_ids", None)
                 )
+            if "web_research_id" in sig.parameters:
+                call_args.setdefault(
+                    "web_research_id", getattr(session, "active_web_research_id", None)
+                )
+            if "search_provider" in sig.parameters:
+                call_args.setdefault(
+                    "search_provider", getattr(session, "search_provider", "auto")
+                )
+            if "jina_fallback" in sig.parameters:
+                call_args.setdefault(
+                    "jina_fallback", getattr(session, "jina_fallback", True)
+                )
+            if "research_session_id" in sig.parameters:
+                call_args.setdefault("research_session_id", session.session_id)
         result = func(**call_args)
         # Ensure result is a ToolResult
         if not isinstance(result, ToolResult):

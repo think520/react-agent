@@ -644,6 +644,7 @@ export function AppShell() {
             void api.patchPreferences(settings.preferences.revision, {
               user: { display_name: profile.displayName, long_term_goal: profile.learningGoal },
               memory: { enabled: profile.memoryEnabled },
+              search: { permission: profile.webEnabled ? "auto" : "ask" },
             }).then(() => refreshSettings()).catch(() => undefined);
           }
           setOnboardingOpen(false);

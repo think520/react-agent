@@ -8,7 +8,7 @@ import type { AppOutletContext } from "../components/AppShell";
 import { AttributionBadges, BrandIllustration, ErrorNotice, IconButton, LoadingState } from "../components/common";
 import { WikiPlanCard } from "../components/WikiPlanCard";
 import { api, streamChat } from "../lib/api";
-import type { ChatArtifact, ChatMessage, ChatReference, SettingsChangeArtifact, WebCandidatesArtifact, WebConsentArtifact, WebEvidenceArtifact, WikiFocusArtifact, WikiPlanArtifact, WikiResultArtifact } from "../types";
+import type { ChatArtifact, ChatMessage, ChatReference, PracticeReadyArtifact, SettingsChangeArtifact, WebCandidatesArtifact, WebConsentArtifact, WebEvidenceArtifact, WikiFocusArtifact, WikiPlanArtifact, WikiResultArtifact } from "../types";
 
 interface SlashItem {
   value: string;
@@ -42,6 +42,22 @@ const SETTINGS_PHRASES = [
 function looksLikeSettingsChange(message: string) {
   const text = message.replace(/\s+/g, "").toLocaleLowerCase();
   return SETTINGS_PHRASES.some((phrase) => text.includes(phrase));
+}
+
+type ProcessBrandState = "thinking" | "reading" | "writing" | "ready";
+
+function processTitle(state: ProcessBrandState) {
+  if (state === "reading") return "正在查找资料";
+  if (state === "writing") return "正在生成内容";
+  if (state === "ready") return "本轮已经准备好";
+  return "正在理解问题";
+}
+
+function BobodanProcess({ state, detail }: { state: ProcessBrandState; detail: string }) {
+  return <div className={`bobodan-process ${state}`} role="status">
+    <BrandIllustration key={state} state={state} size={52} />
+    <div><strong>{processTitle(state)}</strong><small>{detail}</small></div>
+  </div>;
 }
 
 function displaySettingValue(value: unknown) {
@@ -79,7 +95,8 @@ export function ChatPage() {
   const [loading, setLoading] = useState(Boolean(sessionId));
   const [sending, setSending] = useState(false);
   const [status, setStatus] = useState("");
-  const [brandState, setBrandState] = useState<"thinking" | "reading" | "writing">("thinking");
+  const [brandState, setBrandState] = useState<ProcessBrandState>("thinking");
+  const [practiceStarting, setPracticeStarting] = useState("");
   const [error, setError] = useState("");
   const [paletteIndex, setPaletteIndex] = useState(0);
   const [paletteDismissed, setPaletteDismissed] = useState(false);
@@ -95,6 +112,7 @@ export function ChatPage() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const sessionIdRef = useRef(sessionId);
 
   useEffect(() => {
     setDraft(localStorage.getItem(`bobodan:draft:${sessionId || "new"}`) || "");
@@ -132,6 +150,10 @@ export function ChatPage() {
   useEffect(() => {
     localStorage.setItem(`bobodan:draft:${sessionId || "new"}`, draft);
   }, [draft, sessionId]);
+
+  useEffect(() => {
+    sessionIdRef.current = sessionId;
+  }, [sessionId]);
 
   useEffect(() => {
     const element = scrollRef.current;
@@ -237,10 +259,14 @@ export function ChatPage() {
         references: outgoingReferences,
         webResearchId,
       }, (streamEvent) => {
-        if (streamEvent.event === "run_started") nextSessionId = streamEvent.data.chat_session_id;
+        if (streamEvent.event === "run_started") {
+          nextSessionId = streamEvent.data.chat_session_id;
+          sessionIdRef.current = streamEvent.data.chat_session_id;
+        }
         if (streamEvent.event === "status") {
           setStatus(streamEvent.data.message);
-          if (/资料|检索|查找|读取/.test(streamEvent.data.message)) setBrandState("reading");
+          if (["rag_search", "web_research"].includes(streamEvent.data.tool_name || "") || /资料|检索|查找|读取|网页/.test(streamEvent.data.message)) setBrandState("reading");
+          else if (["question_generate", "quiz_start"].includes(streamEvent.data.tool_name || "") || /题目|练习|生成/.test(streamEvent.data.message)) setBrandState("writing");
           setMessages((current) => current.map((item, index) => index === current.length - 1
             ? {
                 ...item,
@@ -268,12 +294,15 @@ export function ChatPage() {
             : item));
         }
         if (streamEvent.event === "chat_artifact") {
+          const artifact = streamEvent.data.artifact.type === "practice_ready"
+            ? { ...streamEvent.data.artifact, chat_session_id: nextSessionId }
+            : streamEvent.data.artifact;
           setMessages((current) => current.map((item, index) => index === current.length - 1
-            ? { ...item, artifacts: [...(item.artifacts || []), streamEvent.data.artifact] }
+            ? { ...item, artifacts: [...(item.artifacts || []), artifact] }
             : item));
         }
         if (streamEvent.event === "run_failed") throw new Error(streamEvent.data.error.message);
-        if (streamEvent.event === "run_completed") setStatus("回答已经整理完成");
+        if (streamEvent.event === "run_completed") { setBrandState("ready"); setStatus("回答已经整理完成"); }
       }, controller.signal);
       setMessages((current) => current.map((item, index) => index === current.length - 1 ? { ...item, pending: false } : item));
       await new Promise((resolve) => window.setTimeout(resolve, 600));
@@ -508,6 +537,26 @@ export function ChatPage() {
     navigate("/practice");
   }
 
+  async function startPreparedPractice(artifact: PracticeReadyArtifact) {
+    if (artifact.practice_session_id) {
+      navigate(`/practice/${artifact.practice_session_id}`);
+      return;
+    }
+    const activeSessionId = artifact.chat_session_id || sessionId || sessionIdRef.current;
+    if (!activeSessionId) return;
+    setPracticeStarting(artifact.artifact_id);
+    setError("");
+    try {
+      const result = await api.startChatPractice(artifact.artifact_id, activeSessionId);
+      void refreshChatSession(activeSessionId).catch(() => undefined);
+      navigate(`/practice/${result.practice_session_id}`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "暂时无法开始这轮练习。" );
+    } finally {
+      setPracticeStarting("");
+    }
+  }
+
   function retryMessage(index: number) {
     const previous = messages[index - 1];
     if (previous?.role === "user") void send(undefined, previous.content);
@@ -644,7 +693,7 @@ export function ChatPage() {
       </section>;
     }
     if (artifact.type === "web_candidates") {
-      const selected = webSelections[artifact.search_id] || [];
+      const selected = webSelections[artifact.search_id] || artifact.selected_candidate_ids || [];
       const selectable = artifact.status === "ready" || artifact.status === "partial" || (artifact.status === "failed" && artifact.candidates.length > 0);
       const qualityLabels = { official: "官方/教育", reference: "参考资料", community: "社区内容", unknown: "普通网页" };
       return <section className={`web-candidates-card ${artifact.status}`} key={artifact.artifact_id}>
@@ -658,6 +707,13 @@ export function ChatPage() {
       return <section className={`web-evidence-card ${artifact.status}`} key={artifact.artifact_id}>
         <header><span><BookOpen size={15} />网页证据</span><strong>{artifact.status === "failed" ? "来源读取失败" : artifact.status === "partial" ? "部分来源可用" : "证据快照已保存"}</strong></header>
         {artifact.sources.length ? <div>{artifact.sources.map((source) => <a href={source.url || "#"} target="_blank" rel="noreferrer" key={source.source_id}><span><strong>{source.title}</strong><small>{source.domain} · {source.reader === "jina" ? "Jina Reader 后备" : "直接读取"} · {source.accessed_at ? new Date(source.accessed_at).toLocaleString("zh-CN") : ""}</small></span><ExternalLink size={14} /></a>)}</div> : <p>这些网页没有返回可核实的正文，未用于回答。</p>}
+      </section>;
+    }
+    if (artifact.type === "practice_ready") {
+      return <section className={`practice-ready-card ${artifact.status}`} key={artifact.artifact_id}>
+        <BrandIllustration state="ready" size={56} />
+        <div><header><span>练习已就绪</span><strong>{artifact.count} 道题已经准备好</strong></header><p>{artifact.topic}</p><AttributionBadges attribution={artifact.attribution} /></div>
+        <button className="primary-button" disabled={practiceStarting === artifact.artifact_id} onClick={() => void startPreparedPractice(artifact)}><BookOpen size={15} />{artifact.status === "started" ? "继续练习" : practiceStarting === artifact.artifact_id ? "正在打开" : "开始练习"}</button>
       </section>;
     }
     if (artifact.type === "wiki_focus") {
@@ -690,7 +746,6 @@ export function ChatPage() {
 
   const composer = (
     <form className="composer-wrap" onSubmit={(event) => void send(event)}>
-      {status && <div className="composer-status" role="status"><span className="composer-status-mark"><Sparkles size={14} /></span><div><strong>{brandState === "reading" ? "正在查找资料" : brandState === "writing" ? "正在生成回答" : "正在理解问题"}</strong><small>{status}</small></div></div>}
       {paletteOpen && <div className="slash-palette" role="listbox" aria-label="命令与技能">
         <div className="slash-palette-heading"><Command size={14} /><span>命令与技能</span><small>Enter 选择 · Esc 关闭</small></div>
         <div className="slash-palette-list">{filteredSlashItems.map((item, index) => (
@@ -794,6 +849,7 @@ export function ChatPage() {
             ) : (
               <article className={`assistant-message ${message.failed ? "failed" : ""}`} key={index}>
                 <div className="assistant-heading"><img src="/assets/brand/expressions/bobodan-expression-neutral.webp" alt="" /><span>{settings?.preferences.assistant.display_name || "Bobodan"}</span></div>
+                {message.pending && status && <BobodanProcess state={brandState} detail={status} />}
                 <div className="answer-prose"><ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content || (message.pending ? "正在整理回答…" : message.failed ? "回答没有完成。" : "本轮没有生成可显示的内容。")}</ReactMarkdown></div>
                 {message.artifacts?.map(artifactSurface)}
                 <AttributionBadges attribution={message.attribution} />
@@ -801,10 +857,11 @@ export function ChatPage() {
                   <summary>查看处理过程</summary>
                   <div>{message.process.map((item, processIndex) => <p key={processIndex}><span>{item.phase === "failed" ? "未完成" : item.phase === "completed" ? "完成" : "进行中"}</span>{item.message}{typeof item.elapsed === "number" ? <small>{item.elapsed.toFixed(1)}s</small> : null}</p>)}</div>
                 </details> : null}
-                {!message.pending && !message.failed && message.content && <div className="answer-actions"><button className="quiet-button" onClick={() => preparePractice(index)}><BookOpen size={15} />生成 5 道练习</button></div>}
+                {!message.pending && !message.failed && message.content && !message.artifacts?.some((artifact) => artifact.type === "practice_ready") && <div className="answer-actions"><button className="quiet-button" onClick={() => preparePractice(index)}><BookOpen size={15} />生成 5 道练习</button></div>}
                 {message.failed && <div className="answer-failure"><span>{error || "AI 连接暂时不可用，请稍后重试。"}</span><button className="quiet-button" disabled={sending} onClick={() => retryMessage(index)}><RotateCcw size={15} />重新发送本轮</button></div>}
               </article>
             ))}
+            {status && !messages.at(-1)?.pending && <BobodanProcess state={brandState} detail={status} />}
           </div>
         ) : (
           <div className="welcome-view">
@@ -818,11 +875,7 @@ export function ChatPage() {
             </div>
             {error && <ErrorNotice message={error} />}
             {composer}
-            {wikiPlanLoading && <div className="process-status" role="status">
-              <BrandIllustration state="reading" size={58} />
-              <div><strong>Bobodan 正在整理</strong><span>{status || "正在生成 Wiki 计划"}</span></div>
-              <span className="process-lines" aria-hidden="true"><i /><i /><i /></span>
-            </div>}
+            {wikiPlanLoading && <BobodanProcess state="reading" detail={status || "正在生成 Wiki 计划"} />}
             <div className="starter-actions">
               <button onClick={() => usePrompt("根据我的资料，帮我梳理今天最值得学习的三个知识点。")}>梳理学习重点</button>
               <button onClick={() => usePrompt("请先用直觉解释，再给出严谨推导。")}>先讲直觉，再补证明</button>

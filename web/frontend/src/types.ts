@@ -153,7 +153,7 @@ export interface SettingsSummary {
 }
 
 export interface UserPreferences {
-  schema_version: 2;
+  schema_version: 3;
   revision: number;
   assistant: {
     display_name: string;
@@ -176,7 +176,7 @@ export interface UserPreferences {
   };
   ai: { default_provider: string };
   memory: { enabled: boolean };
-  search: { provider: "auto" | "tavily" | "exa"; jina_fallback: boolean };
+  search: { provider: "auto" | "tavily" | "exa"; permission: "ask" | "auto"; jina_fallback: boolean };
   skills: { enabled_names: string[] };
 }
 
@@ -188,7 +188,7 @@ export interface RuntimeStatus {
   memory: { enabled: boolean };
   skills: { enabled: number; available: number };
   providers: { configured: number; available: number; default: string };
-  search: { default: string; tavily_configured: boolean; exa_configured: boolean; jina_fallback: boolean };
+  search: { default: string; permission: "ask" | "auto"; tavily_configured: boolean; exa_configured: boolean; jina_fallback: boolean };
 }
 
 export interface WikiHealth {
@@ -343,6 +343,7 @@ export interface WebCandidatesArtifact {
   query: string;
   provider: string;
   candidates: WebSourceCandidate[];
+  selected_candidate_ids?: string[];
   error_kind?: string;
 }
 
@@ -355,5 +356,17 @@ export interface WebEvidenceArtifact {
   failed_source_ids: string[];
 }
 
+export interface PracticeReadyArtifact {
+  artifact_id: string;
+  type: "practice_ready";
+  status: "ready" | "started";
+  topic: string;
+  question_ids: number[];
+  count: number;
+  attribution: Attribution;
+  practice_session_id?: number;
+  chat_session_id?: string;
+}
+
 export type WebArtifact = WebConsentArtifact | WebCandidatesArtifact | WebEvidenceArtifact;
-export type ChatArtifact = WikiArtifact | SettingsChangeArtifact | WebArtifact;
+export type ChatArtifact = WikiArtifact | SettingsChangeArtifact | WebArtifact | PracticeReadyArtifact;
