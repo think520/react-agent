@@ -19,6 +19,7 @@ from service.kb_service import KBService
 from service.library_service import LibraryService
 from service.preference_service import PreferenceService
 from service.runtime_service import RuntimeService
+from service.research_service import ResearchService
 from web.backend.capabilities import WEB_SKILL_NAMES
 from web.backend.deps import (
     get_config,
@@ -91,6 +92,11 @@ def _public_settings(config: dict[str, Any]) -> dict[str, Any]:
         "workspace_name": os.path.basename(get_workspace()),
         "default_provider": preferences["ai"]["default_provider"],
         "providers": providers,
+        "search_providers": [
+            {"name": "auto", "configured": True},
+            {"name": "tavily", "configured": bool(os.getenv("TAVILY_API_KEY"))},
+            {"name": "exa", "configured": True},
+        ],
         "mcp_enabled": bool(config.get("mcp", {}).get("enabled", False)),
         "preferences": preferences,
         "skills": [
@@ -162,6 +168,23 @@ def test_provider(provider_name: str) -> dict:
         executor.shutdown(wait=False, cancel_futures=True)
 
 
+@router.post("/search/{provider_name}/test")
+def test_search_provider(provider_name: Literal["auto", "tavily", "exa"], request: Request) -> dict:
+    started = time.perf_counter()
+    executor = ThreadPoolExecutor(max_workers=1)
+    try:
+        future = executor.submit(ResearchService(get_request_workspace(request)).test, provider_name)
+        result = future.result(timeout=20)
+        return {**result, "latency_ms": round((time.perf_counter() - started) * 1000)}
+    except FutureTimeout as exc:
+        raise APIError(504, "search_provider_timeout", "The search provider did not respond within 20 seconds.") from exc
+    except Exception as exc:
+        kind = getattr(exc, "kind", "network")
+        raise APIError(409, "search_provider_test_failed", "The search provider connection test failed.", {"kind": kind}) from exc
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
+
+
 @router.get("/status")
 def runtime_status() -> dict:
     config = get_config()
@@ -191,6 +214,12 @@ def runtime_status() -> dict:
             "configured": sum(bool(item.get("configured")) for item in providers),
             "available": len(providers),
             "default": preferences["ai"]["default_provider"],
+        },
+        "search": {
+            "default": preferences.get("search", {}).get("provider", "auto"),
+            "tavily_configured": bool(os.getenv("TAVILY_API_KEY")),
+            "exa_configured": True,
+            "jina_fallback": bool(preferences.get("search", {}).get("jina_fallback", True)),
         },
     }
 

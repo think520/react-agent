@@ -1,8 +1,9 @@
-import type { ButtonHTMLAttributes, ReactNode } from "react";
-import { FileText, LoaderCircle, SearchX } from "lucide-react";
+import { useState, type ButtonHTMLAttributes, type ReactNode, type SyntheticEvent } from "react";
+import { ExternalLink, FileText, LoaderCircle, SearchX } from "lucide-react";
 import { Link } from "react-router-dom";
 
-import type { Attribution } from "../types";
+import { api } from "../lib/api";
+import type { Attribution, SourceRef } from "../types";
 
 export function IconButton({ label, className = "", ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string }) {
   return <button className={`icon-button ${className}`} aria-label={label} title={label} {...props} />;
@@ -64,6 +65,51 @@ const attributionLabels = {
   unverified: "待核实",
 };
 
+interface WebSourceDetail {
+  final_url: string;
+  title: string;
+  domain: string;
+  excerpt: string;
+  accessed_at: string;
+  reader: "direct" | "jina";
+}
+
+function WebSourceBadge({ source, label }: { source: SourceRef; label: string }) {
+  const [detail, setDetail] = useState<WebSourceDetail | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const metadata = [
+    source.domain,
+    source.accessed_at ? new Date(source.accessed_at).toLocaleString("zh-CN") : "",
+    source.reader === "jina" ? "Jina Reader 后备" : source.reader === "direct" ? "直接读取" : "",
+  ].filter(Boolean).join(" · ");
+
+  async function loadDetail(event: SyntheticEvent<HTMLDetailsElement>) {
+    if (!event.currentTarget.open || detail || loading || !source.snapshot_id) return;
+    setLoading(true);
+    setError("");
+    try {
+      const result = await api.webSource(source.snapshot_id);
+      setDetail(result.source as unknown as WebSourceDetail);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "暂时无法读取证据快照。" );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return <details className="web-source-detail" onToggle={(event) => void loadDetail(event)}>
+    <summary className="source-chip web" title={metadata}>
+      <ExternalLink size={14} /><span>{label} · {source.title}</span>
+    </summary>
+    <section>
+      <header><strong>{detail?.title || source.title}</strong><small>{metadata}</small></header>
+      {loading ? <p>正在读取当时保存的引用片段…</p> : error ? <p>{error}</p> : <blockquote>{detail?.excerpt || "暂无可显示的引用片段。"}</blockquote>}
+      {(detail?.final_url || source.url) && <a href={detail?.final_url || source.url || "#"} target="_blank" rel="noreferrer">打开原网页<ExternalLink size={13} /></a>}
+    </section>
+  </details>;
+}
+
 export function AttributionBadges({ attribution }: { attribution?: Attribution }) {
   if (!attribution) return null;
   const sources = attribution.sources.slice(0, 2);
@@ -72,8 +118,10 @@ export function AttributionBadges({ attribution }: { attribution?: Attribution }
       {sources.length ? sources.map((source) => {
         const location = source.heading || (source.page ? `第 ${source.page} 页` : source.slide ? `第 ${source.slide} 页` : "");
         const sourceLabel = source.collection === "wiki" ? "Wiki" : attributionLabels[attribution.kind];
-        const content = <><FileText size={14} /><span>{sourceLabel} · {source.title}</span>{location && <small>{location}</small>}</>;
-        if (source.url) return <a className={`source-chip ${attribution.kind}`} href={source.url} target="_blank" rel="noreferrer" key={source.source_id}>{content}</a>;
+        const sourceDetail = location;
+        const content = <>{source.source_type === "web" ? <ExternalLink size={14} /> : <FileText size={14} />}<span>{sourceLabel} · {source.title}</span>{location && <small>{location}</small>}</>;
+        if (source.source_type === "web" && source.snapshot_id) return <WebSourceBadge source={source} label={sourceLabel} key={source.source_id} />;
+        if (source.url) return <a className={`source-chip ${attribution.kind}`} href={source.url} target="_blank" rel="noreferrer" title={sourceDetail} key={source.source_id}>{content}</a>;
         if (source.document_id) {
           const target = `/library?collection=${source.collection === "wiki" ? "wiki" : "material"}&document=${encodeURIComponent(source.document_id)}${source.chunk_id ? `&chunk=${encodeURIComponent(source.chunk_id)}` : ""}`;
           return <Link className={`source-chip ${attribution.kind}`} title={`打开资料${location ? ` · ${location}` : ""}`} to={target} key={source.source_id}>{content}</Link>;

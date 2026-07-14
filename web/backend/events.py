@@ -14,6 +14,7 @@ _TOOL_STATUS = {
     "learning_review": "正在整理复习内容",
     "learning_progress": "正在更新学习进度",
     "obsidian_sync": "正在同步资料",
+    "request_web_search": "正在确认是否需要联网补充",
 }
 
 
@@ -42,6 +43,8 @@ def to_web_events(event: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
             artifact_type = artifact.get("type")
             if artifact_type in {"citation", "practice", "learning_update"}:
                 web_events.append((artifact_type, artifact))
+            elif artifact_type in {"web_consent", "web_candidates", "web_evidence"}:
+                web_events.append(("chat_artifact", {"artifact": artifact}))
         return web_events
 
     if event_type == "assistant_done":

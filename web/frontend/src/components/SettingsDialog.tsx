@@ -62,6 +62,7 @@ export function SettingsDialog({
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [providerTest, setProviderTest] = useState<Record<string, string>>({});
+  const [searchTest, setSearchTest] = useState<Record<string, string>>({});
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus | null>(null);
   const dialogRef = useRef<HTMLElement>(null);
   const activeNavRef = useRef<HTMLButtonElement>(null);
@@ -132,6 +133,16 @@ export function SettingsDialog({
     }
   }
 
+  async function testSearchProvider(name: "auto" | "tavily" | "exa") {
+    setSearchTest((current) => ({ ...current, [name]: "正在测试…" }));
+    try {
+      const result = await api.searchProviderTest(name);
+      setSearchTest((current) => ({ ...current, [name]: `${result.latency_ms}ms · 搜索正常` }));
+    } catch (reason) {
+      setSearchTest((current) => ({ ...current, [name]: reason instanceof Error ? reason.message : "搜索连接失败" }));
+    }
+  }
+
   function sectionContent() {
     if (active === "assistant") return <>
       <div className="settings-identity"><BrandIllustration state="listening" size={92} alt="Bobodan" /><div><span>品牌角色</span><h3>Bobodan</h3><p>三花猫品牌保持固定，你可以调整它陪伴学习的方式。</p></div></div>
@@ -161,15 +172,21 @@ export function SettingsDialog({
         <SettingRow label="减少动态效果"><Toggle label="减少动态效果" checked={preferences.appearance.motion === "reduced"} onChange={(value) => void patchPreferences({ appearance: { motion: value ? "reduced" : "system" } })} /></SettingRow>
       </section>
     </>;
-    if (active === "ai") return <section className="settings-group"><header><h3>模型与连接</h3><p>密钥继续由本地环境变量管理。测试连接会发送一次最小请求。</p></header>
-      {settings.providers.map((provider) => <div className="provider-row" key={provider.name}><span className={`provider-mark ${provider.configured ? "ready" : ""}`}><Cpu size={17} /></span><div><strong>{provider.name}</strong><small>{provider.model || provider.type || "模型"}{providerTest[provider.name] ? ` · ${providerTest[provider.name]}` : ""}</small></div><label><input type="radio" name="default-provider" checked={preferences.ai.default_provider === provider.name} disabled={!provider.configured} onChange={() => void patchPreferences({ ai: { default_provider: provider.name } })} />默认</label><button className="quiet-button" disabled={!provider.configured} onClick={() => void testProvider(provider.name)}>测试连接</button></div>)}
-    </section>;
+    if (active === "ai") return <>
+      <section className="settings-group"><header><h3>模型与连接</h3><p>密钥继续由本地环境变量管理。测试连接会发送一次最小请求。</p></header>
+        {settings.providers.map((provider) => <div className="provider-row" key={provider.name}><span className={`provider-mark ${provider.configured ? "ready" : ""}`}><Cpu size={17} /></span><div><strong>{provider.name}</strong><small>{provider.model || provider.type || "模型"}{providerTest[provider.name] ? ` · ${providerTest[provider.name]}` : ""}</small></div><label><input type="radio" name="default-provider" checked={preferences.ai.default_provider === provider.name} disabled={!provider.configured} onChange={() => void patchPreferences({ ai: { default_provider: provider.name } })} />默认</label><button className="quiet-button" disabled={!provider.configured} onClick={() => void testProvider(provider.name)}>测试连接</button></div>)}
+      </section>
+      <section className="settings-group"><header><h3>联网资料</h3><p>只在你明确确认后搜索。搜索摘要不会直接作为回答证据。</p></header>
+        {settings.search_providers.map((provider) => <div className="provider-row" key={provider.name}><span className={`provider-mark ${provider.configured ? "ready" : ""}`}><Search size={17} /></span><div><strong>{provider.name === "auto" ? "自动选择" : provider.name === "tavily" ? "Tavily" : "Exa"}</strong><small>{provider.name === "auto" ? "Tavily → Exa" : provider.name === "tavily" ? "需要本地环境变量" : "公共 MCP 搜索"}{searchTest[provider.name] ? ` · ${searchTest[provider.name]}` : ""}</small></div><label><input type="radio" name="search-provider" checked={preferences.search.provider === provider.name} disabled={!provider.configured} onChange={() => void patchPreferences({ search: { provider: provider.name } })} />默认</label><button className="quiet-button" disabled={!provider.configured} onClick={() => void testSearchProvider(provider.name)}>测试搜索</button></div>)}
+        <SettingRow label="Jina Reader 后备" hint="直接读取失败时使用，并在来源中明确标注"><Toggle label="Jina Reader 后备" checked={preferences.search.jina_fallback} onChange={(value) => void patchPreferences({ search: { jina_fallback: value } })} /></SettingRow>
+      </section>
+    </>;
     if (active === "memory") return <>
       <section className="settings-group"><header><h3>学习记忆</h3><p>关闭后新对话不会读取或写入学习记忆，已有内容不会自动删除。</p></header><SettingRow label="启用学习记忆"><Toggle label="启用学习记忆" checked={preferences.memory.enabled} onChange={(value) => void patchPreferences({ memory: { enabled: value } })} /></SettingRow></section>
       <section className="settings-boundary"><ShieldCheck size={20} /><div><strong>本地数据边界</strong><p>原始资料只读，设置不会把资料上传到 Bobodan 服务。当前资料库：{activeLibrary?.name || "尚未选择"}。</p></div></section>
     </>;
     if (active === "skills") return <section className="settings-group"><header><h3>Web 安全 Skills</h3><p>这里只显示浏览器运行时能够完整执行的学习技能。</p></header>{settings.skills.length ? settings.skills.map((skill) => <SettingRow key={skill.name} label={skill.name} hint={`${skill.description} · 来源：${skill.source}`}><span className="skill-setting-control"><small>{skill.capabilities.join(" · ")}</small><Toggle label={`${skill.name} 技能`} checked={preferences.skills.enabled_names.includes(skill.name)} onChange={(value) => { const names = value ? [...preferences.skills.enabled_names, skill.name] : preferences.skills.enabled_names.filter((item) => item !== skill.name); void patchPreferences({ skills: { enabled_names: names } }); }} /></span></SettingRow>) : <p className="settings-empty">当前没有可用于 Web 的 Skills。</p>}</section>;
-    return <section className="settings-group"><header><h3>运行状态</h3><p>只展示普通用户能理解并采取行动的状态。</p></header>{runtimeStatus ? <div className="runtime-grid"><div><Activity /><span><strong>后端</strong><small>连接正常</small></span></div><div><Cpu /><span><strong>AI</strong><small>{runtimeStatus.providers.configured}/{runtimeStatus.providers.available} 已配置</small></span></div><div><Database /><span><strong>资料索引</strong><small>{runtimeStatus.knowledge.state === "ready" ? `${runtimeStatus.knowledge.documents} 份资料` : "等待资料"}</small></span></div><div><Brain /><span><strong>记忆</strong><small>{runtimeStatus.memory.enabled ? "已启用" : "已关闭"}</small></span></div><div><Wrench /><span><strong>Skills</strong><small>{runtimeStatus.skills.enabled}/{runtimeStatus.skills.available} 已启用</small></span></div><div><Gauge /><span><strong>版本</strong><small>{runtimeStatus.version}</small></span></div></div> : <p className="settings-empty">正在读取状态…</p>}</section>;
+    return <section className="settings-group"><header><h3>运行状态</h3><p>只展示普通用户能理解并采取行动的状态。</p></header>{runtimeStatus ? <div className="runtime-grid"><div><Activity /><span><strong>后端</strong><small>连接正常</small></span></div><div><Cpu /><span><strong>AI</strong><small>{runtimeStatus.providers.configured}/{runtimeStatus.providers.available} 已配置</small></span></div><div><Search /><span><strong>联网搜索</strong><small>{runtimeStatus.search.default} · {runtimeStatus.search.jina_fallback ? "Jina 后备开启" : "仅直接读取"}</small></span></div><div><Database /><span><strong>资料索引</strong><small>{runtimeStatus.knowledge.state === "ready" ? `${runtimeStatus.knowledge.documents} 份资料` : "等待资料"}</small></span></div><div><Brain /><span><strong>记忆</strong><small>{runtimeStatus.memory.enabled ? "已启用" : "已关闭"}</small></span></div><div><Wrench /><span><strong>Skills</strong><small>{runtimeStatus.skills.enabled}/{runtimeStatus.skills.available} 已启用</small></span></div><div><Gauge /><span><strong>版本</strong><small>{runtimeStatus.version}</small></span></div></div> : <p className="settings-empty">正在读取状态…</p>}</section>;
   }
 
   return <div className="settings-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="settings-dialog" role="dialog" aria-modal="true" aria-label="设置" tabIndex={-1} ref={dialogRef}>

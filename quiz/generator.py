@@ -179,6 +179,44 @@ class QuestionGenerator:
 
         return questions[:count]
 
+    def generate_from_web_evidence(
+        self,
+        evidence_content: str,
+        sources: list[dict],
+        count: int = 5,
+    ) -> list[Question]:
+        """Generate web-grounded questions from confirmed evidence snapshots."""
+        if not evidence_content or not sources:
+            return []
+        source_refs = {f"S{index}": source for index, source in enumerate(sources, 1)}
+        material = evidence_content
+        for index in range(len(sources), 0, -1):
+            material = material.replace(f"[Web source {index}:", f"[来源 S{index}:")
+        prompt = QUESTION_GENERATION_PROMPT.format(count=count, material=material)
+        try:
+            response = self.llm.complete([{"role": "user", "content": prompt}])
+            raw_text = response.content if hasattr(response, "content") else str(response)
+        except Exception as e:
+            logger.error("LLM call failed during web question generation: %s", e)
+            return []
+        questions = []
+        for item in _parse_json_from_llm(raw_text):
+            if not _validate_question(item):
+                continue
+            selected_sources = [source_refs[value] for value in item.get("source_ids", []) if value in source_refs]
+            if not selected_sources:
+                selected_sources = list(source_refs.values())[:3]
+            questions.append(Question(
+                type=item["type"], question=item["question"], options=item.get("options", []),
+                answer=item["answer"], explanation=item.get("explanation", ""),
+                concepts=item.get("concepts", []), difficulty=item.get("difficulty", "medium"),
+                source=selected_sources[0]["title"] if selected_sources else "",
+                attribution_kind="web" if selected_sources else "unverified",
+                sources=selected_sources,
+                created_at=datetime.now(timezone.utc).isoformat(),
+            ))
+        return questions[:count]
+
     def generate_from_query(
         self,
         query: str,

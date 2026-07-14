@@ -9,7 +9,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from .errors import APIError
-from .routers import chat, kb, learning, libraries, memory, quiz, settings
+from .routers import chat, kb, learning, libraries, memory, quiz, research, settings
 from .deps import get_config, get_library_service, get_session_save_dir, get_workspace
 
 
@@ -94,6 +94,7 @@ def create_app() -> FastAPI:
         )
 
     app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
+    app.include_router(research.router, prefix="/api/chat/web", tags=["research"])
     app.include_router(kb.router, prefix="/api/kb", tags=["kb"])
     app.include_router(quiz.router, prefix="/api/quiz", tags=["quiz"])
     app.include_router(learning.router, prefix="/api/learning", tags=["learning"])

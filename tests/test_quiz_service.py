@@ -48,6 +48,28 @@ def test_generate_questions_no_llm(svc):
     assert "LLM" in result["error"]
 
 
+def test_generate_questions_from_confirmed_web_evidence(svc, monkeypatch):
+    class LLM:
+        def complete(self, _messages):
+            return type("Response", (), {"content": '[{"type":"true_false","question":"网页证据是否可追溯？","answer":"true","explanation":"来源包含快照。","concepts":["来源"],"difficulty":"easy","source_ids":["S1"]}]'})()
+
+    monkeypatch.setattr("service.quiz_service._get_llm_provider", lambda config=None: LLM())
+    monkeypatch.setattr("service.research_service.ResearchService.evidence", lambda self, research_id: {
+        "content": "[Web source 1: Official guide]\n网页证据包含访问时间和快照。",
+        "sources": [{
+            "source_type": "web", "source_id": "snapshot-1", "snapshot_id": "snapshot-1",
+            "title": "Official guide", "url": "https://example.com/guide", "domain": "example.com",
+            "accessed_at": "2026-07-14T00:00:00Z", "reader": "direct",
+        }],
+    })
+
+    result = svc.generate_questions("网页证据", web_research_id="research-1", count=1)
+
+    assert result["ok"] is True
+    assert result["questions"][0]["attribution"]["kind"] == "web"
+    assert result["questions"][0]["attribution"]["sources"][0]["snapshot_id"] == "snapshot-1"
+
+
 # --- start_quiz ---
 
 def test_start_quiz_empty(store, svc):

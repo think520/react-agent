@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUp, BookOpen, Brain, Check, Command, FilePlus2, FileText, FolderOpen, Library, MessageCircle, Paperclip, RotateCcw, Square, Sparkles, X } from "lucide-react";
+import { ArrowUp, BookOpen, Brain, Check, Command, ExternalLink, FilePlus2, FileText, FolderOpen, Globe2, Library, MessageCircle, Paperclip, RotateCcw, Square, Sparkles, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useNavigate, useOutletContext, useParams } from "react-router-dom";
@@ -8,7 +8,7 @@ import type { AppOutletContext } from "../components/AppShell";
 import { AttributionBadges, BrandIllustration, ErrorNotice, IconButton, LoadingState } from "../components/common";
 import { WikiPlanCard } from "../components/WikiPlanCard";
 import { api, streamChat } from "../lib/api";
-import type { ChatArtifact, ChatMessage, ChatReference, SettingsChangeArtifact, WikiFocusArtifact, WikiPlanArtifact, WikiResultArtifact } from "../types";
+import type { ChatArtifact, ChatMessage, ChatReference, SettingsChangeArtifact, WebCandidatesArtifact, WebConsentArtifact, WebEvidenceArtifact, WikiFocusArtifact, WikiPlanArtifact, WikiResultArtifact } from "../types";
 
 interface SlashItem {
   value: string;
@@ -27,6 +27,7 @@ const WEB_COMMANDS: SlashItem[] = [
   { value: "/practice", label: "/practice", description: "开始一轮练习", kind: "command" },
   { value: "/review", label: "/review", description: "查看今日复习", kind: "command" },
   { value: "/kb search ", label: "/kb search", description: "只检索本地资料", kind: "command" },
+  { value: "/web search ", label: "/web search", description: "确认后搜索公开网页候选", kind: "command" },
   { value: "/learning today", label: "/learning today", description: "整理今日学习任务", kind: "command" },
   { value: "/quiz generate ", label: "/quiz generate", description: "按主题生成 5 道题", kind: "command" },
 ];
@@ -85,6 +86,8 @@ export function ChatPage() {
   const [wikiPlanLoading, setWikiPlanLoading] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState(() => localStorage.getItem("bobodan:provider:new") || "");
   const [references, setReferences] = useState<ChatReference[]>([]);
+  const [webOnce, setWebOnce] = useState(false);
+  const [webSelections, setWebSelections] = useState<Record<string, string[]>>({});
   const [referenceDocuments, setReferenceDocuments] = useState(documents);
   const [mentionTab, setMentionTab] = useState<"document" | "session">("document");
   const [mentionIndex, setMentionIndex] = useState(0);
@@ -137,7 +140,7 @@ export function ChatPage() {
     }
   }, [messages, status, sending]);
 
-  async function send(event?: FormEvent, overrideMessage?: string) {
+  async function send(event?: FormEvent, overrideMessage?: string, webResearchId?: string) {
     event?.preventDefault();
     const message = (overrideMessage ?? draft).trim();
     if (!message || sending) return;
@@ -173,6 +176,17 @@ export function ChatPage() {
       if (topic) localStorage.setItem("bobodan:practice-topic", topic);
       setDraft("");
       navigate("/practice");
+      return;
+    }
+    if (!webResearchId && (webOnce || message === "/web search" || message.startsWith("/web search "))) {
+      const query = message.startsWith("/web search") ? message.slice("/web search".length).trim() : message;
+      if (!query) {
+        setError("请在 /web search 后输入需要查找的内容。" );
+        return;
+      }
+      setDraft("");
+      setWebOnce(false);
+      await startWebSearch(query, undefined, true);
       return;
     }
     const pendingFocus = latestArtifact("wiki_focus") as WikiFocusArtifact | undefined;
@@ -221,6 +235,7 @@ export function ChatPage() {
         memoryEnabled: settings?.preferences.memory.enabled ?? true,
         provider: selectedProvider || settings?.default_provider,
         references: outgoingReferences,
+        webResearchId,
       }, (streamEvent) => {
         if (streamEvent.event === "run_started") nextSessionId = streamEvent.data.chat_session_id;
         if (streamEvent.event === "status") {
@@ -250,6 +265,11 @@ export function ChatPage() {
           setBrandState("reading");
           setMessages((current) => current.map((item, index) => index === current.length - 1
             ? { ...item, attribution: streamEvent.data.attribution }
+            : item));
+        }
+        if (streamEvent.event === "chat_artifact") {
+          setMessages((current) => current.map((item, index) => index === current.length - 1
+            ? { ...item, artifacts: [...(item.artifacts || []), streamEvent.data.artifact] }
             : item));
         }
         if (streamEvent.event === "run_failed") throw new Error(streamEvent.data.error.message);
@@ -288,6 +308,80 @@ export function ChatPage() {
     setMessages(detail.messages);
     setSelectedProvider(detail.provider_name || settings?.default_provider || "");
     await refreshSessions();
+  }
+
+  async function startWebSearch(query: string, consentArtifactId?: string, appendUserMessage = false) {
+    setSending(true);
+    setError("");
+    setStatus("正在搜索公开网页候选");
+    setBrandState("reading");
+    try {
+      const result = await api.createWebSearch(query, sessionId, consentArtifactId, appendUserMessage);
+      if (!sessionId) navigate(`/chat/${result.chat_session_id}`, { replace: true });
+      await refreshChatSession(result.chat_session_id);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "联网搜索暂时不可用。" );
+    } finally {
+      setStatus("");
+      setSending(false);
+    }
+  }
+
+  async function resolveWebConsent(artifact: WebConsentArtifact, action: "approve" | "reject") {
+    if (!sessionId) return;
+    if (action === "approve") {
+      await startWebSearch(artifact.query, artifact.artifact_id);
+      return;
+    }
+    setSending(true);
+    setError("");
+    try {
+      await api.rejectWebConsent(artifact.artifact_id, sessionId);
+      await refreshChatSession(sessionId);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "无法取消本次联网请求。" );
+    } finally {
+      setSending(false);
+    }
+  }
+
+  function toggleWebCandidate(artifact: WebCandidatesArtifact, candidateId: string) {
+    setWebSelections((current) => {
+      const selected = current[artifact.search_id] || [];
+      if (selected.includes(candidateId)) {
+        return { ...current, [artifact.search_id]: selected.filter((item) => item !== candidateId) };
+      }
+      if (selected.length >= 4) {
+        setError("每次最多选择 4 个网页来源。" );
+        return current;
+      }
+      return { ...current, [artifact.search_id]: [...selected, candidateId] };
+    });
+  }
+
+  async function useWebCandidates(artifact: WebCandidatesArtifact) {
+    if (!sessionId) return;
+    const selected = webSelections[artifact.search_id] || [];
+    if (!selected.length) return;
+    setSending(true);
+    setError("");
+    setStatus(`正在读取 ${selected.length} 个网页来源`);
+    setBrandState("reading");
+    try {
+      const result = await api.selectWebSources(artifact.search_id, sessionId, selected);
+      await refreshChatSession(sessionId);
+      if (result.artifact.type === "web_evidence" && result.artifact.status !== "failed") {
+        setSending(false);
+        setStatus("");
+        await send(undefined, "使用选中的网页来源继续回答。", result.artifact.research_id);
+        return;
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "选中的网页暂时无法读取。" );
+    } finally {
+      setStatus("");
+      setSending(false);
+    }
   }
 
   async function createWikiFocus(instruction: string, action: "generate" | "update" = "generate") {
@@ -405,6 +499,12 @@ export function ChatPage() {
       ? messages[index - 1].content
       : messages[index].content.slice(0, 160);
     localStorage.setItem("bobodan:practice-topic", topic);
+    const isWebContinuation = messages[index - 1]?.role === "user" && messages[index - 1].content === "使用选中的网页来源继续回答。";
+    const evidence = isWebContinuation
+      ? messages.slice(0, index + 1).flatMap((message) => message.artifacts || []).filter((artifact): artifact is WebEvidenceArtifact => artifact.type === "web_evidence" && artifact.status !== "failed").at(-1)
+      : undefined;
+    if (evidence) localStorage.setItem("bobodan:practice-web-research", evidence.research_id);
+    else localStorage.removeItem("bobodan:practice-web-research");
     navigate("/practice");
   }
 
@@ -536,6 +636,30 @@ export function ChatPage() {
         {artifact.status === "pending" && <footer><button className="quiet-button" disabled={sending} onClick={() => void resolveSettingsChange(artifact, "reject")}>取消</button><button className="primary-button" disabled={sending} onClick={() => void resolveSettingsChange(artifact, "apply")}><Check size={15} />确认修改</button></footer>}
       </section>;
     }
+    if (artifact.type === "web_consent") {
+      return <section className={`web-consent-card ${artifact.status}`} key={artifact.artifact_id}>
+        <header><span><Globe2 size={15} />联网资料</span><strong>{artifact.status === "pending" ? "本地证据暂时不足" : artifact.status === "approved" ? "已同意联网查找" : "已继续使用本地资料"}</strong></header>
+        <p>{artifact.reason}</p><blockquote>{artifact.query}</blockquote>
+        {artifact.status === "pending" && <footer><button className="quiet-button" disabled={sending} onClick={() => void resolveWebConsent(artifact, "reject")}>只用本地资料</button><button className="primary-button" disabled={sending} onClick={() => void resolveWebConsent(artifact, "approve")}><Globe2 size={15} />联网查找</button></footer>}
+      </section>;
+    }
+    if (artifact.type === "web_candidates") {
+      const selected = webSelections[artifact.search_id] || [];
+      const selectable = artifact.status === "ready" || artifact.status === "partial" || (artifact.status === "failed" && artifact.candidates.length > 0);
+      const qualityLabels = { official: "官方/教育", reference: "参考资料", community: "社区内容", unknown: "普通网页" };
+      return <section className={`web-candidates-card ${artifact.status}`} key={artifact.artifact_id}>
+        <header><span><Globe2 size={15} />网页候选</span><strong>{artifact.status === "failed" ? "没有找到可用来源" : artifact.status === "fetching" ? "正在读取来源" : artifact.status === "used" ? "已选择来源" : `找到 ${artifact.candidates.length} 个候选`}</strong></header>
+        <p>搜索摘要只用于选择，勾选后才会读取网页正文。最多选择 4 个。</p>
+        {artifact.candidates.length > 0 && <div className="web-candidate-list">{artifact.candidates.map((candidate) => <label className={selected.includes(candidate.candidate_id) ? "selected" : ""} key={candidate.candidate_id}><input type="checkbox" checked={selected.includes(candidate.candidate_id)} disabled={!selectable || sending} onChange={() => toggleWebCandidate(artifact, candidate.candidate_id)} /><span><strong>{candidate.title}</strong><small>{candidate.domain} · {qualityLabels[candidate.quality_hint]}</small><p>{candidate.snippet}</p></span><a href={candidate.url} target="_blank" rel="noreferrer" aria-label={`打开 ${candidate.title}`} onClick={(event) => event.stopPropagation()}><ExternalLink size={14} /></a></label>)}</div>}
+        {selectable && <footer><small>{selected.length ? `已选择 ${selected.length} 个来源` : artifact.status === "ready" ? "尚未选择来源" : "可以重新选择来源并重试"}</small><button className="primary-button" disabled={!selected.length || sending} onClick={() => void useWebCandidates(artifact)}><BookOpen size={15} />{artifact.status === "ready" ? "使用选中来源" : "重新读取来源"}</button></footer>}
+      </section>;
+    }
+    if (artifact.type === "web_evidence") {
+      return <section className={`web-evidence-card ${artifact.status}`} key={artifact.artifact_id}>
+        <header><span><BookOpen size={15} />网页证据</span><strong>{artifact.status === "failed" ? "来源读取失败" : artifact.status === "partial" ? "部分来源可用" : "证据快照已保存"}</strong></header>
+        {artifact.sources.length ? <div>{artifact.sources.map((source) => <a href={source.url || "#"} target="_blank" rel="noreferrer" key={source.source_id}><span><strong>{source.title}</strong><small>{source.domain} · {source.reader === "jina" ? "Jina Reader 后备" : "直接读取"} · {source.accessed_at ? new Date(source.accessed_at).toLocaleString("zh-CN") : ""}</small></span><ExternalLink size={14} /></a>)}</div> : <p>这些网页没有返回可核实的正文，未用于回答。</p>}
+      </section>;
+    }
     if (artifact.type === "wiki_focus") {
       return <section className="wiki-focus-card" key={artifact.artifact_id}>
         <header><span>Wiki Focus</span><strong>先确认整理重点</strong></header>
@@ -556,11 +680,12 @@ export function ChatPage() {
         onApply={artifact.status === "planned" ? () => void applyWikiPlan(artifact) : undefined}
       />;
     }
-    return <section className={`wiki-result-card ${artifact.status}`} key={artifact.artifact_id}>
+    if (artifact.type === "wiki_result") return <section className={`wiki-result-card ${artifact.status}`} key={artifact.artifact_id}>
       <header><span>Wiki Result</span><strong>{artifact.status === "restored" ? "已恢复检查点" : "Wiki 已写入"}</strong></header>
       {artifact.written?.length ? <p>本轮写入 {artifact.written.length} 个页面。</p> : <p>{artifact.status === "restored" ? "本轮变更已经撤销。" : "已保存变更和检查点。"}</p>}
       {artifact.status === "applied" && artifact.checkpoint_id && <footer><button className="quiet-button" disabled={wikiPlanLoading} onClick={() => void undoWikiPlan(artifact)}>撤销本轮写入</button></footer>}
     </section>;
+    return null;
   }
 
   const composer = (
@@ -644,7 +769,9 @@ export function ChatPage() {
         />
         <div className="composer-toolbar">
           <IconButton label={documents.length ? "选择资料范围" : "前往资料库"} type="button" onClick={() => documents.length ? openContext() : navigate("/library")}><Paperclip /></IconButton>
+          <IconButton label={webOnce ? "取消本轮联网搜索" : "本轮搜索网页候选"} className={webOnce ? "web-on" : ""} type="button" disabled={sending} onClick={() => setWebOnce((value) => !value)}><Globe2 /></IconButton>
           {selectedDocuments.length > 0 && <span className="composer-scope"><Library size={13} />{selectedDocuments.length} 份资料<button type="button" aria-label="清空资料范围" title="清空资料范围" onClick={clearDocumentScope}><X size={12} /></button></span>}
+          {webOnce && <span className="composer-web-scope"><Globe2 size={13} />本轮联网</span>}
           <label className={`composer-select model ${activeProvider?.configured ? "connected" : "offline"}`} title="本会话使用的模型"><i /><select aria-label="当前模型" value={selectedProvider} disabled={sending} onChange={(event) => void changeProvider(event.target.value)}>{settings?.providers.map((provider) => <option key={provider.name} value={provider.name} disabled={!provider.configured}>{provider.name}{provider.configured ? "" : "（不可用）"}</option>)}</select></label>
           <label className="composer-select depth" title="回答深度"><select aria-label="回答深度" value={settings?.preferences.assistant.answer_depth || "standard"} disabled={sending || !settings} onChange={(event) => void changeAnswerDepth(event.target.value as "concise" | "standard" | "deep")}><option value="concise">简洁</option><option value="standard">标准</option><option value="deep">深入</option></select></label>
           <span className="composer-hint">Enter 发送 · Shift Enter 换行</span>
