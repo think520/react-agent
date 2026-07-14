@@ -56,7 +56,7 @@ function processTitle(state: ProcessBrandState) {
 function BobodanProcess({ state, detail }: { state: ProcessBrandState; detail: string }) {
   return <div className={`bobodan-process ${state}`} role="status">
     <BrandIllustration key={state} state={state} size={52} />
-    <div><strong>{processTitle(state)}</strong><small>{detail}</small><span className="bobodan-process-line" aria-hidden="true" /></div>
+    <div><strong>{processTitle(state)}</strong><small>{detail}</small><span className="bobodan-process-ink" aria-hidden="true"><i /><i /><i /></span></div>
   </div>;
 }
 
@@ -501,8 +501,10 @@ export function ChatPage() {
       await api.applyChatWikiPlan(artifact.plan_id, sessionId);
       await refreshChatSession(sessionId);
     } catch (reason) {
+      let stagedFailure = false;
       try {
         const refreshed = await api.wikiPlan(artifact.plan_id);
+        stagedFailure = Boolean(refreshed.staging?.length);
         setMessages((current) => current.map((message) => ({
           ...message,
           artifacts: message.artifacts?.map((item) => item.type === "wiki_plan" && item.plan_id === artifact.plan_id
@@ -510,9 +512,26 @@ export function ChatPage() {
             : item),
         })));
       } catch { /* keep the persisted chat artifact when refresh is unavailable */ }
-      setError(reason instanceof Error ? reason.message : "Wiki 写入失败。" );
+      if (!stagedFailure) setError(reason instanceof Error ? reason.message : "Wiki 写入失败。" );
     } finally {
       setWikiPlanLoading(false);
+    }
+  }
+
+  async function recoverWikiPlan(artifact: WikiPlanArtifact, strategy: "keep_existing" | "regenerate") {
+    if (!sessionId) return;
+    setWikiPlanLoading(true);
+    setError("");
+    setBrandState(strategy === "regenerate" ? "writing" : "reading");
+    setStatus(strategy === "regenerate" ? "正在保留已有内容并重新规划" : "正在保留原页面并写入其余内容");
+    try {
+      await api.recoverChatWikiPlan(artifact.plan_id, sessionId, strategy);
+      await refreshChatSession(sessionId);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "无法继续处理这份 Wiki 计划。" );
+    } finally {
+      setWikiPlanLoading(false);
+      setStatus("");
     }
   }
 
@@ -777,11 +796,13 @@ export function ChatPage() {
         plan={artifact.plan}
         busy={wikiPlanLoading}
         onApply={artifact.status === "planned" ? () => void applyWikiPlan(artifact) : undefined}
+        onKeepExisting={artifact.status === "planned" && artifact.plan.staging?.length ? () => void recoverWikiPlan(artifact, "keep_existing") : undefined}
+        onRegenerate={artifact.status === "planned" && artifact.plan.staging?.length ? () => void recoverWikiPlan(artifact, "regenerate") : undefined}
       />;
     }
     if (artifact.type === "wiki_result") return <section className={`wiki-result-card ${artifact.status}`} key={artifact.artifact_id}>
       <header><span>Wiki Result</span><strong>{artifact.status === "restored" ? "已恢复检查点" : "Wiki 已写入"}</strong></header>
-      {artifact.written?.length ? <p>本轮写入 {artifact.written.length} 个页面。</p> : <p>{artifact.status === "restored" ? "本轮变更已经撤销。" : "已保存变更和检查点。"}</p>}
+      {artifact.kept_existing?.length ? <p>已保留“{artifact.kept_existing.join("、")}”的原页面，并写入其余 {artifact.written?.length || 0} 个页面。</p> : artifact.written?.length ? <p>本轮写入 {artifact.written.length} 个页面。</p> : <p>{artifact.status === "restored" ? "本轮变更已经撤销。" : "已保存变更和检查点。"}</p>}
       {artifact.status === "applied" && artifact.checkpoint_id && <footer><button className="quiet-button" disabled={wikiPlanLoading} onClick={() => void undoWikiPlan(artifact)}>撤销本轮写入</button></footer>}
     </section>;
     return null;

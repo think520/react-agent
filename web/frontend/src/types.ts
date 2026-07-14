@@ -308,7 +308,7 @@ export interface WikiPlanChange {
 
 export interface WikiPlan {
   plan_id: string;
-  status: "planned" | "applied";
+  status: "planned" | "applied" | "replaced";
   action: "generate" | "update";
   instruction: string;
   created_at: string;
@@ -321,6 +321,8 @@ export interface WikiPlan {
   task_id?: string;
   last_error?: string;
   staging?: Array<{ change_id: string; path: string; errors: string[] }>;
+  replacement_plan_id?: string;
+  recovery?: { strategy: "keep_existing"; resolved_at: string; skipped_titles: string[] };
 }
 
 export interface DocumentImpact {
@@ -364,7 +366,7 @@ export interface WikiPlanArtifact {
   type: "wiki_plan";
   library_id?: string | null;
   operation: string;
-  status: "planned" | "applied";
+  status: "planned" | "applied" | "replaced";
   plan_id: string;
   plan: WikiPlan;
 }
@@ -378,6 +380,7 @@ export interface WikiResultArtifact {
   plan_id?: string;
   checkpoint_id?: string;
   written?: string[];
+  kept_existing?: string[];
   restored_at?: string;
 }
 

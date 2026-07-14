@@ -437,6 +437,41 @@ def test_applied_wiki_plan_remains_successful_when_resync_is_deferred(svc, monke
     assert result["sync"]["deferred"] is True
 
 
+def test_regenerate_wiki_plan_reuses_scope_and_marks_old_plan_replaced(svc, monkeypatch):
+    from wiki.workflow import WikiWorkflow
+
+    old_plan_id = "a" * 32
+    new_plan_id = "b" * 32
+    workflow = WikiWorkflow(svc.workspace, svc._wiki_target_vault())
+    os.makedirs(workflow.plan_dir, exist_ok=True)
+    with open(workflow._plan_path(old_plan_id), "w", encoding="utf-8") as handle:
+        json.dump({
+            "plan_id": old_plan_id, "status": "planned", "action": "update",
+            "instruction": "整理模型概念", "scope": {"document_ids": ["doc-1"], "documents": ["LLM"]},
+            "summary": {"add": 0, "update": 1, "merge": 0, "conflict": 0, "skip": 0},
+            "changes": [], "staging": [{"change_id": "change-1", "path": "draft.json", "errors": ["body shrink"]}],
+        }, handle)
+    captured = {}
+
+    def create_plan(provider, **kwargs):
+        captured.update(kwargs)
+        return {
+            "ok": True, "plan_id": new_plan_id, "status": "planned", "action": "update",
+            "instruction": kwargs["instruction"], "scope": {"document_ids": ["doc-1"], "documents": ["LLM"]},
+            "summary": {"add": 0, "update": 1, "merge": 0, "conflict": 0, "skip": 0}, "changes": [],
+        }
+
+    monkeypatch.setattr(svc, "create_wiki_plan", create_plan)
+    result = svc.recover_wiki_plan(old_plan_id, "regenerate", llm_provider=object())
+
+    assert result["ok"]
+    assert captured["document_ids"] == ["doc-1"]
+    assert captured["action"] == "update"
+    assert "不要用更短的草稿覆盖现有页面" in captured["instruction"]
+    assert workflow.get_plan(old_plan_id)["status"] == "replaced"
+    assert workflow.get_plan(old_plan_id)["replacement_plan_id"] == new_plan_id
+
+
 def test_delete_managed_document_removes_source_and_resyncs(svc, workspace, monkeypatch):
     from rag.sqlite_store import KBSQLiteStore
 

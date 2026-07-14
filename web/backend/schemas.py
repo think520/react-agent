@@ -79,6 +79,12 @@ class WikiPlanApplyRequest(BaseModel):
     chat_session_id: str
 
 
+class WikiPlanRecoveryRequest(BaseModel):
+    chat_session_id: str
+    strategy: Literal["keep_existing", "regenerate"]
+    provider: str | None = None
+
+
 class WikiCheckpointRestoreRequest(BaseModel):
     chat_session_id: str
 

@@ -145,7 +145,7 @@ class WikiWorkflow:
                     "generated_by": metadata.get("generated_by"),
                     "path": path,
                     "relative_path": os.path.relpath(path, wiki_dir).replace("\\", "/"),
-                    "body": body[:600],
+                    "body": body[:2400],
                 })
         return pages
 
@@ -471,6 +471,8 @@ class WikiWorkflow:
         return checkpoint_id
 
     def _preflight_plan(self, plan: dict) -> None:
+        plan.pop("staging", None)
+        plan.pop("last_error", None)
         allowed_document_ids = set(plan.get("scope", {}).get("document_ids") or [])
         require_sources = plan.get("action") != "migrate"
         staged = []
@@ -523,7 +525,7 @@ class WikiWorkflow:
                     "path": stage_change(self.workspace, plan["plan_id"], change, errors),
                     "errors": errors,
                 }
-                plan["staging"] = [*plan.get("staging", []), staged_item]
+                plan["staging"] = [staged_item]
                 plan["last_error"] = str(exc)
                 _atomic_json(self._plan_path(plan["plan_id"]), plan)
                 raise
@@ -578,6 +580,54 @@ class WikiWorkflow:
     def apply_plan(self, plan_id: str) -> dict:
         with WIKI_WRITE_LOCK:
             return self._apply_plan(plan_id)
+
+    def skip_staged_changes(self, plan_id: str) -> dict:
+        with WIKI_WRITE_LOCK:
+            plan = self.get_plan(plan_id)
+            if plan.get("status") != "planned":
+                raise ValueError("This Wiki plan can no longer be changed")
+            staged_ids = {
+                str(item.get("change_id") or "")
+                for item in plan.get("staging") or []
+                if item.get("change_id")
+            }
+            if not staged_ids:
+                raise ValueError("This Wiki plan has no pages waiting for correction")
+            skipped_titles = []
+            for change in plan.get("changes") or []:
+                if change.get("change_id") in staged_ids and change.get("kind") in {"add", "update", "merge"}:
+                    change["kind"] = "skip"
+                    change["skip_reason"] = "kept_existing_page"
+                    skipped_titles.append(str(change.get("title") or "Wiki page"))
+            if not skipped_titles:
+                raise ValueError("The pages waiting for correction are no longer part of this plan")
+            plan["summary"] = {
+                kind: sum(1 for item in plan.get("changes") or [] if item.get("kind") == kind)
+                for kind in ("add", "update", "merge", "conflict", "skip")
+            }
+            plan.pop("staging", None)
+            plan.pop("last_error", None)
+            plan["recovery"] = {
+                "strategy": "keep_existing",
+                "resolved_at": _now(),
+                "skipped_titles": skipped_titles,
+            }
+            _atomic_json(self._plan_path(plan_id), plan)
+            staging_dir = os.path.join(self.workspace, ".bobodan", "wiki", "staging", plan_id)
+            if os.path.isdir(staging_dir):
+                shutil.rmtree(staging_dir)
+            return plan
+
+    def mark_replaced(self, plan_id: str, replacement_plan_id: str) -> dict:
+        with WIKI_WRITE_LOCK:
+            plan = self.get_plan(plan_id)
+            if plan.get("status") != "planned":
+                raise ValueError("This Wiki plan can no longer be replaced")
+            plan["status"] = "replaced"
+            plan["replaced_at"] = _now()
+            plan["replacement_plan_id"] = replacement_plan_id
+            _atomic_json(self._plan_path(plan_id), plan)
+            return plan
 
     def _apply_plan(self, plan_id: str) -> dict:
         plan = self.get_plan(plan_id)

@@ -376,6 +376,51 @@ class KBService:
             sync = {"errors": [{"error": str(exc)}], "deferred": True}
         return _ok(**plan, sync=sync)
 
+    def recover_wiki_plan(
+        self,
+        plan_id: str,
+        strategy: str,
+        llm_provider=None,
+        config: dict | None = None,
+    ) -> dict[str, Any]:
+        try:
+            from wiki.workflow import WikiWorkflow
+
+            workflow = WikiWorkflow(self.workspace, self._wiki_target_vault())
+            current = workflow.get_plan(plan_id)
+            if not current.get("staging"):
+                return _err("This Wiki plan has no pages waiting for correction")
+            if strategy == "keep_existing":
+                workflow.skip_staged_changes(plan_id)
+                result = self.apply_wiki_plan(plan_id, config=config)
+                if result.get("ok"):
+                    workflow.tasks.resolve_plan_failures(plan_id)
+                return result
+            if strategy != "regenerate":
+                return _err("Unsupported Wiki recovery strategy")
+            if llm_provider is None:
+                return _err("No configured model is available for Wiki replanning")
+            instruction = "\n".join(item for item in (
+                str(current.get("instruction") or "").strip(),
+                (
+                    "修正上一版计划：已有 Wiki 页面包含更多信息。更新时必须保留已有要点并补充新资料，"
+                    "不要用更短的草稿覆盖现有页面；若无法安全补全，请跳过该页面。"
+                ),
+            ) if item)
+            result = self.create_wiki_plan(
+                llm_provider,
+                document_ids=list(current.get("scope", {}).get("document_ids") or []),
+                action=str(current.get("action") or "generate"),
+                instruction=instruction,
+            )
+            if not result.get("ok"):
+                return result
+            workflow.mark_replaced(plan_id, result["plan_id"])
+            workflow.tasks.resolve_plan_failures(plan_id)
+            return result
+        except (OSError, ValueError) as exc:
+            return _err(str(exc))
+
     def undo_wiki_checkpoint(self, checkpoint_id: str, config: dict | None = None) -> dict[str, Any]:
         try:
             from wiki.workflow import WikiWorkflow

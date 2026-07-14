@@ -244,8 +244,34 @@ export function LibraryPage() {
         await loadDocuments();
       }
     } catch (reason) {
-      try { setWikiPlan(await api.wikiPlan(wikiPlan.plan_id)); } catch { /* keep current preview */ }
-      setError(reason instanceof Error ? reason.message : "Wiki 写入失败。" );
+      let stagedFailure = false;
+      try {
+        const refreshed = await api.wikiPlan(wikiPlan.plan_id);
+        stagedFailure = Boolean(refreshed.staging?.length);
+        setWikiPlan(refreshed);
+      } catch { /* keep current preview */ }
+      if (!stagedFailure) setError(reason instanceof Error ? reason.message : "Wiki 写入失败。" );
+    } finally {
+      setWikiPlanLoading(false);
+    }
+  }
+
+  async function recoverWikiPlan(strategy: "keep_existing" | "regenerate") {
+    if (!wikiPlan) return;
+    setWikiPlanLoading(true);
+    setError("");
+    try {
+      const result = await api.recoverWikiPlan(wikiPlan.plan_id, strategy);
+      setWikiPlan(result);
+      if (strategy === "keep_existing") {
+        setNotice("已保留问题页面的原内容，并生成其余可安全写入的 Wiki 页面。" );
+        setCollection("wiki");
+        setSearchParams({ collection: "wiki" }, { replace: true });
+      } else {
+        setNotice("已补充安全更新要求并重新生成计划，请再次审查。" );
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "无法继续处理这份 Wiki 计划。" );
     } finally {
       setWikiPlanLoading(false);
     }
@@ -390,6 +416,8 @@ export function LibraryPage() {
           plan={wikiPlan}
           busy={wikiPlanLoading}
           onApply={wikiPlan.status === "planned" ? () => void applyWikiPlan() : undefined}
+          onKeepExisting={wikiPlan.status === "planned" && wikiPlan.staging?.length ? () => void recoverWikiPlan("keep_existing") : undefined}
+          onRegenerate={wikiPlan.status === "planned" && wikiPlan.staging?.length ? () => void recoverWikiPlan("regenerate") : undefined}
           onUndo={wikiPlan.status === "applied" && wikiPlan.checkpoint_id ? () => void undoWikiPlan() : undefined}
           onClose={() => { setWikiPlan(null); setWikiPlanOpen(false); }}
         />}

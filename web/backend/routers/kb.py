@@ -61,6 +61,11 @@ class WikiPlanRequest(BaseModel):
     provider: str | None = None
 
 
+class WikiPlanRecoveryRequest(BaseModel):
+    strategy: Literal["keep_existing", "regenerate"]
+    provider: str | None = None
+
+
 def _service(request: Request) -> KBService:
     return KBService(get_request_workspace(request))
 
@@ -206,6 +211,27 @@ def apply_wiki_plan(plan_id: str, request: Request) -> dict:
         _service(request).apply_wiki_plan(plan_id, config=get_config()),
         status_code=409,
         code="wiki_plan_not_applicable",
+    )
+
+
+@router.post("/wiki/plans/{plan_id}/recover")
+def recover_wiki_plan(plan_id: str, body: WikiPlanRecoveryRequest, request: Request) -> dict:
+    workspace = get_request_workspace(request)
+    provider = None
+    if body.strategy == "regenerate":
+        try:
+            provider = _runtime_for(workspace).create_provider(_preferred_provider(body.provider))
+        except ValueError as exc:
+            raise APIError(409, "provider_unavailable", str(exc)) from exc
+    return unwrap_service_result(
+        _service(request).recover_wiki_plan(
+            plan_id,
+            body.strategy,
+            llm_provider=provider,
+            config=get_config(),
+        ),
+        status_code=409,
+        code="wiki_plan_recovery_failed",
     )
 
 

@@ -286,3 +286,21 @@ class WikiTaskStore:
                 atomic_json(self.path, tasks)
                 return task
         raise FileNotFoundError("Wiki task not found")
+
+    def resolve_plan_failures(self, plan_id: str) -> int:
+        with TASK_LOCK:
+            tasks = self._load()
+            resolved = 0
+            for task in tasks:
+                if task.get("plan_id") != plan_id or task.get("status") != "failed":
+                    continue
+                task.update({
+                    "status": "cancelled",
+                    "retryable": False,
+                    "error": "Resolved by a newer Wiki plan action.",
+                    "updated_at": now(),
+                })
+                resolved += 1
+            if resolved:
+                atomic_json(self.path, tasks)
+            return resolved

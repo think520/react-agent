@@ -494,6 +494,20 @@ def test_user_confirmed_wiki_plan_contract(backend_client, monkeypatch):
         },
     )
     monkeypatch.setattr(
+        "web.backend.routers.kb.KBService.recover_wiki_plan",
+        lambda self, plan_id, strategy, llm_provider, config: {
+            "ok": True,
+            "plan_id": "c" * 32,
+            "status": "planned",
+            "action": "generate",
+            "instruction": "Replanned safely",
+            "created_at": "2026-07-14T00:00:00Z",
+            "scope": {"document_ids": ["doc-1"], "documents": ["RAG Lesson"]},
+            "summary": {"add": 1, "update": 0, "merge": 0, "conflict": 0, "skip": 0},
+            "changes": [],
+        } if strategy == "regenerate" and llm_provider is provider else {"ok": False, "error": "wrong recovery"},
+    )
+    monkeypatch.setattr(
         "web.backend.routers.kb.KBService.undo_wiki_checkpoint",
         lambda self, checkpoint_id, config: {
             "ok": True,
@@ -509,12 +523,14 @@ def test_user_confirmed_wiki_plan_contract(backend_client, monkeypatch):
         "instruction": "Build a RAG Wiki",
     })
     applied = backend_client.post(f"/api/kb/wiki/plans/{'a' * 32}/apply")
+    recovered = backend_client.post(f"/api/kb/wiki/plans/{'a' * 32}/recover", json={"strategy": "regenerate"})
     restored = backend_client.post(f"/api/kb/wiki/checkpoints/{'b' * 32}/restore")
 
     assert planned.status_code == 200
     assert planned.json()["status"] == "planned"
     assert captured["document_ids"] == ["doc-1"]
     assert applied.json()["checkpoint_id"] == "b" * 32
+    assert recovered.json()["plan_id"] == "c" * 32
     assert restored.json()["checkpoint_id"] == "b" * 32
 
 
@@ -628,6 +644,67 @@ def test_wiki_focus_confirm_plan_apply_and_restore_persist(backend_client, monke
         for artifact in message.get("artifacts", []) if artifact["type"] == "wiki_focus"
     ]
     assert focus_statuses == ["confirmed", "confirmed"]
+
+
+def test_chat_wiki_recovery_keeps_existing_page_and_persists_result(backend_client, monkeypatch):
+    document = {
+        "document_id": "doc-1", "title": "LLM Lesson", "source": "raw/inbox/llm.md",
+        "sections": [{"chunk_id": "chunk-1", "text": "Large language model overview."}],
+    }
+    monkeypatch.setattr(
+        "web.backend.routers.chat.KBService._wiki_scope_documents",
+        lambda self, document_ids, course, wiki_document_ids: [document],
+    )
+    provider = SimpleNamespace(complete=lambda _messages: SimpleNamespace(content="确认大模型整理重点。"))
+    monkeypatch.setattr(
+        "web.backend.routers.chat.get_runtime_context",
+        lambda: SimpleNamespace(create_provider=lambda _name: provider),
+    )
+    staged_plan = {
+        "ok": True, "plan_id": "e" * 32, "status": "planned", "action": "generate",
+        "instruction": "", "created_at": "2026-07-14T00:00:00Z",
+        "scope": {"document_ids": ["doc-1"], "documents": ["LLM Lesson"]},
+        "summary": {"add": 1, "update": 1, "merge": 0, "conflict": 0, "skip": 0},
+        "changes": [],
+        "staging": [{
+            "change_id": "change-1", "path": "draft.json",
+            "errors": ["incoming body is unexpectedly shorter than the existing page"],
+        }],
+    }
+    monkeypatch.setattr(
+        "web.backend.routers.chat.KBService.create_wiki_plan",
+        lambda self, llm_provider, **kwargs: staged_plan,
+    )
+    monkeypatch.setattr(
+        "web.backend.routers.chat.KBService.recover_wiki_plan",
+        lambda self, plan_id, strategy, llm_provider, config: {
+            "ok": True, "plan_id": plan_id, "status": "applied", "action": "generate",
+            "instruction": "", "created_at": "2026-07-14T00:00:00Z",
+            "scope": {"document_ids": ["doc-1"], "documents": ["LLM Lesson"]},
+            "summary": {"add": 1, "update": 0, "merge": 0, "conflict": 0, "skip": 1},
+            "changes": [], "checkpoint_id": "f" * 32, "written": ["concepts/Transformer.md"],
+            "recovery": {"strategy": "keep_existing", "skipped_titles": ["大模型"]},
+            "sync": {},
+        },
+    )
+
+    focused = backend_client.post("/api/chat/wiki/focus", json={
+        "action": "generate", "document_ids": ["doc-1"],
+    }).json()
+    session_id = focused["chat_session_id"]
+    focus_id = focused["artifact"]["artifact_id"]
+    backend_client.post(f"/api/chat/wiki/focus/{focus_id}/confirm", json={"chat_session_id": session_id})
+    recovered = backend_client.post(f"/api/chat/wiki/plans/{'e' * 32}/recover", json={
+        "chat_session_id": session_id, "strategy": "keep_existing",
+    })
+
+    assert recovered.status_code == 200
+    assert recovered.json()["artifact"]["kept_existing"] == ["大模型"]
+    detail = backend_client.get(f"/api/chat/sessions/{session_id}").json()
+    plans = [artifact for message in detail["messages"] for artifact in message.get("artifacts", []) if artifact["type"] == "wiki_plan"]
+    results = [artifact for message in detail["messages"] for artifact in message.get("artifacts", []) if artifact["type"] == "wiki_result"]
+    assert plans[0]["status"] == "applied"
+    assert results[0]["written"] == ["concepts/Transformer.md"]
 
 
 def test_explicit_skill_slash_command_loads_selected_skill(tmp_path):

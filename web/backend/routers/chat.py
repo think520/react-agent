@@ -44,6 +44,7 @@ from web.backend.schemas import (
     WikiFocusRequest,
     WikiFocusReviseRequest,
     WikiPlanApplyRequest,
+    WikiPlanRecoveryRequest,
 )
 from web.backend.sse import encode_sse
 
@@ -925,6 +926,69 @@ def apply_chat_wiki_plan(plan_id: str, body: WikiPlanApplyRequest, request: Requ
         "written": result.get("written") or [],
     }
     _append_artifact_message(session, "Wiki 已按确认计划写入，并创建了可撤销检查点。", artifact)
+    _save_wiki_session(session, workspace, config)
+    return {"chat_session_id": session.session_id, "artifact": artifact}
+
+
+@router.post("/wiki/plans/{plan_id}/recover")
+def recover_chat_wiki_plan(plan_id: str, body: WikiPlanRecoveryRequest, request: Request) -> dict:
+    config = get_config()
+    workspace = get_request_workspace(request)
+    library_id = get_request_library_id(request)
+    session = _load_or_create_session(body.chat_session_id, config, workspace, library_id)
+    provider = None
+    if body.strategy == "regenerate":
+        try:
+            provider = _runtime_for(workspace).create_provider(
+                body.provider or _preferences(config).get("ai", {}).get("default_provider")
+            )
+        except ValueError as exc:
+            raise APIError(409, "provider_unavailable", str(exc)) from exc
+    result = KBService(workspace).recover_wiki_plan(
+        plan_id,
+        body.strategy,
+        llm_provider=provider,
+        config=config,
+    )
+    if not result.get("ok"):
+        raise APIError(409, "wiki_plan_recovery_failed", result.get("error") or "Wiki plan recovery failed")
+
+    if body.strategy == "keep_existing":
+        for message in session.messages:
+            for existing in message.get("artifacts") or []:
+                if existing.get("type") == "wiki_plan" and existing.get("plan_id") == plan_id:
+                    existing["status"] = "applied"
+                    existing["plan"] = {key: value for key, value in result.items() if key != "ok"}
+        artifact = {
+            "artifact_id": uuid.uuid4().hex,
+            "type": "wiki_result",
+            "library_id": library_id,
+            "operation": "apply",
+            "status": "applied",
+            "plan_id": plan_id,
+            "checkpoint_id": result.get("checkpoint_id"),
+            "written": result.get("written") or [],
+            "kept_existing": result.get("recovery", {}).get("skipped_titles") or [],
+        }
+        _append_artifact_message(session, "已保留问题页面的原内容，并生成其余可安全写入的 Wiki 页面。", artifact)
+    else:
+        for message in session.messages:
+            for existing in message.get("artifacts") or []:
+                if existing.get("type") == "wiki_plan" and existing.get("plan_id") == plan_id:
+                    existing["status"] = "replaced"
+                    if isinstance(existing.get("plan"), dict):
+                        existing["plan"]["status"] = "replaced"
+                        existing["plan"]["replacement_plan_id"] = result["plan_id"]
+        artifact = {
+            "artifact_id": uuid.uuid4().hex,
+            "type": "wiki_plan",
+            "library_id": library_id,
+            "operation": "update" if result.get("action") == "update" else "generate",
+            "status": "planned",
+            "plan_id": result["plan_id"],
+            "plan": {key: value for key, value in result.items() if key != "ok"},
+        }
+        _append_artifact_message(session, "已根据校验问题补全要求并重新生成计划，请再次审查。", artifact)
     _save_wiki_session(session, workspace, config)
     return {"chat_session_id": session.session_id, "artifact": artifact}
 

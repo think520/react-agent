@@ -203,6 +203,10 @@ export const api = {
     `/api/kb/wiki/plans/${encodeURIComponent(id)}/apply`,
     { method: "POST" },
   ),
+  recoverWikiPlan: (id: string, strategy: "keep_existing" | "regenerate") => request<WikiPlan & { sync?: Record<string, unknown> }>(
+    `/api/kb/wiki/plans/${encodeURIComponent(id)}/recover`,
+    json({ strategy }),
+  ),
   restoreWikiCheckpoint: (id: string) => request<{ checkpoint_id: string; restored_at: string; sync: Record<string, unknown> }>(
     `/api/kb/wiki/checkpoints/${encodeURIComponent(id)}/restore`,
     { method: "POST" },
@@ -226,6 +230,10 @@ export const api = {
   applyChatWikiPlan: (planId: string, chatSessionId: string) => request<{ chat_session_id: string; artifact: WikiArtifact }>(
     `/api/chat/wiki/plans/${encodeURIComponent(planId)}/apply`,
     json({ chat_session_id: chatSessionId }),
+  ),
+  recoverChatWikiPlan: (planId: string, chatSessionId: string, strategy: "keep_existing" | "regenerate") => request<{ chat_session_id: string; artifact: WikiArtifact }>(
+    `/api/chat/wiki/plans/${encodeURIComponent(planId)}/recover`,
+    json({ chat_session_id: chatSessionId, strategy }),
   ),
   restoreChatWikiCheckpoint: (checkpointId: string, chatSessionId: string) => request<{ chat_session_id: string; artifact: WikiArtifact }>(
     `/api/chat/wiki/checkpoints/${encodeURIComponent(checkpointId)}/restore`,

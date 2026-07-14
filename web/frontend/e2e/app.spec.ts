@@ -351,6 +351,49 @@ test("materials become a traceable Wiki only after plan confirmation", async ({ 
   await expect(page.locator('[data-chunk-id="chunk-1"]')).toHaveClass(/highlighted/);
 });
 
+test("staged Wiki plans explain the pause and offer a safe next step", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("bobodan:onboarding:v1", "complete"));
+  const planId = "c".repeat(32);
+  const changes = [
+    { change_id: "short-update", kind: "update", title: "大模型", page_type: "wiki_entity", summary: "更新概览", related: [], source_count: 4, target: "entities/大模型.md", content: "短草稿" },
+    ...Array.from({ length: 5 }, (_, index) => ({ change_id: `new-${index}`, kind: "add", title: `新页面 ${index + 1}`, page_type: "wiki_concept", summary: "新增概念", related: [], source_count: 2, target: `concepts/new-${index}.md`, content: "可追溯正文" })),
+  ];
+  const stagedPlan = {
+    plan_id: planId, status: "planned", action: "generate", instruction: "整理核心概念", created_at: "2026-07-14T00:00:00Z",
+    scope: { document_ids: ["doc-1"], documents: ["大模型认知与工程概览"] },
+    summary: { add: 5, update: 1, merge: 0, conflict: 0, skip: 0 }, changes,
+    staging: [
+      { change_id: "short-update", path: `${planId}/short-update.json`, errors: ["incoming body is unexpectedly shorter than the existing page"] },
+      { change_id: "short-update", path: `${planId}/short-update.json`, errors: ["incoming body is unexpectedly shorter than the existing page"] },
+    ],
+  };
+  const resultArtifact = { artifact_id: "wiki-recovery-result", type: "wiki_result", operation: "apply", status: "applied", plan_id: planId, checkpoint_id: "d".repeat(32), written: Array.from({ length: 5 }, (_, index) => `concepts/new-${index}.md`), kept_existing: ["大模型"] };
+  let recovered = false;
+  const messages = () => [
+    { role: "user", content: "/wiki plan 整理核心概念" },
+    { role: "assistant", content: "已生成 Wiki 计划。", artifacts: [{ artifact_id: "staged-plan", type: "wiki_plan", operation: "generate", status: recovered ? "applied" : "planned", plan_id: planId, plan: recovered ? { ...stagedPlan, status: "applied", staging: undefined, written: resultArtifact.written } : stagedPlan }] },
+    ...(recovered ? [{ role: "assistant", content: "已保留问题页面的原内容，并生成其余可安全写入的 Wiki 页面。", artifacts: [resultArtifact] }] : []),
+  ];
+  await page.route("**/api/settings", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(settingsPayload()) }));
+  await page.route("**/api/chat/sessions", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ sessions: [{ chat_session_id: "wiki-recovery", name: "Wiki 整理", name_source: "ai", created_at: "", last_active: "", message_count: messages().length }] }) }));
+  await page.route("**/api/chat/sessions/wiki-recovery", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ chat_session_id: "wiki-recovery", name: "Wiki 整理", name_source: "ai", created_at: "", last_active: "", message_count: messages().length, messages: messages() }) }));
+  await page.route("**/api/kb/documents?collection=material", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ documents: [] }) }));
+  await page.route("**/api/learning/review-queue", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ due_concepts: [], wrong_answers: [], weaknesses: [] }) }));
+  await page.route(`**/api/chat/wiki/plans/${planId}/recover`, async (route) => {
+    expect(route.request().postDataJSON().strategy).toBe("keep_existing");
+    recovered = true;
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ chat_session_id: "wiki-recovery", artifact: resultArtifact }) });
+  });
+
+  await page.goto("/chat/wiki-recovery");
+  await expect(page.getByText("1 个页面需要你选择处理方式")).toBeVisible();
+  await expect(page.getByText("现有 Wiki 没有被修改", { exact: false })).toBeVisible();
+  await expect(page.getByText("新草稿比现有页面短", { exact: false })).toBeVisible();
+  await expect(page.getByRole("button", { name: "补全后重新规划" })).toBeVisible();
+  await page.getByRole("button", { name: "保留原页，生成其余 5 页" }).click();
+  await expect(page.getByText("已保留“大模型”的原页面，并写入其余 5 个页面。")).toBeVisible();
+});
+
 test("settings deep links and @ references stay usable across viewports", async ({ page }, testInfo) => {
   await page.addInitScript(() => localStorage.setItem("bobodan:onboarding:v1", "complete"));
   const material = { document_id: "doc-material", source: "raw/inbox/rag.md", kind: "markdown", title: "RAG 原始资料", collection: "material", content_role: "content" };
@@ -556,16 +599,16 @@ test("chat question generation shows Bobodan process and opens prepared practice
   await page.getByRole("textbox", { name: "消息" }).fill("帮我生成 LangChain 练习题");
   await page.getByRole("button", { name: "发送" }).click();
   await expect(page.locator('.bobodan-process img[src*="bobodan-state-writing"]')).toBeVisible();
-  await expect(page.locator(".bobodan-process-line")).toBeVisible();
+  await expect(page.locator(".bobodan-process-ink i")).toHaveCount(3);
   const processAnimation = await page.evaluate(() => {
     for (const styleSheet of Array.from(document.styleSheets)) {
       for (const rule of Array.from(styleSheet.cssRules)) {
-        if (rule instanceof CSSStyleRule && rule.selectorText === ".bobodan-process-line") return rule.style.animation;
+        if (rule instanceof CSSStyleRule && rule.selectorText === ".bobodan-process-ink i") return rule.style.animation;
       }
     }
     return "";
   });
-  expect(processAnimation).toContain("process-line");
+  expect(processAnimation).toContain("process-ink");
   await expect(page.getByText("1 道题已经准备好")).toBeVisible();
   await page.getByRole("button", { name: "开始练习" }).click();
   await expect(page).toHaveURL(/\/practice\/9/);
