@@ -22,6 +22,20 @@ interface WebPracticeConsent {
   suggestedQuery?: string;
 }
 
+function questionTypeLabel(type: string, fallback: string) {
+  if (type === "true_false") return "判断题";
+  if (type === "single_choice") return "单选题";
+  if (type === "short_answer") return "简答题";
+  return fallback;
+}
+
+function difficultyLabel(value?: string) {
+  if (value === "easy") return "简单难度";
+  if (value === "hard") return "较难难度";
+  if (value === "medium") return "中等难度";
+  return value || "自适应难度";
+}
+
 export function PracticePage() {
   const { practiceSessionId } = useParams();
   const navigate = useNavigate();
@@ -214,17 +228,26 @@ export function PracticePage() {
   );
 
   const progress = Math.max(4, ((session.progress.current_index + (result ? 1 : 0)) / session.progress.total) * 100);
+  const answerChoices = currentQuestion.type === "true_false"
+    ? [
+        { value: "true", marker: "对", label: "正确" },
+        { value: "false", marker: "错", label: "错误" },
+      ]
+    : (currentQuestion.options || []).map((option, index) => ({
+        value: option,
+        marker: String.fromCharCode(65 + index),
+        label: option,
+      }));
   return (
     <section className="page-scroll practice-page">
       <div className="practice-container">
-        <header className="practice-header"><div><span>{currentQuestion.type_label} · {currentQuestion.difficulty || "自适应"}</span><strong>第 {session.progress.current_index + 1} / {session.progress.total} 题</strong>{resolution && <small>已将“{resolution.original}”按“{resolution.resolved}”理解</small>}</div><button className="quiet-button" onClick={() => void abandon()}><LogOut size={15} />退出练习</button></header>
+        <header className="practice-header"><div><span>{questionTypeLabel(currentQuestion.type, currentQuestion.type_label)} · {difficultyLabel(currentQuestion.difficulty)}</span><strong>第 {session.progress.current_index + 1} / {session.progress.total} 题</strong>{resolution && <small>已将“{resolution.original}”按“{resolution.resolved}”理解</small>}</div><button className="quiet-button" onClick={() => void abandon()}><LogOut size={15} />退出练习</button></header>
         <div className="progress-track"><span style={{ width: `${progress}%` }} /></div>
         <form className="question-sheet" onSubmit={(event) => void submitAnswer(event)}>
           <h2>{currentQuestion.question}</h2>
-          {currentQuestion.options?.length ? <div className="answer-options">{currentQuestion.options.map((option, index) => {
-            const value = option;
-            return <label className={`${answer === value ? "selected" : ""} ${result ? "locked" : ""}`} key={option}><input type="radio" name="answer" value={value} checked={answer === value} disabled={Boolean(result)} onChange={() => setAnswer(value)} /><span>{String.fromCharCode(65 + index)}</span><strong>{option}</strong></label>;
-          })}</div> : <textarea className="short-answer" rows={6} value={answer} disabled={Boolean(result)} onChange={(event) => setAnswer(event.target.value)} placeholder="用自己的话写下答案。可以不完整，Bobodan 会指出缺少的部分。" />}
+          {answerChoices.length ? <div className="answer-options">{answerChoices.map((choice) => (
+            <label className={`${answer === choice.value ? "selected" : ""} ${result ? "locked" : ""}`} key={choice.value}><input type="radio" name="answer" value={choice.value} checked={answer === choice.value} disabled={Boolean(result)} onChange={() => setAnswer(choice.value)} /><span>{choice.marker}</span><strong>{choice.label}</strong></label>
+          ))}</div> : <textarea className="short-answer" rows={6} value={answer} disabled={Boolean(result)} onChange={(event) => setAnswer(event.target.value)} placeholder="用自己的话写下答案。可以不完整，Bobodan 会指出缺少的部分。" />}
           <AttributionBadges attribution={currentQuestion.attribution} />
           {error && <ErrorNotice message={error} />}
           {result && <div className={`answer-feedback ${result.is_correct ? "correct" : "review"}`}><div>{result.is_correct ? <img className="brand-expression" src="/assets/brand/expressions/bobodan-expression-content.webp" width="42" height="42" alt="" /> : <CheckCircle2 size={19} />}<strong>{result.is_correct ? "答对了" : "需要再复习一下"}</strong></div><p>{result.feedback}</p>{result.explanation && <p>{result.explanation}</p>}{!result.is_correct && result.correct_answer && <small>参考答案：{result.correct_answer}</small>}</div>}

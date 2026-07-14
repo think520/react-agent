@@ -56,7 +56,7 @@ function processTitle(state: ProcessBrandState) {
 function BobodanProcess({ state, detail }: { state: ProcessBrandState; detail: string }) {
   return <div className={`bobodan-process ${state}`} role="status">
     <BrandIllustration key={state} state={state} size={52} />
-    <div><strong>{processTitle(state)}</strong><small>{detail}</small></div>
+    <div><strong>{processTitle(state)}</strong><small>{detail}</small><span className="bobodan-process-line" aria-hidden="true" /></div>
   </div>;
 }
 
@@ -113,6 +113,7 @@ export function ChatPage() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const sessionIdRef = useRef(sessionId);
+  const leaveChatRef = useRef(false);
 
   useEffect(() => {
     setDraft(localStorage.getItem(`bobodan:draft:${sessionId || "new"}`) || "");
@@ -242,6 +243,7 @@ export function ChatPage() {
     setError("");
     setStatus("正在理解你的问题");
     setBrandState("thinking");
+    leaveChatRef.current = false;
     const outgoingReferences = [...references];
     setReferences([]);
     setMessages((current) => [...current, { role: "user", content: message, references: outgoingReferences }, { role: "assistant", content: "", pending: true }]);
@@ -311,7 +313,7 @@ export function ChatPage() {
       if (nextSessionId) {
         void api.generateSessionTitle(nextSessionId).then(refreshSessions).catch(() => undefined);
       }
-      if (!sessionId && nextSessionId) navigate(`/chat/${nextSessionId}`, { replace: true });
+      if (!sessionId && nextSessionId && !leaveChatRef.current) navigate(`/chat/${nextSessionId}`, { replace: true });
     } catch (reason) {
       if (reason instanceof DOMException && reason.name === "AbortError") {
         setStatus("");
@@ -539,6 +541,7 @@ export function ChatPage() {
 
   async function startPreparedPractice(artifact: PracticeReadyArtifact) {
     if (artifact.practice_session_id) {
+      leaveChatRef.current = true;
       navigate(`/practice/${artifact.practice_session_id}`);
       return;
     }
@@ -546,11 +549,14 @@ export function ChatPage() {
     if (!activeSessionId) return;
     setPracticeStarting(artifact.artifact_id);
     setError("");
+    leaveChatRef.current = true;
     try {
       const result = await api.startChatPractice(artifact.artifact_id, activeSessionId);
       void refreshChatSession(activeSessionId).catch(() => undefined);
       navigate(`/practice/${result.practice_session_id}`);
     } catch (reason) {
+      leaveChatRef.current = false;
+      if (!sessionId) navigate(`/chat/${activeSessionId}`, { replace: true });
       setError(reason instanceof Error ? reason.message : "暂时无法开始这轮练习。" );
     } finally {
       setPracticeStarting("");

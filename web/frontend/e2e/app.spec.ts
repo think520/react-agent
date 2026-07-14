@@ -507,6 +507,7 @@ test("chat question generation shows Bobodan process and opens prepared practice
     body: `event: run_started\ndata: {"run_id":"practice-run","chat_session_id":"practice-chat"}\n\nevent: status\ndata: {"phase":"running","message":"正在生成练习题","tool_name":"question_generate"}\n\nevent: chat_artifact\ndata: {"artifact":${JSON.stringify(artifact)}}\n\nevent: message_delta\ndata: {"content":"题目已经准备好，开始练习吧。"}\n\n`,
   }));
   await page.route("**/api/chat/sessions/practice-chat/title", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ name: "LangChain 练习", name_source: "ai" }) }));
+  await page.route("**/api/chat/sessions/practice-chat", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ chat_session_id: "practice-chat", name: "LangChain 练习", name_source: "ai", created_at: "", last_active: "", message_count: 2, provider_name: "deepseek", messages: [{ role: "user", content: "帮我生成 LangChain 练习题" }, { role: "assistant", content: "题目已经准备好，开始练习吧。", artifacts: [artifact] }] }) }));
   await page.route("**/api/chat/practice/practice-ready-1/start", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ chat_session_id: "practice-chat", artifact: { ...artifact, status: "started", practice_session_id: 9 }, practice_session_id: 9 }) }));
   await page.route("**/api/quiz/sessions/9", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ practice_session_id: 9, status: "active", questions: [question], attempts: [], progress: { answered: 0, total: 1, correct: 0, current_index: 0, completed: false } }) }));
 
@@ -514,10 +515,72 @@ test("chat question generation shows Bobodan process and opens prepared practice
   await page.getByRole("textbox", { name: "消息" }).fill("帮我生成 LangChain 练习题");
   await page.getByRole("button", { name: "发送" }).click();
   await expect(page.locator('.bobodan-process img[src*="bobodan-state-writing"]')).toBeVisible();
+  await expect(page.locator(".bobodan-process-line")).toBeVisible();
+  expect(await page.locator(".bobodan-process-line").evaluate((element) => getComputedStyle(element).animationName)).toBe("process-line");
   await expect(page.getByText("1 道题已经准备好")).toBeVisible();
   await page.getByRole("button", { name: "开始练习" }).click();
   await expect(page).toHaveURL(/\/practice\/9/);
   await expect(page.getByText("LangChain 是否使用 Runnable 抽象？")).toBeVisible();
+});
+
+test("true-false practice uses explicit choices and submits a normalized answer", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("bobodan:onboarding:v1", "complete"));
+  const question = { id: 71, type: "true_false", type_label: "判断", question: "RAG 中资料越多，检索效果一定越好。", options: [], concepts: ["RAG"], difficulty: "medium", attribution: { kind: "local_extension", sources: [] } };
+  let submittedAnswer = "";
+  await page.route("**/api/settings", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(settingsPayload()) }));
+  await page.route("**/api/learning/review-queue", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ due_concepts: [], wrong_answers: [], weaknesses: [] }) }));
+  await page.route("**/api/quiz/sessions/12", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ practice_session_id: 12, status: "active", questions: [question], attempts: [], progress: { answered: 0, total: 1, correct: 0, current_index: 0, completed: false } }) }));
+  await page.route("**/api/quiz/answers", async (route) => {
+    submittedAnswer = route.request().postDataJSON().answer;
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ is_correct: true, feedback: "正确", correct_answer: "false", explanation: "资料质量比数量更重要。", mastery_changes: [], progress: { answered: 1, total: 1, correct: 1, current_index: 0, completed: true }, session_completed: true }) });
+  });
+
+  await page.goto("/practice/12");
+  await expect(page.getByText("判断题 · 中等难度")).toBeVisible();
+  await expect(page.getByRole("radio", { name: /正确/ })).toBeVisible();
+  await expect(page.getByRole("radio", { name: /错误/ })).toBeVisible();
+  await expect(page.locator(".short-answer")).toHaveCount(0);
+  await page.getByText("错误", { exact: true }).click();
+  await expect(page.getByRole("radio", { name: /错误/ })).toBeChecked();
+  await page.getByRole("button", { name: /提交答案/ }).click();
+  expect(submittedAnswer).toBe("false");
+});
+
+test("reduced motion preserves toggle state and Skills controls stay readable", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("bobodan:onboarding:v1", "complete"));
+  const currentSettings: any = settingsPayload({
+    skills: [
+      { name: "course-learning", description: "Use RAG and knowledge graph tools to answer course-learning questions with sources and related concepts.", source: "built-in", capabilities: ["学习对话", "资料理解"], enabled: true },
+      { name: "exam-prep", description: "考前复习和薄弱点训练模式。", source: "built-in", capabilities: ["学习对话", "资料理解"], enabled: true },
+    ],
+  });
+  currentSettings.preferences.appearance.motion = "reduced";
+  currentSettings.preferences.skills.enabled_names = ["course-learning", "exam-prep"];
+  await page.route("**/api/settings", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(currentSettings) }));
+  await page.route("**/api/settings/preferences", async (route) => {
+    const patch = route.request().postDataJSON().patch;
+    for (const [group, values] of Object.entries(patch)) {
+      currentSettings.preferences[group] = { ...currentSettings.preferences[group], ...(values as Record<string, unknown>) };
+    }
+    currentSettings.preferences.revision += 1;
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ preferences: currentSettings.preferences }) });
+  });
+  await page.route("**/api/chat/sessions", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ sessions: [] }) }));
+  await page.route("**/api/kb/documents?collection=material", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ documents: [] }) }));
+  await page.route("**/api/learning/review-queue", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ due_concepts: [], wrong_answers: [], weaknesses: [] }) }));
+
+  await page.goto("/chat?settings=skills");
+  const skillsDialog = page.getByRole("dialog", { name: "设置" });
+  await expect(skillsDialog.getByText(/能力：学习对话、资料理解/).first()).toBeVisible();
+  await expect(skillsDialog.getByRole("switch", { name: "course-learning 技能" })).toHaveAttribute("aria-checked", "true");
+
+  await skillsDialog.getByRole("button", { name: "界面与阅读" }).click();
+  const paperToggle = skillsDialog.getByRole("switch", { name: "纸张纹理" });
+  await expect(paperToggle).toHaveAttribute("aria-checked", "true");
+  expect(await paperToggle.locator("i").evaluate((element) => getComputedStyle(element).transform)).not.toBe("none");
+  const motionToggle = skillsDialog.getByRole("switch", { name: "减少动态效果" });
+  await motionToggle.click();
+  await expect(motionToggle).toHaveAttribute("aria-checked", "false");
 });
 
 test("practice asks before web fallback and keeps the topic", async ({ page }) => {
