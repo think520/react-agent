@@ -462,6 +462,33 @@ test("background Wiki planning restores from its persisted run", async ({ page }
   await expect(page.getByRole("button", { name: "确认并生成" })).toBeVisible();
 });
 
+test("cancelled Wiki session opens when the persisted run has no plan summary", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("bobodan:onboarding:v1", "complete"));
+  const runId = "f".repeat(32);
+  const planning = {
+    run_id: runId,
+    status: "planning",
+    phase: "cancelling",
+    scope: { mode: "smart_library", document_ids: ["doc-1"], documents: ["资料 1"] },
+    total_batches: 1,
+    completed_batches: 0,
+    completed_pages: 0,
+    total_pages: 0,
+  };
+  const artifact = { artifact_id: "cancelled-artifact", type: "wiki_plan", operation: "generate", status: "cancelled", plan_id: runId, plan: planning };
+  await page.route("**/api/settings", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(settingsPayload()) }));
+  await page.route("**/api/chat/sessions", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ sessions: [] }) }));
+  await page.route("**/api/chat/sessions/cancelled-session", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ chat_session_id: "cancelled-session", name: "已取消 Wiki", name_source: "fallback", created_at: "", last_active: "", message_count: 2, messages: [{ role: "user", content: "/wiki plan" }, { role: "assistant", content: "正在整理。", artifacts: [artifact] }] }) }));
+  await page.route("**/api/kb/documents?collection=material", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ documents: [] }) }));
+  await page.route("**/api/learning/review-queue", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ due_concepts: [], wrong_answers: [], weaknesses: [] }) }));
+  await page.route(`**/api/kb/wiki/runs/${runId}`, (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ ...planning, status: "cancelled", phase: "cancelled", error: "Wiki run cancelled" }) }));
+
+  await page.goto("/chat/cancelled-session");
+
+  await expect(page.getByRole("region", { name: "已取消的 Wiki 整理计划" })).toBeVisible();
+  await expect(page.getByText("本轮整理已取消")).toBeVisible();
+});
+
 test("staged Wiki plans explain the pause and offer a safe next step", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("bobodan:onboarding:v1", "complete"));
   const planId = "c".repeat(32);

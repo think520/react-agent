@@ -414,7 +414,7 @@ Bobodan 已经完成“学习 Agent 引擎”“Web 产品化基础”“本地�
 | Service Layer | 产品化基础完成 | CLI / Web 共用 runtime、config 与 service，Review / Practice 聚合已补齐 |
 | FastAPI | P5F.1 完成 | 已有稳定错误结构、流式事件、资料库隔离、Wiki / 联网证据、个人知识 CRUD、候选确认、阅读进度、旧记忆迁移和 Chat 记忆确认 API |
 | Web UI | P5E.5 完成 | Chat、Library、Practice、Review、设置中心、个人知识管理、Wiki 编辑和成本控制界面已落地；桌面发布壳尚未实现 |
-| 测试 | 全栈回归已建立 | Python `1146 passed`；Vitest `5 passed`；TypeScript 与生产构建通过；Playwright 桌面、窄屏和移动端 `72 passed` |
+| 测试 | 全栈回归已建立 | Python `1146 passed`；Vitest `5 passed`；TypeScript 与生产构建通过；Playwright 桌面、窄屏和移动端 `75 passed` |
 
 ### 3.3 P5C / P5D / P5E 已解决的问题与剩余边界
 
@@ -958,7 +958,7 @@ P5E.5 解决 P5E.4 验收后暴露的产品问题：修复预览没有后续动�
 7. Provider 响应保留实际 usage；DeepSeek 与 OpenAI-compatible 缓存字段统一进入 `BOBODAN_HOME/usage.db`。未报告缓存时显示“未报告”，不伪装成零命中。
 8. Wiki 提示词采用稳定 system 前缀和动态 user 尾部；精确生成缓存按 Provider、模型、提示词版本、资料指纹、指令和页面 revision 失效。
 
-阶段验收结果：Python `1146 passed`；Vitest `5 passed`；TypeScript 与生产构建通过；Playwright 桌面、窄屏和移动端 `72 passed`。
+阶段验收结果：Python `1146 passed`；Vitest `5 passed`；TypeScript 与生产构建通过；Playwright 桌面、窄屏和移动端 `75 passed`。
 
 ### P5G：文档完整性、Windows 桌面发布与支撑页面
 

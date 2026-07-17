@@ -185,7 +185,7 @@ export function ChatPage() {
           setMessages((current) => current.map((message) => ({
             ...message,
             artifacts: message.artifacts?.map((artifact) => artifact.type === "wiki_plan" && artifact.plan_id === runId
-              ? { ...artifact, status: run.status, plan: run }
+              ? { ...artifact, status: run.status, plan: { ...artifact.plan, ...run } }
               : artifact),
           })));
         } catch { /* the persisted artifact remains visible while the backend recovers */ }
@@ -585,7 +585,7 @@ export function ChatPage() {
       setMessages((current) => current.map((message) => ({
         ...message,
         artifacts: message.artifacts?.map((item) => item.type === "wiki_plan" && item.plan_id === artifact.plan_id
-          ? { ...item, status: result.run.status, plan: result.run }
+          ? { ...item, status: result.run.status, plan: { ...item.plan, ...result.run } }
           : item),
       })));
     } catch (reason) {
