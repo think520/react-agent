@@ -171,6 +171,30 @@ def test_cancelled_orchestration_task_is_not_retryable(tmp_path):
     assert task["retryable"] is False
 
 
+def test_cancellation_is_checked_before_each_model_request(tmp_path):
+    class CountingProvider(OrchestrationProvider):
+        def __init__(self):
+            self.calls = 0
+
+        def complete(self, messages, tools=None):
+            self.calls += 1
+            return super().complete(messages, tools=tools)
+
+    provider = CountingProvider()
+    orchestrator = WikiOrchestrator(str(tmp_path), str(tmp_path), provider, run_id="c" * 32)
+
+    plan = orchestrator.create_plan(
+        [material(1, "资料正文。" * 12000)],
+        scope_mode="uncovered",
+        run_id="c" * 32,
+        cancel_check=lambda: provider.calls >= 1,
+    )
+
+    assert provider.calls == 1
+    assert plan["status"] == "cancelled"
+    assert plan["phase"] == "cancelled"
+
+
 def test_wiki_budget_pause_persists_partial_plan(tmp_path):
     orchestrator = WikiOrchestrator(
         str(tmp_path), str(tmp_path), OrchestrationProvider(),

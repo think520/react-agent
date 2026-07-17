@@ -170,7 +170,7 @@ export function ChatPage() {
 
   const planningRunIds = useMemo(() => messages.flatMap((message) =>
     (message.artifacts || [])
-      .filter((artifact): artifact is WikiPlanArtifact => artifact.type === "wiki_plan" && artifact.status === "planning")
+      .filter((artifact): artifact is WikiPlanArtifact => artifact.type === "wiki_plan" && (artifact.status === "planning" || artifact.plan.status === "planning"))
       .map((artifact) => artifact.plan_id),
   ), [messages]);
 

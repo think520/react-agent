@@ -1007,7 +1007,7 @@ def cancel_chat_wiki_run(run_id: str, body: WikiPlanApplyRequest, request: Reque
     for message in session.messages:
         for artifact in message.get("artifacts") or []:
             if artifact.get("type") == "wiki_plan" and artifact.get("plan_id") == run_id:
-                artifact["status"] = "cancelled"
+                artifact["status"] = result.get("status", "planning")
                 artifact["plan"] = {key: value for key, value in result.items() if key != "ok"}
     _save_wiki_session(session, workspace, config)
     return {"chat_session_id": session.session_id, "run": {key: value for key, value in result.items() if key != "ok"}}

@@ -38,6 +38,10 @@ class WikiBudgetExceeded(RuntimeError):
     pass
 
 
+class WikiRunCancelled(RuntimeError):
+    pass
+
+
 class WikiGenerationCache:
     def __init__(self, workspace: str):
         root = os.path.join(os.path.abspath(workspace), ".bobodan", "wiki")
@@ -292,6 +296,7 @@ class WikiOrchestrator:
         self.cache = WikiGenerationCache(self.workspace)
         self.usage_service = UsageService()
         self._usage_lock = threading.RLock()
+        self._cancel_check = None
 
     @staticmethod
     def _catalog(documents: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
@@ -359,6 +364,8 @@ class WikiOrchestrator:
         return windows
 
     def _call_pages(self, system: str, prompt: str, operation: str) -> list[dict[str, Any]]:
+        if self._cancel_check and self._cancel_check():
+            raise WikiRunCancelled("Wiki run cancelled")
         llm = self.discovery_llm if operation.startswith("wiki_discovery") else self.llm
         provider = str(getattr(llm, "name", "") or llm.__class__.__name__)
         model = str(getattr(llm, "model", "") or "unknown")
@@ -762,6 +769,7 @@ class WikiOrchestrator:
         status = "planned"
         phase = "planned"
         error = None
+        self._cancel_check = cancel_check
         try:
             catalog, lookup = self._catalog(documents)
             existing = self.workflow._existing_pages()
@@ -783,6 +791,9 @@ class WikiOrchestrator:
                         discovered = self._discover_batch(batch, batch_lookup, topic, instruction)
                     except WikiBudgetExceeded as exc:
                         status, phase, error = "paused_budget", "paused_budget", str(exc)
+                        break
+                    except WikiRunCancelled as exc:
+                        status, phase, error = "cancelled", "cancelled", str(exc)
                         break
                     limit = 6 if generation_mode == "standard" else MAX_KNOWLEDGE_PAGES_PER_BATCH
                     knowledge = self._merge_candidates(discovered, batch_lookup)[:limit]
@@ -826,6 +837,9 @@ class WikiOrchestrator:
                                 ))
                     except WikiBudgetExceeded as exc:
                         status, phase, error = "paused_budget", "paused_budget", str(exc)
+                        break
+                    except WikiRunCancelled as exc:
+                        status, phase, error = "cancelled", "cancelled", str(exc)
                         break
                     changes.extend(
                         self._render_change(candidate, draft, lookup, existing)

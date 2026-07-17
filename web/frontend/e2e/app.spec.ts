@@ -448,7 +448,7 @@ test("background Wiki planning restores from its persisted run", async ({ page }
       content: "## 摘要\n\n可追溯资料摘要。",
     })),
   };
-  const artifact = { artifact_id: "run-artifact", type: "wiki_plan", operation: "generate", status: "planning", plan_id: runId, plan: planning };
+  const artifact = { artifact_id: "run-artifact", type: "wiki_plan", operation: "generate", status: "cancelled", plan_id: runId, plan: planning };
   await page.route("**/api/settings", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(settingsPayload()) }));
   await page.route("**/api/chat/sessions", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ sessions: [{ chat_session_id: "run-session", name: "全库 Wiki", name_source: "ai", created_at: "", last_active: "", message_count: 2 }] }) }));
   await page.route("**/api/chat/sessions/run-session", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ chat_session_id: "run-session", name: "全库 Wiki", name_source: "ai", created_at: "", last_active: "", message_count: 2, messages: [{ role: "user", content: "/wiki plan" }, { role: "assistant", content: "正在规划。", artifacts: [artifact] }] }) }));
