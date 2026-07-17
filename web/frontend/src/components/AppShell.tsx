@@ -42,6 +42,7 @@ export interface AppOutletContext {
   selectedDocumentIds: string[];
   selectedDocuments: DocumentSummary[];
   toggleDocumentScope: (documentId: string) => void;
+  setDocumentScope: (documentIds: string[]) => void;
   clearDocumentScope: () => void;
   libraries: LibrarySummary[];
   activeLibrary: LibrarySummary | null;
@@ -605,6 +606,7 @@ export function AppShell() {
           selectedDocumentIds,
           selectedDocuments,
           toggleDocumentScope,
+          setDocumentScope: (documentIds) => setSelectedDocumentIds(Array.from(new Set(documentIds))),
           clearDocumentScope: () => setSelectedDocumentIds([]),
           libraries,
           activeLibrary,

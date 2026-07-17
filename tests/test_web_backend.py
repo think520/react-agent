@@ -494,6 +494,20 @@ def test_user_confirmed_wiki_plan_contract(backend_client, monkeypatch):
         },
     )
     monkeypatch.setattr(
+        "web.backend.routers.kb.KBService.recover_wiki_plan",
+        lambda self, plan_id, strategy, llm_provider, config: {
+            "ok": True,
+            "plan_id": "c" * 32,
+            "status": "planned",
+            "action": "generate",
+            "instruction": "Replanned safely",
+            "created_at": "2026-07-14T00:00:00Z",
+            "scope": {"document_ids": ["doc-1"], "documents": ["RAG Lesson"]},
+            "summary": {"add": 1, "update": 0, "merge": 0, "conflict": 0, "skip": 0},
+            "changes": [],
+        } if strategy == "regenerate" and llm_provider is provider else {"ok": False, "error": "wrong recovery"},
+    )
+    monkeypatch.setattr(
         "web.backend.routers.kb.KBService.undo_wiki_checkpoint",
         lambda self, checkpoint_id, config: {
             "ok": True,
@@ -509,12 +523,14 @@ def test_user_confirmed_wiki_plan_contract(backend_client, monkeypatch):
         "instruction": "Build a RAG Wiki",
     })
     applied = backend_client.post(f"/api/kb/wiki/plans/{'a' * 32}/apply")
+    recovered = backend_client.post(f"/api/kb/wiki/plans/{'a' * 32}/recover", json={"strategy": "regenerate"})
     restored = backend_client.post(f"/api/kb/wiki/checkpoints/{'b' * 32}/restore")
 
     assert planned.status_code == 200
     assert planned.json()["status"] == "planned"
     assert captured["document_ids"] == ["doc-1"]
     assert applied.json()["checkpoint_id"] == "b" * 32
+    assert recovered.json()["plan_id"] == "c" * 32
     assert restored.json()["checkpoint_id"] == "b" * 32
 
 
@@ -630,6 +646,209 @@ def test_wiki_focus_confirm_plan_apply_and_restore_persist(backend_client, monke
     assert focus_statuses == ["confirmed", "confirmed"]
 
 
+def test_chat_wiki_recovery_keeps_existing_page_and_persists_result(backend_client, monkeypatch):
+    document = {
+        "document_id": "doc-1", "title": "LLM Lesson", "source": "raw/inbox/llm.md",
+        "sections": [{"chunk_id": "chunk-1", "text": "Large language model overview."}],
+    }
+    monkeypatch.setattr(
+        "web.backend.routers.chat.KBService._wiki_scope_documents",
+        lambda self, document_ids, course, wiki_document_ids: [document],
+    )
+    provider = SimpleNamespace(complete=lambda _messages: SimpleNamespace(content="确认大模型整理重点。"))
+    monkeypatch.setattr(
+        "web.backend.routers.chat.get_runtime_context",
+        lambda: SimpleNamespace(create_provider=lambda _name: provider),
+    )
+    staged_plan = {
+        "ok": True, "plan_id": "e" * 32, "status": "planned", "action": "generate",
+        "instruction": "", "created_at": "2026-07-14T00:00:00Z",
+        "scope": {"document_ids": ["doc-1"], "documents": ["LLM Lesson"]},
+        "summary": {"add": 1, "update": 1, "merge": 0, "conflict": 0, "skip": 0},
+        "changes": [],
+        "staging": [{
+            "change_id": "change-1", "path": "draft.json",
+            "errors": ["incoming body is unexpectedly shorter than the existing page"],
+        }],
+    }
+    monkeypatch.setattr(
+        "web.backend.routers.chat.KBService.create_wiki_plan",
+        lambda self, llm_provider, **kwargs: staged_plan,
+    )
+    monkeypatch.setattr(
+        "web.backend.routers.chat.KBService.recover_wiki_plan",
+        lambda self, plan_id, strategy, llm_provider, config: {
+            "ok": True, "plan_id": plan_id, "status": "applied", "action": "generate",
+            "instruction": "", "created_at": "2026-07-14T00:00:00Z",
+            "scope": {"document_ids": ["doc-1"], "documents": ["LLM Lesson"]},
+            "summary": {"add": 1, "update": 0, "merge": 0, "conflict": 0, "skip": 1},
+            "changes": [], "checkpoint_id": "f" * 32, "written": ["concepts/Transformer.md"],
+            "recovery": {"strategy": "keep_existing", "skipped_titles": ["大模型"]},
+            "sync": {},
+        },
+    )
+
+    focused = backend_client.post("/api/chat/wiki/focus", json={
+        "action": "generate", "document_ids": ["doc-1"],
+    }).json()
+    session_id = focused["chat_session_id"]
+    focus_id = focused["artifact"]["artifact_id"]
+    backend_client.post(f"/api/chat/wiki/focus/{focus_id}/confirm", json={"chat_session_id": session_id})
+    recovered = backend_client.post(f"/api/chat/wiki/plans/{'e' * 32}/recover", json={
+        "chat_session_id": session_id, "strategy": "keep_existing",
+    })
+
+    assert recovered.status_code == 200
+    assert recovered.json()["artifact"]["kept_existing"] == ["大模型"]
+    detail = backend_client.get(f"/api/chat/sessions/{session_id}").json()
+    plans = [artifact for message in detail["messages"] for artifact in message.get("artifacts", []) if artifact["type"] == "wiki_plan"]
+    results = [artifact for message in detail["messages"] for artifact in message.get("artifacts", []) if artifact["type"] == "wiki_result"]
+    assert plans[0]["status"] == "applied"
+    assert results[0]["written"] == ["concepts/Transformer.md"]
+
+
+def test_wiki_coverage_and_orchestrated_run_routes(backend_client, monkeypatch):
+    coverage = {
+        "ok": True,
+        "documents": [{
+            "document_id": "doc-1", "status": "uncovered", "source_page_id": None,
+            "linked_page_count": 0, "source_fingerprint": "abc", "covered_at": None,
+        }],
+        "counts": {"uncovered": 1, "partial": 0, "covered": 0, "stale": 0},
+    }
+    plan = {
+        "ok": True, "plan_id": "c" * 32, "run_id": "c" * 32,
+        "status": "planned", "action": "generate", "instruction": "", "created_at": "2026-07-14T00:00:00Z",
+        "scope": {"mode": "uncovered", "document_ids": ["doc-1"], "documents": ["Lesson"]},
+        "batches": [{"batch_id": "batch-1", "index": 1, "document_ids": ["doc-1"], "documents": ["Lesson"], "status": "planned"}],
+        "summary": {"add": 1, "update": 0, "merge": 0, "conflict": 0, "skip": 0, "split": 0},
+        "changes": [],
+    }
+    monkeypatch.setattr("web.backend.routers.kb.KBService.wiki_coverage", lambda self: coverage)
+    monkeypatch.setattr("web.backend.routers.kb.KBService.start_wiki_run", lambda self, provider, **kwargs: plan)
+    monkeypatch.setattr(
+        "web.backend.routers.kb.get_runtime_context",
+        lambda: SimpleNamespace(create_provider=lambda _name: object()),
+    )
+
+    coverage_response = backend_client.get("/api/kb/wiki/coverage")
+    run_response = backend_client.post("/api/kb/wiki/runs", json={"scope_mode": "uncovered"})
+
+    assert coverage_response.status_code == 200
+    assert coverage_response.json()["counts"]["uncovered"] == 1
+    assert run_response.status_code == 200
+    assert run_response.json()["batches"][0]["document_ids"] == ["doc-1"]
+
+
+def test_chat_wiki_focus_uses_orchestrated_run_when_scope_mode_is_explicit(backend_client, monkeypatch):
+    document = {
+        "document_id": "doc-1", "title": "LLM Lesson", "source": "raw/inbox/llm.md",
+        "sections": [{"chunk_id": "chunk-1", "text": "Large language model overview."}],
+    }
+    provider = SimpleNamespace(complete=lambda _messages: SimpleNamespace(content="围绕核心概念整理。"))
+    monkeypatch.setattr(
+        "web.backend.routers.chat.get_runtime_context",
+        lambda: SimpleNamespace(create_provider=lambda _name: provider),
+    )
+    monkeypatch.setattr(
+        "web.backend.routers.chat.KBService._wiki_run_documents",
+        lambda self, *args, **kwargs: ([document], [{
+            "document_id": "doc-1", "status": "uncovered", "source_page_id": None,
+            "linked_page_count": 0, "source_fingerprint": "abc", "covered_at": None,
+        }]),
+    )
+    planned = {
+        "ok": True, "plan_id": "b" * 32, "run_id": "b" * 32, "status": "planned",
+        "action": "generate", "instruction": "", "created_at": "2026-07-14T00:00:00Z",
+        "scope": {"mode": "smart_library", "document_ids": ["doc-1"], "documents": ["LLM Lesson"]},
+        "batches": [],
+        "summary": {"add": 1, "update": 0, "merge": 0, "conflict": 0, "skip": 0, "split": 0},
+        "changes": [],
+    }
+    monkeypatch.setattr(
+        "web.backend.routers.chat.KBService.start_wiki_run",
+        lambda self, llm_provider, **kwargs: planned,
+    )
+
+    focused = backend_client.post("/api/chat/wiki/focus", json={
+        "action": "generate", "scope_mode": "smart_library", "document_ids": ["doc-1"], "topic": "LLM",
+    }).json()
+    confirmed = backend_client.post(
+        f"/api/chat/wiki/focus/{focused['artifact']['artifact_id']}/confirm",
+        json={"chat_session_id": focused["chat_session_id"]},
+    )
+
+    assert confirmed.status_code == 200
+    assert focused["artifact"]["scope"]["orchestrated"] is True
+    assert confirmed.json()["artifact"]["plan"]["scope"]["mode"] == "smart_library"
+
+
+def test_chat_wiki_apply_failure_persists_recovery_state(backend_client, monkeypatch):
+    document = {
+        "document_id": "doc-1", "title": "LLM Lesson", "source": "raw/inbox/llm.md",
+        "sections": [{"chunk_id": "chunk-1", "text": "Large language model overview."}],
+    }
+    monkeypatch.setattr(
+        "web.backend.routers.chat.KBService._wiki_scope_documents",
+        lambda self, document_ids, course, wiki_document_ids: [document],
+    )
+    provider = SimpleNamespace(complete=lambda _messages: SimpleNamespace(content="确认大模型整理重点。"))
+    monkeypatch.setattr(
+        "web.backend.routers.chat.get_runtime_context",
+        lambda: SimpleNamespace(create_provider=lambda _name: provider),
+    )
+    plan_id = "d" * 32
+    planned = {
+        "ok": True, "plan_id": plan_id, "status": "planned", "action": "generate",
+        "instruction": "", "created_at": "2026-07-14T00:00:00Z",
+        "scope": {"document_ids": ["doc-1"], "documents": ["LLM Lesson"]},
+        "summary": {"add": 1, "update": 1, "merge": 0, "conflict": 0, "skip": 0},
+        "changes": [],
+    }
+    staged = {
+        **planned,
+        "staging": [{
+            "change_id": "change-1", "path": "draft.json",
+            "errors": ["incoming body is unexpectedly shorter than the existing page"],
+        }],
+    }
+    monkeypatch.setattr(
+        "web.backend.routers.chat.KBService.create_wiki_plan",
+        lambda self, llm_provider, **kwargs: planned,
+    )
+    monkeypatch.setattr(
+        "web.backend.routers.chat.KBService.apply_wiki_plan",
+        lambda self, requested_plan_id, config: {
+            "ok": False, "error": "incoming body is unexpectedly shorter than the existing page",
+        },
+    )
+    monkeypatch.setattr(
+        "web.backend.routers.chat.KBService.get_wiki_plan",
+        lambda self, requested_plan_id: staged,
+    )
+
+    focused = backend_client.post("/api/chat/wiki/focus", json={
+        "action": "generate", "document_ids": ["doc-1"],
+    }).json()
+    session_id = focused["chat_session_id"]
+    focus_id = focused["artifact"]["artifact_id"]
+    backend_client.post(f"/api/chat/wiki/focus/{focus_id}/confirm", json={"chat_session_id": session_id})
+
+    failed = backend_client.post(f"/api/chat/wiki/plans/{plan_id}/apply", json={
+        "chat_session_id": session_id,
+    })
+
+    assert failed.status_code == 409
+    detail = backend_client.get(f"/api/chat/sessions/{session_id}").json()
+    plans = [
+        artifact
+        for message in detail["messages"]
+        for artifact in message.get("artifacts", [])
+        if artifact["type"] == "wiki_plan"
+    ]
+    assert plans[0]["plan"]["staging"][0]["change_id"] == "change-1"
+
+
 def test_explicit_skill_slash_command_loads_selected_skill(tmp_path):
     skill_dir = tmp_path / "skills" / "exam-prep"
     skill_dir.mkdir(parents=True)
@@ -647,9 +866,10 @@ def test_explicit_skill_slash_command_loads_selected_skill(tmp_path):
 
 
 def test_chat_request_context_distinguishes_wiki_from_original_evidence(tmp_path):
-    document_ids, prompt = _request_context([], str(tmp_path))
+    document_ids, preferred_ids, prompt = _request_context([], [], str(tmp_path))
 
     assert document_ids == []
+    assert preferred_ids == []
     assert "use Wiki pages to understand concepts and relationships" in prompt
     assert "original learning materials as the factual evidence" in prompt
 

@@ -26,7 +26,9 @@ import type {
   PersonalizationRef,
   WikiArtifact,
   WikiHealth,
+  WikiDocumentCoverage,
   WikiPlan,
+  WikiScopeMode,
   WikiTask,
   WebArtifact,
 } from "../types";
@@ -174,6 +176,7 @@ export const api = {
     );
   },
   wikiHealth: () => request<WikiHealth>("/api/kb/wiki/maintenance"),
+  wikiCoverage: () => request<{ documents: WikiDocumentCoverage[]; counts: Record<string, number> }>("/api/kb/wiki/coverage"),
   maintainWiki: () => request<{ archived_count: number; canonical_count: number; health: WikiHealth }>(
     "/api/kb/wiki/maintenance",
     json({ action: "plan" }),
@@ -198,10 +201,23 @@ export const api = {
     course?: string | null;
     instruction?: string;
   }) => request<WikiPlan>("/api/kb/wiki/plans", json(body)),
+  createWikiRun: (body: {
+    action?: "generate" | "update";
+    scope_mode: WikiScopeMode;
+    document_ids?: string[];
+    course?: string | null;
+    topic?: string;
+    instruction?: string;
+  }) => request<WikiPlan>("/api/kb/wiki/runs", json(body)),
+  wikiRun: (id: string) => request<WikiPlan>(`/api/kb/wiki/runs/${encodeURIComponent(id)}`),
   wikiPlan: (id: string) => request<WikiPlan>(`/api/kb/wiki/plans/${encodeURIComponent(id)}`),
   applyWikiPlan: (id: string) => request<WikiPlan & { sync: Record<string, unknown> }>(
     `/api/kb/wiki/plans/${encodeURIComponent(id)}/apply`,
     { method: "POST" },
+  ),
+  recoverWikiPlan: (id: string, strategy: "keep_existing" | "regenerate") => request<WikiPlan & { sync?: Record<string, unknown> }>(
+    `/api/kb/wiki/plans/${encodeURIComponent(id)}/recover`,
+    json({ strategy }),
   ),
   restoreWikiCheckpoint: (id: string) => request<{ checkpoint_id: string; restored_at: string; sync: Record<string, unknown> }>(
     `/api/kb/wiki/checkpoints/${encodeURIComponent(id)}/restore`,
@@ -210,9 +226,11 @@ export const api = {
   createWikiFocus: (body: {
     chat_session_id?: string;
     action: "generate" | "update" | "repair" | "migrate";
+    scope_mode?: WikiScopeMode;
     document_ids?: string[];
     wiki_document_ids?: string[];
     course?: string | null;
+    topic?: string;
     instruction?: string;
   }) => request<{ chat_session_id: string; artifact: WikiArtifact }>("/api/chat/wiki/focus", json(body)),
   reviseWikiFocus: (artifactId: string, chatSessionId: string, revision: string) => request<{ chat_session_id: string; artifact: WikiArtifact }>(
@@ -225,6 +243,14 @@ export const api = {
   ),
   applyChatWikiPlan: (planId: string, chatSessionId: string) => request<{ chat_session_id: string; artifact: WikiArtifact }>(
     `/api/chat/wiki/plans/${encodeURIComponent(planId)}/apply`,
+    json({ chat_session_id: chatSessionId }),
+  ),
+  recoverChatWikiPlan: (planId: string, chatSessionId: string, strategy: "keep_existing" | "regenerate") => request<{ chat_session_id: string; artifact: WikiArtifact }>(
+    `/api/chat/wiki/plans/${encodeURIComponent(planId)}/recover`,
+    json({ chat_session_id: chatSessionId, strategy }),
+  ),
+  cancelChatWikiRun: (runId: string, chatSessionId: string) => request<{ chat_session_id: string; run: WikiPlan }>(
+    `/api/chat/wiki/runs/${encodeURIComponent(runId)}/cancel`,
     json({ chat_session_id: chatSessionId }),
   ),
   restoreChatWikiCheckpoint: (checkpointId: string, chatSessionId: string) => request<{ chat_session_id: string; artifact: WikiArtifact }>(
@@ -369,6 +395,7 @@ export async function streamChat(
     webResearchId?: string;
     provider?: string;
     references?: ChatReference[];
+    strictDocumentScope?: boolean;
   },
   onEvent: (event: ChatStreamEvent) => void,
   signal?: AbortSignal,
@@ -377,7 +404,8 @@ export async function streamChat(
     ...json({
       message,
       chat_session_id: chatSessionId || null,
-      document_ids: documentIds,
+      document_ids: preferences.strictDocumentScope ? documentIds : [],
+      preferred_document_ids: preferences.strictDocumentScope ? [] : documentIds,
       learning_goal: preferences.learningGoal || "",
       memory_enabled: preferences.memoryEnabled ?? true,
       web_enabled: preferences.webEnabled ?? false,

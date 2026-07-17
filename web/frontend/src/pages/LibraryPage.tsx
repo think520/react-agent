@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { BookmarkCheck, CheckCircle2, FilePlus2, FileText, FolderOpen, Library, Plus, Quote, RefreshCw, Search, Settings2, ShieldCheck, Sparkles, Trash2, Upload, Wrench, X } from "lucide-react";
+import { CheckCircle2, CheckSquare2, FilePlus2, FileText, FolderOpen, Library, Quote, RefreshCw, Search, Settings2, ShieldCheck, Sparkles, Square, Trash2, Upload, Wrench, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useNavigate, useOutletContext, useSearchParams } from "react-router-dom";
@@ -8,7 +8,7 @@ import type { AppOutletContext } from "../components/AppShell";
 import { BrandIllustration, EmptyState, ErrorNotice, IconButton, LoadingState, formatRelativeDate } from "../components/common";
 import { WikiPlanCard } from "../components/WikiPlanCard";
 import { api } from "../lib/api";
-import type { DocumentSection, DocumentSummary, WikiHealth, WikiPlan, WikiTask } from "../types";
+import type { DocumentSection, DocumentSummary, WikiDocumentCoverage, WikiHealth, WikiPlan, WikiScopeMode, WikiTask } from "../types";
 
 export function LibraryPage() {
   const {
@@ -23,6 +23,7 @@ export function LibraryPage() {
     documentImportVersion,
     selectedDocumentIds,
     toggleDocumentScope,
+    setDocumentScope,
   } = useOutletContext<AppOutletContext>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -48,7 +49,11 @@ export function LibraryPage() {
   const [wikiPlanLoading, setWikiPlanLoading] = useState(false);
   const [wikiTasks, setWikiTasks] = useState<WikiTask[]>([]);
   const [wikiInstruction, setWikiInstruction] = useState("");
-  const [wikiScopeMode, setWikiScopeMode] = useState<"selection" | "document" | "course">("selection");
+  const [wikiTopic, setWikiTopic] = useState("");
+  const [wikiScopeMode, setWikiScopeMode] = useState<WikiScopeMode>("uncovered");
+  const [wikiCoverage, setWikiCoverage] = useState<Record<string, WikiDocumentCoverage>>({});
+  const [bulkCourse, setBulkCourse] = useState("");
+  const lastScopeIndexRef = useRef<number | null>(null);
   const pageRef = useRef<HTMLElement>(null);
   const readingOpenedRef = useRef(false);
   const lastProgressRef = useRef(0);
@@ -63,7 +68,13 @@ export function LibraryPage() {
     setLoading(true);
     setError("");
     try {
-      const nextDocuments = await api.documents(collection);
+      const [loadedDocuments, coverageResult] = await Promise.all([
+        api.documents(collection),
+        collection === "material" ? api.wikiCoverage().catch(() => ({ documents: [], counts: {} })) : Promise.resolve({ documents: [], counts: {} }),
+      ]);
+      const coverage = Object.fromEntries(coverageResult.documents.map((item) => [item.document_id, item]));
+      const nextDocuments = loadedDocuments.map((document) => ({ ...document, wiki_coverage: coverage[document.document_id] }));
+      setWikiCoverage(coverage);
       setDocuments(nextDocuments);
       const requested = searchParams.get("document");
       const requestedTitle = searchParams.get("title");
@@ -209,22 +220,30 @@ export function LibraryPage() {
   }
 
   async function planWiki() {
-    const documentIds = collection === "material"
-      ? (wikiScopeMode === "selection" && selectedDocumentIds.length
-          ? selectedDocumentIds
-          : wikiScopeMode === "document" && selectedId
-            ? [selectedId]
-            : [])
-      : [];
+    const documentIds = collection === "material" && wikiScopeMode === "selected_only"
+      ? selectedDocumentIds
+      : collection === "material" && wikiScopeMode === "smart_library"
+        ? selectedDocumentIds
+        : [];
     const wikiDocumentIds = collection === "wiki" && selectedId ? [selectedId] : [];
     const course = collection === "material" && wikiScopeMode === "course" ? selected?.course || null : null;
-    if (!documentIds.length && !wikiDocumentIds.length && !course) {
-      setError(collection === "wiki" ? "请先选择一个需要更新的 Wiki 页面。" : "请先选择至少一份学习资料。" );
+    if (collection === "wiki" && !wikiDocumentIds.length) {
+      setError("请先选择一个需要更新的 Wiki 页面。" );
+      return;
+    }
+    if (collection === "material" && wikiScopeMode === "selected_only" && !documentIds.length) {
+      setError("严格选中模式需要至少选择一份学习资料。" );
       return;
     }
     const command = `${collection === "wiki" ? "/wiki update" : "/wiki plan"}${wikiInstruction.trim() ? ` ${wikiInstruction.trim()}` : ""}`;
     localStorage.setItem("bobodan:draft:new", command);
-    localStorage.setItem("bobodan:wiki-scope", JSON.stringify({ documentIds, wikiDocumentIds, course }));
+    localStorage.setItem("bobodan:wiki-scope", JSON.stringify({
+      scopeMode: collection === "wiki" ? "selected_only" : wikiScopeMode,
+      documentIds,
+      wikiDocumentIds,
+      course,
+      topic: wikiTopic.trim(),
+    }));
     setWikiPlanOpen(false);
     navigate("/chat");
   }
@@ -244,8 +263,34 @@ export function LibraryPage() {
         await loadDocuments();
       }
     } catch (reason) {
-      try { setWikiPlan(await api.wikiPlan(wikiPlan.plan_id)); } catch { /* keep current preview */ }
-      setError(reason instanceof Error ? reason.message : "Wiki 写入失败。" );
+      let stagedFailure = false;
+      try {
+        const refreshed = await api.wikiPlan(wikiPlan.plan_id);
+        stagedFailure = Boolean(refreshed.staging?.length);
+        setWikiPlan(refreshed);
+      } catch { /* keep current preview */ }
+      if (!stagedFailure) setError(reason instanceof Error ? reason.message : "Wiki 写入失败。" );
+    } finally {
+      setWikiPlanLoading(false);
+    }
+  }
+
+  async function recoverWikiPlan(strategy: "keep_existing" | "regenerate") {
+    if (!wikiPlan) return;
+    setWikiPlanLoading(true);
+    setError("");
+    try {
+      const result = await api.recoverWikiPlan(wikiPlan.plan_id, strategy);
+      setWikiPlan(result);
+      if (strategy === "keep_existing") {
+        setNotice("已保留问题页面的原内容，并生成其余可安全写入的 Wiki 页面。" );
+        setCollection("wiki");
+        setSearchParams({ collection: "wiki" }, { replace: true });
+      } else {
+        setNotice("已补充安全更新要求并重新生成计划，请再次审查。" );
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "无法继续处理这份 Wiki 计划。" );
     } finally {
       setWikiPlanLoading(false);
     }
@@ -281,6 +326,36 @@ export function LibraryPage() {
     setWikiPlan(null);
     setWikiPlanOpen(false);
     setSearchParams({ collection: next }, { replace: true });
+  }
+
+  function toggleScopeFromList(documentId: string, index: number, shiftKey: boolean) {
+    if (shiftKey && lastScopeIndexRef.current !== null) {
+      const start = Math.min(lastScopeIndexRef.current, index);
+      const end = Math.max(lastScopeIndexRef.current, index);
+      setDocumentScope(Array.from(new Set([
+        ...selectedDocumentIds,
+        ...filteredDocuments.slice(start, end + 1).map((item) => item.document_id),
+      ])));
+    } else {
+      toggleDocumentScope(documentId);
+    }
+    lastScopeIndexRef.current = index;
+  }
+
+  function selectFilteredDocuments() {
+    setDocumentScope(Array.from(new Set([
+      ...selectedDocumentIds,
+      ...filteredDocuments.map((item) => item.document_id),
+    ])));
+  }
+
+  function selectCourseDocuments(course: string) {
+    setBulkCourse(course);
+    if (!course) return;
+    setDocumentScope(Array.from(new Set([
+      ...selectedDocumentIds,
+      ...documents.filter((item) => item.course === course).map((item) => item.document_id),
+    ])));
   }
 
   function captureSelection() {
@@ -333,6 +408,23 @@ export function LibraryPage() {
     return [document.title, document.source, document.course, document.kind]
       .some((value) => value?.toLocaleLowerCase().includes(query));
   });
+  const courses = Array.from(new Set(documents.map((document) => document.course).filter((value): value is string => Boolean(value)))).sort();
+  const uncoveredCount = Object.keys(wikiCoverage).length
+    ? Object.values(wikiCoverage).filter((item) => item.status !== "covered").length
+    : documents.length;
+  const coverageLabels: Record<WikiDocumentCoverage["status"], string> = {
+    uncovered: "未整理",
+    partial: "部分覆盖",
+    covered: "已覆盖",
+    stale: "原文已变化",
+  };
+  const wikiTypeLabels: Record<NonNullable<DocumentSummary["wiki_type"]>, string> = {
+    source: "资料摘要",
+    entity: "实体",
+    concept: "概念",
+    analysis: "综合分析",
+    question: "问题与发现",
+  };
 
   return (
     <section className="page-scroll" ref={pageRef} onScroll={recordReadingProgress}>
@@ -343,7 +435,7 @@ export function LibraryPage() {
             {activeLibrary && <button className="quiet-button" onClick={() => void loadDocuments()}><RefreshCw size={16} />刷新</button>}
             {collection === "wiki" && <button className="quiet-button" onClick={() => void openWikiMaintenance()}><Wrench size={16} />维护 Wiki</button>}
             {collection === "wiki" && <button className="primary-button" disabled={!selectedId} onClick={() => { setWikiPlan(null); setWikiPlanOpen(true); }}><Sparkles size={16} />更新 Wiki</button>}
-            {collection === "material" && documents.length > 0 && <button className="quiet-button" onClick={() => { setWikiScopeMode(selectedDocumentIds.length ? "selection" : "document"); setWikiPlan(null); setWikiPlanOpen(true); }}><Sparkles size={16} />整理成 Wiki</button>}
+            {collection === "material" && documents.length > 0 && <button className="quiet-button" onClick={() => { setWikiScopeMode(uncoveredCount ? "uncovered" : "smart_library"); setWikiPlan(null); setWikiPlanOpen(true); }}><Sparkles size={16} />{uncoveredCount ? `整理未覆盖资料 · ${uncoveredCount}` : "按主题更新 Wiki"}</button>}
             {collection === "material" && <button className="primary-button" disabled={documentImporting} onClick={startDocumentImport}><Upload size={16} />{documentImporting ? "正在建立索引" : "导入资料"}</button>}
           </div>
         </header>
@@ -364,18 +456,29 @@ export function LibraryPage() {
         {wikiPlanOpen && !wikiPlan && <section className="wiki-plan-compose" aria-label="创建 Wiki 整理计划">
           <div className="wiki-plan-compose-copy">
             <span>{collection === "wiki" ? "Update Wiki" : "Generate Wiki"}</span>
-            <h3>{collection === "wiki" ? "根据原始资料更新当前页面" : "把选中的资料整理成 Wiki"}</h3>
+            <h3>{collection === "wiki" ? "根据原始资料更新当前页面" : "建立可追溯的全库 Wiki"}</h3>
             <p>{collection === "wiki"
               ? `当前页面：${selected?.title || "未选择"}`
-              : `整理范围：${selectedDocumentIds.length || (selectedId ? 1 : 0)} 份学习资料`}</p>
+              : wikiScopeMode === "uncovered"
+                ? `将处理 ${uncoveredCount} 份未覆盖或已变化资料，每批最多 5 份`
+                : wikiScopeMode === "selected_only"
+                  ? `严格使用已选择的 ${selectedDocumentIds.length} 份资料`
+                  : wikiScopeMode === "course"
+                    ? `整理课程：${selected?.course || "请选择带课程信息的资料"}`
+                    : `全库检索，并优先参考已选择的 ${selectedDocumentIds.length} 份资料`}</p>
           </div>
           {collection === "material" && <label className="wiki-scope-field">
             <span>整理范围</span>
-            <select value={wikiScopeMode} onChange={(event) => setWikiScopeMode(event.target.value as "selection" | "document" | "course")}>
-              {selectedDocumentIds.length > 0 && <option value="selection">当前学习范围（{selectedDocumentIds.length} 份）</option>}
-              {selected && <option value="document">当前资料：{selected.title || selected.source}</option>}
+            <select value={wikiScopeMode} onChange={(event) => setWikiScopeMode(event.target.value as WikiScopeMode)}>
+              <option value="uncovered">所有未覆盖或已变化资料</option>
+              <option value="smart_library">智能全库（选择项作为重点）</option>
+              {selectedDocumentIds.length > 0 && <option value="selected_only">严格仅选中（{selectedDocumentIds.length} 份）</option>}
               {selected?.course && <option value="course">课程：{selected.course}</option>}
             </select>
+          </label>}
+          {collection === "material" && wikiScopeMode === "smart_library" && <label>
+            <span>主题或目标</span>
+            <input value={wikiTopic} onChange={(event) => setWikiTopic(event.target.value)} placeholder="例如：LangChain Agent 与工具调用" />
           </label>}
           <label>
             <span>整理要求</span>
@@ -390,6 +493,8 @@ export function LibraryPage() {
           plan={wikiPlan}
           busy={wikiPlanLoading}
           onApply={wikiPlan.status === "planned" ? () => void applyWikiPlan() : undefined}
+          onKeepExisting={wikiPlan.status === "planned" && wikiPlan.staging?.length ? () => void recoverWikiPlan("keep_existing") : undefined}
+          onRegenerate={wikiPlan.status === "planned" && wikiPlan.staging?.length ? () => void recoverWikiPlan("regenerate") : undefined}
           onUndo={wikiPlan.status === "applied" && wikiPlan.checkpoint_id ? () => void undoWikiPlan() : undefined}
           onClose={() => { setWikiPlan(null); setWikiPlanOpen(false); }}
         />}
@@ -416,25 +521,30 @@ export function LibraryPage() {
             <aside className="document-rail">
               <div className="rail-label"><FolderOpen size={15} />{collection === "wiki" ? "规范页面" : "我的资料"} <span>{documents.length}</span></div>
               <label className="document-search"><Search size={14} /><input value={documentQuery} onChange={(event) => setDocumentQuery(event.target.value)} placeholder="搜索资料" aria-label="搜索资料" /></label>
-              {filteredDocuments.map((document) => (
+              {collection === "material" && <div className="document-bulk-tools">
+                <button type="button" onClick={selectFilteredDocuments}><CheckSquare2 size={13} />选择当前筛选</button>
+                <select aria-label="按课程批量选择" value={bulkCourse} onChange={(event) => selectCourseDocuments(event.target.value)}><option value="">按课程选择</option>{courses.map((course) => <option value={course} key={course}>{course}</option>)}</select>
+                {selectedDocumentIds.length > 0 && <button type="button" onClick={() => setDocumentScope([])}>清空 {selectedDocumentIds.length}</button>}
+              </div>}
+              {filteredDocuments.map((document, index) => (
                 <div className={`document-row-wrap ${selectedId === document.document_id ? "active" : ""}`} key={document.document_id}>
                   <button className="document-row" onClick={() => selectDocument(document.document_id)}>
                     <span className="document-kind"><FileText size={17} /></span>
-                    <span><strong>{document.title || document.source}</strong><small>{document.course || (document.origin === "legacy_index" ? "已有知识库" : document.kind || "资料")} · {document.chunk_count ? `${document.chunk_count} 个片段` : formatRelativeDate(document.updated_at)}</small></span>
+                    <span><strong>{document.title || document.source}</strong><small>{document.course || (document.origin === "legacy_index" ? "已有知识库" : document.kind || "资料")} · {document.wiki_coverage ? `${coverageLabels[document.wiki_coverage.status]} · 关联 ${document.wiki_coverage.linked_page_count} 页` : document.chunk_count ? `${document.chunk_count} 个片段` : formatRelativeDate(document.updated_at)}</small></span>
                     <i className={document.vector_status === "error" ? "error" : "ready"} title={document.vector_status || "已建立索引"} />
                   </button>
                   {collection === "material" && <IconButton
                     className={`document-scope ${selectedDocumentIds.includes(document.document_id) ? "selected" : ""}`}
-                    label={selectedDocumentIds.includes(document.document_id) ? `移出学习范围 ${document.title || document.source}` : `加入学习范围 ${document.title || document.source}`}
-                    onClick={() => toggleDocumentScope(document.document_id)}
-                  >{selectedDocumentIds.includes(document.document_id) ? <BookmarkCheck size={14} /> : <Plus size={14} />}</IconButton>}
+                    label={selectedDocumentIds.includes(document.document_id) ? `取消优先资料 ${document.title || document.source}` : `设为优先资料 ${document.title || document.source}`}
+                    onClick={(event) => { event.stopPropagation(); toggleScopeFromList(document.document_id, index, event.shiftKey); }}
+                  >{selectedDocumentIds.includes(document.document_id) ? <CheckSquare2 size={14} /> : <Square size={14} />}</IconButton>}
                   {collection === "material" && document.managed && <IconButton className="document-delete" label={`删除 ${document.title || document.source}`} disabled={deletingId === document.document_id} onClick={() => void deleteDocument(document)}><Trash2 size={14} /></IconButton>}
                 </div>
               ))}
               {!filteredDocuments.length && <p className="document-search-empty">没有找到匹配的资料。</p>}
             </aside>
             <article className="document-reader">
-              {selected && <header><span>{selected.collection === "wiki" ? `Wiki · ${selected.wiki_type === "concept" ? "概念" : "实体"}` : selected.kind || "本地资料"}{selected.course ? ` · ${selected.course}` : ""}</span><h2>{selected.title || selected.source}</h2>{selected.summary && <p>{selected.summary}</p>}</header>}
+              {selected && <header><span>{selected.collection === "wiki" ? `Wiki · ${selected.wiki_type ? wikiTypeLabels[selected.wiki_type] : "页面"}` : selected.kind || "本地资料"}{selected.course ? ` · ${selected.course}` : ""}</span><h2>{selected.title || selected.source}</h2>{selected.summary && <p>{selected.summary}</p>}</header>}
               {selectionQuote && <div className="selection-toolbar"><Quote size={15} /><span>已选择 {selectionQuote.length} 个字符</span><button className="quiet-button" onClick={askAboutSelection}>带到对话</button></div>}
               {detailLoading ? <LoadingState label="正在打开资料…" /> : sections.length ? <div className="reader-prose" onMouseUp={captureSelection}>{sections.map((section) => (
                 <section className={highlightedChunk === section.chunk_id ? "highlighted" : ""} data-chunk-id={section.chunk_id} key={section.chunk_id}>

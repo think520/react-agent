@@ -299,10 +299,54 @@ def test_multi_source_update_rejects_abnormal_body_shrink_and_restores_checkpoin
 
     with pytest.raises(ValueError, match="unexpectedly shorter"):
         workflow.apply_plan(plan["plan_id"])
+    with pytest.raises(ValueError, match="unexpectedly shorter"):
+        workflow.apply_plan(plan["plan_id"])
 
     assert page_path.read_text(encoding="utf-8") == original
     stored = workflow.get_plan(plan["plan_id"])
+    assert len(stored["staging"]) == 1
     assert stored["staging"][0]["errors"] == ["incoming body is unexpectedly shorter than the existing page"]
     apply_tasks = [item for item in workflow.list_tasks() if item["operation"] == "apply"]
     assert apply_tasks[0]["status"] == "failed"
     assert apply_tasks[0]["retryable"] is True
+
+
+def test_staged_update_can_keep_existing_page_and_apply_remaining_changes(tmp_path):
+    vault = tmp_path / "vault"
+    concepts = vault / "wiki" / "concepts"
+    concepts.mkdir(parents=True)
+    page_path = concepts / "RAG.md"
+    original = (
+        "---\ntype: wiki_concept\ntitle: RAG\ngenerated_by: bobodan\n"
+        "sources: [course/a.md, course/b.md]\nsource_refs:\n"
+        "  - {document_id: a, source: course/a.md}\n  - {document_id: b, source: course/b.md}\n"
+        "indexable: true\n---\n\n# RAG\n\n" + ("Existing evidence. " * 80)
+    )
+    page_path.write_text(original, encoding="utf-8")
+    workflow = WikiWorkflow(str(tmp_path), str(vault), FakeProvider([
+        {
+            "title": "RAG", "page_type": "wiki_concept", "summary": "Short.",
+            "body": "Too short.", "claims": [{"text": "Claim.", "source_ids": ["S1"]}],
+        },
+        {
+            "title": "Retriever", "page_type": "wiki_entity", "summary": "Retrieval component.",
+            "body": "A retriever selects evidence for generation.",
+            "claims": [{"text": "It selects evidence.", "source_ids": ["S1"]}],
+        },
+    ]))
+    plan = workflow.create_plan([source_document()], action="update")
+
+    with pytest.raises(ValueError, match="unexpectedly shorter"):
+        workflow.apply_plan(plan["plan_id"])
+    recovered = workflow.skip_staged_changes(plan["plan_id"])
+    applied = workflow.apply_plan(plan["plan_id"])
+
+    assert recovered["summary"]["skip"] == 1
+    assert "staging" not in recovered
+    assert recovered["recovery"]["skipped_titles"] == ["RAG"]
+    assert page_path.read_text(encoding="utf-8") == original
+    assert (vault / "wiki" / "entities" / "Retriever.md").is_file()
+    assert applied["status"] == "applied"
+    assert "concepts/RAG.md" not in applied["written"]
+    workflow.tasks.resolve_plan_failures(plan["plan_id"])
+    assert not [item for item in workflow.list_tasks() if item.get("plan_id") == plan["plan_id"] and item["status"] == "failed"]

@@ -45,11 +45,19 @@ def _document_classification(source: str, kind: str = "", title: str = "") -> di
     content_role = "metadata" if is_wiki and basename in metadata_names else "content"
     wiki_type = None
     if is_wiki:
-        if "/entities/" in normalized_source or kind == "wiki_entity":
+        if "/sources/" in normalized_source or kind == "wiki_source":
+            wiki_type = "source"
+        elif "/entities/" in normalized_source or kind == "wiki_entity":
             wiki_type = "entity"
         elif "/concepts/" in normalized_source or kind == "wiki_concept":
             wiki_type = "concept"
-    canonical_key = _canonical_wiki_key(title or os.path.splitext(os.path.basename(source))[0])
+        elif "/analyses/" in normalized_source or kind == "wiki_analysis":
+            wiki_type = "analysis"
+        elif "/questions/" in normalized_source or kind == "wiki_question":
+            wiki_type = "question"
+    canonical_title = _canonical_wiki_key(title or os.path.splitext(os.path.basename(source))[0])
+    canonical_family = "source" if wiki_type == "source" else "knowledge"
+    canonical_key = f"{canonical_family}:{canonical_title}"
     canonical_id = f"wiki-{hashlib.sha256(canonical_key.encode('utf-8')).hexdigest()[:16]}" if is_wiki else None
     return {
         "collection": "wiki" if is_wiki else "material",
@@ -345,6 +353,246 @@ class KBService:
             return _err(str(exc))
         return _ok(**plan)
 
+    def _all_wiki_materials(self, course: str | None = None) -> list[dict[str, Any]]:
+        materials = self.list_documents(course=course, collection="material")
+        if not materials.get("ok"):
+            return []
+        documents = []
+        for summary in materials.get("documents") or []:
+            detail = self.get_document(summary["document_id"])
+            if detail.get("ok"):
+                documents.append({**detail["document"], "sections": detail["sections"]})
+        return documents
+
+    def wiki_coverage(self) -> dict[str, Any]:
+        try:
+            from wiki.orchestration import wiki_coverage
+
+            documents = self._all_wiki_materials()
+            coverage = wiki_coverage(self._wiki_target_vault(), documents)
+        except (OSError, ValueError) as exc:
+            return _err(str(exc))
+        counts = {
+            status: sum(1 for item in coverage if item["status"] == status)
+            for status in ("uncovered", "partial", "covered", "stale")
+        }
+        return _ok(documents=coverage, counts=counts)
+
+    def _wiki_run_documents(
+        self,
+        scope_mode: str,
+        document_ids: list[str] | None = None,
+        course: str | None = None,
+        topic: str = "",
+        instruction: str = "",
+        config: dict | None = None,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        from wiki.orchestration import wiki_coverage
+
+        all_documents = self._all_wiki_materials()
+        coverage = wiki_coverage(self._wiki_target_vault(), all_documents)
+        by_id = {str(item["document_id"]): item for item in all_documents}
+        coverage_by_id = {str(item["document_id"]): item for item in coverage}
+        seed_ids = [item for item in document_ids or [] if item in by_id]
+        selected_ids: list[str] = []
+        if scope_mode == "uncovered":
+            selected_ids = [
+                item["document_id"] for item in coverage
+                if item["status"] in {"uncovered", "partial", "stale"}
+            ]
+        elif scope_mode == "selected_only":
+            selected_ids = seed_ids
+        elif scope_mode == "course":
+            selected_ids = [
+                item["document_id"] for item in all_documents
+                if course and item.get("course") == course
+            ]
+        elif scope_mode == "smart_library":
+            selected_ids = list(seed_ids)
+            query = (topic or instruction).strip()
+            if not query and seed_ids:
+                query = " ".join(str(by_id[item].get("title") or "") for item in seed_ids)
+            if query:
+                search = self.search(
+                    query=query,
+                    top_k=20,
+                    mode="auto",
+                    preferred_document_ids=seed_ids,
+                    config=config or {},
+                )
+                for result in search.get("results") or []:
+                    document_id = str(result.get("document_id") or "")
+                    if result.get("collection") == "material" and document_id in by_id and document_id not in selected_ids:
+                        selected_ids.append(document_id)
+            if not selected_ids:
+                if query:
+                    import unicodedata
+                    normalized_query = re.sub(r"[^0-9a-z\u4e00-\u9fff]+", "", unicodedata.normalize("NFKC", query).casefold())
+                    selected_ids = [
+                        item["document_id"] for item in all_documents
+                        if normalized_query and normalized_query in re.sub(
+                            r"[^0-9a-z\u4e00-\u9fff]+", "",
+                            unicodedata.normalize("NFKC", str(item.get("title") or "")).casefold(),
+                        )
+                    ]
+                else:
+                    selected_ids = [
+                        item["document_id"] for item in coverage
+                        if item["status"] in {"uncovered", "partial", "stale"}
+                    ]
+        else:
+            raise ValueError("Unsupported Wiki scope mode")
+        seed_set = set(seed_ids)
+        selected = [by_id[item] for item in selected_ids if item in by_id]
+        selected.sort(key=lambda item: (
+            0 if item["document_id"] in seed_set else 1,
+            str(item.get("course") or "").casefold(),
+            str(item.get("source") or item.get("title") or "").casefold(),
+        ))
+        return selected, [coverage_by_id[item["document_id"]] for item in selected]
+
+    def create_wiki_run(
+        self,
+        llm_provider,
+        *,
+        action: str = "generate",
+        scope_mode: str = "smart_library",
+        document_ids: list[str] | None = None,
+        course: str | None = None,
+        topic: str = "",
+        instruction: str = "",
+        config: dict | None = None,
+    ) -> dict[str, Any]:
+        try:
+            from wiki.orchestration import WikiOrchestrator
+
+            documents, coverage = self._wiki_run_documents(
+                scope_mode,
+                document_ids=document_ids,
+                course=course,
+                topic=topic,
+                instruction=instruction,
+                config=config,
+            )
+            if not documents:
+                return _err("No uncovered or matching learning materials were found")
+            plan = WikiOrchestrator(
+                self.workspace,
+                self._wiki_target_vault(),
+                llm_provider,
+            ).create_plan(
+                documents,
+                action=action,
+                scope_mode=scope_mode,
+                seed_document_ids=document_ids or [],
+                topic=topic,
+                instruction=instruction,
+                coverage_before=coverage,
+            )
+        except Exception as exc:
+            return _err(str(exc))
+        return _ok(**plan)
+
+    def start_wiki_run(
+        self,
+        llm_provider,
+        *,
+        action: str = "generate",
+        scope_mode: str = "smart_library",
+        document_ids: list[str] | None = None,
+        course: str | None = None,
+        topic: str = "",
+        instruction: str = "",
+        config: dict | None = None,
+    ) -> dict[str, Any]:
+        try:
+            from wiki.orchestration import BATCH_SIZE, WikiOrchestrator, WikiRunStore
+
+            documents, coverage = self._wiki_run_documents(
+                scope_mode,
+                document_ids=document_ids,
+                course=course,
+                topic=topic,
+                instruction=instruction,
+                config=config,
+            )
+            if not documents:
+                return _err("No uncovered or matching learning materials were found")
+            store = WikiRunStore(self.workspace)
+            run = store.create({
+                "scope": {
+                    "mode": scope_mode,
+                    "seed_document_ids": list(document_ids or []),
+                    "document_ids": [item["document_id"] for item in documents],
+                    "discovered_document_ids": [item["document_id"] for item in documents],
+                    "documents": [item.get("title") or item.get("source") for item in documents],
+                },
+                "topic": topic.strip(),
+                "instruction": instruction.strip(),
+                "action": action,
+                "coverage_before": coverage,
+                "total_batches": (len(documents) + BATCH_SIZE - 1) // BATCH_SIZE,
+                "completed_batches": 0,
+                "completed_pages": 0,
+                "total_pages": 0,
+            })
+
+            def worker():
+                try:
+                    WikiOrchestrator(
+                        self.workspace,
+                        self._wiki_target_vault(),
+                        llm_provider,
+                    ).create_plan(
+                        documents,
+                        action=action,
+                        scope_mode=scope_mode,
+                        seed_document_ids=document_ids or [],
+                        topic=topic,
+                        instruction=instruction,
+                        coverage_before=coverage,
+                        run_id=run["run_id"],
+                        progress=lambda **values: store.update(run["run_id"], **values),
+                        cancel_check=lambda: store.cancel_requested(run["run_id"]),
+                    )
+                except Exception:
+                    return
+
+            import threading
+            threading.Thread(target=worker, name=f"wiki-run-{run['run_id'][:8]}", daemon=True).start()
+        except Exception as exc:
+            return _err(str(exc))
+        return _ok(**run)
+
+    def get_wiki_run(self, run_id: str) -> dict[str, Any]:
+        planned = self.get_wiki_plan(run_id)
+        if planned.get("ok"):
+            return planned
+        try:
+            from wiki.orchestration import WikiRunStore
+
+            return _ok(**WikiRunStore(self.workspace).get(run_id))
+        except (OSError, ValueError) as exc:
+            return _err(str(exc))
+
+    def cancel_wiki_run(self, run_id: str) -> dict[str, Any]:
+        try:
+            from wiki.orchestration import WikiRunStore
+
+            store = WikiRunStore(self.workspace)
+            run = store.get(run_id)
+            if run.get("status") == "planning":
+                return _ok(**store.update(run_id, cancel_requested=True, phase="cancelling"))
+        except (OSError, ValueError):
+            pass
+        try:
+            from wiki.workflow import WikiWorkflow
+
+            plan = WikiWorkflow(self.workspace, self._wiki_target_vault()).cancel_plan(run_id)
+        except (OSError, ValueError) as exc:
+            return _err(str(exc))
+        return _ok(**plan)
+
     def get_wiki_plan(self, plan_id: str) -> dict[str, Any]:
         try:
             from wiki.workflow import WikiWorkflow
@@ -375,6 +623,63 @@ class KBService:
         except Exception as exc:
             sync = {"errors": [{"error": str(exc)}], "deferred": True}
         return _ok(**plan, sync=sync)
+
+    def recover_wiki_plan(
+        self,
+        plan_id: str,
+        strategy: str,
+        llm_provider=None,
+        config: dict | None = None,
+    ) -> dict[str, Any]:
+        try:
+            from wiki.workflow import WikiWorkflow
+
+            workflow = WikiWorkflow(self.workspace, self._wiki_target_vault())
+            current = workflow.get_plan(plan_id)
+            if not current.get("staging"):
+                return _err("This Wiki plan has no pages waiting for correction")
+            if strategy == "keep_existing":
+                workflow.skip_staged_changes(plan_id)
+                result = self.apply_wiki_plan(plan_id, config=config)
+                if result.get("ok"):
+                    workflow.tasks.resolve_plan_failures(plan_id)
+                return result
+            if strategy != "regenerate":
+                return _err("Unsupported Wiki recovery strategy")
+            if llm_provider is None:
+                return _err("No configured model is available for Wiki replanning")
+            instruction = "\n".join(item for item in (
+                str(current.get("instruction") or "").strip(),
+                (
+                    "修正上一版计划：已有 Wiki 页面包含更多信息。更新时必须保留已有要点并补充新资料，"
+                    "不要用更短的草稿覆盖现有页面；若无法安全补全，请跳过该页面。"
+                ),
+            ) if item)
+            scope = current.get("scope") or {}
+            if current.get("run_id") or scope.get("mode"):
+                result = self.start_wiki_run(
+                    llm_provider,
+                    action=str(current.get("action") or "generate"),
+                    scope_mode=str(scope.get("mode") or "smart_library"),
+                    document_ids=list(scope.get("seed_document_ids") or scope.get("document_ids") or []),
+                    topic=str(current.get("topic") or ""),
+                    instruction=instruction,
+                    config=config,
+                )
+            else:
+                result = self.create_wiki_plan(
+                    llm_provider,
+                    document_ids=list(scope.get("document_ids") or []),
+                    action=str(current.get("action") or "generate"),
+                    instruction=instruction,
+                )
+            if not result.get("ok"):
+                return result
+            workflow.mark_replaced(plan_id, str(result.get("plan_id") or result.get("run_id")))
+            workflow.tasks.resolve_plan_failures(plan_id)
+            return result
+        except (OSError, ValueError) as exc:
+            return _err(str(exc))
 
     def undo_wiki_checkpoint(self, checkpoint_id: str, config: dict | None = None) -> dict[str, Any]:
         try:
@@ -423,15 +728,26 @@ class KBService:
         if not task.get("retryable") or task.get("status") != "failed":
             return _err("This Wiki task is not retryable")
         payload = task.get("payload") or {}
-        if task.get("operation") == "plan":
+        if task.get("operation") in {"plan", "orchestrate"}:
             if llm_provider is None:
                 return _err("No configured model is available for Wiki planning")
-            result = self.create_wiki_plan(
-                llm_provider,
-                document_ids=list(payload.get("document_ids") or []),
-                action=str(payload.get("action") or "generate"),
-                instruction=str(payload.get("instruction") or ""),
-            )
+            if task.get("operation") == "orchestrate":
+                result = self.start_wiki_run(
+                    llm_provider,
+                    action=str(payload.get("action") or "generate"),
+                    scope_mode=str(payload.get("scope_mode") or "smart_library"),
+                    document_ids=list(payload.get("document_ids") or []),
+                    topic=str(payload.get("topic") or ""),
+                    instruction=str(payload.get("instruction") or ""),
+                    config=config,
+                )
+            else:
+                result = self.create_wiki_plan(
+                    llm_provider,
+                    document_ids=list(payload.get("document_ids") or []),
+                    action=str(payload.get("action") or "generate"),
+                    instruction=str(payload.get("instruction") or ""),
+                )
         elif task.get("operation") == "apply":
             plan_id = str(payload.get("plan_id") or task.get("plan_id") or "")
             result = self.apply_wiki_plan(plan_id, config=config)
@@ -443,7 +759,7 @@ class KBService:
             task_id,
             status="completed",
             retryable=False,
-            retried_by=result.get("task_id") or result.get("plan_id"),
+            retried_by=result.get("task_id") or result.get("plan_id") or result.get("run_id"),
         )
         return _ok(retry_of=task_id, result={key: value for key, value in result.items() if key != "ok"})
 
@@ -908,6 +1224,7 @@ class KBService:
         top_k: int = 5,
         mode: str = "auto",
         document_ids: list[str] | None = None,
+        preferred_document_ids: list[str] | None = None,
         config: dict | None = None,
     ) -> dict[str, Any]:
         if not query or not query.strip():
@@ -925,7 +1242,7 @@ class KBService:
         from rag.retriever import search_index
 
         requested_top_k = max(1, min(top_k, 20))
-        candidate_top_k = 20 if document_ids else requested_top_k
+        candidate_top_k = 20 if document_ids or preferred_document_ids else requested_top_k
         results = search_index(
             self.workspace,
             query=query.strip(),
@@ -953,6 +1270,7 @@ class KBService:
             for item in self.list_documents(collection="all").get("documents", [])
         }
         allowed_document_ids = set(document_ids or [])
+        preferred_ids = set(preferred_document_ids or [])
         merged = []
         seen = set()
         for index in range(max(len(results), len(legacy_results))):
@@ -974,6 +1292,11 @@ class KBService:
                     continue
                 seen.add(key)
                 merged.append(item)
+        if preferred_ids and not allowed_document_ids:
+            merged.sort(key=lambda item: (
+                0 if item.get("document_id") in preferred_ids else 1,
+                -float(item.get("score") or item.get("similarity") or 0),
+            ))
         if not allowed_document_ids:
             wiki_results = [item for item in merged if item.get("collection") == "wiki"]
             material_results = [item for item in merged if item.get("collection") == "material"]

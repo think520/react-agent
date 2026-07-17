@@ -29,7 +29,8 @@ class ChatRunRequest(BaseModel):
     chat_session_id: str | None = None
     provider: str | None = None
     save: bool = True
-    document_ids: list[str] = Field(default_factory=list, max_length=50)
+    document_ids: list[str] = Field(default_factory=list, max_length=200)
+    preferred_document_ids: list[str] = Field(default_factory=list, max_length=200)
     learning_goal: str = Field(default="", max_length=500)
     memory_enabled: bool = True
     web_enabled: bool = False
@@ -57,9 +58,11 @@ class MemoryProposalResolutionRequest(BaseModel):
 class WikiFocusRequest(BaseModel):
     chat_session_id: str | None = None
     action: Literal["generate", "update", "repair", "migrate"] = "generate"
-    document_ids: list[str] = Field(default_factory=list, max_length=50)
+    scope_mode: Literal["uncovered", "smart_library", "selected_only", "course"] = "smart_library"
+    document_ids: list[str] = Field(default_factory=list, max_length=200)
     wiki_document_ids: list[str] = Field(default_factory=list, max_length=20)
     course: str | None = None
+    topic: str = Field(default="", max_length=500)
     instruction: str = Field(default="", max_length=1000)
     provider: str | None = None
 
@@ -77,6 +80,12 @@ class WikiFocusConfirmRequest(BaseModel):
 
 class WikiPlanApplyRequest(BaseModel):
     chat_session_id: str
+
+
+class WikiPlanRecoveryRequest(BaseModel):
+    chat_session_id: str
+    strategy: Literal["keep_existing", "regenerate"]
+    provider: str | None = None
 
 
 class WikiCheckpointRestoreRequest(BaseModel):

@@ -56,7 +56,7 @@ function processTitle(state: ProcessBrandState) {
 function BobodanProcess({ state, detail }: { state: ProcessBrandState; detail: string }) {
   return <div className={`bobodan-process ${state}`} role="status">
     <BrandIllustration key={state} state={state} size={52} />
-    <div><strong>{processTitle(state)}</strong><small>{detail}</small><span className="bobodan-process-line" aria-hidden="true" /></div>
+    <div><strong>{processTitle(state)}</strong><small>{detail}</small><span className="bobodan-process-ink" aria-hidden="true"><i /><i /><i /></span></div>
   </div>;
 }
 
@@ -109,6 +109,9 @@ export function ChatPage() {
   const [selectedProvider, setSelectedProvider] = useState(() => localStorage.getItem("bobodan:provider:new") || "");
   const [references, setReferences] = useState<ChatReference[]>([]);
   const [webOnce, setWebOnce] = useState(false);
+  const [strictDocumentScope, setStrictDocumentScope] = useState(
+    () => localStorage.getItem("bobodan:scope:strict") === "true",
+  );
   const [webSelections, setWebSelections] = useState<Record<string, string[]>>({});
   const [referenceDocuments, setReferenceDocuments] = useState(documents);
   const [mentionTab, setMentionTab] = useState<"document" | "session">("document");
@@ -158,8 +161,40 @@ export function ChatPage() {
   }, [draft, sessionId]);
 
   useEffect(() => {
+    localStorage.setItem("bobodan:scope:strict", String(strictDocumentScope));
+  }, [strictDocumentScope]);
+
+  useEffect(() => {
     sessionIdRef.current = sessionId;
   }, [sessionId]);
+
+  const planningRunIds = useMemo(() => messages.flatMap((message) =>
+    (message.artifacts || [])
+      .filter((artifact): artifact is WikiPlanArtifact => artifact.type === "wiki_plan" && artifact.status === "planning")
+      .map((artifact) => artifact.plan_id),
+  ), [messages]);
+
+  useEffect(() => {
+    if (!planningRunIds.length) return;
+    let cancelled = false;
+    const poll = async () => {
+      for (const runId of planningRunIds) {
+        try {
+          const run = await api.wikiRun(runId);
+          if (cancelled) return;
+          setMessages((current) => current.map((message) => ({
+            ...message,
+            artifacts: message.artifacts?.map((artifact) => artifact.type === "wiki_plan" && artifact.plan_id === runId
+              ? { ...artifact, status: run.status, plan: run }
+              : artifact),
+          })));
+        } catch { /* the persisted artifact remains visible while the backend recovers */ }
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 1600);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [planningRunIds.join("|")]);
 
   useEffect(() => {
     const element = scrollRef.current;
@@ -265,6 +300,7 @@ export function ChatPage() {
         provider: selectedProvider || settings?.default_provider,
         references: outgoingReferences,
         webResearchId,
+        strictDocumentScope,
       }, (streamEvent) => {
         if (streamEvent.event === "run_started") {
           nextSessionId = streamEvent.data.chat_session_id;
@@ -426,15 +462,18 @@ export function ChatPage() {
   }
 
   async function createWikiFocus(instruction: string, action: "generate" | "update" = "generate") {
-    let carriedScope: { documentIds?: string[]; wikiDocumentIds?: string[]; course?: string | null } = {};
+    let carriedScope: {
+      scopeMode?: "uncovered" | "smart_library" | "selected_only" | "course";
+      documentIds?: string[];
+      wikiDocumentIds?: string[];
+      course?: string | null;
+      topic?: string;
+    } = {};
     try { carriedScope = JSON.parse(localStorage.getItem("bobodan:wiki-scope") || "{}"); }
     catch { carriedScope = {}; }
     const documentIds = carriedScope.documentIds?.length ? carriedScope.documentIds : selectedDocumentIds;
     const wikiDocumentIds = carriedScope.wikiDocumentIds || [];
-    if (!documentIds.length && !wikiDocumentIds.length && !carriedScope.course) {
-      setError("请先从资料库选择至少一份学习资料，再开始 Wiki 整理。" );
-      return;
-    }
+    const scopeMode = carriedScope.scopeMode || (wikiDocumentIds.length ? "selected_only" : "smart_library");
     setWikiPlanLoading(true);
     setError("");
     setStatus("正在阅读资料并提炼整理重点");
@@ -445,9 +484,11 @@ export function ChatPage() {
       const result = await api.createWikiFocus({
         chat_session_id: sessionId,
         action,
+        scope_mode: scopeMode,
         document_ids: documentIds,
         wiki_document_ids: wikiDocumentIds,
         course: carriedScope.course,
+        topic: carriedScope.topic || instruction,
         instruction,
       });
       localStorage.removeItem("bobodan:wiki-scope");
@@ -501,8 +542,10 @@ export function ChatPage() {
       await api.applyChatWikiPlan(artifact.plan_id, sessionId);
       await refreshChatSession(sessionId);
     } catch (reason) {
+      let stagedFailure = false;
       try {
         const refreshed = await api.wikiPlan(artifact.plan_id);
+        stagedFailure = Boolean(refreshed.staging?.length);
         setMessages((current) => current.map((message) => ({
           ...message,
           artifacts: message.artifacts?.map((item) => item.type === "wiki_plan" && item.plan_id === artifact.plan_id
@@ -510,7 +553,43 @@ export function ChatPage() {
             : item),
         })));
       } catch { /* keep the persisted chat artifact when refresh is unavailable */ }
-      setError(reason instanceof Error ? reason.message : "Wiki 写入失败。" );
+      if (!stagedFailure) setError(reason instanceof Error ? reason.message : "Wiki 写入失败。" );
+    } finally {
+      setWikiPlanLoading(false);
+    }
+  }
+
+  async function recoverWikiPlan(artifact: WikiPlanArtifact, strategy: "keep_existing" | "regenerate") {
+    if (!sessionId) return;
+    setWikiPlanLoading(true);
+    setError("");
+    setBrandState(strategy === "regenerate" ? "writing" : "reading");
+    setStatus(strategy === "regenerate" ? "正在保留已有内容并重新规划" : "正在保留原页面并写入其余内容");
+    try {
+      await api.recoverChatWikiPlan(artifact.plan_id, sessionId, strategy);
+      await refreshChatSession(sessionId);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "无法继续处理这份 Wiki 计划。" );
+    } finally {
+      setWikiPlanLoading(false);
+      setStatus("");
+    }
+  }
+
+  async function cancelWikiRun(artifact: WikiPlanArtifact) {
+    if (!sessionId) return;
+    setWikiPlanLoading(true);
+    setError("");
+    try {
+      const result = await api.cancelChatWikiRun(artifact.plan_id, sessionId);
+      setMessages((current) => current.map((message) => ({
+        ...message,
+        artifacts: message.artifacts?.map((item) => item.type === "wiki_plan" && item.plan_id === artifact.plan_id
+          ? { ...item, status: result.run.status, plan: result.run }
+          : item),
+      })));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "无法取消这轮 Wiki 整理。" );
     } finally {
       setWikiPlanLoading(false);
     }
@@ -777,11 +856,14 @@ export function ChatPage() {
         plan={artifact.plan}
         busy={wikiPlanLoading}
         onApply={artifact.status === "planned" ? () => void applyWikiPlan(artifact) : undefined}
+        onCancel={artifact.status === "planning" ? () => void cancelWikiRun(artifact) : undefined}
+        onKeepExisting={artifact.status === "planned" && artifact.plan.staging?.length ? () => void recoverWikiPlan(artifact, "keep_existing") : undefined}
+        onRegenerate={artifact.status === "planned" && artifact.plan.staging?.length ? () => void recoverWikiPlan(artifact, "regenerate") : undefined}
       />;
     }
     if (artifact.type === "wiki_result") return <section className={`wiki-result-card ${artifact.status}`} key={artifact.artifact_id}>
       <header><span>Wiki Result</span><strong>{artifact.status === "restored" ? "已恢复检查点" : "Wiki 已写入"}</strong></header>
-      {artifact.written?.length ? <p>本轮写入 {artifact.written.length} 个页面。</p> : <p>{artifact.status === "restored" ? "本轮变更已经撤销。" : "已保存变更和检查点。"}</p>}
+      {artifact.kept_existing?.length ? <p>已保留“{artifact.kept_existing.join("、")}”的原页面，并写入其余 {artifact.written?.length || 0} 个页面。</p> : artifact.written?.length ? <p>本轮写入 {artifact.written.length} 个页面。</p> : <p>{artifact.status === "restored" ? "本轮变更已经撤销。" : "已保存变更和检查点。"}</p>}
       {artifact.status === "applied" && artifact.checkpoint_id && <footer><button className="quiet-button" disabled={wikiPlanLoading} onClick={() => void undoWikiPlan(artifact)}>撤销本轮写入</button></footer>}
     </section>;
     return null;
@@ -868,7 +950,7 @@ export function ChatPage() {
         <div className="composer-toolbar">
           <IconButton label={documents.length ? "选择资料范围" : "前往资料库"} type="button" onClick={() => documents.length ? openContext() : navigate("/library")}><Paperclip /></IconButton>
           <IconButton label={webOnce ? "取消本轮联网搜索" : "本轮搜索网页候选"} className={webOnce ? "web-on" : ""} type="button" disabled={sending} onClick={() => setWebOnce((value) => !value)}><Globe2 /></IconButton>
-          {selectedDocuments.length > 0 && <span className="composer-scope"><Library size={13} />{selectedDocuments.length} 份资料<button type="button" aria-label="清空资料范围" title="清空资料范围" onClick={clearDocumentScope}><X size={12} /></button></span>}
+          {selectedDocuments.length > 0 && <span className="composer-scope"><Library size={13} />{selectedDocuments.length} 份优先资料<button className="scope-mode-toggle" type="button" title={strictDocumentScope ? "当前只检索选中资料，点击恢复全库检索" : "当前检索全库并优先这些资料，点击限制为仅选中"} onClick={() => setStrictDocumentScope((value) => !value)}>{strictDocumentScope ? "仅这些" : "全库优先"}</button><button type="button" aria-label="清空优先资料" title="清空优先资料" onClick={clearDocumentScope}><X size={12} /></button></span>}
           {webOnce && <span className="composer-web-scope"><Globe2 size={13} />本轮联网</span>}
           <label className={`composer-select model ${activeProvider?.configured ? "connected" : "offline"}`} title="本会话使用的模型"><i /><select aria-label="当前模型" value={selectedProvider} disabled={sending} onChange={(event) => void changeProvider(event.target.value)}>{settings?.providers.map((provider) => <option key={provider.name} value={provider.name} disabled={!provider.configured}>{provider.name}{provider.configured ? "" : "（不可用）"}</option>)}</select></label>
           <label className="composer-select depth" title="回答深度"><select aria-label="回答深度" value={settings?.preferences.assistant.answer_depth || "standard"} disabled={sending || !settings} onChange={(event) => void changeAnswerDepth(event.target.value as "concise" | "standard" | "deep")}><option value="concise">简洁</option><option value="standard">标准</option><option value="deep">深入</option></select></label>

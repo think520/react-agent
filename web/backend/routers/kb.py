@@ -61,6 +61,21 @@ class WikiPlanRequest(BaseModel):
     provider: str | None = None
 
 
+class WikiPlanRecoveryRequest(BaseModel):
+    strategy: Literal["keep_existing", "regenerate"]
+    provider: str | None = None
+
+
+class WikiRunRequest(BaseModel):
+    action: Literal["generate", "update"] = "generate"
+    scope_mode: Literal["uncovered", "smart_library", "selected_only", "course"] = "uncovered"
+    document_ids: list[str] = Field(default_factory=list, max_length=500)
+    course: str | None = None
+    topic: str = Field(default="", max_length=500)
+    instruction: str = Field(default="", max_length=1000)
+    provider: str | None = None
+
+
 def _service(request: Request) -> KBService:
     return KBService(get_request_workspace(request))
 
@@ -145,6 +160,11 @@ def wiki_maintenance_status(request: Request) -> dict:
     return unwrap_service_result(_service(request).wiki_health())
 
 
+@router.get("/wiki/coverage")
+def wiki_document_coverage(request: Request) -> dict:
+    return unwrap_service_result(_service(request).wiki_coverage())
+
+
 @router.post("/wiki/maintenance")
 def maintain_wiki(body: WikiMaintenanceRequest, request: Request) -> dict:
     return unwrap_service_result(_service(request).maintain_wiki(body.action))
@@ -209,6 +229,59 @@ def apply_wiki_plan(plan_id: str, request: Request) -> dict:
     )
 
 
+@router.post("/wiki/plans/{plan_id}/recover")
+def recover_wiki_plan(plan_id: str, body: WikiPlanRecoveryRequest, request: Request) -> dict:
+    workspace = get_request_workspace(request)
+    provider = None
+    if body.strategy == "regenerate":
+        try:
+            provider = _runtime_for(workspace).create_provider(_preferred_provider(body.provider))
+        except ValueError as exc:
+            raise APIError(409, "provider_unavailable", str(exc)) from exc
+    return unwrap_service_result(
+        _service(request).recover_wiki_plan(
+            plan_id,
+            body.strategy,
+            llm_provider=provider,
+            config=get_config(),
+        ),
+        status_code=409,
+        code="wiki_plan_recovery_failed",
+    )
+
+
+@router.post("/wiki/runs")
+def create_wiki_run(body: WikiRunRequest, request: Request) -> dict:
+    workspace = get_request_workspace(request)
+    try:
+        provider = _runtime_for(workspace).create_provider(_preferred_provider(body.provider))
+    except ValueError as exc:
+        raise APIError(409, "provider_unavailable", str(exc)) from exc
+    return unwrap_service_result(
+        _service(request).start_wiki_run(
+            provider,
+            action=body.action,
+            scope_mode=body.scope_mode,
+            document_ids=body.document_ids,
+            course=body.course,
+            topic=body.topic,
+            instruction=body.instruction,
+            config=get_config(),
+        ),
+        status_code=409,
+        code="wiki_run_failed",
+    )
+
+
+@router.get("/wiki/runs/{run_id}")
+def get_wiki_run(run_id: str, request: Request) -> dict:
+    return unwrap_service_result(
+        _service(request).get_wiki_run(run_id),
+        status_code=404,
+        code="wiki_run_not_found",
+    )
+
+
 @router.post("/wiki/checkpoints/{checkpoint_id}/restore")
 def restore_wiki_checkpoint(checkpoint_id: str, request: Request) -> dict:
     return unwrap_service_result(
@@ -238,7 +311,7 @@ def retry_wiki_task(task_id: str, body: WikiTaskRetryRequest, request: Request) 
     service = _service(request)
     task = next((item for item in service.wiki_tasks().get("tasks", []) if item.get("task_id") == task_id), None)
     provider = None
-    if task and task.get("operation") == "plan":
+    if task and task.get("operation") in {"plan", "orchestrate"}:
         try:
             provider = _runtime_for(workspace).create_provider(_preferred_provider(body.provider))
         except ValueError as exc:

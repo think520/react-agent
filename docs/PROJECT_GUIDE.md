@@ -395,26 +395,26 @@ Memory 与个人学习知识库共同沉淀：
 
 ### 3.1 总体判断
 
-Bobodan 已经完成“学习 Agent 引擎”“Web 产品化基础”“本地学习闭环 Web MVP”“用户主动触发的 LLM Wiki”“便携文件夹资料库”“Wiki 可靠性增强”“Web UI 系统体验与设置中心”“可信联网资料扩展”和“个人学习知识库”主体流程。普通用户可以在浏览器中切换多个本地资料库，完成资料学习、个性化设置、用户确认式网页研究，以及可查看、确认、编辑和删除的长期个人知识沉淀。
+Bobodan 已经完成“学习 Agent 引擎”“Web 产品化基础”“本地学习闭环 Web MVP”“用户主动触发的 LLM Wiki”“便携文件夹资料库”“Wiki 可靠性增强”“Web UI 系统体验与设置中心”“可信联网资料扩展”“个人学习知识库”和“全库 Wiki 编排”主体流程。普通用户可以在浏览器中切换多个本地资料库，完成资料学习、个性化设置、用户确认式网页研究，以及可查看、确认、编辑和删除的长期个人知识沉淀。
 
-现有技术路线不需要推倒重来。Python + FastAPI + SQLite / Qdrant + React Web UI 仍然适合本地优先的个人学习助手。P5C 已整理 Web 产品合约，P5D 已完成 Library → Chat → Practice → Review，P5E 已完成用户确认式 LLM Wiki，P5E.1 已把测试工作区升级为通用文件夹资料库，P5E.2 已补齐 Wiki 可靠性，P5E.3 已补齐用户偏好与设置中心，P5F 已补齐可信联网候选、证据快照和网页来源练习，P5F.1 已补齐确定性学习事件、候选确认和已确认个人知识；下一步进入 P5G 发布收尾。
+现有技术路线不需要推倒重来。Python + FastAPI + SQLite / Qdrant + React Web UI 仍然适合本地优先的个人学习助手。P5C 已整理 Web 产品合约，P5D 已完成 Library → Chat → Practice → Review，P5E 已完成用户确认式 LLM Wiki，P5E.1 已把测试工作区升级为通用文件夹资料库，P5E.2 已补齐 Wiki 可靠性，P5E.3 已补齐用户偏好与设置中心，P5F 已补齐可信联网候选、证据快照和网页来源练习，P5F.1 已补齐确定性学习事件、候选确认和已确认个人知识，P5E.4 已通过真实资料验收；下一步进入 P5G 发布收尾。
 
 一句话结论：
 
-> 本地资料、用户确认式 Wiki、可信联网证据与个人学习知识库已经形成闭环；下一阶段集中完成发布、恢复和支撑页面收尾。
+> 本地资料、全库 Wiki、可信联网证据与个人学习知识库已经形成闭环；下一阶段先解决文档漏读可见性和发布合规，再交付 Windows 桌面应用。
 
 ### 3.2 当前成熟度
 
 | 模块 | 当前判断 | 说明 |
 |---|---|---|
 | Agent Runtime | 可用且测试充分 | ReAct、流式输出、工具调用、session、provider 已稳定运行 |
-| RAG v2 | 较成熟 | SQLite / FTS5 / Qdrant / hybrid / directory / grep 已具备完整检索骨架 |
+| RAG v2 | 较成熟 | SQLite / FTS5 / Qdrant / hybrid / directory / grep 已具备完整检索骨架；扫描页和图片文字尚不会被识别，需要提取完整性报告避免静默漏读 |
 | Quiz / Learning | Web 闭环可用 | 支持范围出题、精确题目会话、题内问 AI、练习恢复、批改、掌握度变化和 Review 聚合 |
 | Memory | P5F.1 完成 | 全局 / 资料库双层 SQLite、确定性学习事件、90 秒对话整理、候选确认、显式记忆卡、旧记忆迁移、Markdown 导出和个性化依据已落地；旧 daily Markdown 保持只读 |
 | Service Layer | 产品化基础完成 | CLI / Web 共用 runtime、config 与 service，Review / Practice 聚合已补齐 |
 | FastAPI | P5F.1 完成 | 已有稳定错误结构、流式事件、资料库隔离、Wiki / 联网证据、个人知识 CRUD、候选确认、阅读进度、旧记忆迁移和 Chat 记忆确认 API |
-| Web UI | P5F.1 完成 | Chat、Library、Practice、Review、设置中心、个人知识管理浮层、个性化依据、阅读进度和显式记忆确认已落地 |
-| 测试 | 全栈回归已建立 | Python `1115 passed`；Vitest `5 passed`；TypeScript 与生产构建通过；Playwright 桌面、窄屏和移动端 `60 passed` |
+| Web UI | P5E.4 完成 | Chat、Library、Practice、Review、设置中心、个人知识管理和全库 Wiki 覆盖界面已落地；桌面发布壳尚未实现 |
+| 测试 | 全栈回归已建立 | Python `1135 passed`；Vitest `5 passed`；TypeScript 与生产构建通过；Playwright 桌面、窄屏和移动端 `69 passed` |
 
 ### 3.3 P5C / P5D / P5E 已解决的问题与剩余边界
 
@@ -467,9 +467,10 @@ P5F.1 已补齐：
 
 仍待 P5G 解决：
 
-- 从学习事件自动沉淀掌握度、错题和进度，并将观点、总结和画像推断作为待确认候选管理。
-- 开发期仍是 Vite + FastAPI 两个进程；单进程静态托管与一键启动留到发布阶段。
-- MCP / specialist 要等请求级 ToolContext 完成后，才能考虑在 Web Workbench 中开放。
+- PDF、DOCX 和 PPTX 只能读取已有文本层；扫描页、图片文字和零 chunk 资料需要可见的提取报告，不能继续静默消失。
+- 项目尚无发布许可证、第三方声明、隐私说明、SBOM 和安装包校验，需要先完成发布合规并移除 PyMuPDF 许可风险。
+- 开发期仍是 Vite + FastAPI 两个进程；FastAPI 静态托管、`bobodan web`、PyInstaller sidecar 和 Electron 安装包尚未实现。
+- MCP / specialist 不进入首发 Workbench；只有请求级 ToolContext 和发布安全边界稳定后才重新评估。
 
 ### 3.4 优化原则
 
@@ -691,7 +692,7 @@ P5D 验收结果：通过。
 必须实现：
 
 1. 用户主动触发：上传资料本身不得自动创建 Wiki 页面。
-2. 范围选择：支持当前资料范围、指定资料、课程或已有 Wiki 主题。
+2. 范围发现：默认通过全库检索发现相关或未覆盖资料；用户选择项作为优先种子，只有明确启用严格模式时才限制为指定资料。
 3. 计划优先：`/wiki plan` 只输出新增、更新、合并、冲突和跳过计划，不写文件。
 4. 确认写入：`/wiki generate` 与 `/wiki update` 在用户确认后才执行。
 5. 页面结构：生成概念页与实体页，保留摘要、相关概念、来源、更新时间和 AI 整理标记。
@@ -797,11 +798,12 @@ P5E.1 主体流程与可靠性收尾已经完成：`source_roots` 使用资料�
 目标是在不改变用户确认工作流的前提下，让 Wiki 能安全处理持续更新、批量任务和更大规模资料：
 
 1. `index.md`、`log.md`、来源映射和反向链接由程序确定性维护，模型不得直接生成或整体重写结构文件。
-2. 写入前校验 Schema、路径、页面类型、frontmatter 和来源是否存在；无效内容进入 `.bobodan/wiki/staging/` 并显示原因。
+2. 写入前校验 Schema、路径、页面类型、frontmatter 和来源是否存在；无效内容进入 `.bobodan/wiki/staging/`。普通用户界面称为“待修正草稿”，显示具体页面与可读原因，不直接暴露内部路径。
 3. 页面更新确定性合并来源、标签与关系，锁定 `type`、`title`、`created` 等元数据；正文异常缩减时拒绝写入并恢复检查点。
 4. Wiki 计划、生成、批量解析和后续联网研究使用按资料库隔离的持久化任务队列，支持重启恢复、重试和取消。
 5. 原始资料变化、归档或删除前生成依赖影响预览；多来源页面保留仍有效的来源贡献，不执行静默级联删除。
 6. 结构检查由程序执行，AI 只提出矛盾、过时和知识缺口候选；重复页面合并与所有修复先生成计划，再由用户确认。
+7. 计划被安全校验暂停后提供两个明确恢复动作：保留现有页面并生成其余内容，或携带校验原因补全后重新规划；重复尝试不得累积相同错误。
 
 验收：
 
@@ -811,7 +813,7 @@ P5E.1 主体流程与可靠性收尾已经完成：`source_roots` 使用资料�
 - 中断或重启后 Wiki 任务能够继续，切换资料库不会串任务。
 - 资料变更前可看到受影响页面、保留项和建议动作。
 
-P5E.2 已完成：结构文件由程序确定性维护；模型输出在写入前经过类型、路径、来源和 frontmatter 校验；无效输出进入 staging；页面合并保留来源、标签与关系并防止正文异常缩减；Wiki 任务支持持久化、重启恢复、重试与取消；资料归档前展示依赖影响；结构检查与 AI 语义建议保持分层，所有实际修改仍需用户确认。
+P5E.2 已完成：结构文件由程序确定性维护；模型输出在写入前经过类型、路径、来源和 frontmatter 校验；无效输出进入 staging，并在 Web 中转译为可操作的待修正草稿；页面合并保留来源、标签与关系并防止正文异常缩减；暂停计划可保留原页继续或补全后重新规划；Wiki 任务支持持久化、重启恢复、重试与取消；资料归档前展示依赖影响；结构检查与 AI 语义建议保持分层，所有实际修改仍需用户确认。
 
 ### P5E.3：Web UI 系统体验与设置中心（完成）
 
@@ -825,6 +827,39 @@ P5E.2 已完成：结构文件由程序确定性维护；模型输出在写入�
 6. 对话只能提出回答深度、教学方式、反馈强度和记忆开关的修改建议；用户确认后才应用，拒绝或关闭不会修改设置。
 
 阶段验收结果：Python `1082 passed`；Vitest `4 passed`；TypeScript 与生产构建通过；Playwright 桌面、窄屏和移动端 `42 passed`。随后进入并完成 P5F。
+
+### P5E.4：LLM Wiki 全库编排与覆盖系统（完成）
+
+P5E.4 修正早期 Wiki 将大量选中文档顺序截断后交给一次模型调用的问题。正式 Wiki 流程以整个活动资料库为发现边界，不要求用户记住哪些资料已经整理，也不把手动选择默认解释为排除其他资料。
+
+默认流程：
+
+```text
+扫描资料与 Wiki 来源映射
+→ 标记未覆盖、部分覆盖、已覆盖和原文变化
+→ 每批最多 5 份资料读取全部有效章节
+→ 全库检索补充跨资料关系
+→ 每份资料生成独立摘要页
+→ 规范化合并概念、实体、分析和问题候选
+→ 按小页互链规则生成计划
+→ 用户整轮确认一次
+→ 安全页面写入，冲突和拆分项保留处理
+```
+
+核心约束：
+
+1. Library 主动作是“整理未覆盖资料”；人工多选、课程和严格选中属于高级范围控制。
+2. 普通 Chat 默认全库检索，选择资料只提高排序；“仅这些”才向 RAG 发送严格 `document_ids`。
+3. 每份原始资料必须有一个 `wiki_source` 页面；概念与实体跨资料、跨批次去重。
+4. 每个概念页只处理一个规范主题；正文超过 7 个二级章节或约 4500 字符时进入拆分候选。
+5. 大型旧页面在来源覆盖检查完成前不得被短草稿缩减；拆出的子页面可以先作为安全新增项。
+6. 覆盖状态从 Wiki frontmatter 的 `source_refs`、`source_hash` 和当前资料指纹重建，缓存不成为第二真相源。
+7. 长计划使用资料库内持久化 Wiki run；进程中断后标记为可重试失败，不伪装成仍在运行。
+8. 运行完成前不写正式 Wiki；用户确认后才创建检查点并应用整轮安全变更。
+
+公开接口包括 `GET /api/kb/wiki/coverage`、`POST/GET /api/kb/wiki/runs` 以及 Chat run 的应用、取消和恢复入口。旧 `/wiki/plans` 与历史 artifact 继续兼容。
+
+阶段验收结果：Python `1135 passed`；Vitest `5 passed`；TypeScript 与生产构建通过；Playwright 桌面、窄屏和移动端 `69 passed`。真实资料验收使用 5 份现有学习资料完成 1 个批次，生成并写入 5 个资料摘要页与 5 个概念 / 实体页，检查 74 个来源定位均有效，5 份资料全部转为已覆盖；浏览器可从资料摘要跳转并高亮原文 chunk，最后通过运行级检查点恢复为写入前状态。
 
 ### P5F：可信资料扩展（完成）
 
@@ -895,27 +930,107 @@ P5F 收尾修正进一步补齐：
 - 删除个人知识后，检索、提示词和个性化行为同步更新。
 - 已确认知识可以导出 Markdown，导出文件不参与双向自动同步。
 
-阶段验收结果：Python `1115 passed`；Vitest `5 passed`；TypeScript 与生产构建通过；Playwright 桌面、窄屏和移动端 `60 passed`。
+阶段验收结果：Python `1118 passed`；Vitest `5 passed`；TypeScript 与生产构建通过；Playwright 桌面、窄屏和移动端 `63 passed`。
 
-### P5G：支撑页面与发布收尾
+### P5G：文档完整性、Windows 桌面发布与支撑页面
 
-按优先级补齐：
+P5G 不先堆叠新页面。执行顺序固定为：
 
-1. Library 增强：文档阅读、highlight、摘录回流和相关概念；基础导入与列表已在 P5D 完成。
-2. Roadmap：学习目标、当前阶段和今日任务。
-3. 完整 Memory Browser：在 P5F.1 设置管理浮层基础上补跨资料库浏览、完整搜索和发布级数据恢复；基础查看、确认、编辑、删除、固定、导出已经完成。
-4. 会话增强：正文搜索、归档、恢复和引用历史。
-5. 复习自动化：用户确认后创建间隔复习提醒和阶段总结，不暴露通用 Cron 配置。
-6. 数据保护：资料编辑检查点、备份恢复、记忆导出和安全审计入口。
-7. Workbench：只提供必要的发布诊断和恢复入口，Agents / MCP / Logs 继续低权重。
+```text
+P5G.0 文档提取完整性与发布合规
+→ P5G.1 单进程本地 Web
+→ P5G.2 Windows Electron 桌面版
+→ P5G.3 支撑页面与体验收尾
+```
 
-发布门槛：
+首发版本不集成 OCR。Bobodan 只处理文档已有文本层，并明确告诉用户哪些页面、幻灯片或图片没有形成可检索文字。OCR 不是技术上永久禁止，而是保留为未来可选组件；当前不加入引擎、模型、下载入口或安装包依赖。
 
-- `npm run build` 和后端全量测试通过。
-- FastAPI 能托管 frontend build，一个命令启动本地应用。
-- API 错误、空知识库、无来源、provider 未配置和流中断都有明确恢复动作。
-- 桌面与移动端 Chat / Practice / Review 完成截图复核，符合 `docs/DESIGN.md`。
-- 键盘操作、焦点状态、基础可访问性和文本溢出通过检查。
+#### P5G.0：文档提取完整性与发布合规
+
+文档提取：
+
+1. PDF 移除 PyMuPDF，统一使用宽松许可证的 `pypdf` 提取文本、页码和空白页状态。
+2. DOCX 提取标题、段落和表格并统计内嵌图片；PPTX 保留标题、文本框、备注和幻灯片定位，同时统计图片与无原生文字幻灯片。
+3. Markdown 和纯文本继续直接切块；图片文字不识别，也不把空白结果伪装成已索引内容。
+4. 导入和同步为每份资料保存 `complete / partial / empty / error` 提取状态。零 chunk 资料仍登记到 Library，但标记“当前不可检索”。
+5. `empty` 和 `error` 资料不进入 RAG、Practice 或 Wiki 编排；Wiki 覆盖增加 `unavailable`，避免后台反复尝试同一份不可读资料。
+6. SQLite 是提取状态真相源；旧资料通过第一次完整同步补齐报告，不维护第二份运行真相。
+
+公开类型：
+
+```ts
+type ExtractionStatus = "complete" | "partial" | "empty" | "error";
+
+interface DocumentExtractionReport {
+  document_id: string;
+  file_type: "md" | "txt" | "pdf" | "docx" | "pptx";
+  parser: string;
+  status: ExtractionStatus;
+  total_units: number;
+  extracted_units: number;
+  empty_units: number;
+  extracted_characters: number;
+  image_count?: number;
+  warnings: Array<
+    | "scanned_or_empty_pages"
+    | "images_not_recognized"
+    | "slides_without_text"
+    | "no_searchable_text"
+    | "parser_error"
+  >;
+}
+```
+
+- `DocumentSummary` 增加 `extraction_status` 和简要提取统计。
+- `GET /api/kb/documents/{id}/extraction` 返回完整提取报告。
+- 导入和同步响应增加状态计数及本轮变化资料的提取报告。
+
+发布合规：
+
+1. 项目采用 Apache-2.0，根目录增加 `LICENSE`；移除 AGPL / 商业双许可的 PyMuPDF，CI 阻止重新引入 GPL / AGPL 依赖。
+2. 增加 `THIRD_PARTY_NOTICES.md`，审计 Python、npm、Electron、字体、图标和品牌资源；无法确认再分发许可的资产不得进入安装包。
+3. 增加 `PRIVACY.md`，明确本地资料、远程模型、Tavily、Exa 和 Jina Reader 的数据流与删除边界。
+4. 发布产物必须附 Python / npm SBOM、依赖许可证清单和 SHA256 校验值。
+5. 首个 GitHub Prerelease 允许暂不签名，但必须说明 Windows SmartScreen 的“未知发布者”提示；取得代码签名证书前不启用自动更新。
+
+#### P5G.1：单进程本地 Web
+
+1. FastAPI 在生产模式托管 React `dist`，并为 `/chat/*`、`/library`、`/practice/*` 等 SPA 深链接回退到 `index.html`。
+2. 增加 `bobodan web`，默认绑定 `127.0.0.1`、选择可用端口并自动打开浏览器；开发模式继续使用 Vite + FastAPI。
+3. 全局配置写入 `%APPDATA%\Bobodan`，日志和缓存写入 `%LOCALAPPDATA%\Bobodan`；用户资料库继续保存在用户选择的文件夹中。
+4. SQLite FTS5 是零模型默认检索。Ollama、Embedding 和远程服务保持可选，不自动下载或随应用分发模型权重。
+5. 生产启动必须提供明确的健康检查、端口冲突、后端崩溃和配置缺失恢复信息。
+
+#### P5G.2：Windows Electron 桌面版
+
+1. 采用 OpenHanako 式 `Electron + React + Python FastAPI sidecar`，不重写现有 Python service、RAG、Wiki 和学习逻辑。
+2. PyInstaller 使用 `onedir` 构建 `bobodan-server.exe`；Electron 负责单实例、窗口、文件夹选择、外部链接、sidecar 生命周期和崩溃提示。
+3. Electron 等待 `/api/health` 成功后进入主界面，退出应用时终止 sidecar；端口冲突和启动失败必须有可操作恢复入口。
+4. 启用 `contextIsolation`，禁用 renderer Node.js 权限，只通过白名单 preload IPC 暴露桌面能力。
+5. Provider 密钥由 Electron `safeStorage` 保存，启动 sidecar 时作为进程环境注入；密钥不得出现在 HTTP 响应、URL、日志、资料库或安装目录。
+6. electron-builder 生成 Windows x64 NSIS 安装包 `Bobodan-Setup-x64.exe`，同时发布 `SHA256SUMS.txt`、SBOM 和第三方许可清单。
+7. GitHub Actions 在干净 Windows runner 上构建并执行安装包启动测试。首版不内置 OCR、Embedding、本地大模型、离线模型包或自动更新。
+
+#### P5G.3：支撑页面与体验收尾
+
+桌面发布链路稳定后，再按以下顺序补齐：
+
+1. Roadmap：学习目标、当前阶段和今日任务。
+2. 会话增强：正文搜索、归档、恢复和引用历史。
+3. 完整 Memory Browser：跨资料库浏览、完整搜索和发布级数据恢复。
+4. 复习自动化：用户确认后创建间隔复习提醒和阶段总结，不暴露通用 Cron 配置。
+5. 数据保护：资料编辑检查点、备份恢复、记忆导出和安全审计入口。
+6. Workbench 只展示后端、资料库、索引、模型与备份状态，不开放通用 Agents、MCP 或 Logs 后台。
+
+P5G 总体验收：
+
+- 混合文本 / 扫描 PDF、含表格或图片的 DOCX、含图片或无文字页的 PPTX 都能产生准确、可理解的提取报告。
+- 零 chunk 文档仍显示在 Library，并从 RAG、Practice 和 Wiki 安全排除。
+- 无 Ollama、Embedding、Python 和 Node.js 的干净 Windows x64 环境可以安装并启动 Bobodan。
+- FastAPI 静态托管、SPA 深链接、SSE Chat、Practice、Review 和 Wiki 在生产模式通过。
+- Electron 覆盖端口冲突、sidecar 失败或崩溃、重复启动、正常退出和用户数据目录隔离。
+- API Key 不写入资料库、日志、URL、HTTP 响应或安装目录。
+- CI 通过 Python、Vitest、TypeScript、生产构建、Playwright、PyInstaller、Electron smoke test、许可证审计、SBOM 和 SHA256 检查。
 
 ### 本轮明确不做
 
@@ -925,6 +1040,8 @@ P5F 收尾修正进一步补齐：
 - 模拟考试、限时训练、复杂题型和完整能力模型。
 - 多用户 SaaS、跨设备同步、移动端原生 App。
 - 主题 / 封面画廊、插件市场、角色卡市场、班级协作、排行榜或社交分享。
+- OCR 引擎、OCR 模型、Embedding 模型、本地大模型和离线模型安装包。
+- macOS / Linux 安装包、代码签名和自动更新；这些在 Windows 无签名 Prerelease 稳定后再评估。
 
 ## 5. 练习系统产品决策
 
@@ -1466,7 +1583,11 @@ P5C 产品化基础（完成）
 → P5E.3 Web UI 系统体验与设置中心（完成）
 → P5F 可信资料扩展（完成）
 → P5F.1 个人学习知识库（完成）
-→ P5G 支撑页面与发布收尾
+→ P5E.4 全库 Wiki 编排与覆盖系统（完成）
+→ P5G.0 文档提取完整性与发布合规
+→ P5G.1 单进程本地 Web
+→ P5G.2 Windows Electron 桌面版
+→ P5G.3 支撑页面与体验收尾
 ```
 
 P5C 是进入前端开发前的硬门槛。任何阶段都不能只交付静态占位页；进入下一阶段前，当前阶段的验收条件必须成立。

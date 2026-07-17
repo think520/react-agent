@@ -26,6 +26,7 @@ function settingsPayload(overrides: Record<string, unknown> = {}) {
 test.beforeEach(async ({ page }) => {
   await page.route("**/api/health", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ ok: true }) }));
   await page.route("**/api/kb/documents?collection=all", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ documents: [] }) }));
+  await page.route("**/api/kb/wiki/coverage", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ documents: [], counts: { uncovered: 0, partial: 0, covered: 0, stale: 0 } }) }));
   await page.route("**/api/libraries", (route) => route.fulfill({
     contentType: "application/json",
     body: JSON.stringify({
@@ -201,7 +202,7 @@ test("initialized folder is opened instead of migrated again", async ({ page }) 
   expect(migrated).toBe(false);
 });
 
-test("selected library scope is sent with chat requests", async ({ page }) => {
+test("selected documents are preferred while chat still searches the whole library", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("bobodan:onboarding:v1", "complete"));
   const documents = [{ document_id: "doc-1", source: "course/algorithm.md", kind: "course_document", title: "算法设计", collection: "material", content_role: "content", managed: false }];
   await page.route("**/api/chat/sessions", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ sessions: [] }) }));
@@ -221,16 +222,17 @@ test("selected library scope is sent with chat requests", async ({ page }) => {
   await page.route("**/api/chat/sessions/s1/title", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ name: "范围问答", name_source: "ai" }) }));
 
   await page.goto("/library");
-  await page.getByRole("button", { name: /加入学习范围 算法设计/ }).click();
+  await page.getByRole("button", { name: /设为优先资料 算法设计/ }).click();
   await page.locator(".reader-section-prose").selectText();
   await page.locator(".reader-prose").dispatchEvent("mouseup");
   await expect(page.getByRole("button", { name: "带到对话" })).toBeVisible();
   await page.goto("/chat");
-  await expect(page.getByText("1 份资料")).toBeVisible();
+  await expect(page.getByText("1 份优先资料")).toBeVisible();
   await page.getByRole("textbox", { name: "消息" }).fill("解释核心思路");
   await page.getByRole("button", { name: "发送" }).click();
   await expect(page.getByText("回答", { exact: true })).toBeVisible();
-  expect(requestBody.document_ids).toEqual(["doc-1"]);
+  expect(requestBody.document_ids).toEqual([]);
+  expect(requestBody.preferred_document_ids).toEqual(["doc-1"]);
 });
 
 test("review reuses historical questions without regenerating them", async ({ page }) => {
@@ -263,7 +265,7 @@ test("review reuses historical questions without regenerating them", async ({ pa
 
 test("Wiki maintenance separates checks from confirmed repairs", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("bobodan:onboarding:v1", "complete"));
-  const wikiDocument = { document_id: "wiki-1", source: "obsidian/wiki/concepts/RAG.md", kind: "wiki_concept", title: "RAG", collection: "wiki", wiki_type: "concept", content_role: "content", managed: false };
+  const wikiDocument = { document_id: "wiki-1", source: "obsidian/wiki/sources/2026-07-17_RAG.md", kind: "wiki_source", title: "RAG", collection: "wiki", wiki_type: "source", content_role: "content", managed: false };
   await page.route("**/api/settings", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(settingsPayload()) }));
   await page.route("**/api/chat/sessions", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ sessions: [] }) }));
   await page.route("**/api/kb/documents?collection=material", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ documents: [] }) }));
@@ -279,6 +281,7 @@ test("Wiki maintenance separates checks from confirmed repairs", async ({ page }
   });
 
   await page.goto("/library?collection=wiki");
+  await expect(page.getByText("Wiki · 资料摘要")).toBeVisible();
   await page.getByRole("button", { name: "维护 Wiki" }).click();
   await expect(page.getByRole("region", { name: "Wiki 维护" })).toBeVisible();
   await expect(page.getByText("发现需要检查的结构问题")).toBeVisible();
@@ -328,17 +331,22 @@ test("materials become a traceable Wiki only after plan confirmation", async ({ 
     ...(wikiPhase === "plan" || wikiPhase === "result" ? [{ role: "assistant", content: "已生成 Wiki 计划。", artifacts: [{ ...planArtifact, status: wikiPhase === "result" ? "applied" : "planned", plan: { ...planned, status: wikiPhase === "result" ? "applied" : "planned" } }] }] : []),
     ...(wikiPhase === "result" ? [{ role: "assistant", content: "Wiki 已按确认计划写入。", artifacts: [resultArtifact] }] : []),
   ];
-  await page.route("**/api/chat/wiki/focus", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ chat_session_id: "wiki-session", artifact: focusArtifact }) }));
+  let focusRequest: Record<string, unknown> = {};
+  await page.route("**/api/chat/wiki/focus", (route) => {
+    focusRequest = route.request().postDataJSON();
+    return route.fulfill({ contentType: "application/json", body: JSON.stringify({ chat_session_id: "wiki-session", artifact: focusArtifact }) });
+  });
   await page.route("**/api/chat/sessions/wiki-session", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ chat_session_id: "wiki-session", name: "RAG Wiki", name_source: "ai", created_at: "2026-07-13T00:00:00Z", last_active: "2026-07-13T00:00:00Z", message_count: wikiMessages().length, messages: wikiMessages() }) }));
   await page.route("**/api/chat/wiki/focus/focus-1/confirm", (route) => { wikiPhase = "plan"; return route.fulfill({ contentType: "application/json", body: JSON.stringify({ chat_session_id: "wiki-session", artifact: planArtifact }) }); });
   await page.route(`**/api/chat/wiki/plans/${planned.plan_id}/apply`, (route) => { wikiPhase = "result"; return route.fulfill({ contentType: "application/json", body: JSON.stringify({ chat_session_id: "wiki-session", artifact: resultArtifact }) }); });
 
   await page.goto("/library");
-  await page.getByRole("button", { name: "整理成 Wiki" }).click();
+  await page.getByRole("button", { name: /整理未覆盖资料/ }).click();
   await page.getByLabel("整理要求").fill("整理核心概念和证据");
   await page.getByRole("button", { name: "生成计划" }).click();
   await expect(page).toHaveURL(/\/chat/);
   await page.getByRole("textbox", { name: "消息" }).press("Enter");
+  expect(focusRequest.scope_mode).toBe("uncovered");
   await expect(page.getByText("重点整理 RAG 的证据边界。", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "按此重点继续" }).click();
   await expect(page.getByRole("region", { name: "Wiki 整理计划" })).toBeVisible();
@@ -349,6 +357,141 @@ test("materials become a traceable Wiki only after plan confirmation", async ({ 
   await page.getByRole("link", { name: /RAG Lesson · Retrieval/ }).click();
   await expect(page).toHaveURL(/collection=material&document=doc-1&chunk=chunk-1/);
   await expect(page.locator('[data-chunk-id="chunk-1"]')).toHaveClass(/highlighted/);
+});
+
+test("Library shows Wiki coverage and supports batch selection before smart planning", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("bobodan:onboarding:v1", "complete"));
+  const documents = Array.from({ length: 6 }, (_, index) => ({
+    document_id: `doc-${index + 1}`,
+    source: `raw/inbox/lesson-${index + 1}.md`,
+    kind: "markdown",
+    title: `资料 ${index + 1}`,
+    course: index < 3 ? "课程 A" : "课程 B",
+    collection: "material",
+    content_role: "content",
+    managed: false,
+  }));
+  const coverage = documents.map((document, index) => ({
+    document_id: document.document_id,
+    status: index === 4 ? "covered" : index === 5 ? "stale" : "uncovered",
+    source_page_id: index === 4 ? "sources/资料 5.md" : null,
+    linked_page_count: index === 4 ? 4 : index === 5 ? 2 : 0,
+    source_fingerprint: `hash-${index}`,
+    covered_at: index === 4 ? "2026-07-14" : null,
+  }));
+  await page.route("**/api/settings", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(settingsPayload()) }));
+  await page.route("**/api/chat/sessions", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ sessions: [] }) }));
+  await page.route("**/api/kb/documents?collection=material", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ documents }) }));
+  await page.route("**/api/kb/documents/doc-1", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ document: documents[0], sections: [{ chunk_id: "c1", text: "课程资料内容" }] }) }));
+  await page.route("**/api/kb/wiki/coverage", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ documents: coverage, counts: { uncovered: 4, partial: 0, covered: 1, stale: 1 } }) }));
+  await page.route("**/api/learning/review-queue", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ due_concepts: [], wrong_answers: [], weaknesses: [] }) }));
+
+  await page.goto("/library");
+  await expect(page.getByRole("button", { name: /整理未覆盖资料 · 5/ })).toBeVisible();
+  await expect(page.getByText("未整理 · 关联 0 页").first()).toBeVisible();
+  await expect(page.getByText("原文已变化 · 关联 2 页")).toBeVisible();
+  await page.getByRole("button", { name: "选择当前筛选" }).click();
+  await expect(page.getByRole("button", { name: "清空 6" })).toBeVisible();
+  await page.getByRole("button", { name: /整理未覆盖资料 · 5/ }).click();
+  await expect(page.getByText(/将处理 5 份未覆盖或已变化资料/)).toBeVisible();
+  await page.getByLabel("整理范围").selectOption("smart_library");
+  await page.getByLabel("主题或目标").fill("Agent 与工具调用");
+  await expect(page.getByText(/全库检索，并优先参考已选择的 6 份资料/)).toBeVisible();
+});
+
+test("background Wiki planning restores from its persisted run", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("bobodan:onboarding:v1", "complete"));
+  const runId = "e".repeat(32);
+  const planning = {
+    run_id: runId,
+    status: "planning",
+    phase: "discovering",
+    scope: { mode: "uncovered", document_ids: ["d1", "d2", "d3", "d4", "d5", "d6"], documents: ["一", "二", "三", "四", "五", "六"] },
+    total_batches: 2,
+    completed_batches: 1,
+    completed_pages: 0,
+    total_pages: 0,
+  };
+  const planned = {
+    ...planning,
+    plan_id: runId,
+    status: "planned",
+    phase: "planned",
+    action: "generate",
+    instruction: "",
+    created_at: "2026-07-14T00:00:00Z",
+    batches: [
+      { batch_id: "b1", index: 1, document_ids: ["d1", "d2", "d3", "d4", "d5"], documents: ["一", "二", "三", "四", "五"], status: "planned" },
+      { batch_id: "b2", index: 2, document_ids: ["d6"], documents: ["六"], status: "planned" },
+    ],
+    summary: { add: 6, update: 0, merge: 0, conflict: 0, skip: 0, split: 0 },
+    changes: Array.from({ length: 6 }, (_, index) => ({
+      change_id: `source-${index}`,
+      kind: "add",
+      title: `资料 ${index + 1}`,
+      page_type: "wiki_source",
+      summary: "资料摘要",
+      related: [],
+      source_count: 1,
+      target: `sources/${index + 1}.md`,
+      content: "## 摘要\n\n可追溯资料摘要。",
+    })),
+  };
+  const artifact = { artifact_id: "run-artifact", type: "wiki_plan", operation: "generate", status: "planning", plan_id: runId, plan: planning };
+  await page.route("**/api/settings", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(settingsPayload()) }));
+  await page.route("**/api/chat/sessions", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ sessions: [{ chat_session_id: "run-session", name: "全库 Wiki", name_source: "ai", created_at: "", last_active: "", message_count: 2 }] }) }));
+  await page.route("**/api/chat/sessions/run-session", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ chat_session_id: "run-session", name: "全库 Wiki", name_source: "ai", created_at: "", last_active: "", message_count: 2, messages: [{ role: "user", content: "/wiki plan" }, { role: "assistant", content: "正在规划。", artifacts: [artifact] }] }) }));
+  await page.route("**/api/kb/documents?collection=material", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ documents: [] }) }));
+  await page.route("**/api/learning/review-queue", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ due_concepts: [], wrong_answers: [], weaknesses: [] }) }));
+  await page.route(`**/api/kb/wiki/runs/${runId}`, (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(planned) }));
+
+  await page.goto("/chat/run-session");
+  await expect(page.getByRole("region", { name: "Wiki 整理计划" })).toBeVisible();
+  await expect(page.getByText("6 份资料 · 2 个批次")).toBeVisible();
+  await expect(page.getByRole("button", { name: "确认并生成" })).toBeVisible();
+});
+
+test("staged Wiki plans explain the pause and offer a safe next step", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("bobodan:onboarding:v1", "complete"));
+  const planId = "c".repeat(32);
+  const changes = [
+    { change_id: "short-update", kind: "update", title: "大模型", page_type: "wiki_entity", summary: "更新概览", related: [], source_count: 4, target: "entities/大模型.md", content: "短草稿" },
+    ...Array.from({ length: 5 }, (_, index) => ({ change_id: `new-${index}`, kind: "add", title: `新页面 ${index + 1}`, page_type: "wiki_concept", summary: "新增概念", related: [], source_count: 2, target: `concepts/new-${index}.md`, content: "可追溯正文" })),
+  ];
+  const stagedPlan = {
+    plan_id: planId, status: "planned", action: "generate", instruction: "整理核心概念", created_at: "2026-07-14T00:00:00Z",
+    scope: { document_ids: ["doc-1"], documents: ["大模型认知与工程概览"] },
+    summary: { add: 5, update: 1, merge: 0, conflict: 0, skip: 0 }, changes,
+    staging: [
+      { change_id: "short-update", path: `${planId}/short-update.json`, errors: ["incoming body is unexpectedly shorter than the existing page"] },
+      { change_id: "short-update", path: `${planId}/short-update.json`, errors: ["incoming body is unexpectedly shorter than the existing page"] },
+    ],
+  };
+  const resultArtifact = { artifact_id: "wiki-recovery-result", type: "wiki_result", operation: "apply", status: "applied", plan_id: planId, checkpoint_id: "d".repeat(32), written: Array.from({ length: 5 }, (_, index) => `concepts/new-${index}.md`), kept_existing: ["大模型"] };
+  let recovered = false;
+  const messages = () => [
+    { role: "user", content: "/wiki plan 整理核心概念" },
+    { role: "assistant", content: "已生成 Wiki 计划。", artifacts: [{ artifact_id: "staged-plan", type: "wiki_plan", operation: "generate", status: recovered ? "applied" : "planned", plan_id: planId, plan: recovered ? { ...stagedPlan, status: "applied", staging: undefined, written: resultArtifact.written } : stagedPlan }] },
+    ...(recovered ? [{ role: "assistant", content: "已保留问题页面的原内容，并生成其余可安全写入的 Wiki 页面。", artifacts: [resultArtifact] }] : []),
+  ];
+  await page.route("**/api/settings", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(settingsPayload()) }));
+  await page.route("**/api/chat/sessions", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ sessions: [{ chat_session_id: "wiki-recovery", name: "Wiki 整理", name_source: "ai", created_at: "", last_active: "", message_count: messages().length }] }) }));
+  await page.route("**/api/chat/sessions/wiki-recovery", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ chat_session_id: "wiki-recovery", name: "Wiki 整理", name_source: "ai", created_at: "", last_active: "", message_count: messages().length, messages: messages() }) }));
+  await page.route("**/api/kb/documents?collection=material", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ documents: [] }) }));
+  await page.route("**/api/learning/review-queue", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ due_concepts: [], wrong_answers: [], weaknesses: [] }) }));
+  await page.route(`**/api/chat/wiki/plans/${planId}/recover`, async (route) => {
+    expect(route.request().postDataJSON().strategy).toBe("keep_existing");
+    recovered = true;
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ chat_session_id: "wiki-recovery", artifact: resultArtifact }) });
+  });
+
+  await page.goto("/chat/wiki-recovery");
+  await expect(page.getByText("1 个页面需要你选择处理方式")).toBeVisible();
+  await expect(page.getByText("现有 Wiki 没有被修改", { exact: false })).toBeVisible();
+  await expect(page.getByText("新草稿比现有页面短", { exact: false })).toBeVisible();
+  await expect(page.getByRole("button", { name: "补全后重新规划" })).toBeVisible();
+  await page.getByRole("button", { name: "保留原页，生成其余 5 页" }).click();
+  await expect(page.getByText("已保留“大模型”的原页面，并写入其余 5 个页面。")).toBeVisible();
 });
 
 test("settings deep links and @ references stay usable across viewports", async ({ page }, testInfo) => {
@@ -556,16 +699,16 @@ test("chat question generation shows Bobodan process and opens prepared practice
   await page.getByRole("textbox", { name: "消息" }).fill("帮我生成 LangChain 练习题");
   await page.getByRole("button", { name: "发送" }).click();
   await expect(page.locator('.bobodan-process img[src*="bobodan-state-writing"]')).toBeVisible();
-  await expect(page.locator(".bobodan-process-line")).toBeVisible();
+  await expect(page.locator(".bobodan-process-ink i")).toHaveCount(3);
   const processAnimation = await page.evaluate(() => {
     for (const styleSheet of Array.from(document.styleSheets)) {
       for (const rule of Array.from(styleSheet.cssRules)) {
-        if (rule instanceof CSSStyleRule && rule.selectorText === ".bobodan-process-line") return rule.style.animation;
+        if (rule instanceof CSSStyleRule && rule.selectorText === ".bobodan-process-ink i") return rule.style.animation;
       }
     }
     return "";
   });
-  expect(processAnimation).toContain("process-line");
+  expect(processAnimation).toContain("process-ink");
   await expect(page.getByText("1 道题已经准备好")).toBeVisible();
   await page.getByRole("button", { name: "开始练习" }).click();
   await expect(page).toHaveURL(/\/practice\/9/);

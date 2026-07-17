@@ -97,9 +97,10 @@ export interface DocumentSummary {
   origin?: "managed" | "workspace" | "legacy_index" | string;
   chunk_count?: number;
   collection: "material" | "wiki";
-  wiki_type?: "entity" | "concept" | null;
+  wiki_type?: "source" | "entity" | "concept" | "analysis" | "question" | null;
   canonical_id?: string | null;
   content_role: "content" | "metadata";
+  wiki_coverage?: WikiDocumentCoverage;
 }
 
 export interface DocumentSection {
@@ -292,7 +293,19 @@ export interface WikiHealth {
   }>;
 }
 
-export type WikiChangeKind = "add" | "update" | "merge" | "conflict" | "skip";
+export type WikiChangeKind = "add" | "update" | "merge" | "conflict" | "skip" | "split";
+
+export type WikiScopeMode = "uncovered" | "smart_library" | "selected_only" | "course";
+export type WikiCoverageStatus = "uncovered" | "partial" | "covered" | "stale";
+
+export interface WikiDocumentCoverage {
+  document_id: string;
+  status: WikiCoverageStatus;
+  source_page_id?: string | null;
+  linked_page_count: number;
+  source_fingerprint: string;
+  covered_at?: string | null;
+}
 
 export interface WikiPlanChange {
   change_id: string;
@@ -308,19 +321,37 @@ export interface WikiPlanChange {
 
 export interface WikiPlan {
   plan_id: string;
-  status: "planned" | "applied";
+  run_id?: string;
+  status: "planning" | "planned" | "applied" | "replaced" | "cancelled" | "failed";
   action: "generate" | "update";
   instruction: string;
   created_at: string;
   applied_at?: string;
   checkpoint_id?: string;
-  scope: { document_ids: string[]; documents: string[] };
+  topic?: string;
+  scope: {
+    mode?: WikiScopeMode;
+    seed_document_ids?: string[];
+    document_ids: string[];
+    discovered_document_ids?: string[];
+    documents: string[];
+  };
   summary: Record<WikiChangeKind, number>;
   changes: WikiPlanChange[];
+  batches?: Array<{ batch_id: string; index: number; document_ids: string[]; documents: string[]; status: string }>;
+  coverage_before?: WikiDocumentCoverage[];
+  phase?: "queued" | "discovering" | "drafting" | "planned" | "cancelling" | "cancelled" | "failed" | "interrupted";
+  completed_batches?: number;
+  total_batches?: number;
+  completed_pages?: number;
+  total_pages?: number;
+  error?: string;
   written?: string[];
   task_id?: string;
   last_error?: string;
   staging?: Array<{ change_id: string; path: string; errors: string[] }>;
+  replacement_plan_id?: string;
+  recovery?: { strategy: "keep_existing"; resolved_at: string; skipped_titles: string[] };
 }
 
 export interface DocumentImpact {
@@ -356,7 +387,17 @@ export interface WikiFocusArtifact {
   status: "awaiting_confirmation" | "confirmed" | "cancelled";
   summary: string;
   instruction: string;
-  scope: { document_ids: string[]; wiki_document_ids?: string[]; course?: string | null; documents: string[] };
+  scope: {
+    orchestrated?: boolean;
+    mode?: WikiScopeMode;
+    seed_document_ids?: string[];
+    document_ids: string[];
+    wiki_document_ids?: string[];
+    course?: string | null;
+    topic?: string;
+    documents: string[];
+    coverage?: WikiDocumentCoverage[];
+  };
 }
 
 export interface WikiPlanArtifact {
@@ -364,7 +405,7 @@ export interface WikiPlanArtifact {
   type: "wiki_plan";
   library_id?: string | null;
   operation: string;
-  status: "planned" | "applied";
+  status: "planning" | "planned" | "applied" | "replaced" | "cancelled" | "failed";
   plan_id: string;
   plan: WikiPlan;
 }
@@ -378,6 +419,7 @@ export interface WikiResultArtifact {
   plan_id?: string;
   checkpoint_id?: string;
   written?: string[];
+  kept_existing?: string[];
   restored_at?: string;
 }
 
