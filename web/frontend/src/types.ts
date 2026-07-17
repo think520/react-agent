@@ -97,7 +97,7 @@ export interface DocumentSummary {
   origin?: "managed" | "workspace" | "legacy_index" | string;
   chunk_count?: number;
   collection: "material" | "wiki";
-  wiki_type?: "entity" | "concept" | null;
+  wiki_type?: "source" | "entity" | "concept" | "analysis" | "question" | null;
   canonical_id?: string | null;
   content_role: "content" | "metadata";
   wiki_coverage?: WikiDocumentCoverage;

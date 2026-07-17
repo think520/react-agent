@@ -264,6 +264,7 @@ def test_document_collections_hide_metadata_and_deduplicate_wiki(svc, workspace)
         ("obsidian/wiki/index.md", "Wiki Index", "obsidian_note"),
         ("obsidian/wiki/entities/Dijkstra算法.md", "Dijkstra算法", "wiki_entity"),
         ("obsidian/wiki/entities/Dijkstra 算法.md", "Dijkstra 算法", "wiki_entity"),
+        ("obsidian/wiki/sources/2026-07-17_Dijkstra算法.md", "Dijkstra算法", "wiki_source"),
     ]):
         chunks.append({
             "id": f"chunk-{index}", "source": source, "text": title,
@@ -276,8 +277,10 @@ def test_document_collections_hide_metadata_and_deduplicate_wiki(svc, workspace)
     wiki = svc.list_documents(collection="wiki")["documents"]
 
     assert [item["title"] for item in materials] == ["Lesson"]
-    assert len(wiki) == 1
-    assert wiki[0]["canonical_id"].startswith("wiki-")
+    assert len(wiki) == 2
+    assert {item["wiki_type"] for item in wiki} == {"entity", "source"}
+    assert len({item["canonical_id"] for item in wiki}) == 2
+    assert all(item["canonical_id"].startswith("wiki-") for item in wiki)
     assert svc.list_documents(collection="invalid")["ok"] is False
 
 

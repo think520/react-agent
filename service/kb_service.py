@@ -45,11 +45,19 @@ def _document_classification(source: str, kind: str = "", title: str = "") -> di
     content_role = "metadata" if is_wiki and basename in metadata_names else "content"
     wiki_type = None
     if is_wiki:
-        if "/entities/" in normalized_source or kind == "wiki_entity":
+        if "/sources/" in normalized_source or kind == "wiki_source":
+            wiki_type = "source"
+        elif "/entities/" in normalized_source or kind == "wiki_entity":
             wiki_type = "entity"
         elif "/concepts/" in normalized_source or kind == "wiki_concept":
             wiki_type = "concept"
-    canonical_key = _canonical_wiki_key(title or os.path.splitext(os.path.basename(source))[0])
+        elif "/analyses/" in normalized_source or kind == "wiki_analysis":
+            wiki_type = "analysis"
+        elif "/questions/" in normalized_source or kind == "wiki_question":
+            wiki_type = "question"
+    canonical_title = _canonical_wiki_key(title or os.path.splitext(os.path.basename(source))[0])
+    canonical_family = "source" if wiki_type == "source" else "knowledge"
+    canonical_key = f"{canonical_family}:{canonical_title}"
     canonical_id = f"wiki-{hashlib.sha256(canonical_key.encode('utf-8')).hexdigest()[:16]}" if is_wiki else None
     return {
         "collection": "wiki" if is_wiki else "material",

@@ -418,6 +418,13 @@ export function LibraryPage() {
     covered: "已覆盖",
     stale: "原文已变化",
   };
+  const wikiTypeLabels: Record<NonNullable<DocumentSummary["wiki_type"]>, string> = {
+    source: "资料摘要",
+    entity: "实体",
+    concept: "概念",
+    analysis: "综合分析",
+    question: "问题与发现",
+  };
 
   return (
     <section className="page-scroll" ref={pageRef} onScroll={recordReadingProgress}>
@@ -537,7 +544,7 @@ export function LibraryPage() {
               {!filteredDocuments.length && <p className="document-search-empty">没有找到匹配的资料。</p>}
             </aside>
             <article className="document-reader">
-              {selected && <header><span>{selected.collection === "wiki" ? `Wiki · ${selected.wiki_type === "concept" ? "概念" : "实体"}` : selected.kind || "本地资料"}{selected.course ? ` · ${selected.course}` : ""}</span><h2>{selected.title || selected.source}</h2>{selected.summary && <p>{selected.summary}</p>}</header>}
+              {selected && <header><span>{selected.collection === "wiki" ? `Wiki · ${selected.wiki_type ? wikiTypeLabels[selected.wiki_type] : "页面"}` : selected.kind || "本地资料"}{selected.course ? ` · ${selected.course}` : ""}</span><h2>{selected.title || selected.source}</h2>{selected.summary && <p>{selected.summary}</p>}</header>}
               {selectionQuote && <div className="selection-toolbar"><Quote size={15} /><span>已选择 {selectionQuote.length} 个字符</span><button className="quiet-button" onClick={askAboutSelection}>带到对话</button></div>}
               {detailLoading ? <LoadingState label="正在打开资料…" /> : sections.length ? <div className="reader-prose" onMouseUp={captureSelection}>{sections.map((section) => (
                 <section className={highlightedChunk === section.chunk_id ? "highlighted" : ""} data-chunk-id={section.chunk_id} key={section.chunk_id}>

@@ -265,7 +265,7 @@ test("review reuses historical questions without regenerating them", async ({ pa
 
 test("Wiki maintenance separates checks from confirmed repairs", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("bobodan:onboarding:v1", "complete"));
-  const wikiDocument = { document_id: "wiki-1", source: "obsidian/wiki/concepts/RAG.md", kind: "wiki_concept", title: "RAG", collection: "wiki", wiki_type: "concept", content_role: "content", managed: false };
+  const wikiDocument = { document_id: "wiki-1", source: "obsidian/wiki/sources/2026-07-17_RAG.md", kind: "wiki_source", title: "RAG", collection: "wiki", wiki_type: "source", content_role: "content", managed: false };
   await page.route("**/api/settings", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(settingsPayload()) }));
   await page.route("**/api/chat/sessions", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ sessions: [] }) }));
   await page.route("**/api/kb/documents?collection=material", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ documents: [] }) }));
@@ -281,6 +281,7 @@ test("Wiki maintenance separates checks from confirmed repairs", async ({ page }
   });
 
   await page.goto("/library?collection=wiki");
+  await expect(page.getByText("Wiki · 资料摘要")).toBeVisible();
   await page.getByRole("button", { name: "维护 Wiki" }).click();
   await expect(page.getByRole("region", { name: "Wiki 维护" })).toBeVisible();
   await expect(page.getByText("发现需要检查的结构问题")).toBeVisible();
