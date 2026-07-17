@@ -1,6 +1,7 @@
 import os
 
 from rag.sqlite_store import KBSQLiteStore
+from service.kb_service import KBService
 from service.usage_service import UsageService
 from wiki.repair import WikiRepairStore
 
@@ -20,6 +21,50 @@ def test_usage_ledger_does_not_store_prompt_content(tmp_path):
     assert summary["cost_reported"] is True
     assert summary["model_distribution"] == {"chat": 1}
     assert "prompt" not in str(summary).lower()
+
+
+def test_wiki_estimate_uses_only_matching_real_provider_samples(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    monkeypatch.setenv("BOBODAN_HOME", str(home))
+    usage = UsageService(str(home))
+
+    def record(request_id, operation, provider, model, duration_ms, input_tokens, output_tokens):
+        response = type("Response", (), {
+            "request_id": request_id,
+            "provider": provider,
+            "model": model,
+            "usage": {"input_tokens": input_tokens, "output_tokens": output_tokens},
+        })()
+        usage.record(
+            response, subsystem="wiki", operation=operation, run_id="real-run",
+            duration_ms=duration_ms,
+        )
+
+    record("discovery", "wiki_discovery", "deepseek", "deepseek-v4-flash", 12000, 8000, 1200)
+    record("drafting", "wiki_drafting", "deepseek", "deepseek-v4-flash", 9000, 1800, 900)
+    record("other-model", "wiki_drafting", "openai", "gpt-test", 900000, 900000, 900000)
+    record("test-provider", "wiki_drafting", "RecordingProvider", "unknown", 0, 0, 0)
+
+    service = KBService(str(tmp_path))
+    documents = [{
+        "document_id": "doc-1", "title": "资料 1", "source": "raw/1.md",
+        "sections": [{"chunk_id": "chunk-1", "heading": "章节", "text": "正文" * 2000}],
+    }]
+    monkeypatch.setattr(service, "_wiki_run_documents", lambda *args, **kwargs: (documents, []))
+
+    estimate = service.estimate_wiki_run(
+        generation_mode="standard",
+        provider_name="deepseek",
+        model="deepseek-v4-flash",
+        config={},
+    )
+
+    assert estimate["ok"] is True
+    assert estimate["historical_sample_size"] == 2
+    assert estimate["confidence"] == "low"
+    assert estimate["duration_range_seconds"][1] < 1000
+    assert estimate["input_token_range"][1] < 300000
+    assert estimate["local_cache_reuse_included"] is False
 
 
 def test_repair_plan_is_persistent_and_only_applies_local_items(tmp_path):

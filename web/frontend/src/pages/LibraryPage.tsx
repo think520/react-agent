@@ -10,6 +10,19 @@ import { WikiPlanCard } from "../components/WikiPlanCard";
 import { api } from "../lib/api";
 import type { DocumentSection, DocumentSummary, WikiDocumentCoverage, WikiEditablePage, WikiGenerationMode, WikiHealth, WikiPlan, WikiRepairPlan, WikiRunEstimate, WikiScopeMode, WikiTask } from "../types";
 
+type WikiView = "knowledge" | "sources" | "notes" | "all";
+
+function wikiViewForType(type: DocumentSummary["wiki_type"]): WikiView {
+  if (type === "source") return "sources";
+  if (type === "note") return "notes";
+  return "knowledge";
+}
+
+function matchesWikiView(document: DocumentSummary, view: WikiView) {
+  if (view === "all") return true;
+  return wikiViewForType(document.wiki_type) === view;
+}
+
 export function LibraryPage() {
   const {
     activeLibrary,
@@ -33,6 +46,10 @@ export function LibraryPage() {
   const [collection, setCollection] = useState<"material" | "wiki">(
     searchParams.get("collection") === "wiki" ? "wiki" : "material",
   );
+  const [wikiView, setWikiView] = useState<WikiView>(() => {
+    const requested = searchParams.get("wikiView");
+    return requested === "sources" || requested === "notes" || requested === "all" ? requested : "knowledge";
+  });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [sections, setSections] = useState<DocumentSection[]>([]);
   const [loading, setLoading] = useState(true);
@@ -88,10 +105,15 @@ export function LibraryPage() {
       setDocuments(nextDocuments);
       const requested = searchParams.get("document");
       const requestedTitle = searchParams.get("title");
-      const nextSelected = nextDocuments.find((item) => item.document_id === requested)?.document_id
-        || nextDocuments.find((item) => item.title === requestedTitle)?.document_id
+      const requestedDocument = nextDocuments.find((item) => item.document_id === requested)
+        || nextDocuments.find((item) => item.title === requestedTitle);
+      if (collection === "wiki" && requestedDocument) setWikiView(wikiViewForType(requestedDocument.wiki_type));
+      const preferredDocument = collection === "wiki"
+        ? nextDocuments.find((item) => matchesWikiView(item, wikiView))
+        : nextDocuments[0];
+      const nextSelected = requestedDocument?.document_id
         || nextDocuments.find((item) => item.document_id === selectedId)?.document_id
-        || nextDocuments[0]?.document_id
+        || preferredDocument?.document_id
         || null;
       setSelectedId(nextSelected);
     } catch (reason) {
@@ -527,7 +549,7 @@ export function LibraryPage() {
   function selectDocument(documentId: string) {
     setSelectedId(documentId);
     setHighlightedChunk(null);
-    setSearchParams({ collection, document: documentId }, { replace: true });
+    setSearchParams({ collection, document: documentId, ...(collection === "wiki" ? { wikiView } : {}) }, { replace: true });
   }
 
   function selectCollection(next: "material" | "wiki") {
@@ -536,7 +558,16 @@ export function LibraryPage() {
     setSections([]);
     setWikiPlan(null);
     setWikiPlanOpen(false);
+    if (next === "wiki") setWikiView("knowledge");
     setSearchParams({ collection: next }, { replace: true });
+  }
+
+  function selectWikiView(next: WikiView) {
+    setWikiView(next);
+    const first = documents.find((document) => matchesWikiView(document, next));
+    setSelectedId(first?.document_id || null);
+    setSections([]);
+    setSearchParams({ collection: "wiki", wikiView: next, ...(first ? { document: first.document_id } : {}) }, { replace: true });
   }
 
   function toggleScopeFromList(documentId: string, index: number, shiftKey: boolean) {
@@ -614,6 +645,7 @@ export function LibraryPage() {
 
   const selected = documents.find((document) => document.document_id === selectedId);
   const filteredDocuments = documents.filter((document) => {
+    if (collection === "wiki" && !matchesWikiView(document, wikiView)) return false;
     const query = documentQuery.trim().toLocaleLowerCase();
     if (!query) return true;
     return [document.title, document.source, document.course, document.kind]
@@ -630,7 +662,7 @@ export function LibraryPage() {
     stale: "原文已变化",
   };
   const wikiTypeLabels: Record<NonNullable<DocumentSummary["wiki_type"]>, string> = {
-    source: "资料摘要",
+    source: "资料索引",
     entity: "实体",
     concept: "概念",
     analysis: "综合分析",
@@ -642,11 +674,12 @@ export function LibraryPage() {
     <section className="page-scroll" ref={pageRef} onScroll={recordReadingProgress}>
       <div className="page-container library-container">
         <header className="page-heading">
-          <div><span>Library</span><h2>资料库</h2><p>{collection === "material" ? "把学习材料放在这里，Bobodan 会建立可追踪的本地索引。" : "Wiki 是由 Bobodan 从学习资料中整理出的规范概念页。"}</p></div>
+          <div><span>Library</span><h2>资料库</h2><p>{collection === "material" ? "把学习材料放在这里，Bobodan 会建立可追踪的本地索引。" : "知识页沉淀可复用概念，资料索引只负责原文导航，你也可以补充个人笔记。"}</p></div>
           <div className="heading-actions">
             {activeLibrary && <button className="quiet-button" onClick={() => void loadDocuments()}><RefreshCw size={16} />刷新</button>}
             {collection === "wiki" && <button className="quiet-button" onClick={() => void openWikiEditor()}><Plus size={16} />新建笔记</button>}
             {collection === "wiki" && <button className="quiet-button" onClick={() => void openWikiMaintenance()}><Wrench size={16} />维护 Wiki</button>}
+            {collection === "wiki" && selected && selected.wiki_type !== "note" && <button className="quiet-button" onClick={() => { setWikiEstimate(null); setWikiPlan(null); setWikiPlanOpen(true); }}><Sparkles size={16} />AI 更新当前页</button>}
             {collection === "wiki" && <button className="primary-button" disabled={!selectedId || wikiEditorSaving} onClick={() => void openWikiEditor(selectedId || undefined)}><Edit3 size={16} />编辑页面</button>}
             {collection === "material" && documents.length > 0 && <button className="quiet-button" onClick={() => { setWikiScopeMode(uncoveredCount ? "uncovered" : "smart_library"); setWikiPlan(null); setWikiPlanOpen(true); }}><Sparkles size={16} />{uncoveredCount ? `整理未覆盖资料 · ${uncoveredCount}` : "按主题更新 Wiki"}</button>}
             {collection === "material" && <button className="primary-button" disabled={documentImporting} onClick={startDocumentImport}><Upload size={16} />{documentImporting ? "正在建立索引" : "导入资料"}</button>}
@@ -670,6 +703,12 @@ export function LibraryPage() {
           <button role="tab" aria-selected={collection === "material"} className={collection === "material" ? "active" : ""} onClick={() => selectCollection("material")}>学习资料</button>
           <button role="tab" aria-selected={collection === "wiki"} className={collection === "wiki" ? "active" : ""} onClick={() => selectCollection("wiki")}>Wiki</button>
         </div>
+        {collection === "wiki" && <div className="wiki-view-tabs" role="tablist" aria-label="Wiki 页面类型">
+          <button role="tab" aria-selected={wikiView === "knowledge"} className={wikiView === "knowledge" ? "active" : ""} onClick={() => selectWikiView("knowledge")}>知识页</button>
+          <button role="tab" aria-selected={wikiView === "sources"} className={wikiView === "sources" ? "active" : ""} onClick={() => selectWikiView("sources")}>资料索引</button>
+          <button role="tab" aria-selected={wikiView === "notes"} className={wikiView === "notes" ? "active" : ""} onClick={() => selectWikiView("notes")}>个人笔记</button>
+          <button role="tab" aria-selected={wikiView === "all"} className={wikiView === "all" ? "active" : ""} onClick={() => selectWikiView("all")}>全部</button>
+        </div>}
         {wikiPlanOpen && !wikiPlan && <section className="wiki-plan-compose" aria-label="创建 Wiki 整理计划">
           <div className="wiki-plan-compose-copy">
             <span>{collection === "wiki" ? "Update Wiki" : "Generate Wiki"}</span>
@@ -711,14 +750,15 @@ export function LibraryPage() {
           </label>
           {wikiEstimate && <section className="wiki-run-estimate" aria-label="Wiki 整理估算">
             <div><span>采用资料</span><strong>{wikiEstimate.document_count}</strong><small>{wikiEstimate.batch_count} 个批次</small></div>
-            <div><span>预计页面</span><strong>{wikiEstimate.estimated_pages[0]}–{wikiEstimate.estimated_pages[1]}</strong><small>资料页与概念页</small></div>
+            <div><span>预计页面</span><strong>{wikiEstimate.estimated_pages[0]}–{wikiEstimate.estimated_pages[1]}</strong><small>资料索引与知识页</small></div>
             <div><span>模型请求</span><strong>{wikiEstimate.request_range[0]}–{wikiEstimate.request_range[1]}</strong><small>{wikiEstimate.generation_mode === "catalog" ? "不会调用模型" : `${wikiEstimate.provider} · ${wikiEstimate.model}`}</small></div>
-            <div><span>预计耗时</span><strong>{Math.ceil(wikiEstimate.duration_range_seconds[0] / 60)}–{Math.max(1, Math.ceil(wikiEstimate.duration_range_seconds[1] / 60))} 分钟</strong><small>{wikiEstimate.rough ? "基于粗略区间" : "基于最近调用"}</small></div>
-            {wikiEstimate.generation_mode !== "catalog" && <p>生成 Wiki 会消耗较多 Token，并可能需要较长时间。达到额度上限后会保存草稿并暂停，不会继续扣费。</p>}
+            <div><span>Token 范围</span><strong>{Math.round((wikiEstimate.input_token_range[0] + wikiEstimate.output_token_range[0]) / 1000)}k–{Math.ceil((wikiEstimate.input_token_range[1] + wikiEstimate.output_token_range[1]) / 1000)}k</strong><small>输入与输出合计</small></div>
+            <div><span>预计耗时</span><strong>{Math.ceil(wikiEstimate.duration_range_seconds[0] / 60)}–{Math.max(1, Math.ceil(wikiEstimate.duration_range_seconds[1] / 60))} 分钟</strong><small>{wikiEstimate.historical_sample_size ? `${wikiEstimate.historical_sample_size} 次同模型请求 · ${wikiEstimate.confidence === "high" ? "较高" : wikiEstimate.confidence === "medium" ? "中等" : "较低"}可信度` : "没有可用历史样本"}</small></div>
+            {wikiEstimate.generation_mode !== "catalog" && <p>这是范围估算，不是账单。本地草稿缓存尚未计入，命中时实际请求和耗时会更低；完成后以运行卡显示的真实用量为准。</p>}
           </section>}
           <footer>
             <button className="quiet-button" disabled={wikiPlanLoading} onClick={() => setWikiPlanOpen(false)}>取消</button>
-            {wikiEstimate ? <button className="primary-button" disabled={wikiPlanLoading} onClick={() => void startEstimatedWiki()}><Sparkles size={16} />{wikiPlanLoading ? "正在启动" : "确认并开始"}</button> : <button className="primary-button" disabled={wikiPlanLoading} onClick={() => void planWiki()}><Sparkles size={16} />{wikiPlanLoading ? "正在估算" : "查看耗时与消耗"}</button>}
+            {wikiEstimate ? <button className="primary-button" disabled={wikiPlanLoading} onClick={() => void startEstimatedWiki()}><Sparkles size={16} />{wikiPlanLoading ? "正在启动" : "确认并开始"}</button> : <button className="primary-button" disabled={wikiPlanLoading} onClick={() => void planWiki()}><Sparkles size={16} />{wikiPlanLoading ? "正在估算" : collection === "wiki" ? "在对话中生成更新计划" : "查看耗时与消耗"}</button>}
           </footer>
         </section>}
         {wikiPlan && <WikiPlanCard
@@ -764,7 +804,7 @@ export function LibraryPage() {
         {loading ? <div className="illustrated-loading"><BrandIllustration state="reading" size={76} /><LoadingState label={collection === "wiki" ? "正在整理 Wiki…" : "正在读取本地资料…"} /></div> : documents.length ? (
           <div className="library-workspace">
             <aside className="document-rail">
-              <div className="rail-label"><FolderOpen size={15} />{collection === "wiki" ? "规范页面" : "我的资料"} <span>{documents.length}</span></div>
+              <div className="rail-label"><FolderOpen size={15} />{collection === "wiki" ? wikiView === "knowledge" ? "知识页面" : wikiView === "sources" ? "资料索引" : wikiView === "notes" ? "个人笔记" : "全部页面" : "我的资料"} <span>{filteredDocuments.length}</span></div>
               <label className="document-search"><Search size={14} /><input value={documentQuery} onChange={(event) => setDocumentQuery(event.target.value)} placeholder="搜索资料" aria-label="搜索资料" /></label>
               {collection === "material" && <div className="document-bulk-tools">
                 <button type="button" onClick={selectFilteredDocuments}><CheckSquare2 size={13} />选择当前筛选</button>
@@ -775,7 +815,7 @@ export function LibraryPage() {
                 <div className={`document-row-wrap ${selectedId === document.document_id ? "active" : ""}`} key={document.document_id}>
                   <button className="document-row" onClick={() => selectDocument(document.document_id)}>
                     <span className="document-kind"><FileText size={17} /></span>
-                    <span><strong>{document.title || document.source}</strong><small>{document.course || (document.origin === "legacy_index" ? "已有知识库" : document.kind || "资料")} · {document.wiki_coverage ? `${coverageLabels[document.wiki_coverage.status]} · 关联 ${document.wiki_coverage.linked_page_count} 页` : document.chunk_count ? `${document.chunk_count} 个片段` : formatRelativeDate(document.updated_at)}</small></span>
+                    <span><strong>{document.title || document.source}</strong><small>{collection === "wiki" ? (document.wiki_type ? wikiTypeLabels[document.wiki_type] : "Wiki 页面") : document.course || (document.origin === "legacy_index" ? "已有知识库" : document.kind || "资料")} · {document.wiki_coverage ? `${coverageLabels[document.wiki_coverage.status]} · 关联 ${document.wiki_coverage.linked_page_count} 页` : document.chunk_count ? `${document.chunk_count} 个片段` : formatRelativeDate(document.updated_at)}</small></span>
                     <i className={document.vector_status === "error" ? "error" : "ready"} title={document.vector_status || "已建立索引"} />
                   </button>
                   {collection === "material" && <IconButton

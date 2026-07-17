@@ -29,8 +29,10 @@ EVIDENCE_WINDOW_CHARS = 16000
 MAX_KNOWLEDGE_PAGES_PER_BATCH = 12
 MAX_PAGE_BODY_CHARS = 4500
 MAX_PAGE_SECTIONS = 7
+MAX_SOURCE_PAGE_BODY_CHARS = 2200
+MAX_SOURCE_PAGE_SECTIONS = 4
 RUN_LOCK = threading.RLock()
-PROMPT_SCHEMA_VERSION = 2
+PROMPT_SCHEMA_VERSION = 3
 DEFAULT_BUDGET = {"max_requests": 24, "max_input_tokens": 300000, "max_output_tokens": 40000}
 
 
@@ -102,11 +104,15 @@ Rules:
 - Important claims require supplied source_ids.
 - Preserve useful facts from the existing page when updating it.
 - Prefer links to related pages over embedding unrelated subtopics.
+- For wiki_source, write a compact navigation page rather than reproducing the source chapter by chapter.
+- A wiki_source body must stay under 1800 Chinese characters and contain only a brief overview, a learning map, and key takeaways.
+- For wiki_concept, wiki_entity, wiki_analysis, and wiki_question, synthesize reusable knowledge that can stand apart from one source document.
 """
 
 PAGE_PROMPT = """Title: {title}
 Page type: {page_type}
 Candidate summary: {summary}
+Related Wiki titles: {related_titles}
 User instruction: {instruction}
 Existing page revision: {existing_revision}
 Existing page excerpt: {existing_page}
@@ -291,7 +297,15 @@ class WikiOrchestrator:
             if budget is not None
             else {"max_requests": 1000000, "max_input_tokens": 1000000000, "max_output_tokens": 1000000000}
         )
-        self.usage = {"requests": 0, "input_tokens": 0, "output_tokens": 0, "cache_hits": 0}
+        self.usage = {
+            "requests": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cache_hits": 0,
+            "duration_ms": 0,
+            "provider_cache_read_tokens": 0,
+            "provider_cache_miss_tokens": 0,
+        }
         self.force_regenerate = force_regenerate
         self.cache = WikiGenerationCache(self.workspace)
         self.usage_service = UsageService()
@@ -398,6 +412,9 @@ class WikiOrchestrator:
                 {"role": "user", "content": prompt},
             ])
         except Exception as exc:
+            duration_ms = round((time.perf_counter() - started) * 1000)
+            with self._usage_lock:
+                self.usage["duration_ms"] += duration_ms
             message = str(exc).casefold()
             error_kind = (
                 "authentication" if "401" in message or "403" in message or "auth" in message
@@ -416,7 +433,7 @@ class WikiOrchestrator:
                 subsystem="wiki",
                 operation=operation,
                 run_id=self.run_id,
-                duration_ms=round((time.perf_counter() - started) * 1000),
+                duration_ms=duration_ms,
                 status="error",
                 provider=provider,
                 model=model,
@@ -427,9 +444,14 @@ class WikiOrchestrator:
         reported = getattr(response, "usage", None) or {}
         output_tokens = int(reported.get("output_tokens") or max(1, len(str(getattr(response, "content", ""))) // 2))
         with self._usage_lock:
+            self.usage["duration_ms"] += duration_ms
             if reported.get("input_tokens") is not None:
                 self.usage["input_tokens"] += int(reported["input_tokens"]) - estimated_input
             self.usage["output_tokens"] += output_tokens
+            if reported.get("cache_read_tokens") is not None:
+                self.usage["provider_cache_read_tokens"] += int(reported["cache_read_tokens"] or 0)
+            if reported.get("cache_miss_tokens") is not None:
+                self.usage["provider_cache_miss_tokens"] += int(reported["cache_miss_tokens"] or 0)
         self.usage_service.record(
             response,
             subsystem="wiki",
@@ -546,6 +568,21 @@ class WikiOrchestrator:
         return list(merged.values())
 
     @staticmethod
+    def _link_source_candidates(
+        source_candidates: list[dict[str, Any]],
+        knowledge_candidates: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        for source in source_candidates:
+            source_ids = set(source.get("source_ids") or [])
+            source["related"] = list(dict.fromkeys(
+                str(candidate.get("title") or "").strip()
+                for candidate in knowledge_candidates
+                if source_ids.intersection(candidate.get("source_ids") or [])
+                and str(candidate.get("title") or "").strip()
+            ))[:8]
+        return source_candidates
+
+    @staticmethod
     def _evidence(candidate: dict[str, Any], lookup: dict[str, dict[str, Any]]) -> str:
         rendered = []
         used = 0
@@ -600,6 +637,7 @@ class WikiOrchestrator:
                 title=candidate["title"],
                 page_type=candidate["page_type"],
                 summary=candidate.get("summary") or "",
+                related_titles="、".join(candidate.get("related") or []) or "(none)",
                 instruction=instruction.strip() or "Build a concise, traceable learning Wiki.",
                 existing_revision=existing_revision,
                 existing_page=str(existing_body)[:6000] or "(none)",
@@ -618,12 +656,17 @@ class WikiOrchestrator:
                 draft = pages[0]
                 body = str(draft.get("body") or "").strip()
                 section_count = len(re.findall(r"^##\s+", body, flags=re.MULTILINE))
-                if body and len(body) <= MAX_PAGE_BODY_CHARS and section_count <= MAX_PAGE_SECTIONS:
+                max_body_chars = MAX_SOURCE_PAGE_BODY_CHARS if candidate["page_type"] == "wiki_source" else MAX_PAGE_BODY_CHARS
+                max_sections = MAX_SOURCE_PAGE_SECTIONS if candidate["page_type"] == "wiki_source" else MAX_PAGE_SECTIONS
+                if body and len(body) <= max_body_chars and section_count <= max_sections:
                     draft["title"] = candidate["title"]
                     draft["page_type"] = candidate["page_type"]
                     return draft
                 repair = (
-                    "The previous draft was too large. Rewrite it as a small overview page under 3000 characters "
+                    "The previous source page copied too much of the original. Rewrite it as a navigation page "
+                    "under 1800 Chinese characters with only a brief overview, learning map, and key takeaways."
+                    if candidate["page_type"] == "wiki_source"
+                    else "The previous draft was too large. Rewrite it as a small overview page under 3000 characters "
                     "with at most 6 second-level sections; move unrelated subtopics into related page links."
                 )
         if candidate["page_type"] == "wiki_source":
@@ -813,10 +856,11 @@ class WikiOrchestrator:
                     "documents": [item.get("title") or item.get("source") for item in documents],
                     "status": "planned",
                 }]
-            candidates = self._merge_candidates([
-                *self._source_candidates(documents, lookup),
-                *candidates,
-            ], lookup)
+            source_candidates = self._link_source_candidates(
+                self._source_candidates(documents, lookup),
+                candidates,
+            )
+            candidates = self._merge_candidates([*source_candidates, *candidates], lookup)
             if status == "planned":
                 for start in range(0, len(candidates), 2):
                     if cancel_check and cancel_check():

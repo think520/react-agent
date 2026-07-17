@@ -324,6 +324,10 @@ export interface WikiRunEstimate {
   output_token_range: [number, number];
   duration_range_seconds: [number, number];
   rough: boolean;
+  confidence: "low" | "medium" | "high";
+  historical_sample_size: number;
+  local_cache_reuse_included: boolean;
+  assumptions: string[];
   provider: string;
   model: string;
 }
@@ -384,7 +388,15 @@ export interface WikiPlan {
   recovery?: { strategy: "keep_existing"; resolved_at: string; skipped_titles: string[] };
   generation_mode?: WikiGenerationMode;
   budget?: WikiRunBudget;
-  usage?: { requests: number; input_tokens: number; output_tokens: number; cache_hits: number };
+  usage?: {
+    requests: number;
+    input_tokens: number;
+    output_tokens: number;
+    cache_hits: number;
+    duration_ms?: number;
+    provider_cache_read_tokens?: number;
+    provider_cache_miss_tokens?: number;
+  };
   remaining_pages?: number;
   remaining_document_ids?: string[];
 }

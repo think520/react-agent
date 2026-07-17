@@ -15,7 +15,7 @@ const changeMeta: Record<WikiChangeKind, { label: string; icon: typeof FilePlus2
 };
 
 const pageTypeLabels: Record<WikiPlan["changes"][number]["page_type"], string> = {
-  wiki_source: "资料摘要",
+  wiki_source: "资料索引",
   wiki_entity: "实体页",
   wiki_concept: "概念页",
   wiki_analysis: "综合分析",
@@ -46,6 +46,12 @@ function stagedChanges(plan: WikiPlan) {
     else grouped.set(item.change_id, { change_id: item.change_id, errors: Array.from(new Set(item.errors)) });
   }
   return Array.from(grouped.values());
+}
+
+function formatDuration(durationMs = 0) {
+  const seconds = Math.max(0, Math.round(durationMs / 1000));
+  if (seconds < 60) return `${seconds} 秒`;
+  return `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`;
 }
 
 export function WikiPlanCard({
@@ -159,8 +165,16 @@ export function WikiPlanCard({
       {plan.batches?.length ? <section className="wiki-run-scope" aria-label="Wiki 全库发现范围">
         <div><strong>采用资料</strong><span>{scopeDocuments.length}</span><small>{plan.scope.mode === "uncovered" ? "未覆盖或原文已变化" : plan.scope.mode === "selected_only" ? "严格仅选中" : plan.scope.mode === "course" ? "当前课程" : "全库发现并优先选择项"}</small></div>
         <div><strong>处理批次</strong><span>{plan.batches.length}</span><small>每批最多 5 份资料</small></div>
-        <div><strong>资料摘要页</strong><span>{changes.filter((item) => item.page_type === "wiki_source").length}</span><small>每份资料独立可追溯</small></div>
+        <div><strong>资料索引页</strong><span>{changes.filter((item) => item.page_type === "wiki_source").length}</span><small>每份资料独立可追溯</small></div>
       </section> : null}
+      {plan.usage && <section className="wiki-run-actual" aria-label="Wiki 本轮实际用量">
+        <strong>本轮实际用量</strong>
+        <span>{plan.usage.requests} 次模型请求</span>
+        <span>输入 {plan.usage.input_tokens.toLocaleString()} Token</span>
+        <span>输出 {plan.usage.output_tokens.toLocaleString()} Token</span>
+        {typeof plan.usage.duration_ms === "number" && <span>模型等待 {formatDuration(plan.usage.duration_ms)}</span>}
+        <small>Bobodan 本地缓存复用 {plan.usage.cache_hits} 个结果{(plan.usage.provider_cache_read_tokens || plan.usage.provider_cache_miss_tokens) ? ` · Provider 缓存读取 ${(plan.usage.provider_cache_read_tokens || 0).toLocaleString()} / ${(plan.usage.provider_cache_read_tokens || 0) + (plan.usage.provider_cache_miss_tokens || 0)} Token` : " · Provider 未报告缓存明细"}</small>
+      </section>}
       {staged.length > 0 && <section className="wiki-plan-recovery" aria-label="Wiki 计划需要处理">
         <header><span><AlertTriangle size={17} /><strong>{staged.length} 个页面需要你选择处理方式</strong></span><p>Bobodan 已暂停整次写入，现有 Wiki 没有被修改。你可以保留原页面并生成其余内容，也可以让 Bobodan 补全后重新规划。</p></header>
         <div className="wiki-plan-issues">{staged.map((item) => {

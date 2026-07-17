@@ -72,6 +72,38 @@ def test_orchestrated_plan_batches_sources_and_guarantees_source_pages(tmp_path)
     assert len({item["source_refs"][0]["document_id"] for item in source_changes}) == 6
     assert len(concept_changes) == 1
     assert concept_changes[0]["source_count"] == 2
+    linked_sources = [item for item in source_changes if "共享概念" in item["related"]]
+    assert len(linked_sources) == 2
+    assert all("/library?collection=wiki" in item["content"] for item in linked_sources)
+
+
+def test_source_pages_fall_back_to_compact_navigation_instead_of_copying_the_document(tmp_path):
+    class OverlongSourceProvider(OrchestrationProvider):
+        def complete(self, messages, tools=None):
+            prompt = "\n\n".join(message["content"] for message in messages)
+            if "Do not write page bodies" in prompt:
+                return super().complete(messages, tools=tools)
+            page_type = re.search(r"^Page type: (.+)$", prompt, flags=re.MULTILINE).group(1)
+            if page_type != "wiki_source":
+                return super().complete(messages, tools=tools)
+            return LLMResponse(content=json.dumps({"pages": [{
+                "title": "资料 1",
+                "page_type": "wiki_source",
+                "summary": "过长资料页。",
+                "body": "逐章复述。" * 500,
+                "tags": [],
+                "related": [],
+                "claims": [{"text": "内容来自原文。", "source_ids": ["S1"]}],
+            }]}))
+
+    plan = WikiOrchestrator(
+        str(tmp_path), str(tmp_path), OverlongSourceProvider(),
+    ).create_plan([material(1)], scope_mode="uncovered")
+
+    source = next(item for item in plan["changes"] if item["page_type"] == "wiki_source")
+    assert "本页连接原始资料与后续概念页面" in source["content"]
+    assert "逐章复述" not in source["content"]
+    assert len(source["content"]) < 2200
 
 
 def test_large_library_discovery_reads_every_batch_instead_of_only_the_first_document(tmp_path):

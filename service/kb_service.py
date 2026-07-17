@@ -877,21 +877,58 @@ class KBService:
             concept_max = 0 if generation_mode == "catalog" else 6 if generation_mode == "standard" else 12 * ((len(documents) + 4) // 5)
             page_min = len(documents)
             page_max = page_min + concept_max
-            request_min = 0 if generation_mode == "catalog" else len(windows) + page_min
-            request_max = 0 if generation_mode == "catalog" else len(windows) * 2 + page_max * 2
+            discovery_min = 0 if generation_mode == "catalog" else len(windows)
+            discovery_max = discovery_min + ((discovery_min + 3) // 4)
+            drafting_min = 0 if generation_mode == "catalog" else page_min
+            drafting_max = 0 if generation_mode == "catalog" else page_max + ((page_max + 3) // 4)
+            request_min = discovery_min + drafting_min
+            request_max = discovery_max + drafting_max
             source_chars = sum(len(str(item.get("text") or "")) for item in lookup.values())
             input_min = 0 if generation_mode == "catalog" else max(1000, source_chars // 2)
             input_max = 0 if generation_mode == "catalog" else input_min + page_max * 10000
-            history = UsageService().summary(days=30)["entries"]
-            durations = sorted(int(item["duration_ms"]) for item in history if item.get("subsystem") == "wiki" and item.get("duration_ms"))
-            if durations:
-                low = durations[len(durations) // 2]
-                high = durations[min(len(durations) - 1, int(len(durations) * .9))]
-                duration_range = [round(request_min * low / 1000), round(request_max * high / 1000)]
-                rough = False
-            else:
-                duration_range = [request_min * 8, request_max * 45]
-                rough = True
+            output_min = 0
+            output_max = 0 if generation_mode == "catalog" else page_max * 3000
+            history = [
+                item for item in UsageService().summary(days=30)["entries"]
+                if item.get("subsystem") == "wiki"
+                and item.get("status") == "ok"
+                and item.get("run_id")
+                and int(item.get("duration_ms") or 0) > 0
+                and (not provider_name or str(item.get("provider") or "").casefold() == provider_name.casefold())
+                and (not model or str(item.get("model") or "").casefold() == model.casefold())
+            ]
+            discovery_history = [item for item in history if str(item.get("operation") or "").startswith("wiki_discovery")]
+            drafting_history = [item for item in history if item.get("operation") == "wiki_drafting"]
+
+            def profile(items: list[dict[str, Any]], field: str, fallback_low: int, fallback_high: int) -> tuple[int, int]:
+                values = sorted(int(item.get(field) or 0) for item in items if int(item.get(field) or 0) > 0)
+                if not values:
+                    return fallback_low, fallback_high
+                median = values[len(values) // 2]
+                p90 = values[min(len(values) - 1, int((len(values) - 1) * .9))]
+                return median, max(median, p90)
+
+            discovery_duration = profile(discovery_history, "duration_ms", 8000, 45000)
+            drafting_duration = profile(drafting_history, "duration_ms", 8000, 45000)
+            duration_range = [
+                round((discovery_min * discovery_duration[0] + drafting_min * drafting_duration[0]) / 1000),
+                round((discovery_max * discovery_duration[1] + drafting_max * drafting_duration[1]) / 1000),
+            ]
+            if generation_mode != "catalog" and discovery_history and drafting_history:
+                discovery_input = profile(discovery_history, "input_tokens", max(1000, source_chars // 2), max(1000, source_chars))
+                drafting_input = profile(drafting_history, "input_tokens", 1000, 10000)
+                drafting_output = profile(drafting_history, "output_tokens", 500, 3000)
+                discovery_output = profile(discovery_history, "output_tokens", 500, 3000)
+                input_min = discovery_min * discovery_input[0] + drafting_min * drafting_input[0]
+                input_max = discovery_max * discovery_input[1] + drafting_max * drafting_input[1]
+                output_min = discovery_min * discovery_output[0] + drafting_min * drafting_output[0]
+                output_max = discovery_max * discovery_output[1] + drafting_max * drafting_output[1]
+            sample_size = len(history)
+            confidence = (
+                "high" if sample_size >= 12 and len(discovery_history) >= 4 and len(drafting_history) >= 4
+                else "medium" if sample_size >= 6 and discovery_history and drafting_history
+                else "low"
+            )
             return _ok(
                 generation_mode=generation_mode,
                 document_count=len(documents),
@@ -899,9 +936,17 @@ class KBService:
                 estimated_pages=[page_min, page_max],
                 request_range=[request_min, request_max],
                 input_token_range=[input_min, input_max],
-                output_token_range=[0, page_max * 3000] if generation_mode != "catalog" else [0, 0],
+                output_token_range=[output_min, output_max],
                 duration_range_seconds=duration_range,
-                rough=rough,
+                rough=confidence == "low",
+                confidence=confidence,
+                historical_sample_size=sample_size,
+                local_cache_reuse_included=False,
+                assumptions=[
+                    "估算按 Wiki 发现与页面写作分别计算",
+                    "上界预留约 25% 的格式修复请求",
+                    "本地精确草稿缓存会让实际请求和耗时低于区间",
+                ],
                 provider=provider_name,
                 model=model,
             )

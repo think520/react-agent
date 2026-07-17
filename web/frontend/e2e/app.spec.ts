@@ -283,7 +283,11 @@ test("Wiki maintenance separates checks from confirmed repairs", async ({ page }
   await page.route(`**/api/kb/wiki/repair-plans/${"r".repeat(32)}/apply`, (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ plan_id: "r".repeat(32), status: "partial", health_snapshot: {}, applied_count: 1, pending_count: 1, items: [{ item_id: "repair-1", issue_type: "index_check", title: "重建 Wiki 页面索引", execution: "local", resolution: "reindex", status: "applied" }, { item_id: "repair-2", issue_type: "orphan", title: "旧页面", execution: "manual", resolution: "review", status: "pending" }] }) }));
 
   await page.goto("/library?collection=wiki");
-  await expect(page.getByText("Wiki · 资料摘要")).toBeVisible();
+  await page.getByRole("tab", { name: "资料索引" }).click();
+  await expect(page.getByText("Wiki · 资料索引")).toBeVisible();
+  await page.getByRole("button", { name: "AI 更新当前页" }).click();
+  await expect(page.getByRole("button", { name: "在对话中生成更新计划" })).toBeVisible();
+  await page.getByRole("button", { name: "取消" }).click();
   await page.getByRole("button", { name: "维护 Wiki" }).click();
   await expect(page.getByRole("region", { name: "Wiki 维护" })).toBeVisible();
   await expect(page.getByText("发现需要检查的结构问题")).toBeVisible();
@@ -346,9 +350,10 @@ test("materials become a traceable Wiki only after plan confirmation", async ({ 
       summary: "Grounded generation.", related: [], source_count: 1, target: "concepts/RAG.md",
       content: "## 原始资料\n\n- [RAG Lesson 1 · Retrieval](/library?collection=material&document=doc-1&chunk=chunk-1)",
     }],
+    usage: { requests: 7, input_tokens: 24000, output_tokens: 5000, cache_hits: 3, duration_ms: 81000, provider_cache_read_tokens: 12000, provider_cache_miss_tokens: 12000 },
   };
   await page.route("**/api/kb/wiki/coverage", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ documents: materials.map((item) => ({ document_id: item.document_id, status: "uncovered", linked_page_count: 0, source_fingerprint: item.document_id })), counts: { uncovered: 5, partial: 0, covered: 0, stale: 0 } }) }));
-  await page.route("**/api/kb/wiki/runs/estimate", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ generation_mode: "standard", document_count: 5, batch_count: 1, estimated_pages: [5, 11], request_range: [6, 22], input_token_range: [12000, 120000], output_token_range: [0, 33000], duration_range_seconds: [48, 990], rough: true, provider: "deepseek", model: "deepseek-chat" }) }));
+  await page.route("**/api/kb/wiki/runs/estimate", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ generation_mode: "standard", document_count: 5, batch_count: 1, estimated_pages: [5, 11], request_range: [6, 22], input_token_range: [12000, 120000], output_token_range: [3000, 33000], duration_range_seconds: [48, 990], rough: false, confidence: "medium", historical_sample_size: 10, local_cache_reuse_included: false, assumptions: ["本地缓存未计入"], provider: "deepseek", model: "deepseek-chat" }) }));
   await page.route("**/api/kb/wiki/runs", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(planned) }));
   await page.route(`**/api/kb/wiki/plans/${planned.plan_id}/apply`, (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ ...planned, status: "applied", checkpoint_id: "b".repeat(32), written: ["concepts/RAG.md"] }) }));
 
@@ -358,10 +363,12 @@ test("materials become a traceable Wiki only after plan confirmation", async ({ 
   await page.getByLabel("整理要求").fill("整理核心概念和证据");
   await page.getByRole("button", { name: "查看耗时与消耗" }).click();
   await expect(page.getByRole("region", { name: "Wiki 整理估算" })).toContainText("5");
-  await expect(page.getByText(/消耗较多 Token/)).toBeVisible();
+  await expect(page.getByText(/范围估算，不是账单/)).toBeVisible();
   await page.getByRole("button", { name: "确认并开始" }).click();
   await expect(page.getByRole("region", { name: "Wiki 整理计划" })).toBeVisible();
   await expect(page.getByText("先审查这份整理计划")).toBeVisible();
+  await expect(page.getByRole("region", { name: "Wiki 本轮实际用量" })).toContainText("7 次模型请求");
+  await expect(page.getByRole("region", { name: "Wiki 本轮实际用量" })).toContainText("本地缓存复用 3 个结果");
   await page.getByRole("button", { name: "确认并生成" }).click();
   await expect(page.getByText("Wiki 已按确认的计划写入，并重新建立本地索引。")).toBeVisible();
   await page.locator(".wiki-plan-change summary").click();
