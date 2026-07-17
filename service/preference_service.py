@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
@@ -49,7 +49,22 @@ def default_preferences(default_provider: str = "", skill_names: list[str] | Non
             "session_density": "comfortable",
             "motion": "system",
         },
-        "ai": {"default_provider": default_provider},
+        "ai": {
+            "default_provider": default_provider,
+            "task_providers": {
+                "wiki_discovery": "default",
+                "wiki_drafting": "default",
+            },
+        },
+        "wiki": {
+            "default_mode": "standard",
+            "guide_completed": False,
+            "budget": {
+                "max_requests": 24,
+                "max_input_tokens": 300000,
+                "max_output_tokens": 40000,
+            },
+        },
         "memory": {"enabled": True},
         "search": {"provider": "auto", "permission": "ask", "jina_fallback": True},
         "skills": {"enabled_names": sorted(set(skill_names or []))},
@@ -67,6 +82,7 @@ _ENUMS = {
     "appearance.motion": {"system", "reduced"},
     "search.provider": {"auto", "tavily", "exa"},
     "search.permission": {"ask", "auto"},
+    "wiki.default_mode": {"catalog", "standard", "deep"},
 }
 _STRINGS = {
     "assistant.display_name": 60,
@@ -74,9 +90,16 @@ _STRINGS = {
     "user.profile": 1000,
     "user.long_term_goal": 500,
     "ai.default_provider": 80,
+    "ai.task_providers.wiki_discovery": 80,
+    "ai.task_providers.wiki_drafting": 80,
 }
-_BOOLEANS = {"appearance.paper_texture", "memory.enabled", "search.jina_fallback"}
+_BOOLEANS = {"appearance.paper_texture", "memory.enabled", "search.jina_fallback", "wiki.guide_completed"}
 _LISTS = {"skills.enabled_names"}
+_INTEGERS = {
+    "wiki.budget.max_requests": (1, 500),
+    "wiki.budget.max_input_tokens": (1000, 10000000),
+    "wiki.budget.max_output_tokens": (1000, 1000000),
+}
 _CHAT_KEYS = {
     "assistant.teaching_style",
     "assistant.answer_depth",
@@ -159,6 +182,8 @@ class PreferenceService:
                 raise ValueError(f"Unsupported preference value: {path}")
             if path == "ai.default_provider" and value not in available_providers:
                 raise ValueError("The selected provider is not available")
+            if path.startswith("ai.task_providers.") and value != "default" and value not in available_providers:
+                raise ValueError("The selected task provider is not available")
             if path == "skills.enabled_names":
                 value = sorted({str(item) for item in value if str(item) in available_skills})
             _set_path(updated, path, value)
@@ -177,6 +202,9 @@ class PreferenceService:
             return isinstance(value, bool)
         if path in _LISTS:
             return isinstance(value, list) and len(value) <= 100 and all(isinstance(item, str) for item in value)
+        if path in _INTEGERS:
+            minimum, maximum = _INTEGERS[path]
+            return isinstance(value, int) and not isinstance(value, bool) and minimum <= value <= maximum
         return False
 
     def create_proposal(self, message: str) -> dict[str, Any] | None:

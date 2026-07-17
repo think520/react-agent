@@ -117,7 +117,7 @@ export function AttributionBadges({ attribution }: { attribution?: Attribution }
     <div className="source-row" aria-label="回答来源">
       {sources.length ? sources.map((source) => {
         const location = source.heading || (source.page ? `第 ${source.page} 页` : source.slide ? `第 ${source.slide} 页` : "");
-        const sourceLabel = source.collection === "wiki" ? "Wiki" : attributionLabels[attribution.kind];
+        const sourceLabel = source.wiki_type === "note" ? "个人笔记" : source.collection === "wiki" ? "Wiki" : attributionLabels[attribution.kind];
         const sourceDetail = location;
         const content = <>{source.source_type === "web" ? <ExternalLink size={14} /> : <FileText size={14} />}<span>{sourceLabel} · {source.title}</span>{location && <small>{location}</small>}</>;
         if (source.source_type === "web" && source.snapshot_id) return <WebSourceBadge source={source} label={sourceLabel} key={source.source_id} />;

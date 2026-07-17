@@ -11,6 +11,7 @@ export interface SourceRef {
   page?: number | null;
   slide?: number | null;
   collection?: "material" | "wiki" | null;
+  wiki_type?: "source" | "entity" | "concept" | "analysis" | "question" | "note" | null;
   domain?: string | null;
   accessed_at?: string | null;
   snapshot_id?: string | null;
@@ -97,7 +98,7 @@ export interface DocumentSummary {
   origin?: "managed" | "workspace" | "legacy_index" | string;
   chunk_count?: number;
   collection: "material" | "wiki";
-  wiki_type?: "source" | "entity" | "concept" | "analysis" | "question" | null;
+  wiki_type?: "source" | "entity" | "concept" | "analysis" | "question" | "note" | null;
   canonical_id?: string | null;
   content_role: "content" | "metadata";
   wiki_coverage?: WikiDocumentCoverage;
@@ -153,7 +154,7 @@ export interface ReviewQueue {
 export interface SettingsSummary {
   workspace_name: string;
   default_provider: string;
-  providers: Array<{ name: string; configured: boolean; type?: string; model?: string; is_default?: boolean }>;
+  providers: Array<{ name: string; configured: boolean; type?: string; model?: string; is_default?: boolean; api_key_env?: string; preset?: string; base_url?: string }>;
   search_providers: Array<{ name: "auto" | "tavily" | "exa"; configured: boolean }>;
   mcp_enabled: boolean;
   skills: Array<{
@@ -167,7 +168,7 @@ export interface SettingsSummary {
 }
 
 export interface UserPreferences {
-  schema_version: 3;
+  schema_version: 4;
   revision: number;
   assistant: {
     display_name: string;
@@ -188,7 +189,15 @@ export interface UserPreferences {
     session_density: "comfortable" | "compact";
     motion: "system" | "reduced";
   };
-  ai: { default_provider: string };
+  ai: {
+    default_provider: string;
+    task_providers: { wiki_discovery: string; wiki_drafting: string };
+  };
+  wiki: {
+    default_mode: WikiGenerationMode;
+    guide_completed: boolean;
+    budget: WikiRunBudget;
+  };
   memory: { enabled: boolean };
   search: { provider: "auto" | "tavily" | "exa"; permission: "ask" | "auto"; jina_fallback: boolean };
   skills: { enabled_names: string[] };
@@ -296,7 +305,28 @@ export interface WikiHealth {
 export type WikiChangeKind = "add" | "update" | "merge" | "conflict" | "skip" | "split";
 
 export type WikiScopeMode = "uncovered" | "smart_library" | "selected_only" | "course";
+export type WikiGenerationMode = "catalog" | "standard" | "deep";
 export type WikiCoverageStatus = "uncovered" | "partial" | "covered" | "stale";
+
+export interface WikiRunBudget {
+  max_requests: number;
+  max_input_tokens: number;
+  max_output_tokens: number;
+}
+
+export interface WikiRunEstimate {
+  generation_mode: WikiGenerationMode;
+  document_count: number;
+  batch_count: number;
+  estimated_pages: [number, number];
+  request_range: [number, number];
+  input_token_range: [number, number];
+  output_token_range: [number, number];
+  duration_range_seconds: [number, number];
+  rough: boolean;
+  provider: string;
+  model: string;
+}
 
 export interface WikiDocumentCoverage {
   document_id: string;
@@ -311,7 +341,7 @@ export interface WikiPlanChange {
   change_id: string;
   kind: WikiChangeKind;
   title: string;
-  page_type: "wiki_source" | "wiki_entity" | "wiki_concept" | "wiki_analysis" | "wiki_question";
+  page_type: "wiki_source" | "wiki_entity" | "wiki_concept" | "wiki_analysis" | "wiki_question" | "wiki_note";
   summary: string;
   related: string[];
   source_count: number;
@@ -322,7 +352,7 @@ export interface WikiPlanChange {
 export interface WikiPlan {
   plan_id: string;
   run_id?: string;
-  status: "planning" | "planned" | "applied" | "replaced" | "cancelled" | "failed";
+  status: "planning" | "planned" | "applied" | "replaced" | "cancelled" | "failed" | "paused_budget";
   action: "generate" | "update";
   instruction: string;
   created_at: string;
@@ -340,7 +370,7 @@ export interface WikiPlan {
   changes: WikiPlanChange[];
   batches?: Array<{ batch_id: string; index: number; document_ids: string[]; documents: string[]; status: string }>;
   coverage_before?: WikiDocumentCoverage[];
-  phase?: "queued" | "discovering" | "drafting" | "planned" | "cancelling" | "cancelled" | "failed" | "interrupted";
+  phase?: "queued" | "discovering" | "drafting" | "planned" | "cancelling" | "cancelled" | "failed" | "interrupted" | "paused_budget";
   completed_batches?: number;
   total_batches?: number;
   completed_pages?: number;
@@ -352,6 +382,43 @@ export interface WikiPlan {
   staging?: Array<{ change_id: string; path: string; errors: string[] }>;
   replacement_plan_id?: string;
   recovery?: { strategy: "keep_existing"; resolved_at: string; skipped_titles: string[] };
+  generation_mode?: WikiGenerationMode;
+  budget?: WikiRunBudget;
+  usage?: { requests: number; input_tokens: number; output_tokens: number; cache_hits: number };
+  remaining_pages?: number;
+  remaining_document_ids?: string[];
+}
+
+export interface WikiRepairPlan {
+  plan_id: string;
+  status: "planned" | "drafting" | "applied" | "partial" | "cancelled";
+  health_snapshot: WikiHealth;
+  items: Array<{
+    item_id: string;
+    issue_type: string;
+    page_id?: string | null;
+    title: string;
+    execution: "local" | "ai" | "manual";
+    resolution: "reindex" | "relink" | "merge" | "archive" | "regenerate" | "review";
+    status: "pending" | "ready" | "applied" | "skipped" | "failed";
+  }>;
+  checkpoint_id?: string;
+  applied_count?: number;
+  pending_count?: number;
+  ai_review?: Array<{ pages?: string[]; issue_type?: string; reason?: string; suggestion?: string }>;
+}
+
+export interface WikiEditablePage {
+  document_id: string;
+  title: string;
+  body: string;
+  tags: string[];
+  related: string[];
+  page_type: WikiPlanChange["page_type"];
+  generated_by: "bobodan" | "user" | string;
+  managed_by: "ai" | "user" | "mixed";
+  content_revision: number;
+  source_refs: Array<Record<string, unknown>>;
 }
 
 export interface DocumentImpact {
@@ -405,7 +472,7 @@ export interface WikiPlanArtifact {
   type: "wiki_plan";
   library_id?: string | null;
   operation: string;
-  status: "planning" | "planned" | "applied" | "replaced" | "cancelled" | "failed";
+  status: "planning" | "planned" | "applied" | "replaced" | "cancelled" | "failed" | "paused_budget";
   plan_id: string;
   plan: WikiPlan;
 }

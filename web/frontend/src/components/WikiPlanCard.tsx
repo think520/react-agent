@@ -20,6 +20,7 @@ const pageTypeLabels: Record<WikiPlan["changes"][number]["page_type"], string> =
   wiki_concept: "概念页",
   wiki_analysis: "综合分析",
   wiki_question: "问题与发现",
+  wiki_note: "个人笔记",
 };
 
 function validationMessage(error: string) {
@@ -56,6 +57,10 @@ export function WikiPlanCard({
   onRegenerate,
   onCancel,
   onUndo,
+  onResume,
+  onCatalog,
+  onContinue,
+  onSwitchProvider,
 }: {
   plan: WikiPlan;
   busy?: boolean;
@@ -65,6 +70,10 @@ export function WikiPlanCard({
   onRegenerate?: () => void;
   onCancel?: () => void;
   onUndo?: () => void;
+  onResume?: () => void;
+  onCatalog?: () => void;
+  onContinue?: () => void;
+  onSwitchProvider?: () => void;
 }) {
   if (plan.status === "planning") {
     const phaseLabels: Record<string, string> = {
@@ -72,6 +81,7 @@ export function WikiPlanCard({
       discovering: "正在分批阅读资料并发现概念",
       drafting: "正在生成小型互链页面",
       cancelling: "正在停止本轮整理",
+      paused_budget: "已到达本轮额度上限",
     };
     const detail = plan.phase === "discovering"
       ? `已完成 ${plan.completed_batches || 0} / ${plan.total_batches || 0} 个资料批次`
@@ -81,12 +91,20 @@ export function WikiPlanCard({
     return <section className="wiki-plan-card planning" aria-label="Wiki 正在生成计划">
       <header className="wiki-plan-header"><div><span>Wiki Run</span><h3>{phaseLabels[plan.phase || "queued"] || "正在生成 Wiki 计划"}</h3><p>{detail}</p></div></header>
       <div className="wiki-run-thinking" aria-hidden="true"><i /><i /><i /></div>
-      <footer className="wiki-plan-actions"><span>可以切换会话或刷新页面，任务状态会保留。</span>{onCancel && <div><button className="quiet-button" disabled={plan.phase === "cancelling"} onClick={onCancel}>{plan.phase === "cancelling" ? "正在停止" : "取消本轮"}</button></div>}</footer>
+      <footer className="wiki-plan-actions"><span>{plan.usage ? `${plan.usage.requests} 次请求 · 输入约 ${plan.usage.input_tokens.toLocaleString()} Token · 缓存复用 ${plan.usage.cache_hits} 次` : "可以切换会话或刷新页面，任务状态会保留。"}</span>{onCancel && <div><button className="quiet-button" disabled={plan.phase === "cancelling"} onClick={onCancel}>{plan.phase === "cancelling" ? "正在停止" : "取消本轮"}</button></div>}</footer>
+    </section>;
+  }
+  if (plan.status === "paused_budget") {
+    return <section className="wiki-plan-card replaced" aria-label="Wiki 整理已暂停">
+      <header className="wiki-plan-header"><div><span>Wiki Paused</span><h3>已保存当前草稿并暂停</h3><p>{plan.error || "本轮请求或 Token 已达到设定上限。"}</p></div></header>
+      <div className="wiki-plan-summary"><span className="add"><strong>{plan.changes.length}</strong>已完成草稿</span><span className="skip"><strong>{plan.remaining_pages || 0}</strong>尚待生成</span></div>
+      <footer className="wiki-plan-actions"><span>{plan.usage ? `${plan.usage.requests} 次请求 · 输入约 ${plan.usage.input_tokens.toLocaleString()} Token` : "继续时会复用已完成的精确缓存。"}</span><div>{onCatalog && <button className="quiet-button" onClick={onCatalog}>改用快速建档</button>}{onResume && <button className="primary-button" onClick={onResume}>追加额度并继续</button>}</div></footer>
     </section>;
   }
   if (plan.status === "failed") {
     return <section className="wiki-plan-card replaced" aria-label="Wiki 计划生成失败">
       <header className="wiki-plan-header"><div><span>Wiki Run</span><h3>这轮计划没有生成完成</h3><p>{plan.error || "资料和现有 Wiki 没有被修改，请重新发起整理。"}</p></div>{onClose && <IconButton label="关闭 Wiki 计划" onClick={onClose}><X size={17} /></IconButton>}</header>
+      {(onResume || onCatalog || onSwitchProvider) && <footer className="wiki-plan-actions"><span>已完成的精确缓存仍然保留，重试不会重复消耗相同输入。</span><div>{onSwitchProvider && <button className="quiet-button" onClick={onSwitchProvider}>切换模型</button>}{onCatalog && <button className="quiet-button" onClick={onCatalog}>改用快速建档</button>}{onResume && <button className="primary-button" onClick={onResume}>重试本轮</button>}</div></footer>}
     </section>;
   }
   const staged = stagedChanges(plan);
@@ -99,7 +117,10 @@ export function WikiPlanCard({
   }
   if (plan.status === "cancelled") {
     return <section className="wiki-plan-card replaced" aria-label="已取消的 Wiki 整理计划">
-      <header className="wiki-plan-header"><div><span>Wiki Run</span><h3>本轮整理已取消</h3><p>原始资料和现有 Wiki 页面没有被修改。</p></div></header>
+      <header className="wiki-plan-header"><div><span>Wiki Run</span><h3>本轮整理已取消</h3><p>原始资料和现有 Wiki 页面没有被修改；已完成的精确草稿缓存仍然保留。</p></div></header>
+      {plan.changes.length > 0 && <div className="wiki-plan-summary"><span className="add"><strong>{plan.changes.length}</strong>已完成草稿</span></div>}
+      {plan.changes.length > 0 && <details className="wiki-cancelled-review"><summary>审查已完成内容</summary><div>{plan.changes.map((change) => <article key={change.change_id}><strong>{change.title}</strong><small>{pageTypeLabels[change.page_type]} · {change.source_count} 个原文位置</small><ReactMarkdown remarkPlugins={[remarkGfm]}>{change.content}</ReactMarkdown></article>)}</div></details>}
+      {(onResume || onCatalog) && <footer className="wiki-plan-actions"><span>可以稍后继续，也可以改用不调用模型的快速建档。</span><div>{onCatalog && <button className="quiet-button" onClick={onCatalog}>改用快速建档</button>}{onResume && <button className="primary-button" onClick={onResume}>继续本轮</button>}</div></footer>}
     </section>;
   }
   return (
@@ -161,6 +182,7 @@ export function WikiPlanCard({
         <span>{staged.length ? "尚未写入，请先选择上方处理方式" : plan.status === "planned" ? `确认后写入 ${applicable} 个页面` : `已写入 ${plan.written?.length || applicable} 个页面`}</span>
         <div>
           {plan.status === "applied" && onUndo && <button className="quiet-button" disabled={busy} onClick={onUndo}><Undo2 size={15} />撤销本轮</button>}
+          {plan.status === "applied" && plan.remaining_document_ids?.length && onContinue && <button className="primary-button" disabled={busy} onClick={onContinue}>继续下一批 · {plan.remaining_document_ids.length}</button>}
           {plan.status === "planned" && !staged.length && onApply && <button className="primary-button" disabled={busy || applicable === 0} onClick={onApply}><Check size={16} />{busy ? "正在写入" : "确认并生成"}</button>}
         </div>
       </footer>

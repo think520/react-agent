@@ -6,6 +6,7 @@ import json
 import logging
 import re
 import uuid
+from types import SimpleNamespace
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
@@ -21,6 +22,7 @@ from service.memory_service import MemoryService
 from service.preference_service import PreferenceService
 from service.quiz_service import QuizService
 from service.research_service import ResearchService
+from service.usage_service import UsageService
 from tools import get_tools_schema
 from web.backend.deps import (
     get_config,
@@ -181,7 +183,7 @@ def _public_attribution(value: Any) -> dict[str, Any] | None:
             for key in (
                 "source_type", "source_id", "title", "document_id",
                 "chunk_id", "heading", "page", "slide",
-                "collection", "domain", "accessed_at", "snapshot_id", "reader",
+                "collection", "wiki_type", "domain", "accessed_at", "snapshot_id", "reader",
             )
             if source.get(key) is not None
         }
@@ -1254,6 +1256,15 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
             for event in events:
                 if event.get("type") == "assistant_done":
                     termination_reason = event.get("termination_reason", "final_answer")
+                    for usage_record in event.get("usage_records") or []:
+                        UsageService().record(
+                            SimpleNamespace(**usage_record),
+                            subsystem="chat",
+                            operation="chat_completion",
+                            run_id=run_id,
+                            status="ok" if termination_reason != "error" else "error",
+                            error_kind="provider_error" if termination_reason == "error" else None,
+                        )
                 for web_event, payload in to_web_events(event):
                     if web_event == "citation":
                         latest_attribution = payload.get("attribution")

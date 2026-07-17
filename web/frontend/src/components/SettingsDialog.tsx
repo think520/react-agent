@@ -67,6 +67,8 @@ export function SettingsDialog({
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus | null>(null);
   const [memoryOverview, setMemoryOverview] = useState<MemoryOverview | null>(null);
   const [memoryManagerOpen, setMemoryManagerOpen] = useState(false);
+  const [usage, setUsage] = useState<Awaited<ReturnType<typeof api.llmUsage>> | null>(null);
+  const [usageDays, setUsageDays] = useState<7 | 30>(7);
   const dialogRef = useRef<HTMLElement>(null);
   const activeNavRef = useRef<HTMLButtonElement>(null);
 
@@ -92,6 +94,12 @@ export function SettingsDialog({
     if (!activeLibrary) { setMemoryOverview(null); return; }
     void api.memoryOverview().then(setMemoryOverview).catch(() => setMemoryOverview(null));
   }, [activeLibrary?.library_id]);
+
+  useEffect(() => {
+    if (active !== "ai") return;
+    setUsage(null);
+    void api.llmUsage(usageDays).then(setUsage).catch(() => setUsage(null));
+  }, [active, usageDays]);
 
   const matches = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
@@ -182,8 +190,15 @@ export function SettingsDialog({
     </>;
     if (active === "ai") return <>
       <section className="settings-group"><header><h3>模型与连接</h3><p>密钥继续由本地环境变量管理。测试连接会发送一次最小请求。</p></header>
-        {settings.providers.map((provider) => <div className="provider-row" key={provider.name}><span className={`provider-mark ${provider.configured ? "ready" : ""}`}><Cpu size={17} /></span><div><strong>{provider.name}</strong><small>{provider.model || provider.type || "模型"}{providerTest[provider.name] ? ` · ${providerTest[provider.name]}` : ""}</small></div><label><input type="radio" name="default-provider" checked={preferences.ai.default_provider === provider.name} disabled={!provider.configured} onChange={() => void patchPreferences({ ai: { default_provider: provider.name } })} />默认</label><button className="quiet-button" disabled={!provider.configured} onClick={() => void testProvider(provider.name)}>测试连接</button></div>)}
+        {settings.providers.map((provider) => <div className="provider-row" key={provider.name}><span className={`provider-mark ${provider.configured ? "ready" : ""}`}><Cpu size={17} /></span><div><strong>{provider.name}</strong><small>{provider.model || provider.type || "模型"}{!provider.configured && provider.api_key_env ? ` · 需要 ${provider.api_key_env}` : ""}{providerTest[provider.name] ? ` · ${providerTest[provider.name]}` : ""}</small></div><label><input type="radio" name="default-provider" checked={preferences.ai.default_provider === provider.name} disabled={!provider.configured} onChange={() => void patchPreferences({ ai: { default_provider: provider.name } })} />默认</label><button className="quiet-button" disabled={!provider.configured} onClick={() => void testProvider(provider.name)}>测试连接</button></div>)}
       </section>
+      <section className="settings-group"><header><h3>Wiki 模型与额度</h3><p>发现主题和撰写页面可以分别选择模型；达到额度后任务会保存并暂停。</p></header>
+        <SettingRow label="主题发现模型"><select className="settings-inline-select" value={preferences.ai.task_providers?.wiki_discovery || "default"} onChange={(event) => void patchPreferences({ ai: { task_providers: { wiki_discovery: event.target.value } } })}><option value="default">跟随默认模型</option>{settings.providers.filter((item) => item.configured).map((item) => <option value={item.name} key={item.name}>{item.name} · {item.model}</option>)}</select></SettingRow>
+        <SettingRow label="页面撰写模型"><select className="settings-inline-select" value={preferences.ai.task_providers?.wiki_drafting || "default"} onChange={(event) => void patchPreferences({ ai: { task_providers: { wiki_drafting: event.target.value } } })}><option value="default">跟随默认模型</option>{settings.providers.filter((item) => item.configured).map((item) => <option value={item.name} key={item.name}>{item.name} · {item.model}</option>)}</select></SettingRow>
+        <SettingRow label="默认整理方式"><select className="settings-inline-select" value={preferences.wiki?.default_mode || "standard"} onChange={(event) => void patchPreferences({ wiki: { default_mode: event.target.value } })}><option value="catalog">快速建档</option><option value="standard">标准整理 · 每批 5 份</option><option value="deep">深度全库</option></select></SettingRow>
+        <div className="wiki-budget-settings"><label><span>请求上限</span><input type="number" min={1} max={500} value={preferences.wiki?.budget.max_requests || 24} onChange={(event) => void patchPreferences({ wiki: { budget: { max_requests: Number(event.target.value) } } })} /></label><label><span>输入 Token</span><input type="number" min={1000} step={10000} value={preferences.wiki?.budget.max_input_tokens || 300000} onChange={(event) => void patchPreferences({ wiki: { budget: { max_input_tokens: Number(event.target.value) } } })} /></label><label><span>输出 Token</span><input type="number" min={1000} step={1000} value={preferences.wiki?.budget.max_output_tokens || 40000} onChange={(event) => void patchPreferences({ wiki: { budget: { max_output_tokens: Number(event.target.value) } } })} /></label></div>
+      </section>
+      <section className="settings-group"><header><div><h3>AI 用量</h3><p>只记录请求元数据，不保存提示词或资料正文。</p></div><Segmented label="用量统计范围" value={usageDays} onChange={setUsageDays} options={[{ value: 7, label: "7 天" }, { value: 30, label: "30 天" }]} /></header>{usage ? <><div className="usage-summary"><div><strong>{usage.requests}</strong><span>请求</span></div><div><strong>{usage.input_tokens.toLocaleString()}</strong><span>输入 Token</span></div><div><strong>{usage.output_tokens.toLocaleString()}</strong><span>输出 Token</span></div><div><strong>{usage.cache_reported ? usage.cache_read_tokens.toLocaleString() : "未报告"}</strong><span>缓存读取</span></div><div><strong>{usage.cache_reported ? usage.cache_miss_tokens.toLocaleString() : "未报告"}</strong><span>未缓存 Token</span></div><div><strong>{usage.errors}</strong><span>错误</span></div></div><p className="usage-detail">模型分布：{Object.entries(usage.model_distribution).map(([model, count]) => `${model} ${count}`).join(" · ") || "暂无"}{usage.cost_reported ? ` · 已报告费用 $${usage.cost_usd.toFixed(4)}` : " · Provider 未报告费用"}</p></> : <p className="settings-empty">还没有可显示的用量记录。</p>}</section>
       <section className="settings-group"><header><h3>联网资料</h3><p>模型自动模式会在本地资料不足或需要最新信息时搜索；所有模式都保留来源和证据快照。</p></header>
         <SettingRow label="联网权限" hint={preferences.search.permission === "auto" ? "搜索查询可能在模型判断需要时发送给外部搜索服务" : "模型先说明资料缺口，由你确认后才联网"}><Segmented label="联网权限" value={preferences.search.permission} onChange={(value) => void patchPreferences({ search: { permission: value } })} options={[{ value: "ask", label: "每次询问" }, { value: "auto", label: "模型自动" }]} /></SettingRow>
         {settings.search_providers.map((provider) => <div className="provider-row" key={provider.name}><span className={`provider-mark ${provider.configured ? "ready" : ""}`}><Search size={17} /></span><div><strong>{provider.name === "auto" ? "自动选择" : provider.name === "tavily" ? "Tavily" : "Exa"}</strong><small>{provider.name === "auto" ? "Tavily → Exa" : provider.name === "tavily" ? "需要本地环境变量" : "公共 MCP 搜索"}{searchTest[provider.name] ? ` · ${searchTest[provider.name]}` : ""}</small></div><label><input type="radio" name="search-provider" checked={preferences.search.provider === provider.name} disabled={!provider.configured} onChange={() => void patchPreferences({ search: { provider: provider.name } })} />默认</label><button className="quiet-button" disabled={!provider.configured} onClick={() => void testSearchProvider(provider.name)}>测试搜索</button></div>)}

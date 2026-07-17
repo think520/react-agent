@@ -28,6 +28,11 @@ import type {
   WikiHealth,
   WikiDocumentCoverage,
   WikiPlan,
+  WikiEditablePage,
+  WikiGenerationMode,
+  WikiRepairPlan,
+  WikiRunBudget,
+  WikiRunEstimate,
   WikiScopeMode,
   WikiTask,
   WebArtifact,
@@ -127,6 +132,12 @@ export const api = {
     { method: "POST" },
   ),
   runtimeStatus: () => request<RuntimeStatus>("/api/settings/status"),
+  llmUsage: (days = 7) => request<{
+    days: number; requests: number; errors: number; input_tokens: number; output_tokens: number;
+    cache_read_tokens: number; cache_miss_tokens: number; cache_reported: boolean;
+    cost_usd: number; cost_reported: boolean; model_distribution: Record<string, number>; provider_distribution: Record<string, number>;
+    entries: Array<Record<string, unknown>>;
+  }>(`/api/settings/usage?days=${days}`),
   createSettingsProposal: (message: string, chatSessionId?: string) => request<{ chat_session_id: string; artifact: SettingsChangeArtifact }>(
     "/api/settings/proposals",
     json({ message, chat_session_id: chatSessionId || null }),
@@ -177,7 +188,7 @@ export const api = {
   },
   wikiHealth: () => request<WikiHealth>("/api/kb/wiki/maintenance"),
   wikiCoverage: () => request<{ documents: WikiDocumentCoverage[]; counts: Record<string, number> }>("/api/kb/wiki/coverage"),
-  maintainWiki: () => request<{ archived_count: number; canonical_count: number; health: WikiHealth }>(
+  maintainWiki: () => request<{ archived_count: number; canonical_count: number; health: WikiHealth; plan_id: string; repair_plan: WikiRepairPlan }>(
     "/api/kb/wiki/maintenance",
     json({ action: "plan" }),
   ),
@@ -208,8 +219,28 @@ export const api = {
     course?: string | null;
     topic?: string;
     instruction?: string;
+    generation_mode?: WikiGenerationMode;
+    budget?: WikiRunBudget;
+    force_regenerate?: boolean;
   }) => request<WikiPlan>("/api/kb/wiki/runs", json(body)),
+  estimateWikiRun: (body: {
+    action?: "generate" | "update";
+    scope_mode: WikiScopeMode;
+    document_ids?: string[];
+    course?: string | null;
+    topic?: string;
+    instruction?: string;
+    generation_mode: WikiGenerationMode;
+    budget?: WikiRunBudget;
+  }) => request<WikiRunEstimate>("/api/kb/wiki/runs/estimate", json(body)),
   wikiRun: (id: string) => request<WikiPlan>(`/api/kb/wiki/runs/${encodeURIComponent(id)}`),
+  resumeWikiRun: (id: string, additionalBudget: Partial<WikiRunBudget> = {}) => request<WikiPlan>(
+    `/api/kb/wiki/runs/${encodeURIComponent(id)}/resume`, json({ additional_budget: additionalBudget }),
+  ),
+  cancelWikiRun: (id: string) => request<WikiPlan>(
+    `/api/kb/wiki/runs/${encodeURIComponent(id)}/cancel`, { method: "POST" },
+  ),
+  wikiRunUsage: (id: string) => request<Record<string, unknown>>(`/api/kb/wiki/runs/${encodeURIComponent(id)}/usage`),
   wikiPlan: (id: string) => request<WikiPlan>(`/api/kb/wiki/plans/${encodeURIComponent(id)}`),
   applyWikiPlan: (id: string) => request<WikiPlan & { sync: Record<string, unknown> }>(
     `/api/kb/wiki/plans/${encodeURIComponent(id)}/apply`,
@@ -223,6 +254,14 @@ export const api = {
     `/api/kb/wiki/checkpoints/${encodeURIComponent(id)}/restore`,
     { method: "POST" },
   ),
+  wikiRepairPlan: (id: string) => request<WikiRepairPlan>(`/api/kb/wiki/repair-plans/${encodeURIComponent(id)}`),
+  draftWikiRepairPlan: (id: string) => request<WikiRepairPlan>(`/api/kb/wiki/repair-plans/${encodeURIComponent(id)}/draft-ai`, json({})),
+  applyWikiRepairPlan: (id: string) => request<WikiRepairPlan>(`/api/kb/wiki/repair-plans/${encodeURIComponent(id)}/apply`, { method: "POST" }),
+  wikiPage: (id: string) => request<{ page: WikiEditablePage }>(`/api/kb/wiki/pages/${encodeURIComponent(id)}`),
+  createWikiPage: (page: { title: string; body: string; tags: string[]; related: string[] }) => request<{ page: DocumentSummary }>("/api/kb/wiki/pages", json(page)),
+  updateWikiPage: (id: string, page: { expected_revision: number; title: string; body: string; tags: string[]; related: string[] }) => request<{ page: WikiEditablePage }>(`/api/kb/wiki/pages/${encodeURIComponent(id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(page) }),
+  archiveWikiPage: (id: string) => request<{ document_id: string; archived: boolean }>(`/api/kb/wiki/pages/${encodeURIComponent(id)}/archive`, { method: "POST" }),
+  restoreWikiPage: (id: string) => request<{ document_id: string; restored: boolean }>(`/api/kb/wiki/pages/${encodeURIComponent(id)}/restore`, { method: "POST" }),
   createWikiFocus: (body: {
     chat_session_id?: string;
     action: "generate" | "update" | "repair" | "migrate";

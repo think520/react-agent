@@ -72,6 +72,8 @@ class AgentService:
                 "type": cfg.get("type", "unknown"),
                 "model": cfg.get("model", "?"),
                 "api_key_env": api_key_env,
+                "base_url": cfg.get("base_url", ""),
+                "preset": cfg.get("preset") or name,
                 "configured": bool(os.getenv(api_key_env)) if api_key_env else False,
                 "is_default": name == default_provider,
             })

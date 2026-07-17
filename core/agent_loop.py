@@ -163,6 +163,7 @@ class AgentLoop:
     def run_stream(self, user_input: str) -> Iterator[dict]:
         """Run one turn and yield UI-friendly progress events."""
         request_message = None
+        usage_records: list[dict] = []
         try:
             self._remove_legacy_base_prompt()
             self._inject_base_prompt()
@@ -176,6 +177,13 @@ class AgentLoop:
 
             for iteration in range(self.max_iterations):
                 response = yield from self._complete_with_events()
+                if response.usage:
+                    usage_records.append({
+                        "request_id": response.request_id,
+                        "provider": response.provider,
+                        "model": response.model,
+                        "usage": response.usage,
+                    })
 
                 if response.tool_calls:
                     # Add assistant(tool_calls) FIRST — providers require this
@@ -265,6 +273,7 @@ class AgentLoop:
                     "type": "assistant_done",
                     "content": response.content,
                     "termination_reason": "final_answer",
+                    "usage_records": usage_records,
                 }
                 yield done_event
                 if self.trace_writer:
@@ -278,6 +287,7 @@ class AgentLoop:
                 "type": "assistant_done",
                 "content": fallback,
                 "termination_reason": "max_iter",
+                "usage_records": usage_records,
             }
             yield max_iter_event
             if self.trace_writer:
@@ -287,6 +297,7 @@ class AgentLoop:
                 "type": "assistant_done",
                 "content": "",
                 "termination_reason": "error",
+                "usage_records": usage_records,
             }
             yield error_done
             if self.trace_writer:
@@ -310,8 +321,14 @@ class AgentLoop:
 
         content_parts: list[str] = []
         tool_buffers: dict[int, dict[str, object]] = {}
+        stream_usage = None
+        request_id = ""
 
         for chunk in complete_stream(self.session.messages, tools=self.tools_schema):
+            if chunk.usage is not None:
+                stream_usage = chunk.usage
+            if chunk.request_id:
+                request_id = chunk.request_id
             if chunk.content_delta:
                 content_parts.append(chunk.content_delta)
                 yield {"type": "assistant_delta", "content": chunk.content_delta}
@@ -339,7 +356,14 @@ class AgentLoop:
                 arguments="".join(buffer["arguments"]),
             ))
 
-        return LLMResponse(content="".join(content_parts), tool_calls=tool_calls)
+        return LLMResponse(
+            content="".join(content_parts),
+            tool_calls=tool_calls,
+            provider=str(getattr(self.llm, "name", "") or ""),
+            model=str(getattr(self.llm, "model", "") or ""),
+            request_id=request_id,
+            usage=stream_usage,
+        )
 
     def _sync_session_state(self, tool_name: str, result: ToolResult) -> None:
         if tool_name == "change_dir":

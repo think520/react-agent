@@ -22,6 +22,7 @@ class ChatReference(BaseModel):
     id: str = Field(..., min_length=1, max_length=160)
     title: str = Field(..., min_length=1, max_length=200)
     collection: Literal["material", "wiki"] | None = None
+    wiki_type: Literal["source", "entity", "concept", "analysis", "question", "note"] | None = None
 
 
 class ChatRunRequest(BaseModel):

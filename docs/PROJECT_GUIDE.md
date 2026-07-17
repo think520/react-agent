@@ -397,7 +397,7 @@ Memory 与个人学习知识库共同沉淀：
 
 Bobodan 已经完成“学习 Agent 引擎”“Web 产品化基础”“本地学习闭环 Web MVP”“用户主动触发的 LLM Wiki”“便携文件夹资料库”“Wiki 可靠性增强”“Web UI 系统体验与设置中心”“可信联网资料扩展”“个人学习知识库”和“全库 Wiki 编排”主体流程。普通用户可以在浏览器中切换多个本地资料库，完成资料学习、个性化设置、用户确认式网页研究，以及可查看、确认、编辑和删除的长期个人知识沉淀。
 
-现有技术路线不需要推倒重来。Python + FastAPI + SQLite / Qdrant + React Web UI 仍然适合本地优先的个人学习助手。P5C 已整理 Web 产品合约，P5D 已完成 Library → Chat → Practice → Review，P5E 已完成用户确认式 LLM Wiki，P5E.1 已把测试工作区升级为通用文件夹资料库，P5E.2 已补齐 Wiki 可靠性，P5E.3 已补齐用户偏好与设置中心，P5F 已补齐可信联网候选、证据快照和网页来源练习，P5F.1 已补齐确定性学习事件、候选确认和已确认个人知识，P5E.4 已通过真实资料验收；下一步进入 P5G 发布收尾。
+现有技术路线不需要推倒重来。Python + FastAPI + SQLite / Qdrant + React Web UI 仍然适合本地优先的个人学习助手。P5C 已整理 Web 产品合约，P5D 已完成 Library → Chat → Practice → Review，P5E 已完成用户确认式 LLM Wiki，P5E.1 已把测试工作区升级为通用文件夹资料库，P5E.2 已补齐 Wiki 可靠性，P5E.3 已补齐用户偏好与设置中心，P5F 已补齐可信联网候选、证据快照和网页来源练习，P5F.1 已补齐确定性学习事件、候选确认和已确认个人知识，P5E.4 已通过真实资料验收，P5E.5 已补齐 Wiki 使用引导、手写编辑和 AI 成本控制；下一步进入 P5G 发布收尾。
 
 一句话结论：
 
@@ -413,8 +413,8 @@ Bobodan 已经完成“学习 Agent 引擎”“Web 产品化基础”“本地�
 | Memory | P5F.1 完成 | 全局 / 资料库双层 SQLite、确定性学习事件、90 秒对话整理、候选确认、显式记忆卡、旧记忆迁移、Markdown 导出和个性化依据已落地；旧 daily Markdown 保持只读 |
 | Service Layer | 产品化基础完成 | CLI / Web 共用 runtime、config 与 service，Review / Practice 聚合已补齐 |
 | FastAPI | P5F.1 完成 | 已有稳定错误结构、流式事件、资料库隔离、Wiki / 联网证据、个人知识 CRUD、候选确认、阅读进度、旧记忆迁移和 Chat 记忆确认 API |
-| Web UI | P5E.4 完成 | Chat、Library、Practice、Review、设置中心、个人知识管理和全库 Wiki 覆盖界面已落地；桌面发布壳尚未实现 |
-| 测试 | 全栈回归已建立 | Python `1135 passed`；Vitest `5 passed`；TypeScript 与生产构建通过；Playwright 桌面、窄屏和移动端 `69 passed` |
+| Web UI | P5E.5 完成 | Chat、Library、Practice、Review、设置中心、个人知识管理、Wiki 编辑和成本控制界面已落地；桌面发布壳尚未实现 |
+| 测试 | 全栈回归已建立 | Python `1145 passed`；Vitest `5 passed`；TypeScript 与生产构建通过；Playwright 桌面、窄屏和移动端 `72 passed` |
 
 ### 3.3 P5C / P5D / P5E 已解决的问题与剩余边界
 
@@ -932,12 +932,41 @@ P5F 收尾修正进一步补齐：
 
 阶段验收结果：Python `1118 passed`；Vitest `5 passed`；TypeScript 与生产构建通过；Playwright 桌面、窄屏和移动端 `63 passed`。
 
+### P5E.5：Wiki 易用性、手写编辑与 AI 成本控制（完成）
+
+P5E.5 解决 P5E.4 验收后暴露的产品问题：修复预览没有后续动作、首次用户不理解资料与 Wiki 的关系、完整未覆盖范围耗时过长，以及模型调用没有真实用量和缓存可见性。
+
+默认流程调整为：
+
+```text
+导入并直接检索原始资料
+→ 查看下一批 5 份资料的耗时与 Token 估算
+→ 选择快速建档 / 标准整理 / 深度整理
+→ 审查并确认 Wiki 计划
+→ 写入、手写修改或新增个人笔记
+→ 通过持久化修复计划维护索引、断链和过期候选
+```
+
+核心约束：
+
+1. 标准整理每次最多 5 份，深度全库必须二次确认；快速建档不调用模型。
+2. Wiki run 使用请求、输入 Token 和输出 Token 三重预算。达到上限后保存草稿并暂停，继续时复用严格输入缓存。
+3. 全部 Wiki 页面可编辑。用户修改 AI 页面后标记为共同维护，AI 计划必须校验 `content_revision`，不能覆盖计划创建后的手写变化。
+4. `wiki_note` 是用户个人笔记，可参与 RAG 并显示“个人笔记”来源，但不能伪装成原始资料证据。
+5. 修复按钮创建持久化 `WikiRepairPlan`；本地可确定项、AI 审核项和人工确认项分别展示，安全修复写入前创建检查点。
+6. 偏好升级到 schema v4，支持 Wiki 发现与页面撰写的任务级 Provider、默认整理模式和预算。
+7. Provider 响应保留实际 usage；DeepSeek 与 OpenAI-compatible 缓存字段统一进入 `BOBODAN_HOME/usage.db`。未报告缓存时显示“未报告”，不伪装成零命中。
+8. Wiki 提示词采用稳定 system 前缀和动态 user 尾部；精确生成缓存按 Provider、模型、提示词版本、资料指纹、指令和页面 revision 失效。
+
+阶段验收结果：Python `1145 passed`；Vitest `5 passed`；TypeScript 与生产构建通过；Playwright 桌面、窄屏和移动端 `72 passed`。
+
 ### P5G：文档完整性、Windows 桌面发布与支撑页面
 
 P5G 不先堆叠新页面。执行顺序固定为：
 
 ```text
-P5G.0 文档提取完整性与发布合规
+P5E.5 Wiki 易用性、手写编辑与 AI 成本控制（完成）
+→ P5G.0 文档提取完整性与发布合规
 → P5G.1 单进程本地 Web
 → P5G.2 Windows Electron 桌面版
 → P5G.3 支撑页面与体验收尾
@@ -1584,6 +1613,7 @@ P5C 产品化基础（完成）
 → P5F 可信资料扩展（完成）
 → P5F.1 个人学习知识库（完成）
 → P5E.4 全库 Wiki 编排与覆盖系统（完成）
+→ P5E.5 Wiki 易用性、手写编辑与 AI 成本控制（完成）
 → P5G.0 文档提取完整性与发布合规
 → P5G.1 单进程本地 Web
 → P5G.2 Windows Electron 桌面版

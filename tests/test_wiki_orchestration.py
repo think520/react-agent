@@ -9,7 +9,7 @@ from wiki.orchestration import WikiOrchestrator, wiki_coverage
 
 class OrchestrationProvider:
     def complete(self, messages, tools=None):
-        prompt = messages[0]["content"]
+        prompt = "\n\n".join(message["content"] for message in messages)
         source_id = (re.search(r"\[(S\d+)\]", prompt) or [None, "S1"])[1]
         if "Do not write page bodies" in prompt:
             return LLMResponse(content=json.dumps({"pages": [{
@@ -38,8 +38,9 @@ class RecordingProvider(OrchestrationProvider):
         self.discovery_prompts = []
 
     def complete(self, messages, tools=None):
-        if "Do not write page bodies" in messages[0]["content"]:
-            self.discovery_prompts.append(messages[0]["content"])
+        prompt = "\n\n".join(message["content"] for message in messages)
+        if "Do not write page bodies" in prompt:
+            self.discovery_prompts.append(prompt)
         return super().complete(messages, tools=tools)
 
 
@@ -168,3 +169,32 @@ def test_cancelled_orchestration_task_is_not_retryable(tmp_path):
     task = orchestrator.workflow.tasks.list()[0]
     assert task["status"] == "cancelled"
     assert task["retryable"] is False
+
+
+def test_wiki_budget_pause_persists_partial_plan(tmp_path):
+    orchestrator = WikiOrchestrator(
+        str(tmp_path), str(tmp_path), OrchestrationProvider(),
+        run_id="a" * 32,
+        budget={"max_requests": 1, "max_input_tokens": 300000, "max_output_tokens": 40000},
+    )
+
+    plan = orchestrator.create_plan([material(1)], scope_mode="uncovered", run_id="a" * 32)
+
+    assert plan["status"] == "paused_budget"
+    assert plan["usage"]["requests"] == 1
+    assert plan["remaining_pages"] >= 1
+    assert orchestrator.workflow.get_plan("a" * 32)["status"] == "paused_budget"
+
+
+def test_identical_wiki_run_reuses_strict_local_cache(tmp_path):
+    first_provider = RecordingProvider()
+    first = WikiOrchestrator(str(tmp_path), str(tmp_path), first_provider)
+    first.create_plan([material(1)], scope_mode="uncovered")
+    assert first_provider.discovery_prompts
+
+    second_provider = RecordingProvider()
+    second = WikiOrchestrator(str(tmp_path), str(tmp_path), second_provider)
+    plan = second.create_plan([material(1)], scope_mode="uncovered")
+
+    assert second_provider.discovery_prompts == []
+    assert plan["usage"]["cache_hits"] >= 2

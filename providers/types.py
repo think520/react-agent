@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass
@@ -23,6 +24,10 @@ class LLMResponse:
     """Unified response from any LLM provider."""
     content: str = ""
     tool_calls: list[ToolCall] = field(default_factory=list)
+    provider: str = ""
+    model: str = ""
+    request_id: str = ""
+    usage: dict[str, Any] | None = None
 
 
 @dataclass
@@ -39,3 +44,5 @@ class LLMStreamChunk:
     """Incremental LLM response chunk."""
     content_delta: str = ""
     tool_call_deltas: list[ToolCallDelta] = field(default_factory=list)
+    usage: dict[str, Any] | None = None
+    request_id: str = ""

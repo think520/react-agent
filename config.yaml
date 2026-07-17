@@ -16,6 +16,27 @@ llm:
       base_url: "https://api.openai.com/v1"
       api_key_env: "OPENAI_API_KEY"
       model: "gpt-4"
+    dashscope:
+      type: "openai_compatible"
+      provider_name: "dashscope"
+      preset: "qwen"
+      base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+      api_key_env: "DASHSCOPE_API_KEY"
+      model: "qwen-plus"
+    siliconflow:
+      type: "openai_compatible"
+      provider_name: "siliconflow"
+      preset: "siliconflow"
+      base_url: "https://api.siliconflow.cn/v1"
+      api_key_env: "SILICONFLOW_API_KEY"
+      model: "deepseek-ai/DeepSeek-V3"
+    openrouter:
+      type: "openai_compatible"
+      provider_name: "openrouter"
+      preset: "openrouter"
+      base_url: "https://openrouter.ai/api/v1"
+      api_key_env: "OPENROUTER_API_KEY"
+      model: "deepseek/deepseek-chat"
 
 agent:
   temperature: 0.7
