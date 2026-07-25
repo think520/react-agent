@@ -31,6 +31,33 @@ def _compute_result_summary(tool_name: str, result: ToolResult) -> str | None:
             return f"status {status}"
     return None
 
+
+def _compute_run_metrics(tool_name: str, result: ToolResult) -> dict:
+    """Return sanitized metrics that are safe to persist in chat history."""
+    data = result.data if isinstance(result.data, dict) else {}
+    if tool_name == "rag_search":
+        results = data.get("results") if isinstance(data.get("results"), list) else []
+        document_ids = {
+            str(item.get("document_id"))
+            for item in results
+            if isinstance(item, dict) and item.get("document_id")
+        }
+        return {
+            "hit_count": int(data.get("hit_count") or len(results)),
+            "document_count": len(document_ids),
+            "evidence_status": data.get("evidence_status"),
+        }
+    if tool_name == "concept_map_query":
+        concepts = data.get("concepts") if isinstance(data.get("concepts"), list) else []
+        relationships = data.get("relationships") if isinstance(data.get("relationships"), list) else []
+        return {
+            "operation": data.get("operation"),
+            "concept_count": len(concepts),
+            "relationship_count": len(relationships),
+            "found": data.get("found"),
+        }
+    return {}
+
 LEGACY_BASE_SYSTEM_PROMPT = (
     "You are bobodan, an AI assistant running inside the bobodan CLI.\n"
     "Refer to yourself as 'bobodan' when needed.\n"
@@ -69,7 +96,7 @@ class AgentLoop:
                  request_prompt: str | None = None,
                  tools_schema: list[dict] | None = None,
                  max_iterations: int | None = None,
-                 trace_writer=None, allowed_tool_names=None):
+                 trace_writer=None, allowed_tool_names=None, response_guard=None):
         self.llm = llm_provider
         self.session = session
         self.tools_schema = tools_schema if tools_schema is not None else get_tools_schema()
@@ -82,6 +109,7 @@ class AgentLoop:
         self.allowed_tool_names = (
             frozenset(allowed_tool_names) if allowed_tool_names is not None else None
         )
+        self.response_guard = response_guard
 
     def set_session(self, session) -> None:
         self.session = session
@@ -163,6 +191,9 @@ class AgentLoop:
     def run_stream(self, user_input: str) -> Iterator[dict]:
         """Run one turn and yield UI-friendly progress events."""
         request_message = None
+        guard_messages: list[dict] = []
+        tool_history: list[dict] = []
+        guard_retry_count = 0
         usage_records: list[dict] = []
         try:
             self._remove_legacy_base_prompt()
@@ -176,7 +207,9 @@ class AgentLoop:
             self.session.add_message("user", user_input)
 
             for iteration in range(self.max_iterations):
-                response = yield from self._complete_with_events()
+                response, response_deltas = yield from self._complete_with_events(
+                    emit_content=False
+                )
                 if response.usage:
                     usage_records.append({
                         "request_id": response.request_id,
@@ -223,6 +256,11 @@ class AgentLoop:
                             result = execute_tool(tc.name, args, session=self.session)
                         elapsed = time.monotonic() - start_ts
                         if isinstance(result, ToolResult):
+                            tool_history.append({
+                                "name": tc.name,
+                                "ok": result.ok,
+                                "data": result.data,
+                            })
                             self._sync_session_state(tc.name, result)
                             self.session.add_tool_message(tc.id, result.content)
                             logger.info(f"[AgentLoop] tool result for id={tc.id!r}: {result.content[:200]!r}")
@@ -241,6 +279,8 @@ class AgentLoop:
                                 "ok": result.ok,
                                 "content": result.content,
                                 "artifacts": result.artifacts,
+                                "args": args,
+                                "metrics": _compute_run_metrics(tc.name, result),
                                 "elapsed": elapsed,
                                 "result_summary": _compute_result_summary(tc.name, result),
                             }
@@ -266,6 +306,30 @@ class AgentLoop:
 
                     continue
 
+                original_content = response.content or ""
+                if self.response_guard:
+                    decision = self.response_guard.validate(
+                        tool_history,
+                        response.content or "",
+                        guard_retry_count,
+                    )
+                    if not decision.allow and decision.correction_prompt:
+                        correction_message = {
+                            "role": "system",
+                            "content": decision.correction_prompt,
+                        }
+                        self.session.messages.append(correction_message)
+                        guard_messages.append(correction_message)
+                        guard_retry_count += 1
+                        continue
+                    if not decision.allow:
+                        response.content = decision.fallback_content
+
+                if response.content:
+                    safe_deltas = response_deltas if response.content == original_content else [response.content]
+                    for content_delta in safe_deltas:
+                        if content_delta:
+                            yield {"type": "assistant_delta", "content": content_delta}
                 if response.content:
                     self.session.add_message("assistant", response.content)
 
@@ -280,7 +344,7 @@ class AgentLoop:
                     self.trace_writer.write(done_event)
                 return response.content
 
-            fallback = "Agent stopped after too many tool iterations."
+            fallback = "本轮工具调用次数过多，未能完成回答。请缩小问题范围后重试。"
             self.session.add_message("assistant", fallback)
             yield {"type": "assistant_delta", "content": fallback}
             max_iter_event = {
@@ -310,14 +374,19 @@ class AgentLoop:
                     message for message in self.session.messages
                     if message is not request_message
                 ]
+            if guard_messages:
+                self.session.messages = [
+                    message for message in self.session.messages
+                    if all(message is not guard_message for guard_message in guard_messages)
+                ]
 
-    def _complete_with_events(self) -> Iterator[dict]:
+    def _complete_with_events(self, *, emit_content: bool = True) -> Iterator[dict]:
         complete_stream = getattr(self.llm, "complete_stream", None)
         if not callable(complete_stream):
             response = self.llm.complete(self.session.messages, tools=self.tools_schema)
-            if response.content:
+            if response.content and emit_content:
                 yield {"type": "assistant_delta", "content": response.content}
-            return response
+            return response, ([response.content] if response.content else [])
 
         content_parts: list[str] = []
         tool_buffers: dict[int, dict[str, object]] = {}
@@ -331,7 +400,8 @@ class AgentLoop:
                 request_id = chunk.request_id
             if chunk.content_delta:
                 content_parts.append(chunk.content_delta)
-                yield {"type": "assistant_delta", "content": chunk.content_delta}
+                if emit_content:
+                    yield {"type": "assistant_delta", "content": chunk.content_delta}
 
             for delta in chunk.tool_call_deltas:
                 buffer = tool_buffers.setdefault(delta.index, {
@@ -356,7 +426,7 @@ class AgentLoop:
                 arguments="".join(buffer["arguments"]),
             ))
 
-        return LLMResponse(
+        response = LLMResponse(
             content="".join(content_parts),
             tool_calls=tool_calls,
             provider=str(getattr(self.llm, "name", "") or ""),
@@ -364,6 +434,7 @@ class AgentLoop:
             request_id=request_id,
             usage=stream_usage,
         )
+        return response, content_parts
 
     def _sync_session_state(self, tool_name: str, result: ToolResult) -> None:
         if tool_name == "change_dir":

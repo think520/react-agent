@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { CheckCircle2, CheckSquare2, Edit3, FilePlus2, FileText, FolderOpen, Library, Plus, Quote, RefreshCw, Save, Search, Settings2, ShieldCheck, Sparkles, Square, Trash2, Upload, Wrench, X } from "lucide-react";
+import { CheckCircle2, Edit3, FilePlus2, FileText, FolderOpen, Library, MessageCircle, MoreHorizontal, Quote, RefreshCw, Save, Search, Settings2, ShieldCheck, Sparkles, Trash2, Upload, Wrench, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useNavigate, useOutletContext, useSearchParams } from "react-router-dom";
@@ -7,8 +7,8 @@ import { useNavigate, useOutletContext, useSearchParams } from "react-router-dom
 import type { AppOutletContext } from "../components/AppShell";
 import { BrandIllustration, EmptyState, ErrorNotice, IconButton, LoadingState, formatRelativeDate } from "../components/common";
 import { WikiPlanCard } from "../components/WikiPlanCard";
-import { api } from "../lib/api";
-import type { DocumentSection, DocumentSummary, WikiDocumentCoverage, WikiEditablePage, WikiGenerationMode, WikiHealth, WikiPlan, WikiRepairPlan, WikiRunEstimate, WikiScopeMode, WikiTask } from "../types";
+import { ApiError, api } from "../lib/api";
+import type { DocumentExtractionStatus, DocumentSection, DocumentSummary, WikiEditablePage, WikiGenerationMode, WikiHealth, WikiPlan, WikiRepairPlan, WikiRunEstimate, WikiScopeMode, WikiTask } from "../types";
 
 type WikiView = "knowledge" | "sources" | "notes" | "all";
 
@@ -27,7 +27,6 @@ export function LibraryPage() {
   const {
     activeLibrary,
     settings,
-    refreshSettings,
     libraries,
     openLibrarySetup,
     switchLibrary,
@@ -58,6 +57,8 @@ export function LibraryPage() {
   const [notice, setNotice] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [highlightedChunk, setHighlightedChunk] = useState<string | null>(null);
+  const [startingExtractionId, setStartingExtractionId] = useState<string | null>(null);
+  const [extractionStatuses, setExtractionStatuses] = useState<Record<string, DocumentExtractionStatus>>({});
   const [documentQuery, setDocumentQuery] = useState("");
   const [selectionQuote, setSelectionQuote] = useState("");
   const [maintenanceOpen, setMaintenanceOpen] = useState(false);
@@ -69,7 +70,6 @@ export function LibraryPage() {
   const [wikiEstimate, setWikiEstimate] = useState<WikiRunEstimate | null>(null);
   const [wikiGenerationMode, setWikiGenerationMode] = useState<WikiGenerationMode>(settings?.preferences.wiki?.default_mode || "standard");
   const [repairPlan, setRepairPlan] = useState<WikiRepairPlan | null>(null);
-  const [guideOpen, setGuideOpen] = useState(() => !settings?.preferences.wiki?.guide_completed);
   const [wikiEditorOpen, setWikiEditorOpen] = useState(false);
   const [wikiEditorPreview, setWikiEditorPreview] = useState(false);
   const [wikiEditor, setWikiEditor] = useState<WikiEditablePage | null>(null);
@@ -78,9 +78,6 @@ export function LibraryPage() {
   const [wikiInstruction, setWikiInstruction] = useState("");
   const [wikiTopic, setWikiTopic] = useState("");
   const [wikiScopeMode, setWikiScopeMode] = useState<WikiScopeMode>("uncovered");
-  const [wikiCoverage, setWikiCoverage] = useState<Record<string, WikiDocumentCoverage>>({});
-  const [bulkCourse, setBulkCourse] = useState("");
-  const lastScopeIndexRef = useRef<number | null>(null);
   const pageRef = useRef<HTMLElement>(null);
   const readingOpenedRef = useRef(false);
   const lastProgressRef = useRef(0);
@@ -95,13 +92,7 @@ export function LibraryPage() {
     setLoading(true);
     setError("");
     try {
-      const [loadedDocuments, coverageResult] = await Promise.all([
-        api.documents(collection),
-        collection === "material" ? api.wikiCoverage().catch(() => ({ documents: [], counts: {} })) : Promise.resolve({ documents: [], counts: {} }),
-      ]);
-      const coverage = Object.fromEntries(coverageResult.documents.map((item) => [item.document_id, item]));
-      const nextDocuments = loadedDocuments.map((document) => ({ ...document, wiki_coverage: coverage[document.document_id] }));
-      setWikiCoverage(coverage);
+      const nextDocuments = await api.documents(collection);
       setDocuments(nextDocuments);
       const requested = searchParams.get("document");
       const requestedTitle = searchParams.get("title");
@@ -124,6 +115,34 @@ export function LibraryPage() {
   }
 
   useEffect(() => { void loadDocuments(); }, [activeLibrary?.library_id, collection, documentImportVersion]);
+
+  useEffect(() => {
+    if (!activeLibrary || collection !== "material") {
+      setExtractionStatuses({});
+      return;
+    }
+    let cancelled = false;
+    let timer: number | undefined;
+
+    async function refreshExtractionStatuses() {
+      try {
+        const result = await api.graphExtractionStatuses();
+        if (cancelled) return;
+        setExtractionStatuses(result.documents);
+        if (Object.values(result.documents).some((item) => item.status === "extracting")) {
+          timer = window.setTimeout(refreshExtractionStatuses, 1500);
+        }
+      } catch {
+        // Extraction status should not block reading the library.
+      }
+    }
+
+    void refreshExtractionStatuses();
+    return () => {
+      cancelled = true;
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [activeLibrary?.library_id, collection]);
 
   useEffect(() => {
     if (!wikiPlan || wikiPlan.status !== "planning") return;
@@ -364,17 +383,6 @@ export function LibraryPage() {
     finally { setWikiPlanLoading(false); }
   }
 
-  async function toggleWikiGuide() {
-    const next = !guideOpen;
-    setGuideOpen(next);
-    if (!next && settings && !settings.preferences.wiki?.guide_completed) {
-      try {
-        await api.patchPreferences(settings.preferences.revision, { wiki: { guide_completed: true } });
-        await refreshSettings();
-      } catch { /* The guide can still be collapsed for this session. */ }
-    }
-  }
-
   function openWikiProviderSettings() {
     const next = new URLSearchParams(searchParams);
     next.set("settings", "ai");
@@ -570,36 +578,6 @@ export function LibraryPage() {
     setSearchParams({ collection: "wiki", wikiView: next, ...(first ? { document: first.document_id } : {}) }, { replace: true });
   }
 
-  function toggleScopeFromList(documentId: string, index: number, shiftKey: boolean) {
-    if (shiftKey && lastScopeIndexRef.current !== null) {
-      const start = Math.min(lastScopeIndexRef.current, index);
-      const end = Math.max(lastScopeIndexRef.current, index);
-      setDocumentScope(Array.from(new Set([
-        ...selectedDocumentIds,
-        ...filteredDocuments.slice(start, end + 1).map((item) => item.document_id),
-      ])));
-    } else {
-      toggleDocumentScope(documentId);
-    }
-    lastScopeIndexRef.current = index;
-  }
-
-  function selectFilteredDocuments() {
-    setDocumentScope(Array.from(new Set([
-      ...selectedDocumentIds,
-      ...filteredDocuments.map((item) => item.document_id),
-    ])));
-  }
-
-  function selectCourseDocuments(course: string) {
-    setBulkCourse(course);
-    if (!course) return;
-    setDocumentScope(Array.from(new Set([
-      ...selectedDocumentIds,
-      ...documents.filter((item) => item.course === course).map((item) => item.document_id),
-    ])));
-  }
-
   function captureSelection() {
     const text = window.getSelection()?.toString().trim() || "";
     setSelectionQuote(text.slice(0, 1200));
@@ -615,6 +593,104 @@ export function LibraryPage() {
       toggleDocumentScope(selected.document_id);
     }
     navigate("/chat");
+  }
+
+  function askAboutDocument() {
+    if (!selected) return;
+    setDocumentScope([selected.document_id]);
+    navigate("/chat");
+  }
+
+  function documentContentVersion(doc: DocumentSummary) {
+    return doc.content_hash || [doc.updated_at || "", doc.chunk_count || 0].join(":");
+  }
+
+  function openExtractionReview(doc: DocumentSummary, status: DocumentExtractionStatus) {
+    navigate("/knowledge-map", {
+      state: {
+        extractionRunId: status.run.run_id,
+        extractingDocumentId: doc.document_id,
+        extractingDocumentTitle: doc.title || doc.source,
+      },
+    });
+  }
+
+  async function extractAndReview(doc: DocumentSummary, force = false) {
+    if (startingExtractionId || !sections.length) return;
+    const existing = extractionStatuses[doc.document_id];
+    if (!force && existing && existing.status !== "failed") {
+      openExtractionReview(doc, existing);
+      return;
+    }
+    if (force && !window.confirm(`重新提取「${doc.title || doc.source}」的概念？这会再次调用模型并消耗 Token。`)) return;
+
+    setStartingExtractionId(doc.document_id);
+    const content = sections.map((s) => s.text).join("\n\n");
+    setError("");
+    try {
+      const request = {
+        document_id: doc.document_id,
+        document_title: doc.title || doc.source,
+        content,
+        sections,
+        content_version: documentContentVersion(doc),
+        force,
+      };
+      let extractionRunId: string | undefined;
+      try {
+        const { run } = await api.graphStartExtraction(request);
+        extractionRunId = run.run_id;
+        setExtractionStatuses((current) => ({
+          ...current,
+          [doc.document_id]: {
+            status: run.status === "failed" ? "failed" : run.status === "completed" || run.status === "completed_with_warnings" ? "review" : "extracting",
+            pending_count: 0,
+            run,
+          },
+        }));
+      } catch (reason) {
+        if (!(reason instanceof ApiError) || reason.status !== 404) throw reason;
+        await api.graphExtract(request);
+      }
+      navigate("/knowledge-map", {
+        state: {
+          extractionRunId,
+          extractingDocumentId: doc.document_id,
+          extractingDocumentTitle: doc.title || doc.source,
+        },
+      });
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "无法启动概念提取。");
+    } finally {
+      setStartingExtractionId(null);
+    }
+  }
+
+  async function retryFailedSections(doc: DocumentSummary) {
+    const previous = extractionStatuses[doc.document_id]?.run;
+    if (!previous?.failed_sections?.length || startingExtractionId || !sections.length) return;
+    setStartingExtractionId(doc.document_id);
+    setError("");
+    try {
+      const { run } = await api.graphRetryFailedSections(previous.run_id, {
+        document_id: doc.document_id,
+        document_title: doc.title || doc.source,
+        content: sections.map((section) => section.text).join("\n\n"),
+        sections,
+        content_version: documentContentVersion(doc),
+      });
+      navigate("/knowledge-map", {
+        state: {
+          extractionRunId: run.run_id,
+          extractingDocumentId: doc.document_id,
+          extractingDocumentTitle: doc.title || doc.source,
+        },
+      });
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "无法重试失败章节。");
+    } finally {
+      setStartingExtractionId(null);
+    }
   }
 
   async function deleteDocument(document: DocumentSummary) {
@@ -644,6 +720,33 @@ export function LibraryPage() {
   }
 
   const selected = documents.find((document) => document.document_id === selectedId);
+  function effectiveExtractionStatus(document: DocumentSummary) {
+    const status = extractionStatuses[document.document_id];
+    const currentVersion = documentContentVersion(document);
+    const extractedVersion = status?.run.content_version || "";
+    if (
+      status
+      && (status.status === "completed" || status.status === "review")
+      && extractedVersion
+      && currentVersion
+      && extractedVersion !== currentVersion
+    ) {
+      return "stale" as const;
+    }
+    return status ? status.status : "not_started" as const;
+  }
+
+  function extractionStatusLabel(document: DocumentSummary) {
+    const status = extractionStatuses[document.document_id];
+    switch (effectiveExtractionStatus(document)) {
+      case "extracting": return "正在提取";
+      case "review": return `待审查 ${status?.pending_count || ""}`.trim();
+      case "completed": return "已提取";
+      case "failed": return "提取失败";
+      case "stale": return "内容已更新";
+      default: return "尚未提取";
+    }
+  }
   const filteredDocuments = documents.filter((document) => {
     if (collection === "wiki" && !matchesWikiView(document, wikiView)) return false;
     const query = documentQuery.trim().toLocaleLowerCase();
@@ -651,16 +754,7 @@ export function LibraryPage() {
     return [document.title, document.source, document.course, document.kind]
       .some((value) => value?.toLocaleLowerCase().includes(query));
   });
-  const courses = Array.from(new Set(documents.map((document) => document.course).filter((value): value is string => Boolean(value)))).sort();
-  const uncoveredCount = Object.keys(wikiCoverage).length
-    ? Object.values(wikiCoverage).filter((item) => item.status !== "covered").length
-    : documents.length;
-  const coverageLabels: Record<WikiDocumentCoverage["status"], string> = {
-    uncovered: "未整理",
-    partial: "部分覆盖",
-    covered: "已覆盖",
-    stale: "原文已变化",
-  };
+  const uncoveredCount = documents.length;
   const wikiTypeLabels: Record<NonNullable<DocumentSummary["wiki_type"]>, string> = {
     source: "资料索引",
     entity: "实体",
@@ -673,36 +767,31 @@ export function LibraryPage() {
   return (
     <section className="page-scroll" ref={pageRef} onScroll={recordReadingProgress}>
       <div className="page-container library-container">
-        <header className="page-heading">
-          <div><span>Library</span><h2>资料库</h2><p>{collection === "material" ? "把学习材料放在这里，Bobodan 会建立可追踪的本地索引。" : "知识页沉淀可复用概念，资料索引只负责原文导航，你也可以补充个人笔记。"}</p></div>
-          <div className="heading-actions">
-            {activeLibrary && <button className="quiet-button" onClick={() => void loadDocuments()}><RefreshCw size={16} />刷新</button>}
-            {collection === "wiki" && <button className="quiet-button" onClick={() => void openWikiEditor()}><Plus size={16} />新建笔记</button>}
-            {collection === "wiki" && <button className="quiet-button" onClick={() => void openWikiMaintenance()}><Wrench size={16} />维护 Wiki</button>}
-            {collection === "wiki" && selected && selected.wiki_type !== "note" && <button className="quiet-button" onClick={() => { setWikiEstimate(null); setWikiPlan(null); setWikiPlanOpen(true); }}><Sparkles size={16} />AI 更新当前页</button>}
-            {collection === "wiki" && <button className="primary-button" disabled={!selectedId || wikiEditorSaving} onClick={() => void openWikiEditor(selectedId || undefined)}><Edit3 size={16} />编辑页面</button>}
-            {collection === "material" && documents.length > 0 && <button className="quiet-button" onClick={() => { setWikiScopeMode(uncoveredCount ? "uncovered" : "smart_library"); setWikiPlan(null); setWikiPlanOpen(true); }}><Sparkles size={16} />{uncoveredCount ? `整理未覆盖资料 · ${uncoveredCount}` : "按主题更新 Wiki"}</button>}
+        <header className="library-toolbar">
+          <div className="library-toolbar-context">
+            <Library size={18} aria-hidden="true" />
+            <div>
+              <span>{collection === "wiki" ? "历史整理" : "资料库"}</span>
+              {collection === "material" && libraries.filter((item) => item.available).length > 0 ? (
+                <select aria-label="切换资料库" value={activeLibrary?.library_id || ""} onChange={(event) => void switchLibrary(event.target.value)}>
+                  {libraries.filter((item) => item.available).map((library) => <option value={library.library_id} key={library.library_id}>{library.name}</option>)}
+                </select>
+              ) : <strong>{collection === "wiki" ? activeLibrary?.name || "资料库" : "尚未创建资料库"}</strong>}
+            </div>
+          </div>
+          <div className="library-toolbar-actions">
+            {collection === "wiki" && <button className="quiet-button" onClick={() => selectCollection("material")}>返回资料</button>}
+            {activeLibrary && <IconButton label="刷新资料" onClick={() => void loadDocuments()}><RefreshCw size={16} /></IconButton>}
+            <details className="library-more-menu">
+              <summary><MoreHorizontal size={17} /><span>更多</span></summary>
+              <div>
+                {collection === "material" && <button type="button" onClick={() => selectCollection("wiki")}>历史整理</button>}
+                <button type="button" onClick={() => openLibrarySetup()}><Settings2 size={15} />资料库管理</button>
+              </div>
+            </details>
             {collection === "material" && <button className="primary-button" disabled={documentImporting} onClick={startDocumentImport}><Upload size={16} />{documentImporting ? "正在建立索引" : "导入资料"}</button>}
           </div>
         </header>
-        <section className="library-context-bar" aria-label="当前资料库">
-          <div className="library-context-copy">
-            <span className="library-context-icon"><Library size={18} /></span>
-            <div><span>当前资料库</span><strong>{activeLibrary?.name || "尚未创建资料库"}</strong><small>{activeLibrary ? "资料、Wiki、对话和学习进度保存在这个本地文件夹中" : "导入第一份资料时，Bobodan 会引导你创建保存位置"}</small></div>
-          </div>
-          <div className="library-context-actions">
-            {libraries.filter((item) => item.available).length > 0 && <label className="library-switcher"><span>切换</span><select aria-label="切换资料库" value={activeLibrary?.library_id || ""} onChange={(event) => void switchLibrary(event.target.value)}>{libraries.filter((item) => item.available).map((library) => <option value={library.library_id} key={library.library_id}>{library.name}</option>)}</select></label>}
-            <button className="quiet-button" onClick={() => openLibrarySetup()}><Settings2 size={16} />资料库管理</button>
-          </div>
-        </section>
-        <section className={`wiki-guide ${guideOpen ? "open" : "compact"}`} aria-label="Wiki 使用流程">
-          <header><div><span>Wiki Workflow</span><strong>资料用于检索，Wiki 用于持续整理和记笔记</strong></div><button className="quiet-button" onClick={() => void toggleWikiGuide()}>{guideOpen ? "收起流程" : "查看流程"}</button></header>
-          {guideOpen && <div className="wiki-guide-steps"><div><i>1</i><span><strong>导入资料</strong><small>原始资料保持只读，并直接支持对话检索。</small></span></div><div><i>2</i><span><strong>整理一批</strong><small>默认每次 5 份，开始前先查看耗时和 Token 估算。</small></span></div><div><i>3</i><span><strong>审查计划</strong><small>确认页面与来源后才写入 Wiki。</small></span></div><div><i>4</i><span><strong>学习与维护</strong><small>手写修改、补充笔记，并处理断链或过期内容。</small></span></div></div>}
-        </section>
-        <div className="library-tabs" role="tablist" aria-label="资料库分类">
-          <button role="tab" aria-selected={collection === "material"} className={collection === "material" ? "active" : ""} onClick={() => selectCollection("material")}>学习资料</button>
-          <button role="tab" aria-selected={collection === "wiki"} className={collection === "wiki" ? "active" : ""} onClick={() => selectCollection("wiki")}>Wiki</button>
-        </div>
         {collection === "wiki" && <div className="wiki-view-tabs" role="tablist" aria-label="Wiki 页面类型">
           <button role="tab" aria-selected={wikiView === "knowledge"} className={wikiView === "knowledge" ? "active" : ""} onClick={() => selectWikiView("knowledge")}>知识页</button>
           <button role="tab" aria-selected={wikiView === "sources"} className={wikiView === "sources" ? "active" : ""} onClick={() => selectWikiView("sources")}>资料索引</button>
@@ -806,30 +895,60 @@ export function LibraryPage() {
             <aside className="document-rail">
               <div className="rail-label"><FolderOpen size={15} />{collection === "wiki" ? wikiView === "knowledge" ? "知识页面" : wikiView === "sources" ? "资料索引" : wikiView === "notes" ? "个人笔记" : "全部页面" : "我的资料"} <span>{filteredDocuments.length}</span></div>
               <label className="document-search"><Search size={14} /><input value={documentQuery} onChange={(event) => setDocumentQuery(event.target.value)} placeholder="搜索资料" aria-label="搜索资料" /></label>
-              {collection === "material" && <div className="document-bulk-tools">
-                <button type="button" onClick={selectFilteredDocuments}><CheckSquare2 size={13} />选择当前筛选</button>
-                <select aria-label="按课程批量选择" value={bulkCourse} onChange={(event) => selectCourseDocuments(event.target.value)}><option value="">按课程选择</option>{courses.map((course) => <option value={course} key={course}>{course}</option>)}</select>
-                {selectedDocumentIds.length > 0 && <button type="button" onClick={() => setDocumentScope([])}>清空 {selectedDocumentIds.length}</button>}
-              </div>}
-              {filteredDocuments.map((document, index) => (
+              {filteredDocuments.map((document) => (
                 <div className={`document-row-wrap ${selectedId === document.document_id ? "active" : ""}`} key={document.document_id}>
                   <button className="document-row" onClick={() => selectDocument(document.document_id)}>
                     <span className="document-kind"><FileText size={17} /></span>
-                    <span><strong>{document.title || document.source}</strong><small>{collection === "wiki" ? (document.wiki_type ? wikiTypeLabels[document.wiki_type] : "Wiki 页面") : document.course || (document.origin === "legacy_index" ? "已有知识库" : document.kind || "资料")} · {document.wiki_coverage ? `${coverageLabels[document.wiki_coverage.status]} · 关联 ${document.wiki_coverage.linked_page_count} 页` : document.chunk_count ? `${document.chunk_count} 个片段` : formatRelativeDate(document.updated_at)}</small></span>
-                    <i className={document.vector_status === "error" ? "error" : "ready"} title={document.vector_status || "已建立索引"} />
+                    <span><strong>{document.title || document.source}</strong><small>{collection === "wiki" ? (document.wiki_type ? wikiTypeLabels[document.wiki_type] : "历史整理") : document.course || (document.origin === "legacy_index" ? "已有知识库" : document.kind || "资料")} · {document.chunk_count ? `${document.chunk_count} 个片段` : formatRelativeDate(document.updated_at)}</small></span>
+                    {collection === "material" ? (
+                      <span
+                        className={`document-extraction-state ${effectiveExtractionStatus(document)}`}
+                        title={extractionStatusLabel(document)}
+                      >
+                        {extractionStatusLabel(document)}
+                      </span>
+                    ) : (
+                      <i className={document.vector_status === "error" ? "error" : "ready"} title={document.vector_status || "已建立索引"} />
+                    )}
                   </button>
-                  {collection === "material" && <IconButton
-                    className={`document-scope ${selectedDocumentIds.includes(document.document_id) ? "selected" : ""}`}
-                    label={selectedDocumentIds.includes(document.document_id) ? `取消优先资料 ${document.title || document.source}` : `设为优先资料 ${document.title || document.source}`}
-                    onClick={(event) => { event.stopPropagation(); toggleScopeFromList(document.document_id, index, event.shiftKey); }}
-                  >{selectedDocumentIds.includes(document.document_id) ? <CheckSquare2 size={14} /> : <Square size={14} />}</IconButton>}
                   {collection === "material" && document.managed && <IconButton className="document-delete" label={`删除 ${document.title || document.source}`} disabled={deletingId === document.document_id} onClick={() => void deleteDocument(document)}><Trash2 size={14} /></IconButton>}
                 </div>
               ))}
               {!filteredDocuments.length && <p className="document-search-empty">没有找到匹配的资料。</p>}
             </aside>
             <article className="document-reader">
-              {selected && <header><span>{selected.collection === "wiki" ? `Wiki · ${selected.wiki_type ? wikiTypeLabels[selected.wiki_type] : "页面"}` : selected.kind || "本地资料"}{selected.course ? ` · ${selected.course}` : ""}</span><h2>{selected.title || selected.source}</h2>{selected.summary && <p>{selected.summary}</p>}{selected.collection === "wiki" && <button className="quiet-button reader-edit" onClick={() => void openWikiEditor(selected.document_id)}><Edit3 size={15} />编辑</button>}</header>}
+              {selected && <header>
+                <span>{selected.collection === "wiki" ? `历史整理 · ${selected.wiki_type ? wikiTypeLabels[selected.wiki_type] : "页面"}` : selected.kind || "本地资料"}{selected.course ? ` · ${selected.course}` : ""}</span>
+                <h2>{selected.title || selected.source}</h2>
+                {selected.collection === "material" && <div className="reader-actions">
+                  {effectiveExtractionStatus(selected) === "not_started" && (
+                    <button className="primary-button reader-extract" disabled={startingExtractionId === selected.document_id || !sections.length} onClick={() => void extractAndReview(selected)}><Sparkles size={15} />{startingExtractionId === selected.document_id ? "正在启动…" : "提取概念"}</button>
+                  )}
+                  {effectiveExtractionStatus(selected) === "extracting" && (
+                    <button className="quiet-button reader-extract status-extracting" onClick={() => openExtractionReview(selected, extractionStatuses[selected.document_id]!) }><RefreshCw size={15} />正在提取 · 查看进度</button>
+                  )}
+                  {effectiveExtractionStatus(selected) === "review" && (
+                    <button className="primary-button reader-extract" onClick={() => openExtractionReview(selected, extractionStatuses[selected.document_id]!) }><Sparkles size={15} />审查概念 · {extractionStatuses[selected.document_id]?.pending_count || 0}</button>
+                  )}
+                  {effectiveExtractionStatus(selected) === "completed" && (
+                    <button className="quiet-button reader-extract status-completed" onClick={() => navigate("/knowledge-map")}><CheckCircle2 size={15} />已提取 · 查看图谱</button>
+                  )}
+                  {(effectiveExtractionStatus(selected) === "failed" || effectiveExtractionStatus(selected) === "stale") && (
+                    <button className="primary-button reader-extract" disabled={startingExtractionId === selected.document_id || !sections.length} onClick={() => void extractAndReview(selected, true)}><RefreshCw size={15} />{effectiveExtractionStatus(selected) === "failed" ? "重新尝试" : "重新提取"}</button>
+                  )}
+                  <button className="quiet-button" onClick={askAboutDocument}><MessageCircle size={15} />基于此文档提问</button>
+                  {["review", "completed"].includes(effectiveExtractionStatus(selected)) && (
+                    <details className="reader-extract-more">
+                      <summary className="icon-button" aria-label="更多概念操作" title="更多概念操作"><MoreHorizontal size={16} /></summary>
+                      <div>
+                        {!!extractionStatuses[selected.document_id]?.run.failed_sections?.length && <button onClick={() => void retryFailedSections(selected)}><RefreshCw size={14} />只重试失败章节</button>}
+                        <button onClick={() => void extractAndReview(selected, true)}><RefreshCw size={14} />重新提取</button>
+                      </div>
+                    </details>
+                  )}
+                </div>}
+                {selected.summary && <p>{selected.summary}</p>}
+              </header>}
               {selectionQuote && <div className="selection-toolbar"><Quote size={15} /><span>已选择 {selectionQuote.length} 个字符</span><button className="quiet-button" onClick={askAboutSelection}>带到对话</button></div>}
               {detailLoading ? <LoadingState label="正在打开资料…" /> : sections.length ? <div className="reader-prose" onMouseUp={captureSelection}>{sections.map((section) => (
                 <section className={highlightedChunk === section.chunk_id ? "highlighted" : ""} data-chunk-id={section.chunk_id} key={section.chunk_id}>

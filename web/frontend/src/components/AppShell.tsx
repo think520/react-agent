@@ -22,11 +22,12 @@ import {
 import { NavLink, Outlet, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { api, setActiveLibraryId } from "../lib/api";
-import type { ChatSessionSummary, DocumentSummary, LibraryMigrationPreview, LibrarySummary, ReviewQueue, SettingsSummary } from "../types";
-import { formatSessionTime, IconButton, LoadingState, textValue } from "./common";
+import type { Attribution, ChatSessionSummary, DocumentSummary, KnowledgeContext, LibraryMigrationPreview, LibrarySummary, ReviewQueue, SettingsSummary } from "../types";
+import { formatSessionTime, groupAttributionSources, IconButton, LoadingState, textValue } from "./common";
 import { OnboardingDialog } from "./OnboardingDialog";
 import { LibrarySetupDialog, type LibrarySetupMode } from "./LibrarySetupDialog";
 import { SettingsDialog, SettingsUnavailableDialog } from "./SettingsDialog";
+import { ConceptSidebar } from "./ConceptSidebar";
 
 export interface LibrarySetupOptions {
   initialMode?: LibrarySetupMode;
@@ -39,6 +40,12 @@ export interface AppOutletContext {
   refreshSettings: () => Promise<SettingsSummary | null>;
   refreshSessions: () => Promise<void>;
   openContext: () => void;
+  conceptDetailId: string | null;
+  openConceptDetail: (conceptId: string) => void;
+  closeConceptDetail: () => void;
+  showKnowledgeContext: (context: KnowledgeContext) => void;
+  clearKnowledgeContext: () => void;
+  showSourceContext: (attribution: Attribution) => void;
   documents: DocumentSummary[];
   selectedDocumentIds: string[];
   selectedDocuments: DocumentSummary[];
@@ -79,11 +86,19 @@ function LearningContext({
   review,
   selectedDocumentIds,
   toggleDocumentScope,
+  knowledgeContext,
+  sourceContext,
+  onOpenConcept,
+  onOpenMap,
 }: {
   documents: DocumentSummary[];
   review: ReviewQueue | null;
   selectedDocumentIds: string[];
   toggleDocumentScope: (documentId: string) => void;
+  knowledgeContext: KnowledgeContext | null;
+  sourceContext: Attribution | null;
+  onOpenConcept: (conceptId: string) => void;
+  onOpenMap: (conceptId: string) => void;
 }) {
   const [tab, setTab] = useState<"sources" | "learning">("sources");
   const due = review?.due_concepts.length || 0;
@@ -110,6 +125,35 @@ function LearningContext({
           ))}</div> : <div className="context-empty-action"><p className="context-empty">还没有导入资料。</p><NavLink to="/library" className="text-link">导入第一份资料</NavLink></div>}
           {documents.length > 5 && <NavLink to="/library" className="text-link context-library-link">在资料库中选择更多</NavLink>}
         </section>
+        {sourceContext && <section className="context-section response-sources">
+          <div className="context-heading"><FileText size={16} />本轮回答来源</div>
+          <div className="context-source-list">
+            {groupAttributionSources(sourceContext.sources).map((group) => {
+              return <details className="context-source-group" key={group.key}>
+                <summary><strong>{group.title}</strong><small>命中 {group.sources.length} 处</small></summary>
+                <div>{group.sources.map((source, index) => <section key={source.source_id || index}>
+                  <small>{source.heading || (source.page ? `第 ${source.page} 页` : source.slide ? `第 ${source.slide} 页` : "原文片段")}</small>
+                  {source.excerpt && <p>{source.excerpt}</p>}
+                  {source.document_id && <NavLink className="text-link" to={`/library?collection=material&document=${encodeURIComponent(source.document_id)}${source.chunk_id ? `&chunk=${encodeURIComponent(source.chunk_id)}` : ""}`}>打开原文</NavLink>}
+                </section>)}</div>
+              </details>;
+            })}
+            {!sourceContext.sources.length && <p className="context-empty">资料库中没有找到直接依据。</p>}
+          </div>
+        </section>}
+        {knowledgeContext && <section className="context-section related-knowledge">
+          <div className="context-heading"><Map size={16} />相关知识</div>
+          <div className="context-relation-list">
+            {(knowledgeContext.relationships || []).slice(0, 6).map((relation) => <div className="context-relation" key={relation.rel_id}>
+              <button type="button" onClick={() => onOpenConcept(relation.from_id)}>{relation.from_name}</button>
+              <span>{relation.rel_type}</span>
+              <button type="button" onClick={() => onOpenConcept(relation.to_id)}>{relation.to_name}</button>
+              {relation.evidence_status !== "valid" && <small>{relation.evidence_status === "stale" ? "来源已变化" : "暂无原文证据"}</small>}
+            </div>)}
+            {!(knowledgeContext.relationships || []).length && knowledgeContext.concepts.slice(0, 6).map((concept) => <button className="context-concept" type="button" key={concept.concept_id} onClick={() => onOpenConcept(concept.concept_id)}>{concept.name}</button>)}
+          </div>
+          {knowledgeContext.concepts[0] && <button className="text-link" type="button" onClick={() => onOpenMap(knowledgeContext.root?.concept_id || knowledgeContext.concepts[0].concept_id)}>在知识地图查看</button>}
+        </section>}
       </> : <>
         <section className="context-section">
           <div className="context-heading"><BookOpen size={16} />学习回流</div>
@@ -165,6 +209,9 @@ export function AppShell() {
   const [review, setReview] = useState<ReviewQueue | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [contextOpen, setContextOpen] = useState(false);
+  const [conceptDetailId, setConceptDetailId] = useState<string | null>(null);
+  const [knowledgeContext, setKnowledgeContext] = useState<KnowledgeContext | null>(null);
+  const [sourceContext, setSourceContext] = useState<Attribution | null>(null);
   const [leftSavedOpen, setLeftSavedOpen] = useState(() => localStorage.getItem("bobodan:sidebar:left") !== "false");
   const [rightSavedOpen, setRightSavedOpen] = useState(() => localStorage.getItem("bobodan:sidebar:right") !== "false");
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
@@ -190,6 +237,10 @@ export function AppShell() {
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
 
   const settingsSection = searchParams.get("settings");
+
+  useEffect(() => {
+    if (section !== "knowledge-map") setConceptDetailId(null);
+  }, [section]);
 
   const refreshSettings = useCallback(async () => {
     try {
@@ -488,6 +539,27 @@ export function AppShell() {
   const leftOpen = leftSavedOpen && !leftAutoCollapsed;
   const rightOpen = rightSavedOpen && !rightAutoCollapsed;
 
+  function openConceptDetail(conceptId: string) {
+    setConceptDetailId(conceptId);
+    if (desktop) persistPanel("right", true);
+    else setContextOpen(true);
+  }
+
+  const showKnowledgeContext = useCallback((context: KnowledgeContext) => {
+    setKnowledgeContext(context);
+    if (desktop) persistPanel("right", true);
+    else setContextOpen(true);
+  }, [desktop]);
+
+  const clearKnowledgeContext = useCallback(() => setKnowledgeContext(null), []);
+
+  function showSourceContext(attribution: Attribution) {
+    setSourceContext(attribution);
+    setConceptDetailId(null);
+    if (desktop) persistPanel("right", true);
+    else setContextOpen(true);
+  }
+
   function persistPanel(side: "left" | "right", open: boolean) {
     localStorage.setItem(`bobodan:sidebar:${side}`, String(open));
     if (side === "left") setLeftSavedOpen(open);
@@ -605,6 +677,12 @@ export function AppShell() {
           refreshSettings,
           refreshSessions,
           openContext: () => desktop ? persistPanel("right", true) : setContextOpen(true),
+          conceptDetailId,
+          openConceptDetail,
+          closeConceptDetail: () => setConceptDetailId(null),
+          showKnowledgeContext,
+          clearKnowledgeContext,
+          showSourceContext,
           documents,
           selectedDocumentIds,
           selectedDocuments,
@@ -626,8 +704,32 @@ export function AppShell() {
       </main>
 
       <aside className={`context-panel ${contextOpen ? "open" : ""}`} aria-label="学习上下文" onMouseEnter={() => schedulePreview("right", true)} onMouseLeave={() => schedulePreview("right", false)}>
-        <div className="context-header"><strong>学习书桌</strong><IconButton label="关闭上下文" onClick={() => setContextOpen(false)}><X /></IconButton></div>
-        <LearningContext documents={documents} review={review} selectedDocumentIds={selectedDocumentIds} toggleDocumentScope={toggleDocumentScope} />
+        <div className="context-header">
+          <strong>{conceptDetailId ? "概念详情" : "学习书桌"}</strong>
+          <IconButton
+            label={conceptDetailId ? "返回学习书桌" : "关闭上下文"}
+            onClick={() => conceptDetailId ? setConceptDetailId(null) : setContextOpen(false)}
+          ><X /></IconButton>
+        </div>
+        {conceptDetailId ? (
+          <ConceptSidebar
+            embedded
+            conceptId={conceptDetailId}
+            onClose={() => setConceptDetailId(null)}
+            onNavigateConcept={openConceptDetail}
+          />
+        ) : (
+          <LearningContext
+            documents={documents}
+            review={review}
+            selectedDocumentIds={selectedDocumentIds}
+            toggleDocumentScope={toggleDocumentScope}
+            knowledgeContext={knowledgeContext}
+            sourceContext={sourceContext}
+            onOpenConcept={openConceptDetail}
+            onOpenMap={(conceptId) => navigate("/knowledge-map", { state: { focusConceptId: conceptId } })}
+          />
+        )}
       </aside>
 
       {!leftOpen && <div className="panel-hover-edge left" onMouseEnter={() => schedulePreview("left", true)} onMouseLeave={() => schedulePreview("left", false)} />}

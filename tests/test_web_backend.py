@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import json
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -69,6 +70,78 @@ def test_health_endpoint(backend_client):
     response = backend_client.get("/api/health")
     assert response.status_code == 200
     assert response.json() == {"ok": True}
+
+
+def test_graph_extraction_job_reports_completion_and_scopes_candidates(
+    backend_client,
+    tmp_path,
+    monkeypatch,
+):
+    create_test_library(backend_client, tmp_path)
+    mock_llm = MagicMock()
+    mock_llm.complete.return_value = MagicMock(
+        content='{"core_concepts":[{"name":"Transformer","definition":"序列模型架构","confidence":"high","excerpt":"Transformer 使用注意力机制"}],"detail_concepts":[],"relationships":[],"tags":[]}',
+        tool_calls=[],
+    )
+    captured_config = {}
+
+    def create_provider(provider_config, agent_config):
+        captured_config["provider"] = provider_config
+        captured_config["agent"] = agent_config
+        return mock_llm
+
+    monkeypatch.setattr(
+        "providers.factory.ProviderFactory.create",
+        create_provider,
+    )
+
+    started = backend_client.post("/api/graph/extractions", json={
+        "document_id": "doc-transformer",
+        "document_title": "Transformer 基础",
+        "content": "Transformer 使用注意力机制处理序列。",
+    })
+
+    assert started.status_code == 202
+    run_id = started.json()["run"]["run_id"]
+    status = backend_client.get(f"/api/graph/extractions/{run_id}")
+    candidates = backend_client.get(
+        "/api/graph/candidates",
+        params={"status": "pending", "document_id": "doc-transformer"},
+    )
+
+    assert status.status_code == 200
+    assert status.json()["run"]["status"] == "completed_with_warnings"
+    assert status.json()["run"]["warnings"]
+    assert status.json()["run"]["stored_count"] == 1
+    assert candidates.json()["count"] == 1
+    assert candidates.json()["candidates"][0]["name"] == "Transformer"
+    assert captured_config["provider"]["type"] == "deepseek"
+    assert captured_config["agent"]["timeout"] == 30
+    assert captured_config["agent"]["temperature"] == 0.2
+
+
+def test_graph_extraction_retry_rejects_different_document(backend_client, monkeypatch):
+    monkeypatch.setattr(
+        "web.backend.routers.graph.ConceptService.get_extraction_run",
+        lambda self, run_id: {
+            "ok": True,
+            "run": {
+                "run_id": run_id,
+                "document_id": "doc-original",
+                "failed_sections": [{"index": 0, "chunk_id": "chunk-1"}],
+            },
+        },
+    )
+
+    response = backend_client.post("/api/graph/extractions/run-1/retry", json={
+        "document_id": "doc-other",
+        "document_title": "其他文档",
+        "content": "内容",
+        "sections": [{"chunk_id": "chunk-1", "content": "内容"}],
+    })
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "extraction_document_mismatch"
 
 
 def test_library_api_creates_registers_and_rejects_unknown_context(backend_client, tmp_path):
@@ -870,13 +943,51 @@ def test_explicit_skill_slash_command_loads_selected_skill(tmp_path):
     assert "只围绕薄弱点出题" in prompt
 
 
-def test_chat_request_context_distinguishes_wiki_from_original_evidence(tmp_path):
+def test_chat_request_context_distinguishes_concept_map_from_original_evidence(tmp_path):
     document_ids, preferred_ids, prompt = _request_context([], [], str(tmp_path))
 
     assert document_ids == []
     assert preferred_ids == []
-    assert "use Wiki pages to understand concepts and relationships" in prompt
-    assert "original learning materials as the factual evidence" in prompt
+    assert "Use the reviewed concept map to understand concepts and relationships" in prompt
+    assert "original learning materials as factual evidence" in prompt
+
+
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        ("知识地图里有哪些 Transformer 节点？", "query"),
+        ("知识图谱里 Transformer 有哪些相关节点？", "neighbors"),
+        ("知识地图上 Transformer 到 RAG 的路径是什么？", "path"),
+        ("请用通用知识解释 Transformer", None),
+    ],
+)
+def test_required_concept_map_operation(message, expected):
+    from web.backend.routers.chat import _required_concept_map_operation
+
+    assert _required_concept_map_operation(message) == expected
+
+
+def test_run_summary_omits_unchanged_query_and_keeps_rewrite():
+    from web.backend.routers.chat import _run_summary_operation
+
+    unchanged = _run_summary_operation({
+        "tool_name": "rag_search",
+        "ok": True,
+        "elapsed": 0.2,
+        "args": {"query": "解释 Transformer"},
+        "metrics": {"hit_count": 3, "document_count": 1},
+    }, "解释   Transformer")
+    rewritten = _run_summary_operation({
+        "tool_name": "rag_search",
+        "ok": True,
+        "elapsed": 0.3,
+        "args": {"query": "Transformer 架构 工作流程"},
+        "metrics": {"hit_count": 5, "document_count": 2},
+    }, "解释 Transformer")
+
+    assert "query" not in unchanged
+    assert rewritten["query"] == "Transformer 架构 工作流程"
+    assert rewritten["hit_count"] == 5
 
 
 def test_user_profile_is_delimited_as_untrusted_prompt_data():
@@ -965,6 +1076,11 @@ def test_chat_run_maps_safe_events_and_injects_runtime(backend_client, monkeypat
     assert "Lesson 1" in captured["request_prompt"]
     assert captured["session"].active_document_ids == ["doc-1"]
     assert "rag_search" in captured["allowed_tool_names"]
+    assert "concept_map_query" in captured["allowed_tool_names"]
+    assert "concept_map_status" in captured["allowed_tool_names"]
+    assert "graph_query" not in captured["allowed_tool_names"]
+    assert "knowledge_status" not in captured["allowed_tool_names"]
+    assert captured["response_guard"] is not None
     assert "write_file" not in captured["allowed_tool_names"]
     schema_names = {
         item["function"]["name"] for item in captured["tools_schema"]

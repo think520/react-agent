@@ -43,13 +43,18 @@ def rag_search(
             mode=mode,
             document_ids=document_ids,
             preferred_document_ids=preferred_document_ids,
+            collection="material",
             config=config,
         )
         if not result["ok"]:
             return ToolResult(ok=False, content=result["error"], data={"results": []})
 
         results = result["results"]
-        data = {"results": results}
+        data = {
+            "results": results,
+            "hit_count": len(results),
+            "evidence_status": "found" if results else "no_hit",
+        }
         sources = []
         for item in results:
             metadata = item.get("metadata") or {}
@@ -65,14 +70,17 @@ def rag_search(
                 "slide": metadata.get("slide_start") or item.get("slide_start"),
                 "collection": item.get("collection", "material"),
                 "wiki_type": item.get("wiki_type"),
+                "excerpt": str(item.get("text") or "")[:300],
             })
 
-        artifacts = []
-        if sources:
-            artifacts.append({
-                "type": "citation",
-                "attribution": {"kind": "local", "sources": sources},
-            })
+        artifacts = [{
+            "type": "citation",
+            "attribution": {
+                "kind": "local",
+                "sources": sources,
+                "status": "found" if sources else "no_hit",
+            },
+        }]
 
         return ToolResult(
             ok=True,

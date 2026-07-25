@@ -6,6 +6,7 @@ from core.agent_loop import (
 )
 from core.session import Session
 from providers.types import LLMResponse, LLMStreamChunk, ToolCall, ToolCallDelta
+from service.evidence_policy import CombinedResponsePolicy, ConceptMapPolicy, LocalEvidencePolicy
 from tools.base import TOOL_REGISTRY, TOOL_SCHEMAS, ToolResult, register_tool
 
 
@@ -64,6 +65,149 @@ def test_agent_loop_plain_text_response():
 
     assert result == "direct response"
     assert session.messages[-1]["content"] == "direct response"
+
+
+def test_local_evidence_guard_retries_without_leaking_ungrounded_answer(monkeypatch):
+    monkeypatch.setitem(
+        TOOL_REGISTRY,
+        "rag_search",
+        lambda query, workspace=".": ToolResult(
+            ok=True,
+            content="source result",
+            data={"results": [{"text": "grounded"}], "hit_count": 1},
+        ),
+    )
+    session = Session.new("/test")
+    llm = MockLLMProvider([
+        LLMResponse(content="ungrounded draft"),
+        _tool_response([{"name": "rag_search", "args": {"query": "attention"}}]),
+        LLMResponse(content="grounded answer"),
+    ])
+    agent = AgentLoop(llm, session, response_guard=LocalEvidencePolicy())
+
+    events = list(agent.run_stream("Based on my document, explain attention."))
+
+    deltas = [event["content"] for event in events if event["type"] == "assistant_delta"]
+    assert deltas == ["grounded answer"]
+    assert llm.call_count == 3
+    assert session.messages[-1]["content"] == "grounded answer"
+    assert all("no successful rag_search" not in message.get("content", "") for message in session.messages)
+
+
+def test_local_evidence_guard_requires_disclosure_after_no_hit(monkeypatch):
+    monkeypatch.setitem(
+        TOOL_REGISTRY,
+        "rag_search",
+        lambda query, workspace=".": ToolResult(
+            ok=True,
+            content="no results",
+            data={"results": [], "hit_count": 0, "evidence_status": "no_hit"},
+        ),
+    )
+    session = Session.new("/test")
+    llm = MockLLMProvider([
+        _tool_response([{"name": "rag_search", "args": {"query": "missing topic"}}]),
+        LLMResponse(content="unsupported generic answer"),
+        LLMResponse(content="资料库中未找到直接依据，以下为通用知识。 Generic answer."),
+    ])
+    agent = AgentLoop(llm, session, response_guard=LocalEvidencePolicy())
+
+    events = list(agent.run_stream("Based on my document, explain the missing topic."))
+
+    deltas = [event["content"] for event in events if event["type"] == "assistant_delta"]
+    assert deltas == ["资料库中未找到直接依据，以下为通用知识。 Generic answer."]
+    assert "unsupported generic answer" not in session.messages[-1]["content"]
+
+
+def test_local_evidence_guard_fails_closed_after_one_retry():
+    session = Session.new("/test")
+    llm = MockLLMProvider([
+        LLMResponse(content="first ungrounded draft"),
+        LLMResponse(content="second ungrounded draft"),
+    ])
+    agent = AgentLoop(llm, session, response_guard=LocalEvidencePolicy())
+
+    result = agent.run("Based on my document, answer this.")
+
+    assert "还没有成功检索到本地资料" in result
+    assert "ungrounded draft" not in result
+
+
+def test_local_evidence_guard_preserves_equal_preexisting_message():
+    policy = LocalEvidencePolicy()
+    correction_prompt = policy.validate([], "", 0).correction_prompt
+    session = Session.new("/test")
+    preexisting_message = {"role": "system", "content": correction_prompt}
+    session.messages.append(preexisting_message)
+    llm = MockLLMProvider([
+        LLMResponse(content="first ungrounded draft"),
+        LLMResponse(content="second ungrounded draft"),
+    ])
+    agent = AgentLoop(llm, session, response_guard=policy)
+
+    agent.run("Based on my document, answer this.")
+
+    assert any(message is preexisting_message for message in session.messages)
+
+
+def test_concept_map_relationship_guard_rejects_search_only(monkeypatch):
+    monkeypatch.setitem(
+        TOOL_REGISTRY,
+        "concept_map_query",
+        lambda operation, query=None, concept=None, workspace=".": ToolResult(
+            ok=True,
+            content="graph result",
+            data={"operation": operation, "concepts": [], "relationships": []},
+        ),
+    )
+    session = Session.new("/test")
+    llm = MockLLMProvider([
+        _tool_response([{"name": "concept_map_query", "args": {"operation": "search", "query": "Transformer"}}]),
+        LLMResponse(content="search-only answer"),
+        _tool_response([{"name": "concept_map_query", "args": {"operation": "neighbors", "concept": "Transformer"}}]),
+        LLMResponse(content="知识地图中没有已审查的相关关系。"),
+    ])
+    agent = AgentLoop(llm, session, response_guard=ConceptMapPolicy("neighbors"))
+
+    events = list(agent.run_stream("知识地图里 Transformer 有哪些相关节点？"))
+
+    deltas = [event["content"] for event in events if event["type"] == "assistant_delta"]
+    assert deltas == ["知识地图中没有已审查的相关关系。"]
+    assert "search-only answer" not in session.messages[-1]["content"]
+
+
+def test_combined_guard_can_require_library_and_concept_map(monkeypatch):
+    monkeypatch.setitem(
+        TOOL_REGISTRY,
+        "rag_search",
+        lambda query, workspace=".": ToolResult(
+            ok=True,
+            content="source result",
+            data={"results": [{"text": "evidence"}], "hit_count": 1},
+        ),
+    )
+    monkeypatch.setitem(
+        TOOL_REGISTRY,
+        "concept_map_query",
+        lambda operation, concept=None, workspace=".": ToolResult(
+            ok=True,
+            content="graph result",
+            data={"operation": operation, "concepts": [], "relationships": []},
+        ),
+    )
+    session = Session.new("/test")
+    llm = MockLLMProvider([
+        _tool_response([{"name": "rag_search", "args": {"query": "Transformer"}}]),
+        LLMResponse(content="only source"),
+        _tool_response([{"name": "concept_map_query", "args": {"operation": "neighbors", "concept": "Transformer"}}]),
+        LLMResponse(content="grounded graph answer"),
+    ])
+    guard = CombinedResponsePolicy(LocalEvidencePolicy(), ConceptMapPolicy("neighbors"))
+    agent = AgentLoop(llm, session, response_guard=guard)
+
+    result = agent.run("根据资料和知识地图解释 Transformer 的关系。")
+
+    assert result == "grounded graph answer"
 
 
 def test_request_prompt_is_visible_for_one_run_but_not_persisted():
@@ -359,7 +503,7 @@ def test_agent_loop_stops_after_max_iterations(tmp_path):
 
     result = agent.run("loop forever")
 
-    assert result == "Agent stopped after too many tool iterations."
+    assert result == "本轮工具调用次数过多，未能完成回答。请缩小问题范围后重试。"
 
 
 # --- P2-1: termination_reason tests ---

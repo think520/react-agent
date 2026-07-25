@@ -1548,6 +1548,7 @@ class KBService:
             "vector_status": document.get("vector_status", ""),
             "vector_error": document.get("vector_error"),
             "updated_at": document.get("updated_at", ""),
+            "content_hash": document.get("content_hash", ""),
             "managed": managed,
             "origin": "managed" if managed else "workspace",
         }
@@ -1660,6 +1661,7 @@ class KBService:
         mode: str = "auto",
         document_ids: list[str] | None = None,
         preferred_document_ids: list[str] | None = None,
+        collection: str = "all",
         config: dict | None = None,
     ) -> dict[str, Any]:
         if not query or not query.strip():
@@ -1709,12 +1711,14 @@ class KBService:
         merged = []
         seen = set()
         for index in range(max(len(results), len(legacy_results))):
-            for collection in (results, legacy_results):
-                if index >= len(collection):
+            for result_list in (results, legacy_results):
+                if index >= len(result_list):
                     continue
-                item = collection[index]
+                item = result_list[index]
                 visible_document = source_documents.get(str(item.get("source") or ""))
                 if not visible_document:
+                    continue
+                if collection != "all" and visible_document.get("collection") != collection:
                     continue
                 if allowed_document_ids and visible_document["document_id"] not in allowed_document_ids:
                     continue

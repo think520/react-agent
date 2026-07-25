@@ -9,6 +9,7 @@ concepts          — confirmed concept nodes (core/detail/cluster)
 relationships     — confirmed edges between concepts
 evidence          — source evidence anchoring relationships
 concept_candidates — LLM-extracted candidates awaiting user review
+concept_extraction_runs — durable status for long-running extraction jobs
 concept_positions  — per-concept canvas positions (x, y) saved by user
 """
 
@@ -53,6 +54,7 @@ CREATE TABLE IF NOT EXISTS evidence (
     evidence_id   TEXT PRIMARY KEY,
     rel_id        TEXT NOT NULL REFERENCES relationships(rel_id) ON DELETE CASCADE,
     document_id   TEXT NOT NULL,
+    chunk_id      TEXT,
     document_title TEXT DEFAULT '',
     excerpt       TEXT DEFAULT '',
     location_type TEXT DEFAULT '',              -- page|slide|heading|line
@@ -77,6 +79,23 @@ CREATE TABLE IF NOT EXISTS concept_candidates (
     created_at    REAL NOT NULL,
     updated_at    REAL NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS concept_extraction_runs (
+    run_id         TEXT PRIMARY KEY,
+    document_id    TEXT NOT NULL,
+    document_title TEXT DEFAULT '',
+    content_version TEXT DEFAULT '',
+    status         TEXT NOT NULL DEFAULT 'queued', -- queued|running|completed|completed_with_warnings|failed
+    stage          TEXT DEFAULT '',
+    stored_count   INTEGER NOT NULL DEFAULT 0,
+    warnings       TEXT DEFAULT '[]',
+    failed_sections TEXT DEFAULT '[]',
+    error          TEXT DEFAULT '',
+    created_at     REAL NOT NULL,
+    updated_at     REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_extraction_runs_document
+    ON concept_extraction_runs (document_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS concept_positions (
     concept_id TEXT NOT NULL,
@@ -118,6 +137,36 @@ class ConceptStore:
     def _ensure_schema(self) -> None:
         with self._connect() as con:
             con.executescript(_DDL)
+            run_columns = {
+                row["name"]
+                for row in con.execute("PRAGMA table_info(concept_extraction_runs)")
+            }
+            if "content_version" not in run_columns:
+                con.execute(
+                    "ALTER TABLE concept_extraction_runs "
+                    "ADD COLUMN content_version TEXT DEFAULT ''"
+                )
+            if "stage" not in run_columns:
+                con.execute(
+                    "ALTER TABLE concept_extraction_runs "
+                    "ADD COLUMN stage TEXT DEFAULT ''"
+                )
+            if "warnings" not in run_columns:
+                con.execute(
+                    "ALTER TABLE concept_extraction_runs "
+                    "ADD COLUMN warnings TEXT DEFAULT '[]'"
+                )
+            if "failed_sections" not in run_columns:
+                con.execute(
+                    "ALTER TABLE concept_extraction_runs "
+                    "ADD COLUMN failed_sections TEXT DEFAULT '[]'"
+                )
+            evidence_columns = {
+                row["name"]
+                for row in con.execute("PRAGMA table_info(evidence)")
+            }
+            if "chunk_id" not in evidence_columns:
+                con.execute("ALTER TABLE evidence ADD COLUMN chunk_id TEXT")
 
     # ------------------------------------------------------------------
     # Concepts
@@ -252,10 +301,25 @@ class ConceptStore:
     def relationships_for_concept(self, concept_id: str) -> list[dict[str, Any]]:
         with self._connect() as con:
             rows = con.execute(
-                "SELECT * FROM relationships WHERE from_id = ? OR to_id = ?",
+                """SELECT relationships.*, source.name AS from_name, target.name AS to_name
+                   FROM relationships
+                   JOIN concepts AS source ON source.concept_id = relationships.from_id
+                   JOIN concepts AS target ON target.concept_id = relationships.to_id
+                   WHERE from_id = ? OR to_id = ?""",
                 (concept_id, concept_id),
             ).fetchall()
         return [dict(r) for r in rows]
+
+    def list_relationships(self) -> list[dict[str, Any]]:
+        with self._connect() as con:
+            rows = con.execute(
+                """SELECT relationships.*, source.name AS from_name, target.name AS to_name
+                   FROM relationships
+                   JOIN concepts AS source ON source.concept_id = relationships.from_id
+                   JOIN concepts AS target ON target.concept_id = relationships.to_id
+                   ORDER BY relationships.created_at"""
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def delete_relationship(self, rel_id: str) -> bool:
         with self._connect() as con:
@@ -273,6 +337,7 @@ class ConceptStore:
         *,
         rel_id: str,
         document_id: str,
+        chunk_id: str | None = None,
         document_title: str = "",
         excerpt: str = "",
         location_type: str = "",
@@ -283,14 +348,15 @@ class ConceptStore:
         with self._connect() as con:
             con.execute(
                 """INSERT INTO evidence
-                   (evidence_id, rel_id, document_id, document_title,
+                   (evidence_id, rel_id, document_id, chunk_id, document_title,
                     excerpt, location_type, location_value, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                (eid, rel_id, document_id, document_title,
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (eid, rel_id, document_id, chunk_id, document_title,
                  excerpt, location_type, location_value, now),
             )
         return {"evidence_id": eid, "rel_id": rel_id,
-                "document_id": document_id, "document_title": document_title,
+                "document_id": document_id, "chunk_id": chunk_id,
+                "document_title": document_title,
                 "excerpt": excerpt, "location_type": location_type,
                 "location_value": location_value, "location_stale": False}
 
@@ -300,6 +366,66 @@ class ConceptStore:
                 "SELECT * FROM evidence WHERE rel_id = ?", (rel_id,)
             ).fetchall()
         return [dict(r) for r in rows]
+
+    def evidence_for_document(self, document_id: str) -> list[dict[str, Any]]:
+        with self._connect() as con:
+            rows = con.execute(
+                "SELECT * FROM evidence WHERE document_id = ?",
+                (document_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def update_evidence_location(
+        self,
+        evidence_id: str,
+        *,
+        chunk_id: str | None,
+        location_stale: bool,
+    ) -> bool:
+        with self._connect() as con:
+            cur = con.execute(
+                """UPDATE evidence
+                   SET chunk_id = ?, location_stale = ?
+                   WHERE evidence_id = ?""",
+                (chunk_id, int(location_stale), evidence_id),
+            )
+        return cur.rowcount > 0
+
+    def search_concepts(self, query: str, *, limit: int = 10) -> list[dict[str, Any]]:
+        pattern = f"%{query.strip()}%"
+        with self._connect() as con:
+            rows = con.execute(
+                """SELECT * FROM concepts
+                   WHERE name LIKE ? COLLATE NOCASE
+                      OR aliases LIKE ? COLLATE NOCASE
+                   ORDER BY CASE WHEN name = ? COLLATE NOCASE THEN 0 ELSE 1 END,
+                            name
+                   LIMIT ?""",
+                (pattern, pattern, query.strip(), limit),
+            ).fetchall()
+        return [_row_to_concept(row) for row in rows]
+
+    def graph_status(self) -> dict[str, int]:
+        with self._connect() as con:
+            concepts = con.execute("SELECT COUNT(*) AS count FROM concepts").fetchone()["count"]
+            relationships = con.execute(
+                "SELECT COUNT(*) AS count FROM relationships"
+            ).fetchone()["count"]
+            pending = con.execute(
+                """SELECT COUNT(*) AS count FROM concept_candidates
+                   WHERE status = 'pending'
+                     AND (suppressed_until IS NULL OR suppressed_until <= ?)""",
+                (time.time(),),
+            ).fetchone()["count"]
+            stale = con.execute(
+                "SELECT COUNT(*) AS count FROM evidence WHERE location_stale = 1"
+            ).fetchone()["count"]
+        return {
+            "concept_count": concepts,
+            "relationship_count": relationships,
+            "pending_count": pending,
+            "stale_evidence_count": stale,
+        }
 
     # ------------------------------------------------------------------
     # Candidates
@@ -320,18 +446,39 @@ class ConceptStore:
         now = time.time()
         cid = f"cand-{uuid.uuid4().hex[:12]}"
         with self._connect() as con:
-            con.execute(
-                """INSERT INTO concept_candidates
-                   (candidate_id, name, level, definition, confidence,
-                    source_doc_id, source_doc_title, excerpt,
-                    suggested_rels, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    cid, name, level, definition, confidence,
-                    source_doc_id, source_doc_title, excerpt,
-                    json.dumps(suggested_rels or []), now, now,
-                ),
-            )
+            existing = con.execute(
+                """SELECT candidate_id FROM concept_candidates
+                   WHERE source_doc_id = ? AND name = ? COLLATE NOCASE
+                     AND status = 'pending'
+                   ORDER BY updated_at DESC LIMIT 1""",
+                (source_doc_id, name),
+            ).fetchone()
+            if existing:
+                cid = existing["candidate_id"]
+                con.execute(
+                    """UPDATE concept_candidates
+                       SET level = ?, definition = ?, confidence = ?,
+                           source_doc_title = ?, excerpt = ?, suggested_rels = ?,
+                           suppressed_until = NULL, updated_at = ?
+                       WHERE candidate_id = ?""",
+                    (
+                        level, definition, confidence, source_doc_title, excerpt,
+                        json.dumps(suggested_rels or []), now, cid,
+                    ),
+                )
+            else:
+                con.execute(
+                    """INSERT INTO concept_candidates
+                       (candidate_id, name, level, definition, confidence,
+                        source_doc_id, source_doc_title, excerpt,
+                        suggested_rels, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        cid, name, level, definition, confidence,
+                        source_doc_id, source_doc_title, excerpt,
+                        json.dumps(suggested_rels or []), now, now,
+                    ),
+                )
         return self.get_candidate(cid)  # type: ignore[return-value]
 
     def get_candidate(self, candidate_id: str) -> dict[str, Any] | None:
@@ -342,19 +489,153 @@ class ConceptStore:
             ).fetchone()
         return _row_to_candidate(row) if row else None
 
-    def list_candidates(self, *, status: str = "pending") -> list[dict[str, Any]]:
+    def get_candidate_by_document_and_name(
+        self,
+        source_doc_id: str,
+        name: str,
+    ) -> dict[str, Any] | None:
+        with self._connect() as con:
+            row = con.execute(
+                """SELECT * FROM concept_candidates
+                   WHERE source_doc_id = ? AND name = ? COLLATE NOCASE
+                   ORDER BY
+                     CASE status
+                       WHEN 'confirmed' THEN 0
+                       WHEN 'rejected' THEN 1
+                       WHEN 'label' THEN 2
+                       WHEN 'pending' THEN 3
+                       ELSE 4
+                     END,
+                     updated_at DESC
+                   LIMIT 1""",
+                (source_doc_id, name),
+            ).fetchone()
+        return _row_to_candidate(row) if row else None
+
+    def list_candidates(
+        self,
+        *,
+        status: str = "pending",
+        source_doc_id: str | None = None,
+    ) -> list[dict[str, Any]]:
         now = time.time()
+        source_clause = " AND source_doc_id = ?" if source_doc_id else ""
+        params: list[Any] = [status, now]
+        if source_doc_id:
+            params.append(source_doc_id)
         with self._connect() as con:
             rows = con.execute(
-                """SELECT * FROM concept_candidates
+                f"""SELECT * FROM concept_candidates
                    WHERE status = ?
                      AND (suppressed_until IS NULL OR suppressed_until <= ?)
+                     {source_clause}
                    ORDER BY
                      CASE confidence WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
                      created_at""",
-                (status, now),
+                params,
             ).fetchall()
         return [_row_to_candidate(r) for r in rows]
+
+    # ------------------------------------------------------------------
+    # Extraction runs
+    # ------------------------------------------------------------------
+
+    def create_extraction_run(
+        self,
+        *,
+        document_id: str,
+        document_title: str = "",
+        content_version: str = "",
+    ) -> dict[str, Any]:
+        now = time.time()
+        run_id = f"extract-{uuid.uuid4().hex[:12]}"
+        with self._connect() as con:
+            con.execute(
+                """INSERT INTO concept_extraction_runs
+                   (run_id, document_id, document_title, content_version,
+                    status, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, 'queued', ?, ?)""",
+                (run_id, document_id, document_title, content_version, now, now),
+            )
+        return self.get_extraction_run(run_id)  # type: ignore[return-value]
+
+    def get_extraction_run(self, run_id: str) -> dict[str, Any] | None:
+        with self._connect() as con:
+            row = con.execute(
+                "SELECT * FROM concept_extraction_runs WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+        return _row_to_run(row) if row else None
+
+    def get_latest_extraction_run(self, document_id: str) -> dict[str, Any] | None:
+        with self._connect() as con:
+            row = con.execute(
+                """SELECT * FROM concept_extraction_runs
+                   WHERE document_id = ?
+                   ORDER BY created_at DESC LIMIT 1""",
+                (document_id,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def list_latest_extraction_runs(self) -> list[dict[str, Any]]:
+        with self._connect() as con:
+            rows = con.execute(
+                """SELECT runs.*
+                   FROM concept_extraction_runs AS runs
+                   JOIN (
+                       SELECT document_id, MAX(created_at) AS created_at
+                       FROM concept_extraction_runs
+                       GROUP BY document_id
+                   ) AS latest
+                     ON latest.document_id = runs.document_id
+                    AND latest.created_at = runs.created_at
+                   ORDER BY runs.updated_at DESC"""
+            ).fetchall()
+        return [_row_to_run(row) for row in rows]
+
+    def pending_candidates_count_by_document(self) -> dict[str, int]:
+        with self._connect() as con:
+            rows = con.execute(
+                """SELECT source_doc_id, COUNT(*) AS count
+                   FROM concept_candidates
+                   WHERE status = 'pending'
+                     AND (suppressed_until IS NULL OR suppressed_until <= ?)
+                   GROUP BY source_doc_id""",
+                (time.time(),),
+            ).fetchall()
+        return {row["source_doc_id"]: row["count"] for row in rows}
+
+    def update_extraction_run(
+        self,
+        run_id: str,
+        *,
+        status: str,
+        stored_count: int = 0,
+        error: str = "",
+        stage: str = "",
+        warnings: list[str] | None = None,
+        failed_sections: list[dict[str, Any]] | None = None,
+    ) -> bool:
+        warnings_json = json.dumps(warnings or [], ensure_ascii=False)
+        failed_sections_json = json.dumps(failed_sections or [], ensure_ascii=False)
+        with self._connect() as con:
+            cur = con.execute(
+                """UPDATE concept_extraction_runs
+                   SET status = ?, stage = ?, stored_count = ?, warnings = ?, failed_sections = ?, error = ?, updated_at = ?
+                   WHERE run_id = ?""",
+                (status, stage, stored_count, warnings_json, failed_sections_json, error, time.time(), run_id),
+            )
+        return cur.rowcount > 0
+
+    def archive_pending_candidates(self, source_doc_id: str) -> int:
+        with self._connect() as con:
+            cur = con.execute(
+                """UPDATE concept_candidates
+                   SET status = 'archived', updated_at = ?
+                   WHERE source_doc_id = ? AND status = 'pending'""",
+                (time.time(), source_doc_id),
+            )
+        return cur.rowcount
 
     def update_candidate_status(
         self,
@@ -370,6 +651,20 @@ class ConceptStore:
                    SET status = ?, suppressed_until = ?, updated_at = ?
                    WHERE candidate_id = ?""",
                 (status, suppressed_until, now, candidate_id),
+            )
+        return cur.rowcount > 0
+
+    def update_candidate_suggested_rels(
+        self,
+        candidate_id: str,
+        suggested_rels: list[dict[str, Any]],
+    ) -> bool:
+        with self._connect() as con:
+            cur = con.execute(
+                """UPDATE concept_candidates
+                   SET suggested_rels = ?, updated_at = ?
+                   WHERE candidate_id = ?""",
+                (json.dumps(suggested_rels, ensure_ascii=False), time.time(), candidate_id),
             )
         return cur.rowcount > 0
 
@@ -533,4 +828,17 @@ def _row_to_concept(row: sqlite3.Row) -> dict[str, Any]:
 def _row_to_candidate(row: sqlite3.Row) -> dict[str, Any]:
     d = dict(row)
     d["suggested_rels"] = json.loads(d.get("suggested_rels") or "[]")
+    return d
+
+
+def _row_to_run(row: sqlite3.Row) -> dict[str, Any]:
+    d = dict(row)
+    try:
+        d["warnings"] = json.loads(d.get("warnings") or "[]")
+    except json.JSONDecodeError:
+        d["warnings"] = []
+    try:
+        d["failed_sections"] = json.loads(d.get("failed_sections") or "[]")
+    except json.JSONDecodeError:
+        d["failed_sections"] = []
     return d

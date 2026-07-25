@@ -16,6 +16,8 @@ interface Props {
   conceptId: string | null;
   onClose: () => void;
   onConceptUpdated?: (concept: ConceptNode) => void;
+  onNavigateConcept?: (conceptId: string) => void;
+  embedded?: boolean;
 }
 
 const REL_LABELS: Record<string, string> = {
@@ -27,7 +29,7 @@ const REL_LABELS: Record<string, string> = {
   "来源于": "来源于",
 };
 
-export function ConceptSidebar({ conceptId, onClose, onConceptUpdated }: Props) {
+export function ConceptSidebar({ conceptId, onClose, onConceptUpdated, onNavigateConcept, embedded = false }: Props) {
   const [detail, setDetail] = useState<ConceptDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -91,12 +93,12 @@ export function ConceptSidebar({ conceptId, onClose, onConceptUpdated }: Props) 
   if (!conceptId) return null;
 
   return (
-    <aside
+    <section
       ref={sidebarRef}
-      className={`concept-sidebar ${conceptId ? "open" : ""}`}
+      className={`concept-sidebar ${embedded ? "embedded" : ""} ${conceptId ? "open" : ""}`}
       aria-label="概念详情"
     >
-      <div className="sidebar-header">
+      {!embedded && <div className="sidebar-header">
         <button
           className="icon-button sidebar-close"
           aria-label="关闭详情"
@@ -104,7 +106,7 @@ export function ConceptSidebar({ conceptId, onClose, onConceptUpdated }: Props) 
         >
           <X size={16} />
         </button>
-      </div>
+      </div>}
 
       {loading && (
         <div className="sidebar-loading" aria-live="polite">正在加载…</div>
@@ -136,11 +138,12 @@ export function ConceptSidebar({ conceptId, onClose, onConceptUpdated }: Props) 
               <div className="sidebar-section-title">关系</div>
               <ul className="sidebar-rels">
                 {detail.relationships.map((rel) => (
-                  <RelationItem
-                    key={rel.rel_id}
-                    rel={rel}
-                    selfId={detail.concept.concept_id}
-                  />
+                    <RelationItem
+                      key={rel.rel_id}
+                      rel={rel}
+                      selfId={detail.concept.concept_id}
+                      onNavigate={onNavigateConcept}
+                    />
                 ))}
               </ul>
             </section>
@@ -228,7 +231,7 @@ export function ConceptSidebar({ conceptId, onClose, onConceptUpdated }: Props) 
           </section>
         </div>
       )}
-    </aside>
+    </section>
   );
 }
 
@@ -236,14 +239,18 @@ export function ConceptSidebar({ conceptId, onClose, onConceptUpdated }: Props) 
 // Sub-components
 // ------------------------------------------------------------------
 
-function RelationItem({ rel, selfId }: { rel: RelationshipEdge; selfId: string }) {
+function RelationItem({ rel, selfId, onNavigate }: { rel: RelationshipEdge; selfId: string; onNavigate?: (conceptId: string) => void }) {
   const label = REL_LABELS[rel.rel_type] ?? rel.rel_type;
   const isFrom = rel.from_id === selfId;
+  const targetId = isFrom ? rel.to_id : rel.from_id;
+  const targetName = isFrom ? rel.to_name : rel.from_name;
   return (
     <li className="sidebar-rel-item">
       <span className="rel-type">{label}</span>
       <span className="rel-direction">{isFrom ? "→" : "←"}</span>
-      <span className="rel-target-id">{isFrom ? rel.to_id : rel.from_id}</span>
+      <button className="rel-target" onClick={() => onNavigate?.(targetId)} disabled={!onNavigate}>
+        {targetName || "未命名概念"}
+      </button>
     </li>
   );
 }

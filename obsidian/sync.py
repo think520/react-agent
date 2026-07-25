@@ -245,6 +245,16 @@ def sync_sources(
 
             sqlite.insert_chunks(chunks)
 
+            # Keep reviewed concept evidence aligned with the rebuilt RAG chunks.
+            concept_db_path = os.path.join(knowledge_dir, "concept_graph.db")
+            if os.path.exists(concept_db_path):
+                try:
+                    from service.concept_service import ConceptService
+
+                    ConceptService(workspace).refresh_document_evidence(document_id, chunks)
+                except Exception:
+                    pass
+
             # Directory entry
             keywords = list(set(tags + _extract_keywords(chunks)))
             sqlite.upsert_directory_entry(
@@ -320,6 +330,14 @@ def sync_sources(
         doc_id = sqlite.get_document_id_by_source(source)
         if doc_id:
             sqlite.delete_document(doc_id)  # cascades to chunks, directory
+            concept_db_path = os.path.join(knowledge_dir, "concept_graph.db")
+            if os.path.exists(concept_db_path):
+                try:
+                    from service.concept_service import ConceptService
+
+                    ConceptService(workspace).mark_document_evidence_stale(doc_id)
+                except Exception:
+                    pass
             try:
                 qdrant.delete_by_filter(doc_id)
             except Exception:

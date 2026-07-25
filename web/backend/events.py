@@ -29,6 +29,16 @@ _TOOL_COMPLETED_STATUS = {
 }
 
 
+_TOOL_STATUS.update({
+    "concept_map_query": "正在查询知识地图",
+    "concept_map_status": "正在读取知识地图状态",
+})
+_TOOL_COMPLETED_STATUS.update({
+    "concept_map_query": "知识地图关系已准备好",
+    "concept_map_status": "知识地图状态已读取",
+})
+
+
 def to_web_events(event: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
     event_type = event.get("type")
 
@@ -54,6 +64,8 @@ def to_web_events(event: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
             artifact_type = artifact.get("type")
             if artifact_type in {"citation", "practice", "learning_update"}:
                 web_events.append((artifact_type, artifact))
+            elif artifact_type == "knowledge_context":
+                web_events.append(("chat_artifact", {"artifact": artifact}))
             elif artifact_type in {"web_consent", "web_candidates", "web_evidence", "practice_ready", "memory_confirmation"}:
                 web_events.append(("chat_artifact", {"artifact": artifact}))
         return web_events

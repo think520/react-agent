@@ -5,6 +5,7 @@ from .http_req import http_request
 from .obsidian_tool import obsidian_sync
 from .rag_search import rag_search
 from .graph_query import graph_query
+from .concept_map import concept_map_query, concept_map_status
 from .memory_tools import (
     memory_save, memory_recall, memory_daily_save, memory_daily_read, memory_promote,
     request_memory_confirmation,
@@ -19,6 +20,7 @@ from .web_research import request_web_search, web_research
 __all__ = ["TOOL_REGISTRY", "get_tools_schema", "execute_tool", "ToolResult",
            "read_file", "write_file", "list_dir", "change_dir", "stat_path",
            "http_request", "obsidian_sync", "rag_search", "graph_query",
+           "concept_map_query", "concept_map_status",
            "memory_save", "memory_recall", "memory_daily_save", "memory_daily_read", "memory_promote",
            "request_memory_confirmation",
            "knowledge_status", "question_generate", "quiz_start", "quiz_submit",

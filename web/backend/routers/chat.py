@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 import uuid
 from types import SimpleNamespace
 from concurrent.futures import ThreadPoolExecutor
@@ -17,6 +18,8 @@ from core.session import Session
 from service.agent_service import AgentService
 from core.skills import build_skills_system_prompt, find_skill_by_name
 from web.backend.capabilities import WEB_SKILL_NAMES
+from service.concept_service import ConceptService
+from service.evidence_policy import CombinedResponsePolicy, ConceptMapPolicy, LocalEvidencePolicy
 from service.kb_service import KBService
 from service.memory_service import MemoryService
 from service.preference_service import PreferenceService
@@ -57,8 +60,8 @@ _UNTITLED_NAMES = {"", "未命名会话", "Untitled", "Untitled session"}
 
 _WEB_TOOL_NAMES = frozenset({
     "rag_search",
-    "graph_query",
-    "knowledge_status",
+    "concept_map_query",
+    "concept_map_status",
     "question_generate",
     "quiz_start",
     "quiz_submit",
@@ -215,6 +218,25 @@ def _attach_artifacts(session: Session, artifacts: list[dict[str, Any]]) -> None
             return
 
 
+def _run_summary_operation(event: dict[str, Any], user_message: str) -> dict[str, Any]:
+    args = event.get("args") if isinstance(event.get("args"), dict) else {}
+    metrics = event.get("metrics") if isinstance(event.get("metrics"), dict) else {}
+    query = str(args.get("query") or "").strip()
+    normalized_query = re.sub(r"\s+", "", query).casefold()
+    normalized_message = re.sub(r"\s+", "", user_message).casefold()
+    operation = {
+        "tool_name": str(event.get("tool_name") or ""),
+        "status": "completed" if event.get("ok") else "failed",
+        "elapsed": round(float(event.get("elapsed") or 0), 3),
+        **{key: value for key, value in metrics.items() if value is not None},
+    }
+    if query and normalized_query != normalized_message:
+        operation["query"] = query
+    if args.get("operation") and "operation" not in operation:
+        operation["operation"] = str(args["operation"])
+    return operation
+
+
 def _attach_personalization(session: Session, references: list[dict[str, Any]]) -> None:
     if not references:
         return
@@ -301,6 +323,98 @@ def _personalization_prompt(content: str) -> str | None:
         "Use them only when relevant, never override source evidence, and do not reveal internal identifiers.\n"
         f"{content}"
     )
+
+
+def _concept_map_prompt(workspace: str) -> str | None:
+    status = ConceptService(workspace).get_status()
+    if not status.get("ok"):
+        return None
+    return (
+        "<!-- bobodan:concept-map-context -->\n"
+        "The reviewed concept map is the canonical user-facing concept graph. "
+        "Use concept_map_query for concept structure and rag_search for original source evidence. "
+        "Pending candidates are not approved knowledge and must never be used in answers.\n"
+        f"Reviewed concepts: {status['concept_count']}; "
+        f"reviewed relationships: {status['relationship_count']}; "
+        f"pending candidates: {status['pending_count']}; "
+        f"stale evidence records: {status['stale_evidence_count']}."
+    )
+
+
+def _requires_local_evidence(
+    message: str,
+    *,
+    has_document_scope: bool,
+) -> bool:
+    normalized = message.lower()
+    bypass_phrases = (
+        "不查资料",
+        "不要查资料",
+        "不用资料",
+        "通用知识",
+        "without searching",
+        "general knowledge only",
+    )
+    if any(phrase in normalized for phrase in bypass_phrases):
+        return False
+    map_only_phrases = (
+        "知识地图里",
+        "知识地图上",
+        "图谱里",
+        "图谱上",
+        "concept map",
+    )
+    local_phrases = (
+        "根据资料",
+        "基于资料",
+        "资料中",
+        "原文",
+        "这篇文档",
+        "当前文档",
+        "基于此文档",
+        "我的资料",
+        "课程资料",
+        "according to the document",
+        "based on the document",
+        "my materials",
+    )
+    if any(phrase in normalized for phrase in local_phrases):
+        return True
+    if any(phrase in normalized for phrase in map_only_phrases):
+        return False
+    return has_document_scope
+
+
+def _required_concept_map_operation(message: str) -> str | None:
+    normalized = message.lower()
+    map_phrases = (
+        "知识地图",
+        "知识图谱",
+        "图谱里",
+        "图谱上",
+        "concept map",
+        "knowledge graph",
+    )
+    if not any(phrase in normalized for phrase in map_phrases):
+        return None
+    path_phrases = ("路径", "怎么连接", "如何连接", "最短路", "path")
+    if any(phrase in normalized for phrase in path_phrases):
+        return "path"
+    relationship_phrases = (
+        "关系",
+        "相关",
+        "关联",
+        "相连",
+        "连接",
+        "邻居",
+        "周围",
+        "related",
+        "relationship",
+        "neighbor",
+    )
+    if any(phrase in normalized for phrase in relationship_phrases):
+        return "neighbors"
+    return "query"
 
 
 def _preference_prompt(preferences: dict[str, Any]) -> str:
@@ -424,8 +538,8 @@ def _request_context(
         )
     else:
         lines.append(
-            "When retrieval returns both Wiki and learning-material results, use Wiki pages to understand concepts and relationships, "
-            "then use original learning materials as the factual evidence. Clearly label Wiki content as AI-organized and never present it as an original quote."
+            "Use the reviewed concept map to understand concepts and relationships, then use original learning materials as factual evidence. "
+            "Never present a concept-map summary as an original quote."
         )
     if preferred:
         lines.append("The user marked these documents as preferred starting points, but retrieval must still search the whole active library:")
@@ -1179,6 +1293,7 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
         request_prompt,
         _session_reference_prompt(body.references, workspace, config, library_id),
         _preference_prompt(preferences),
+        _concept_map_prompt(workspace),
     ) if item]
     request_prompt = "\n\n".join(prompt_parts) or None
     skills_enabled = bool(config.get("skills", {}).get("enabled", True))
@@ -1219,7 +1334,7 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
     else:
         allowed_tool_names = allowed_tool_names - {"web_research"}
     if web_evidence:
-        allowed_tool_names = allowed_tool_names - {"rag_search", "request_web_search", "web_research"}
+        allowed_tool_names = allowed_tool_names - {"request_web_search", "web_research"}
     skills_dir = getattr(runtime, "skills_dir", "")
     skills_prompt = (
         build_skills_system_prompt(skills_dir, enabled_skills)
@@ -1227,8 +1342,19 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
         else getattr(runtime, "skills_prompt", None)
     )
     run_id = str(uuid.uuid4())
+    response_policies = []
+    if _requires_local_evidence(
+        body.message,
+        has_document_scope=bool(document_ids or preferred_document_ids),
+    ):
+        response_policies.append(LocalEvidencePolicy())
+    required_graph_operation = _required_concept_map_operation(body.message)
+    if required_graph_operation:
+        response_policies.append(ConceptMapPolicy(required_graph_operation))
+    response_guard = CombinedResponsePolicy(*response_policies) if response_policies else None
 
     def event_stream():
+        run_started_at = time.monotonic()
         yield encode_sse("run_started", {
             "run_id": run_id,
             "chat_session_id": session.session_id,
@@ -1237,6 +1363,7 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
         try:
             latest_attribution = initial_attribution
             pending_artifacts: list[dict[str, Any]] = []
+            run_operations: list[dict[str, Any]] = []
             if initial_attribution:
                 yield encode_sse("citation", {"run_id": run_id, "attribution": initial_attribution})
             if personalization.get("references"):
@@ -1254,9 +1381,12 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
                 tools_schema=_web_tools_schema(allowed_tool_names),
                 allowed_tool_names=allowed_tool_names,
                 request_prompt=request_prompt,
+                response_guard=response_guard,
             )
             termination_reason = "final_answer"
             for event in events:
+                if event.get("type") == "tool_end":
+                    run_operations.append(_run_summary_operation(event, body.message))
                 if event.get("type") == "assistant_done":
                     termination_reason = event.get("termination_reason", "final_answer")
                     for usage_record in event.get("usage_records") or []:
@@ -1274,6 +1404,16 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
                     if web_event == "chat_artifact" and isinstance(payload.get("artifact"), dict):
                         pending_artifacts.append(payload["artifact"])
                     yield encode_sse(web_event, {"run_id": run_id, **payload})
+
+            run_summary = {
+                "artifact_id": f"run-summary-{uuid.uuid4().hex[:12]}",
+                "type": "run_summary",
+                "status": "completed" if termination_reason == "final_answer" else "failed",
+                "total_elapsed": round(time.monotonic() - run_started_at, 3),
+                "operations": run_operations,
+            }
+            pending_artifacts.append(run_summary)
+            yield encode_sse("chat_artifact", {"run_id": run_id, "artifact": run_summary})
 
             if body.save:
                 _attach_user_references(session, body.references)

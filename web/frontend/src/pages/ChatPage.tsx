@@ -8,7 +8,7 @@ import type { AppOutletContext } from "../components/AppShell";
 import { AttributionBadges, BrandIllustration, ErrorNotice, IconButton, LoadingState } from "../components/common";
 import { WikiPlanCard } from "../components/WikiPlanCard";
 import { api, streamChat } from "../lib/api";
-import type { ChatArtifact, ChatMessage, ChatReference, MemoryConfirmationArtifact, PersonalizationRef, PracticeReadyArtifact, SettingsChangeArtifact, WebCandidatesArtifact, WebConsentArtifact, WebEvidenceArtifact, WikiFocusArtifact, WikiPlanArtifact, WikiResultArtifact } from "../types";
+import type { ChatArtifact, ChatMessage, ChatReference, KnowledgeContextArtifact, MemoryConfirmationArtifact, PersonalizationRef, PracticeReadyArtifact, RunSummaryArtifact, SettingsChangeArtifact, WebCandidatesArtifact, WebConsentArtifact, WebEvidenceArtifact, WikiFocusArtifact, WikiPlanArtifact, WikiResultArtifact } from "../types";
 
 interface SlashItem {
   value: string;
@@ -65,6 +65,30 @@ function PersonalizationChip({ references }: { references?: PersonalizationRef[]
   return <details className="personalization-chip"><summary><Brain size={13} />个性化依据 <span>{references.length}</span></summary><div>{references.map((reference) => <section key={reference.id}><strong>{reference.title}</strong><p>{reference.content}</p><small>{reference.scope === "global" ? "全局" : "当前资料库"} · {new Date(reference.updated_at).toLocaleDateString("zh-CN")}</small></section>)}</div></details>;
 }
 
+function formatDuration(seconds: number) {
+  if (seconds < 1) return `${Math.max(1, Math.round(seconds * 1000))}ms`;
+  return `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`;
+}
+
+function RunSummary({ artifact }: { artifact?: RunSummaryArtifact }) {
+  if (!artifact) return null;
+  const hitCount = artifact.operations.reduce((total, item) => total + (item.hit_count || 0), 0);
+  const documentCount = artifact.operations.reduce((total, item) => total + (item.document_count || 0), 0);
+  const relationCount = artifact.operations.reduce((total, item) => total + (item.relationship_count || 0), 0);
+  const summary = artifact.operations.length
+    ? [documentCount ? `${documentCount} 份资料` : "", hitCount ? `${hitCount} 个片段` : "", relationCount ? `${relationCount} 条关系` : ""].filter(Boolean).join(" · ") || `完成 ${artifact.operations.length} 项查询`
+    : "直接回答";
+  return <details className={`run-summary ${artifact.status}`}>
+    <summary><Check size={14} /><strong>{artifact.status === "completed" ? "处理完成" : "处理未完成"}</strong><span>{summary}</span><small>{formatDuration(artifact.total_elapsed)}</small></summary>
+    {artifact.operations.length > 0 && <div>{artifact.operations.map((operation, index) => <p key={`${operation.tool_name}:${index}`}>
+      <span>{operation.tool_name === "rag_search" ? "资料检索" : operation.tool_name === "concept_map_query" ? "知识地图" : operation.tool_name}</span>
+      {operation.query && <q>{operation.query}</q>}
+      {operation.operation && <code>{operation.operation}</code>}
+      <small>{operation.status === "completed" ? "完成" : "失败"} · {formatDuration(operation.elapsed || 0)}</small>
+    </p>)}</div>}
+  </details>;
+}
+
 function displaySettingValue(value: unknown) {
   if (value === true) return "开启";
   if (value === false) return "关闭";
@@ -88,6 +112,10 @@ export function ChatPage() {
     selectedDocumentIds,
     selectedDocuments,
     openContext,
+    openConceptDetail,
+    showKnowledgeContext,
+    clearKnowledgeContext,
+    showSourceContext,
     clearDocumentScope,
     activeLibrary,
     openLibrarySetup,
@@ -129,6 +157,7 @@ export function ChatPage() {
     if (!sessionId) {
       setMessages([]);
       setReferences([]);
+      clearKnowledgeContext();
       setSelectedProvider(localStorage.getItem("bobodan:provider:new") || settings?.default_provider || "");
       setLoading(false);
       return;
@@ -139,10 +168,16 @@ export function ChatPage() {
         setMessages(session.messages);
         setReferences([]);
         setSelectedProvider(session.provider_name || settings?.default_provider || "");
+        const latestKnowledgeContext = session.messages
+          .flatMap((message) => message.artifacts || [])
+          .filter((artifact): artifact is KnowledgeContextArtifact => artifact.type === "knowledge_context")
+          .at(-1);
+        if (latestKnowledgeContext) showKnowledgeContext(latestKnowledgeContext.context);
+        else clearKnowledgeContext();
       })
       .catch((reason: Error) => setError(reason.message))
       .finally(() => setLoading(false));
-  }, [sessionId, settings?.default_provider]);
+  }, [sessionId, settings?.default_provider, showKnowledgeContext, clearKnowledgeContext]);
 
   useEffect(() => {
     if (!selectedProvider && settings?.default_provider) setSelectedProvider(settings.default_provider);
@@ -345,6 +380,7 @@ export function ChatPage() {
           const artifact = streamEvent.data.artifact.type === "practice_ready"
             ? { ...streamEvent.data.artifact, chat_session_id: nextSessionId }
             : streamEvent.data.artifact;
+          if (artifact.type === "knowledge_context") showKnowledgeContext(artifact.context);
           setMessages((current) => current.map((item, index) => index === current.length - 1
             ? { ...item, artifacts: [...(item.artifacts || []), artifact] }
             : item));
@@ -792,6 +828,20 @@ export function ChatPage() {
   }
 
   function artifactSurface(artifact: ChatArtifact) {
+    if (artifact.type === "run_summary") return null;
+    if (artifact.type === "knowledge_context") {
+      const context = (artifact as KnowledgeContextArtifact).context;
+      return <section className="knowledge-context-block" key={artifact.artifact_id}>
+        <header><span><Brain size={15} />概念关系</span><button className="text-link" type="button" onClick={() => showKnowledgeContext(context)}>在学习书桌查看</button></header>
+        <div>{(context.relationships || []).slice(0, 5).map((relation) => <p key={relation.rel_id}>
+          <button type="button" onClick={() => openConceptDetail(relation.from_id)}>{relation.from_name}</button>
+          <span>{relation.rel_type}</span>
+          <button type="button" onClick={() => openConceptDetail(relation.to_id)}>{relation.to_name}</button>
+          {relation.evidence_status === "stale" && <small>来源已变化</small>}
+        </p>)}</div>
+        {context.concepts[0] && <button className="quiet-button" type="button" onClick={() => navigate("/knowledge-map", { state: { focusConceptId: context.root?.concept_id || context.concepts[0].concept_id } })}>在知识地图查看</button>}
+      </section>;
+    }
     if (artifact.type === "memory_confirmation") {
       return <section className={`memory-confirmation-card ${artifact.status}`} key={artifact.artifact_id}>
         <header><span><Brain size={15} />个人知识</span><strong>{artifact.status === "pending" ? "确认后才会长期记住" : artifact.status === "confirmed" ? "已经记住" : "没有保存"}</strong></header>
@@ -975,14 +1025,11 @@ export function ChatPage() {
               <article className={`assistant-message ${message.failed ? "failed" : ""}`} key={index}>
                 <div className="assistant-heading"><img src="/assets/brand/expressions/bobodan-expression-neutral.webp" alt="" /><span>{settings?.preferences.assistant.display_name || "Bobodan"}</span></div>
                 {message.pending && status && <BobodanProcess state={brandState} detail={status} />}
+                {!message.pending && <RunSummary artifact={message.artifacts?.find((artifact): artifact is RunSummaryArtifact => artifact.type === "run_summary")} />}
                 <div className="answer-prose"><ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content || (message.pending ? "正在整理回答…" : message.failed ? "回答没有完成。" : "本轮没有生成可显示的内容。")}</ReactMarkdown></div>
                 {message.artifacts?.map(artifactSurface)}
-                <AttributionBadges attribution={message.attribution} />
+                <AttributionBadges attribution={message.attribution} onOpenSources={showSourceContext} />
                 <PersonalizationChip references={message.personalization} />
-                {!message.pending && message.process?.length ? <details className="process-disclosure">
-                  <summary>查看处理过程</summary>
-                  <div>{message.process.map((item, processIndex) => <p key={processIndex}><span>{item.phase === "failed" ? "未完成" : item.phase === "completed" ? "完成" : "进行中"}</span>{item.message}{typeof item.elapsed === "number" ? <small>{item.elapsed.toFixed(1)}s</small> : null}</p>)}</div>
-                </details> : null}
                 {!message.pending && !message.failed && message.content && !message.artifacts?.some((artifact) => artifact.type === "practice_ready") && <div className="answer-actions"><button className="quiet-button" onClick={() => preparePractice(index)}><BookOpen size={15} />生成 5 道练习</button></div>}
                 {message.failed && <div className="answer-failure"><span>{error || "AI 连接暂时不可用，请稍后重试。"}</span><button className="quiet-button" disabled={sending} onClick={() => retryMessage(index)}><RotateCcw size={15} />重新发送本轮</button></div>}
               </article>

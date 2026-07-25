@@ -10,7 +10,8 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { List, Map as MapIcon, Search, Sparkles, Table } from "lucide-react";
+import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
+import { List, Map as MapIcon, Maximize2, Network, Search, Sparkles, Table } from "lucide-react";
 import { api } from "../lib/api";
 import type {
   ConceptCandidate,
@@ -20,14 +21,40 @@ import type {
   RelationshipEdge,
 } from "../types";
 import { GraphCanvas } from "../components/GraphCanvas";
-import { ConceptSidebar } from "../components/ConceptSidebar";
 import { CandidateReviewPanel } from "../components/CandidateReviewPanel";
+import type { AppOutletContext } from "../components/AppShell";
+
+interface ExtractionSource {
+  documentId: string;
+  documentTitle: string;
+  runId?: string;
+}
 
 // ------------------------------------------------------------------
 // Component
 // ------------------------------------------------------------------
 
 export function KnowledgeMapPage() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { conceptDetailId, openConceptDetail, closeConceptDetail } = useOutletContext<AppOutletContext>();
+  const locationState = location.state as {
+    extractionRunId?: string;
+    extractingDocumentId?: string;
+    extractingDocumentTitle?: string;
+    focusConceptId?: string;
+  } | null;
+
+  // Derive extraction intent from router state on first mount
+  const initialExtraction: ExtractionSource | null =
+    locationState?.extractingDocumentId
+      ? {
+          documentId: locationState.extractingDocumentId,
+          documentTitle: locationState.extractingDocumentTitle ?? "",
+          runId: locationState.extractionRunId,
+        }
+      : null;
+
   const [view, setView] = useState<KnowledgeMapView>("map");
   const [graphState, setGraphState] = useState<GraphState | null>(null);
   const [loading, setLoading] = useState(true);
@@ -35,8 +62,12 @@ export function KnowledgeMapPage() {
   const [selectedConceptId, setSelectedConceptId] = useState<string | null>(null);
   const [selectedTopicId, setSelectedTopicId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [showCandidates, setShowCandidates] = useState(false);
+  const [showAllNodes, setShowAllNodes] = useState(false);
+  const [showCandidates, setShowCandidates] = useState(initialExtraction !== null);
+  const [extractionSource, setExtractionSource] = useState<ExtractionSource | null>(initialExtraction);
   const positionsSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const graphActionsRef = useRef<{ fit: () => void; relayout: () => void } | null>(null);
+  const initialFocusHandled = useRef(false);
 
   const loadGraph = useCallback(async () => {
     setLoading(true);
@@ -58,6 +89,18 @@ export function KnowledgeMapPage() {
     void loadGraph();
   }, [loadGraph]);
 
+  useEffect(() => {
+    setSelectedConceptId(conceptDetailId);
+  }, [conceptDetailId]);
+
+  useEffect(() => {
+    if (initialFocusHandled.current || !locationState?.focusConceptId || !graphState) return;
+    if (!graphState.concepts.some((concept) => concept.concept_id === locationState.focusConceptId)) return;
+    initialFocusHandled.current = true;
+    setSelectedConceptId(locationState.focusConceptId);
+    openConceptDetail(locationState.focusConceptId);
+  }, [graphState, locationState?.focusConceptId, openConceptDetail]);
+
   // Filtered data for directory + sources views
   const filteredConcepts = (graphState?.concepts ?? []).filter((c) => {
     if (!searchQuery) return true;
@@ -74,10 +117,12 @@ export function KnowledgeMapPage() {
 
   function handleNodeClick(conceptId: string) {
     setSelectedConceptId(conceptId);
+    openConceptDetail(conceptId);
   }
 
   function handleBackgroundClick() {
     setSelectedConceptId(null);
+    closeConceptDetail();
   }
 
   function handleViewSwitch(next: KnowledgeMapView) {
@@ -103,7 +148,7 @@ export function KnowledgeMapPage() {
   const isEmpty = !loading && !error && (graphState?.total_concepts ?? 0) === 0;
 
   return (
-    <div className={`knowledge-map-page ${selectedConceptId ? "sidebar-open" : ""}`}>
+    <div className="knowledge-map-page">
       {/* Top toolbar */}
       <div className="km-toolbar">
         <div className="km-view-tabs" role="tablist" aria-label="知识地图视图">
@@ -157,6 +202,14 @@ export function KnowledgeMapPage() {
           </label>
         )}
 
+        {view === "map" && !isEmpty && (
+          <div className="km-map-actions">
+            <button className={`km-density-toggle ${showAllNodes ? "active" : ""}`} onClick={() => setShowAllNodes((value) => !value)}>{showAllNodes ? "渐进显示" : "显示全部"}</button>
+            <button className="icon-button" title="适配视图" aria-label="适配视图" onClick={() => graphActionsRef.current?.fit()}><Maximize2 size={15} /></button>
+            <button className="icon-button" title="重新布局" aria-label="重新布局" onClick={() => graphActionsRef.current?.relayout()}><Network size={15} /></button>
+          </div>
+        )}
+
         {/* Candidate alert */}
         {pendingCount > 0 && !showCandidates && (
           <button
@@ -204,8 +257,11 @@ export function KnowledgeMapPage() {
                 concepts={graphState?.concepts ?? []}
                 relationships={graphState?.relationships ?? []}
                 selectedConceptId={selectedConceptId}
+                showAll={showAllNodes}
                 onNodeClick={handleNodeClick}
                 onBackgroundClick={handleBackgroundClick}
+                onPositionsChanged={handlePositionsChanged}
+                actionsRef={graphActionsRef}
               />
             )}
           </div>
@@ -216,7 +272,7 @@ export function KnowledgeMapPage() {
           <DirectoryView
             concepts={filteredConcepts}
             selectedConceptId={selectedConceptId}
-            onSelect={setSelectedConceptId}
+            onSelect={handleNodeClick}
           />
         )}
 
@@ -226,34 +282,21 @@ export function KnowledgeMapPage() {
             concepts={filteredConcepts}
             relationships={graphState?.relationships ?? []}
             selectedConceptId={selectedConceptId}
-            onConceptSelect={setSelectedConceptId}
+            onConceptSelect={handleNodeClick}
           />
         )}
       </div>
-
-      {/* Concept detail sidebar */}
-      <ConceptSidebar
-        conceptId={selectedConceptId}
-        onClose={() => setSelectedConceptId(null)}
-        onConceptUpdated={(updated) => {
-          setGraphState((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  concepts: prev.concepts.map((c) =>
-                    c.concept_id === updated.concept_id ? { ...c, ...updated } : c,
-                  ),
-                }
-              : prev,
-          );
-        }}
-      />
 
       {/* Candidate review panel */}
       {showCandidates && (
         <div className="km-candidate-overlay">
           <CandidateReviewPanel
-            onClose={() => setShowCandidates(false)}
+            extractionSource={extractionSource ?? undefined}
+            onReturnToSource={extractionSource ? () => navigate(`/library?document=${encodeURIComponent(extractionSource.documentId)}`) : undefined}
+            onClose={() => {
+              setShowCandidates(false);
+              setExtractionSource(null);
+            }}
             onCandidatesChanged={handleCandidatesChanged}
           />
         </div>

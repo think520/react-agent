@@ -1,196 +1,314 @@
-/**
- * GraphCanvas — WebGL graph renderer using Sigma.js + Graphology.
- *
- * Design constraints (knowledge_map_design.md §9.3):
- *  - Nodes fade in ~200ms, edges extend ~300ms ease-out
- *  - Hover: colour deepen ~100ms, no scale, no bounce
- *  - Candidate nodes: opacity 0.6, dashed border (drawn as SVG label overlay)
- *  - Positions come from backend; layout algorithm runs only when no saved
- *    positions exist
- */
+/** Interactive Sigma.js + Graphology knowledge-map canvas. */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, type MutableRefObject } from "react";
 import Graph from "graphology";
 import Sigma from "sigma";
 import type { Settings as SigmaSettings } from "sigma/settings";
+import type { NodeLabelDrawingFunction } from "sigma/rendering";
 import forceAtlas2 from "graphology-layout-forceatlas2";
 import type { ConceptNode, RelationshipEdge } from "../types";
 
-// ------------------------------------------------------------------
-// Colour tokens (mirror CSS variables for WebGL rendering)
-// ------------------------------------------------------------------
 const C = {
-  parchment:    "#F3EFE5",
-  inkBlue:      "#1b365d",
+  inkBlue: "#1b365d",
   inkBlueFaint: "#4a6fa5",
-  paperSoft:    "#faf8f4",
-  sage:         "#5a7a6a",
-  sageSoft:     "#8aaa9a",
-  muted:        "#7a7060",
-  faint:        "#b0a898",
-  wheat:        "#c8b87a",
+  paperSoft: "#faf8f4",
+  paperLabel: "rgba(250,248,244,.94)",
+  faintNode: "#bdbab2",
+  faintEdge: "#d4cfc4",
+  sageSoft: "#5f8f84",
+  slateNode: "#6f879f",
+  detailNode: "#94a1aa",
+  selectedNode: "#c7664f",
+  hoverNode: "#d98a68",
 } as const;
 
-// Node colours by level
-function nodeColor(level: string, isCandidate: boolean): string {
-  if (isCandidate) return C.faint;
+function nodeColor(level: string): string {
   if (level === "cluster") return C.inkBlue;
-  return C.paperSoft;
-}
-function nodeBorderColor(level: string, isCandidate: boolean): string {
-  if (isCandidate) return C.faint;
-  if (level === "cluster") return C.inkBlue;
-  return C.inkBlue;
-}
-function nodeLabelColor(level: string): string {
-  return level === "cluster" ? C.paperSoft : C.inkBlue;
-}
-function edgeColor(evidenceLevel: string): string {
-  if (evidenceLevel === "user") return C.sageSoft;
-  return C.inkBlueFaint;
+  return level === "detail" ? C.detailNode : C.slateNode;
 }
 
-// ------------------------------------------------------------------
-// Types
-// ------------------------------------------------------------------
+function edgeColor(evidenceLevel: string): string {
+  return evidenceLevel === "user" ? C.sageSoft : C.inkBlueFaint;
+}
+
+const drawNodeLabel: NodeLabelDrawingFunction = (context, data, settings) => {
+  if (!data.label) return;
+  const fontSize = settings.labelSize;
+  const x = data.x + data.size + 5;
+  const y = data.y + fontSize / 3;
+  context.font = `${settings.labelWeight} ${fontSize}px ${settings.labelFont}`;
+  const width = context.measureText(data.label).width;
+  context.fillStyle = C.paperLabel;
+  context.beginPath();
+  context.roundRect(x - 4, y - fontSize, width + 8, fontSize + 6, 4);
+  context.fill();
+  context.fillStyle = (data as typeof data & { labelColor?: string }).labelColor || C.inkBlue;
+  context.fillText(data.label, x, y);
+};
+
+export interface GraphCanvasActions {
+  fit: () => void;
+  relayout: () => void;
+}
 
 export interface GraphCanvasProps {
   concepts: ConceptNode[];
   relationships: RelationshipEdge[];
   selectedConceptId: string | null;
+  showAll?: boolean;
   onNodeClick: (conceptId: string) => void;
   onBackgroundClick: () => void;
+  onPositionsChanged?: (positions: Array<{ concept_id: string; x: number; y: number }>) => void;
+  actionsRef?: MutableRefObject<GraphCanvasActions | null>;
   className?: string;
 }
-
-// ------------------------------------------------------------------
-// Component
-// ------------------------------------------------------------------
 
 export function GraphCanvas({
   concepts,
   relationships,
   selectedConceptId,
+  showAll = false,
   onNodeClick,
   onBackgroundClick,
+  onPositionsChanged,
+  actionsRef,
   className = "",
 }: GraphCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sigmaRef = useRef<Sigma | null>(null);
   const graphRef = useRef<Graph | null>(null);
+  const selectedRef = useRef(selectedConceptId);
+  const focusedNodesRef = useRef<Set<string>>(new Set());
+  const showAllRef = useRef(showAll);
+  const showDetailsRef = useRef(false);
+  const hoveredNodeRef = useRef<string | null>(null);
+  const hoveredEdgeRef = useRef<string | null>(null);
 
-  // Build or update Sigma on data change
   useEffect(() => {
     if (!containerRef.current) return;
 
-    // Build graphology graph
-    const g = new Graph({ type: "mixed" });
-
-    for (const c of concepts) {
-      const isCandidate = c.level === "detail" && c.concept_id.startsWith("cand-");
-      const size = c.level === "cluster" ? 18 : c.level === "core" ? 12 : 8;
-      g.addNode(c.concept_id, {
-        label: c.name,
+    const graph = new Graph({ type: "mixed" });
+    for (const concept of concepts) {
+      const size = concept.level === "cluster" ? 15 : concept.level === "core" ? 11 : 7;
+      graph.addNode(concept.concept_id, {
+        label: concept.name,
         size,
-        color: nodeColor(c.level, isCandidate),
-        borderColor: nodeBorderColor(c.level, isCandidate),
-        labelColor: nodeLabelColor(c.level),
-        x: c.x !== 0 || c.y !== 0 ? c.x : Math.random() * 10,
-        y: c.x !== 0 || c.y !== 0 ? c.y : Math.random() * 10,
-        level: c.level,
-        isCandidate,
+        color: nodeColor(concept.level),
+        labelColor: C.inkBlue,
+        x: concept.x !== 0 || concept.y !== 0 ? concept.x : Math.random() * 10,
+        y: concept.x !== 0 || concept.y !== 0 ? concept.y : Math.random() * 10,
+        level: concept.level,
       });
     }
 
-    for (const rel of relationships) {
-      if (!g.hasNode(rel.from_id) || !g.hasNode(rel.to_id)) continue;
+    for (const relationship of relationships) {
+      if (!graph.hasNode(relationship.from_id) || !graph.hasNode(relationship.to_id)) continue;
       try {
-        g.addEdge(rel.from_id, rel.to_id, {
-          label: rel.rel_type,
-          color: edgeColor(rel.evidence_level),
-          size: 1.5,
+        graph.addEdge(relationship.from_id, relationship.to_id, {
+          label: relationship.rel_type,
+          color: edgeColor(relationship.evidence_level),
+          size: 1.15,
           type: "arrow",
         });
       } catch {
-        // duplicate edge — skip
+        // A duplicate relation is visually redundant.
       }
     }
 
-    // Run force layout only when positions are all at origin (no saved positions)
-    const hasPositions = concepts.some((c) => c.x !== 0 || c.y !== 0);
-    if (!hasPositions && g.order > 0) {
-      forceAtlas2.assign(g, {
-        iterations: 80,
-        settings: { scalingRatio: 4, gravity: 1, adjustSizes: true },
+    const hasSavedPositions = concepts.some((concept) => concept.x !== 0 || concept.y !== 0);
+    if (!hasSavedPositions && graph.order > 0) {
+      forceAtlas2.assign(graph, {
+        iterations: 140,
+        settings: { scalingRatio: 9, gravity: 0.65, slowDown: 2, adjustSizes: true },
       });
     }
 
-    // Sigma settings
+    let renderer: Sigma;
     const settings: Partial<SigmaSettings> = {
       defaultNodeColor: C.paperSoft,
       defaultEdgeColor: C.inkBlueFaint,
-      labelFont: "var(--body-font, ui-sans-serif, sans-serif)",
+      labelFont: "var(--font-ui, ui-sans-serif, sans-serif)",
       labelSize: 12,
-      labelWeight: "normal",
+      labelWeight: "500",
       labelColor: { attribute: "labelColor", color: C.inkBlue },
+      labelDensity: 1.15,
+      labelGridCellSize: 130,
+      labelRenderedSizeThreshold: 4,
+      defaultDrawNodeLabel: drawNodeLabel,
       defaultNodeType: "circle",
       defaultEdgeType: "arrow",
-      renderEdgeLabels: false,
-      enableEdgeEvents: false,
+      renderEdgeLabels: true,
+      enableEdgeEvents: true,
+      hideEdgesOnMove: false,
       allowInvalidContainer: true,
+      nodeReducer: (node, data) => {
+        const selected = selectedRef.current;
+        const focused = focusedNodesRef.current;
+        const isFocused = !selected || focused.has(node);
+        const level = graph.getNodeAttribute(node, "level") as string;
+        const hideDetail = level === "detail" && !showAllRef.current && !showDetailsRef.current && !focused.has(node);
+        return {
+          ...data,
+          hidden: hideDetail,
+          color: !isFocused
+            ? C.faintNode
+            : node === selected
+              ? C.selectedNode
+              : hoveredNodeRef.current === node
+                ? C.hoverNode
+                : selected && focused.has(node)
+                  ? C.sageSoft
+                  : nodeColor(level),
+          label: isFocused || !selected ? data.label : "",
+          labelColor: C.inkBlue,
+          highlighted: node === selected || node === hoveredNodeRef.current,
+          zIndex: node === selected || node === hoveredNodeRef.current ? 2 : 1,
+        };
+      },
+      edgeReducer: (edge, data) => {
+        const selected = selectedRef.current;
+        const [source, target] = graph.extremities(edge);
+        const connected = !selected || source === selected || target === selected;
+        const sourceLevel = graph.getNodeAttribute(source, "level") as string;
+        const targetLevel = graph.getNodeAttribute(target, "level") as string;
+        const hideForDetails = !showAllRef.current && !showDetailsRef.current
+          && !focusedNodesRef.current.has(source)
+          && !focusedNodesRef.current.has(target)
+          && (sourceLevel === "detail" || targetLevel === "detail");
+        return {
+          ...data,
+          hidden: hideForDetails,
+          color: connected ? data.color : C.faintEdge,
+          size: connected ? 1.2 : 0.65,
+          label: hoveredEdgeRef.current === edge ? data.label : "",
+          forceLabel: hoveredEdgeRef.current === edge,
+          zIndex: connected ? 1 : 0,
+        };
+      },
     };
 
-    // Destroy previous instance
-    if (sigmaRef.current) {
-      sigmaRef.current.kill();
+    renderer = new Sigma(graph, containerRef.current, settings);
+    sigmaRef.current = renderer;
+    graphRef.current = graph;
+
+    let draggedNode: string | null = null;
+    let isDragging = false;
+
+    renderer.on("clickNode", ({ node }) => onNodeClick(node));
+    renderer.on("clickStage", () => {
+      if (!isDragging) onBackgroundClick();
+    });
+    renderer.on("enterNode", ({ node }) => {
+      hoveredNodeRef.current = node;
+      containerRef.current?.classList.add("node-hovered");
+      renderer.refresh({ skipIndexation: true });
+    });
+    renderer.on("leaveNode", () => {
+      hoveredNodeRef.current = null;
+      containerRef.current?.classList.remove("node-hovered");
+      renderer.refresh({ skipIndexation: true });
+    });
+    renderer.on("enterEdge", ({ edge }) => {
+      hoveredEdgeRef.current = edge;
+      renderer.refresh({ skipIndexation: true });
+    });
+    renderer.on("leaveEdge", () => {
+      hoveredEdgeRef.current = null;
+      renderer.refresh({ skipIndexation: true });
+    });
+    renderer.on("downNode", ({ node }) => {
+      isDragging = true;
+      draggedNode = node;
+      if (!renderer.getCustomBBox()) renderer.setCustomBBox(renderer.getBBox());
+    });
+    renderer.on("moveBody", ({ event }) => {
+      if (!isDragging || !draggedNode) return;
+      const position = renderer.viewportToGraph(event);
+      graph.setNodeAttribute(draggedNode, "x", position.x);
+      graph.setNodeAttribute(draggedNode, "y", position.y);
+      event.preventSigmaDefault();
+      event.original.preventDefault();
+      event.original.stopPropagation();
+    });
+    const finishDrag = () => {
+      if (draggedNode) {
+        onPositionsChanged?.([{
+          concept_id: draggedNode,
+          x: graph.getNodeAttribute(draggedNode, "x") as number,
+          y: graph.getNodeAttribute(draggedNode, "y") as number,
+        }]);
+      }
+      window.setTimeout(() => { isDragging = false; }, 0);
+      draggedNode = null;
+    };
+    renderer.on("upNode", finishDrag);
+    renderer.on("upStage", finishDrag);
+    renderer.getCamera().on("updated", (cameraState) => {
+      const nextShowDetails = cameraState.ratio < 0.72;
+      if (nextShowDetails !== showDetailsRef.current) {
+        showDetailsRef.current = nextShowDetails;
+        renderer.refresh();
+      }
+    });
+
+    const resizeObserver = new ResizeObserver(() => renderer.resize());
+    resizeObserver.observe(containerRef.current);
+
+    if (actionsRef) {
+      actionsRef.current = {
+        fit: () => {
+          renderer.setCustomBBox(null);
+          renderer.refresh();
+          void renderer.getCamera().animatedReset({ duration: 220 });
+        },
+        relayout: () => {
+          renderer.setCustomBBox(null);
+          forceAtlas2.assign(graph, {
+            iterations: 180,
+            settings: { scalingRatio: 10, gravity: 0.6, slowDown: 2, adjustSizes: true },
+          });
+          renderer.refresh();
+          onPositionsChanged?.(graph.nodes().map((node) => ({
+            concept_id: node,
+            x: graph.getNodeAttribute(node, "x") as number,
+            y: graph.getNodeAttribute(node, "y") as number,
+          })));
+          void renderer.getCamera().animatedReset({ duration: 240 });
+        },
+      };
     }
 
-    const renderer = new Sigma(g, containerRef.current, settings);
-    sigmaRef.current = renderer;
-    graphRef.current = g;
-
-    // Events
-    renderer.on("clickNode", ({ node }) => {
-      onNodeClick(node);
-    });
-    renderer.on("clickStage", () => {
-      onBackgroundClick();
-    });
-
-    // Node hover: deepen colour (100ms via CSS, not Sigma animation)
-    renderer.on("enterNode", ({ node }) => {
-      g.setNodeAttribute(node, "color",
-        g.getNodeAttribute(node, "level") === "cluster"
-          ? "#142a4a"
-          : "#e8e4d8",
-      );
-      renderer.refresh();
-    });
-    renderer.on("leaveNode", ({ node }) => {
-      const lvl = g.getNodeAttribute(node, "level") as string;
-      const isCandidate = g.getNodeAttribute(node, "isCandidate") as boolean;
-      g.setNodeAttribute(node, "color", nodeColor(lvl, isCandidate));
-      renderer.refresh();
-    });
-
     return () => {
+      resizeObserver.disconnect();
+      if (actionsRef) actionsRef.current = null;
       renderer.kill();
       sigmaRef.current = null;
       graphRef.current = null;
     };
+  // Rebuild only when graph data changes; reducers handle interaction state.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [concepts, relationships]);
 
-  // Highlight selected node
   useEffect(() => {
-    const g = graphRef.current;
+    selectedRef.current = selectedConceptId;
+    const graph = graphRef.current;
     const renderer = sigmaRef.current;
-    if (!g || !renderer) return;
-    g.forEachNode((node) => {
-      g.setNodeAttribute(node, "highlighted", node === selectedConceptId);
-    });
+    if (!graph || !renderer) return;
+    const focused = new Set<string>();
+    if (selectedConceptId && graph.hasNode(selectedConceptId)) {
+      focused.add(selectedConceptId);
+      graph.forEachNeighbor(selectedConceptId, (neighbor) => focused.add(neighbor));
+      const position = renderer.getNodeDisplayData(selectedConceptId);
+      if (position) void renderer.getCamera().animate({ x: position.x, y: position.y }, { duration: 190 });
+    }
+    focusedNodesRef.current = focused;
     renderer.refresh();
   }, [selectedConceptId]);
+
+  useEffect(() => {
+    showAllRef.current = showAll;
+    sigmaRef.current?.refresh();
+  }, [showAll]);
 
   return (
     <div

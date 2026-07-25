@@ -110,27 +110,49 @@ function WebSourceBadge({ source, label }: { source: SourceRef; label: string })
   </details>;
 }
 
-export function AttributionBadges({ attribution }: { attribution?: Attribution }) {
+export function AttributionBadges({ attribution, onOpenSources }: { attribution?: Attribution; onOpenSources?: (attribution: Attribution) => void }) {
   if (!attribution) return null;
-  const sources = attribution.sources.slice(0, 2);
+  const groups = groupAttributionSources(attribution.sources);
+  const visibleGroups = groups.slice(0, 2);
   return (
     <div className="source-row" aria-label="回答来源">
-      {sources.length ? sources.map((source) => {
+      {visibleGroups.length ? visibleGroups.map((group) => {
+        const source = group.sources[0];
         const location = source.heading || (source.page ? `第 ${source.page} 页` : source.slide ? `第 ${source.slide} 页` : "");
         const sourceLabel = source.wiki_type === "note" ? "个人笔记" : source.collection === "wiki" ? "Wiki" : attributionLabels[attribution.kind];
         const sourceDetail = location;
-        const content = <>{source.source_type === "web" ? <ExternalLink size={14} /> : <FileText size={14} />}<span>{sourceLabel} · {source.title}</span>{location && <small>{location}</small>}</>;
+        const content = <>{source.source_type === "web" ? <ExternalLink size={14} /> : <FileText size={14} />}<span>{sourceLabel} · {group.title}</span>{group.sources.length > 1 && <small>命中 {group.sources.length} 处</small>}</>;
         if (source.source_type === "web" && source.snapshot_id) return <WebSourceBadge source={source} label={sourceLabel} key={source.source_id} />;
         if (source.url) return <a className={`source-chip ${attribution.kind}`} href={source.url} target="_blank" rel="noreferrer" title={sourceDetail} key={source.source_id}>{content}</a>;
         if (source.document_id) {
+          if (onOpenSources) return <button className={`source-chip ${attribution.kind}`} type="button" title="查看全部引用位置" onClick={() => onOpenSources(attribution)} key={group.key}>{content}</button>;
           const target = `/library?collection=${source.collection === "wiki" ? "wiki" : "material"}&document=${encodeURIComponent(source.document_id)}${source.chunk_id ? `&chunk=${encodeURIComponent(source.chunk_id)}` : ""}`;
-          return <Link className={`source-chip ${attribution.kind}`} title={`打开资料${location ? ` · ${location}` : ""}`} to={target} key={source.source_id}>{content}</Link>;
+          return <Link className={`source-chip ${attribution.kind}`} title={`打开资料${location ? ` · ${location}` : ""}`} to={target} key={group.key}>{content}</Link>;
         }
-        return <span className={`source-chip ${attribution.kind}`} title={location} key={source.source_id}>{content}</span>;
-      }) : <span className={`source-chip ${attribution.kind}`}>{attributionLabels[attribution.kind]}</span>}
-      {attribution.sources.length > 2 && <span className="source-more">+{attribution.sources.length - 2}</span>}
+        return <span className={`source-chip ${attribution.kind}`} title={location} key={group.key}>{content}</span>;
+      }) : <span className={`source-chip ${attribution.kind}`}>{attribution.status === "no_hit" ? "资料库未找到直接依据" : attributionLabels[attribution.kind]}</span>}
+      {groups.length > 2 && (onOpenSources
+        ? <button className="source-more" type="button" onClick={() => onOpenSources(attribution)}>+{groups.length - 2}</button>
+        : <span className="source-more">+{groups.length - 2}</span>)}
     </div>
   );
+}
+
+export interface AttributionSourceGroup {
+  key: string;
+  title: string;
+  sources: SourceRef[];
+}
+
+export function groupAttributionSources(sources: SourceRef[]): AttributionSourceGroup[] {
+  const groups = new Map<string, AttributionSourceGroup>();
+  for (const source of sources) {
+    const key = source.document_id || source.url || `${source.source_type}:${source.title}`;
+    const existing = groups.get(key);
+    if (existing) existing.sources.push(source);
+    else groups.set(key, { key, title: source.title, sources: [source] });
+  }
+  return Array.from(groups.values());
 }
 
 export function formatRelativeDate(value?: string) {

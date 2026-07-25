@@ -16,11 +16,13 @@ export interface SourceRef {
   accessed_at?: string | null;
   snapshot_id?: string | null;
   reader?: "direct" | "jina" | null;
+  excerpt?: string | null;
 }
 
 export interface Attribution {
   kind: AttributionKind;
   sources: SourceRef[];
+  status?: "found" | "no_hit";
 }
 
 export interface ChatMessage {
@@ -94,6 +96,7 @@ export interface DocumentSummary {
   vector_status?: string;
   vector_error?: string | null;
   updated_at?: string;
+  content_hash?: string;
   managed?: boolean;
   origin?: "managed" | "workspace" | "legacy_index" | string;
   chunk_count?: number;
@@ -580,8 +583,49 @@ export interface MemoryConfirmationArtifact {
   knowledge_item_id?: string;
 }
 
+export interface KnowledgeContextRelationship extends RelationshipEdge {
+  evidence_status: "valid" | "stale" | "missing";
+  valid_evidence_count: number;
+  stale_evidence_count: number;
+  evidence: EvidenceItem[];
+}
+
+export interface KnowledgeContext {
+  operation: "search" | "neighbors" | "path";
+  root?: ConceptNode;
+  found?: boolean;
+  concepts: ConceptNode[];
+  relationships?: KnowledgeContextRelationship[];
+}
+
+export interface KnowledgeContextArtifact {
+  artifact_id: string;
+  type: "knowledge_context";
+  context: KnowledgeContext;
+}
+
+export interface RunSummaryOperation {
+  tool_name: string;
+  status: "completed" | "failed";
+  query?: string;
+  operation?: string;
+  elapsed?: number;
+  hit_count?: number;
+  document_count?: number;
+  concept_count?: number;
+  relationship_count?: number;
+}
+
+export interface RunSummaryArtifact {
+  artifact_id: string;
+  type: "run_summary";
+  status: "completed" | "failed";
+  total_elapsed: number;
+  operations: RunSummaryOperation[];
+}
+
 export type WebArtifact = WebConsentArtifact | WebCandidatesArtifact | WebEvidenceArtifact;
-export type ChatArtifact = WikiArtifact | SettingsChangeArtifact | WebArtifact | PracticeReadyArtifact | MemoryConfirmationArtifact;
+export type ChatArtifact = WikiArtifact | SettingsChangeArtifact | WebArtifact | PracticeReadyArtifact | MemoryConfirmationArtifact | KnowledgeContextArtifact | RunSummaryArtifact;
 
 // ------------------------------------------------------------------
 // Knowledge Map — P5E.6
@@ -616,6 +660,8 @@ export interface RelationshipEdge {
   note: string;
   created_at: number;
   updated_at: number;
+  from_name?: string;
+  to_name?: string;
 }
 
 export interface EvidenceItem {
@@ -638,11 +684,35 @@ export interface ConceptCandidate {
   source_doc_id: string;
   source_doc_title: string;
   excerpt: string;
-  suggested_rels: Array<{ rel_type: string; to_name: string }>;
+  suggested_rels: Array<{ rel_type: string; to_name: string; excerpt?: string; enabled?: boolean; direction?: "outgoing" | "incoming" }>;
   status: CandidateStatus;
   suppressed_until: number | null;
   created_at: number;
   updated_at: number;
+}
+
+export interface GraphExtractionRun {
+  run_id: string;
+  document_id: string;
+  chunk_id?: string | null;
+  document_title: string;
+  status: "queued" | "running" | "completed" | "completed_with_warnings" | "failed";
+  stage?: "scanning_sections" | "merging_concepts" | "analyzing_local_relationships" | "analyzing_cross_section_relationships" | "quality_check" | "supplementing" | "ready_for_review" | string;
+  stored_count: number;
+  warnings?: string[];
+  failed_sections?: Array<{ index: number; title: string; chunk_id?: string | null; error: string }>;
+  error: string;
+  created_at: number;
+  updated_at: number;
+  content_version?: string;
+}
+
+export type DocumentExtractionState = "extracting" | "review" | "completed" | "failed";
+
+export interface DocumentExtractionStatus {
+  status: DocumentExtractionState;
+  pending_count: number;
+  run: GraphExtractionRun;
 }
 
 export interface GraphState {
