@@ -115,28 +115,56 @@ class UsageService:
         return [dict(row) for row in rows]
 
     def summary(self, *, days: int = 7, run_id: str | None = None) -> dict[str, Any]:
-        entries = self.list(days=days, run_id=run_id, limit=2000)
-        cache_reported = [item for item in entries if item["cache_read_tokens"] is not None]
-        costs = [float(item["cost_usd"]) for item in entries if item.get("cost_usd") is not None]
-        model_distribution: dict[str, int] = {}
-        provider_distribution: dict[str, int] = {}
-        for item in entries:
-            model = str(item.get("model") or "未报告")
-            provider = str(item.get("provider") or "未报告")
-            model_distribution[model] = model_distribution.get(model, 0) + 1
-            provider_distribution[provider] = provider_distribution.get(provider, 0) + 1
+        clauses = ["occurred_at >= datetime('now', ?)"]
+        params: list[Any] = [f"-{max(1, min(days, 365))} days"]
+        if run_id:
+            clauses.append("run_id = ?")
+            params.append(run_id)
+        where = " AND ".join(clauses)
+
+        with self._connect() as connection:
+            agg = connection.execute(f"""
+                SELECT
+                    COUNT(*)                                          AS requests,
+                    SUM(CASE WHEN status != 'ok' THEN 1 ELSE 0 END) AS errors,
+                    COALESCE(SUM(input_tokens), 0)                   AS input_tokens,
+                    COALESCE(SUM(output_tokens), 0)                  AS output_tokens,
+                    COALESCE(SUM(cache_read_tokens), 0)              AS cache_read_tokens,
+                    COALESCE(SUM(cache_miss_tokens), 0)              AS cache_miss_tokens,
+                    COUNT(cache_read_tokens)                         AS cache_reported_count,
+                    COALESCE(SUM(cost_usd), 0.0)                     AS cost_usd,
+                    COUNT(cost_usd)                                  AS cost_reported_count
+                FROM llm_usage WHERE {where}
+            """, params).fetchone()
+
+            model_rows = connection.execute(f"""
+                SELECT COALESCE(NULLIF(model, ''), '未报告') AS model, COUNT(*) AS cnt
+                FROM llm_usage WHERE {where}
+                GROUP BY model ORDER BY cnt DESC, model
+            """, params).fetchall()
+
+            provider_rows = connection.execute(f"""
+                SELECT COALESCE(NULLIF(provider, ''), '未报告') AS provider, COUNT(*) AS cnt
+                FROM llm_usage WHERE {where}
+                GROUP BY provider ORDER BY cnt DESC, provider
+            """, params).fetchall()
+
+            entries = connection.execute(f"""
+                SELECT * FROM llm_usage WHERE {where} ORDER BY occurred_at DESC LIMIT 500
+            """, params).fetchall()
+
         return {
             "days": days,
-            "requests": len(entries),
-            "errors": sum(item["status"] != "ok" for item in entries),
-            "input_tokens": sum(item["input_tokens"] for item in entries),
-            "output_tokens": sum(item["output_tokens"] for item in entries),
-            "cache_read_tokens": sum(int(item["cache_read_tokens"] or 0) for item in cache_reported),
-            "cache_miss_tokens": sum(int(item["cache_miss_tokens"] or 0) for item in entries if item["cache_miss_tokens"] is not None),
-            "cache_reported": bool(cache_reported),
-            "cost_usd": sum(costs),
-            "cost_reported": bool(costs),
-            "model_distribution": dict(sorted(model_distribution.items(), key=lambda item: (-item[1], item[0]))),
-            "provider_distribution": dict(sorted(provider_distribution.items(), key=lambda item: (-item[1], item[0]))),
-            "entries": entries,
+            "requests": agg["requests"],
+            "errors": agg["errors"] or 0,
+            "input_tokens": agg["input_tokens"],
+            "output_tokens": agg["output_tokens"],
+            "cache_read_tokens": agg["cache_read_tokens"],
+            "cache_miss_tokens": agg["cache_miss_tokens"],
+            "cache_reported": agg["cache_reported_count"] > 0,
+            "cost_usd": agg["cost_usd"],
+            "cost_reported": agg["cost_reported_count"] > 0,
+            "model_distribution": {r["model"]: r["cnt"] for r in model_rows},
+            "provider_distribution": {r["provider"]: r["cnt"] for r in provider_rows},
+            "entries": [dict(r) for r in entries],
         }

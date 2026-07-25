@@ -24,8 +24,11 @@ class WikiRepairStore:
         return os.path.join(self.root, f"{plan_id}.json")
 
     def get(self, plan_id: str) -> dict[str, Any]:
-        with open(self._path(plan_id), "r", encoding="utf-8") as handle:
-            return json.load(handle)
+        try:
+            with open(self._path(plan_id), "r", encoding="utf-8") as handle:
+                return json.load(handle)
+        except FileNotFoundError:
+            raise KeyError(plan_id) from None
 
     def save(self, plan: dict[str, Any]) -> dict[str, Any]:
         plan["updated_at"] = now()
