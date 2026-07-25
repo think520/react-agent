@@ -582,3 +582,88 @@ export interface MemoryConfirmationArtifact {
 
 export type WebArtifact = WebConsentArtifact | WebCandidatesArtifact | WebEvidenceArtifact;
 export type ChatArtifact = WikiArtifact | SettingsChangeArtifact | WebArtifact | PracticeReadyArtifact | MemoryConfirmationArtifact;
+
+// ------------------------------------------------------------------
+// Knowledge Map — P5E.6
+// ------------------------------------------------------------------
+
+export type ConceptLevel = "cluster" | "core" | "detail";
+export type RelEvidenceLevel = "source" | "cross" | "user" | "ai";
+export type CandidateStatus = "pending" | "confirmed" | "rejected" | "label";
+export type CandidateConfidence = "high" | "medium" | "low";
+
+export interface ConceptNode {
+  concept_id: string;
+  name: string;
+  level: ConceptLevel;
+  definition: string;
+  aliases: string[];
+  topic_ids: string[];
+  note: string;
+  created_at: number;
+  updated_at: number;
+  // position (set by frontend after merging saved positions)
+  x: number;
+  y: number;
+}
+
+export interface RelationshipEdge {
+  rel_id: string;
+  from_id: string;
+  to_id: string;
+  rel_type: string;
+  evidence_level: RelEvidenceLevel;
+  note: string;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface EvidenceItem {
+  evidence_id: string;
+  rel_id: string;
+  document_id: string;
+  document_title: string;
+  excerpt: string;
+  location_type: string;
+  location_value: string;
+  location_stale: boolean;
+}
+
+export interface ConceptCandidate {
+  candidate_id: string;
+  name: string;
+  level: ConceptLevel;
+  definition: string;
+  confidence: CandidateConfidence;
+  source_doc_id: string;
+  source_doc_title: string;
+  excerpt: string;
+  suggested_rels: Array<{ rel_type: string; to_name: string }>;
+  status: CandidateStatus;
+  suppressed_until: number | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface GraphState {
+  concepts: ConceptNode[];
+  relationships: RelationshipEdge[];
+  candidates: ConceptCandidate[];
+  pending_count: number;
+  total_concepts: number;
+}
+
+export interface GraphSubgraph {
+  root: ConceptNode;
+  concepts: ConceptNode[];
+  relationships: RelationshipEdge[];
+  evidence: EvidenceItem[];
+}
+
+export interface ConceptDetail {
+  concept: ConceptNode;
+  relationships: RelationshipEdge[];
+  evidence: Record<string, EvidenceItem[]>;
+}
+
+export type KnowledgeMapView = "map" | "directory" | "sources";

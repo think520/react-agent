@@ -397,11 +397,11 @@ Memory 与个人学习知识库共同沉淀：
 
 Bobodan 已经完成“学习 Agent 引擎”“Web 产品化基础”“本地学习闭环 Web MVP”“用户主动触发的 LLM Wiki”“便携文件夹资料库”“Wiki 可靠性增强”“Web UI 系统体验与设置中心”“可信联网资料扩展”“个人学习知识库”和“全库 Wiki 编排”主体流程。普通用户可以在浏览器中切换多个本地资料库，完成资料学习、个性化设置、用户确认式网页研究，以及可查看、确认、编辑和删除的长期个人知识沉淀。
 
-现有技术路线不需要推倒重来。Python + FastAPI + SQLite / Qdrant + React Web UI 仍然适合本地优先的个人学习助手。P5C 已整理 Web 产品合约，P5D 已完成 Library → Chat → Practice → Review，P5E 已完成用户确认式 LLM Wiki，P5E.1 已把测试工作区升级为通用文件夹资料库，P5E.2 已补齐 Wiki 可靠性，P5E.3 已补齐用户偏好与设置中心，P5F 已补齐可信联网候选、证据快照和网页来源练习，P5F.1 已补齐确定性学习事件、候选确认和已确认个人知识，P5E.4 已通过真实资料验收，P5E.5 已补齐 Wiki 使用引导、手写编辑和 AI 成本控制。下一步先实施 P5E.6，将当前混合的 Wiki 重置为以原文定位为核心的“知识地图”，再进入 P5G 发布收尾。
+现有技术路线不需要推倒重来。Python + FastAPI + SQLite / Qdrant + React Web UI 仍然适合本地优先的个人学习助手。P5C 已整理 Web 产品合约，P5D 已完成 Library → Chat → Practice → Review，P5E 已完成用户确认式 LLM Wiki，P5E.1 已把测试工作区升级为通用文件夹资料库，P5E.2 已补齐 Wiki 可靠性，P5E.3 已补齐用户偏好与设置中心，P5F 已补齐可信联网候选、证据快照和网页来源练习，P5F.1 已补齐确定性学习事件、候选确认和已确认个人知识，P5E.4 已通过真实资料验收，P5E.5 已补齐 Wiki 使用引导、手写编辑和 AI 成本控制，P5E.6 已实施知识地图产品重置。下一步进入 P5G 发布收尾。
 
 一句话结论：
 
-> 本地资料、可信联网证据与个人学习知识库已经形成闭环；先把 Wiki 收束为用户可理解、可追溯的知识地图，再解决文档漏读可见性和 Windows 桌面发布。
+> 本地资料、可信联网证据与个人学习知识库已经形成闭环；知识地图已落地，下一步解决文档漏读可见性和 Windows 桌面发布。
 
 ### 3.2 当前成熟度
 
@@ -413,7 +413,7 @@ Bobodan 已经完成“学习 Agent 引擎”“Web 产品化基础”“本地�
 | Memory | P5F.1 完成 | 全局 / 资料库双层 SQLite、确定性学习事件、90 秒对话整理、候选确认、显式记忆卡、旧记忆迁移、Markdown 导出和个性化依据已落地；旧 daily Markdown 保持只读 |
 | Service Layer | 产品化基础完成 | CLI / Web 共用 runtime、config 与 service，Review / Practice 聚合已补齐 |
 | FastAPI | P5F.1 完成 | 已有稳定错误结构、流式事件、资料库隔离、Wiki / 联网证据、个人知识 CRUD、候选确认、阅读进度、旧记忆迁移和 Chat 记忆确认 API |
-| Web UI | P5E.5 完成，P5E.6 待实施 | Chat、Library、Practice、Review、设置中心、个人知识管理、Wiki 编辑和成本控制界面已落地；知识地图产品重置与桌面发布壳尚未实现 |
+| Web UI | P5E.6 完成 | Chat、Library、Practice、Review、设置中心、个人知识管理、Wiki 编辑、成本控制和知识地图界面已落地；桌面发布壳尚未实现 |
 | 测试 | 全栈回归已建立 | Python `1148 passed`；Vitest `5 passed`；TypeScript 与生产构建通过；Playwright 桌面、窄屏和移动端 `75 passed` |
 
 ### 3.3 P5C / P5D / P5E 已解决的问题与剩余边界
@@ -962,7 +962,7 @@ P5E.5 解决 P5E.4 验收后暴露的产品问题：修复预览没有后续动�
 
 阶段验收结果：Python `1148 passed`；Vitest `5 passed`；TypeScript 与生产构建通过；Playwright 桌面、窄屏和移动端 `75 passed`。
 
-### P5E.6：知识地图产品重置（计划）
+### P5E.6：知识地图产品重置（已完成）
 
 P5E.4 与 P5E.5 证明了全库发现、可恢复运行、编辑保护和用量账本可用，但真实使用暴露出产品模型混杂：资料摘要、概念百科、个人笔记、批量生成和维护任务共同使用“Wiki”名称，用户无法判断其用途、下一步和生成成本。P5E.6 不推翻已有的资料、来源、版本、缓存与运行保护；它重置主界面的心智模型。
 
@@ -999,13 +999,22 @@ Chat：提问、全库检索、基于原始资料回答
 
 P5E.6 不在本阶段做：复杂全图一次性可视化、导入即自动概念生成、无来源的 AI 教材页、自动覆盖用户笔记，以及把知识地图作为 Chat 的必经前置步骤。
 
+已实施内容（P5E.6 完成）：
+
+1. **`graph/concept_store.py`** — SQLite 概念图谱后端（5 张表：`concepts`、`relationships`、`evidence`、`concept_candidates`、`concept_positions`），支持 CRUD、候选审查、位置持久化和图状态快照。
+2. **`wiki/extractor.py`** — `ConceptExtractor`：LLM 从资料内容提取 3–8 个核心概念 + ≤12 个细节概念，输出候选及关系，有效关系类型受约束。
+3. **`service/concept_service.py`** — `ConceptService`：封装所有概念图谱业务逻辑，确认候选自动创建概念和关系，reject 支持按天压制。
+4. **`web/backend/routers/graph.py`** — 12 个 REST 端点，覆盖图状态、子图、概念 CRUD、关系 CRUD、候选操作、提取触发和位置保存；`/api/graph` 纳入 library-scoped 中间件。
+5. **前端** — Sigma.js v3 + Graphology WebGL 渲染；`KnowledgeMapPage`（三视图：地图 / 目录 / 来源）、`GraphCanvas`、`ConceptSidebar`（180ms 滑入侧栏）、`CandidateReviewPanel`（底部 sheet + 键盘快捷键）；导航新增"知识地图"入口。
+6. **`tests/test_concept_store.py`** + **`tests/test_concept_service.py`** — 覆盖 DDL、CRUD、候选压制、图状态、子图邻居、服务层验证和 LLM 提取 mock。
+
 ### P5G：文档完整性、Windows 桌面发布与支撑页面
 
 P5G 不先堆叠新页面。执行顺序固定为：
 
 ```text
 P5E.5 Wiki 易用性、手写编辑与 AI 成本控制（完成）
-→ P5E.6 知识地图产品重置
+→ P5E.6 知识地图产品重置（完成）
 → P5G.0 文档提取完整性与发布合规
 → P5G.1 单进程本地 Web
 → P5G.2 Windows Electron 桌面版

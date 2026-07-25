@@ -9,7 +9,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from .errors import APIError
-from .routers import chat, kb, learning, libraries, memory, quiz, research, settings
+from .routers import chat, graph, kb, learning, libraries, memory, quiz, research, settings
 from .deps import get_config, get_library_service, get_session_save_dir, get_workspace
 
 
@@ -49,7 +49,7 @@ def create_app() -> FastAPI:
     async def resolve_library(request: Request, call_next):
         scoped_prefixes = (
             "/api/chat", "/api/kb", "/api/quiz", "/api/learning",
-            "/api/memory", "/api/settings/proposals",
+            "/api/memory", "/api/settings/proposals", "/api/graph",
         )
         if request.url.path.startswith(scoped_prefixes):
             service = get_library_service()
@@ -107,6 +107,7 @@ def create_app() -> FastAPI:
             },
         )
 
+    app.include_router(graph.router, prefix="/api/graph", tags=["graph"])
     app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
     app.include_router(research.router, prefix="/api/chat/web", tags=["research"])
     app.include_router(kb.router, prefix="/api/kb", tags=["kb"])

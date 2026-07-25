@@ -399,6 +399,52 @@ export const api = {
     `/api/chat/memory/proposals/${encodeURIComponent(artifactId)}/${action}`,
     json({ chat_session_id: chatSessionId, warning_acknowledged: warningAcknowledged }),
   ),
+
+  // Knowledge Map — P5E.6
+  graphState: (opts: { topic_id?: string; include_candidates?: boolean; view_id?: string } = {}) => {
+    const params = new URLSearchParams();
+    if (opts.topic_id) params.set("topic_id", opts.topic_id);
+    if (opts.include_candidates) params.set("include_candidates", "true");
+    if (opts.view_id) params.set("view_id", opts.view_id);
+    const qs = params.toString();
+    return request<import("../types").GraphState>(`/api/graph/state${qs ? `?${qs}` : ""}`);
+  },
+  graphSubgraph: (conceptId: string, viewId?: string) =>
+    request<import("../types").GraphSubgraph>(
+      `/api/graph/subgraph/${encodeURIComponent(conceptId)}${viewId ? `?view_id=${encodeURIComponent(viewId)}` : ""}`,
+    ),
+  graphConcept: (conceptId: string) =>
+    request<import("../types").ConceptDetail>(`/api/graph/concepts/${encodeURIComponent(conceptId)}`),
+  graphUpsertConcept: (body: Record<string, unknown>) =>
+    request<{ concept: import("../types").ConceptNode }>("/api/graph/concepts", json(body)),
+  graphPatchConcept: (conceptId: string, body: Record<string, unknown>) =>
+    request<{ concept: import("../types").ConceptNode }>(
+      `/api/graph/concepts/${encodeURIComponent(conceptId)}`,
+      { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+    ),
+  graphDeleteConcept: (conceptId: string) =>
+    request<{ ok: boolean }>(`/api/graph/concepts/${encodeURIComponent(conceptId)}`, { method: "DELETE" }),
+  graphAddRelationship: (body: Record<string, unknown>) =>
+    request<{ relationship: import("../types").RelationshipEdge }>("/api/graph/relationships", json(body)),
+  graphDeleteRelationship: (relId: string) =>
+    request<{ ok: boolean }>(`/api/graph/relationships/${encodeURIComponent(relId)}`, { method: "DELETE" }),
+  graphCandidates: (status = "pending") =>
+    request<{ candidates: import("../types").ConceptCandidate[]; count: number }>(
+      `/api/graph/candidates?status=${encodeURIComponent(status)}`,
+    ),
+  graphCandidateAction: (
+    candidateId: string,
+    action: "confirm" | "reject" | "label",
+    suppressDays = 14,
+  ) =>
+    request<{ concept?: import("../types").ConceptNode }>(
+      `/api/graph/candidates/${encodeURIComponent(candidateId)}/action`,
+      json({ action, suppress_days: suppressDays }),
+    ),
+  graphExtract: (body: { document_id: string; document_title: string; content: string; document_path?: string; provider?: string }) =>
+    request<{ stored: number; tags: string[]; pending_total: number }>("/api/graph/extract", json(body)),
+  graphSavePositions: (positions: Array<{ concept_id: string; x: number; y: number }>, viewId = "default") =>
+    request<{ saved: number }>("/api/graph/positions", json({ positions, view_id: viewId })),
 };
 
 export type ChatStreamEvent =

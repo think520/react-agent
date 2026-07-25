@@ -24,7 +24,14 @@
 - 用户偏好升级为 schema v3；验证：Python `1102 passed`、Vitest `5 passed`、TypeScript 与生产构建通过、Playwright 多视口 `57 passed`。
 
 ### 新增
-- **P5E.5 Wiki 易用性、手写编辑与 AI 成本控制**: Library 增加“资料 → 整理 → 审查 → 使用与维护”流程；标准模式默认每次 5 份资料，开始前展示请求、Token 与耗时估算，达到预算后持久化暂停。
+- **P5E.6 知识地图产品重置**: 将混合 Wiki 重置为以概念关系和原文定位为核心的知识地图。
+  - 新增 `graph/concept_store.py`：SQLite 概念图谱后端（concepts、relationships、evidence、concept_candidates、concept_positions 五表），支持候选审查、位置持久化和图状态快照。
+  - 新增 `wiki/extractor.py`：`ConceptExtractor` 从资料内容提取 3–8 个核心概念、≤12 个细节概念及关系；有效关系类型受约束（属于、前置知识、组成部分、对比、应用于、来源于）。
+  - 新增 `service/concept_service.py`：`ConceptService` 封装概念图谱业务逻辑，确认候选自动创建概念和关系，reject 支持按天压制，extract_from_document 存储待审查候选。
+  - 新增 `web/backend/routers/graph.py`：12 个 REST 端点，覆盖图状态、子图、概念 CRUD、关系 CRUD、候选操作（confirm/reject/label）、提取触发和位置保存；`/api/graph` 纳入 library-scoped 中间件。
+  - 新增 Web 前端知识地图页面：Sigma.js v3 + Graphology WebGL 渲染；三视图（地图 / 目录 / 来源）、概念侧栏（180ms 滑入、Esc 关闭）、候选审查面板（底部 sheet、键盘快捷键 Enter/L/X）；导航新增”知识地图”入口。
+  - 新增 `tests/test_concept_store.py`、`tests/test_concept_service.py`：覆盖 DDL、CRUD、候选压制、图状态、子图邻居、服务层验证和 LLM 提取 mock（40+ 用例）。
+- **P5E.5 Wiki 易用性、手写编辑与 AI 成本控制**: Library 增加”资料 → 整理 → 审查 → 使用与维护”流程；标准模式默认每次 5 份资料，开始前展示请求、Token 与耗时估算，达到预算后持久化暂停。
   - 新增零模型快速建档、标准整理和深度全库模式，取消与暂停保留精确草稿缓存。
   - “生成修复计划”改为持久化、可应用和可撤销的修复项列表，不再停留在无后续的成功提示。
   - 新增 `wiki_note`、Markdown 编辑/预览、revision 冲突保护及归档恢复；手写内容不会被后续 AI 计划静默覆盖。
