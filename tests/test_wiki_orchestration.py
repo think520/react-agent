@@ -9,7 +9,7 @@ from wiki.orchestration import WikiOrchestrator, wiki_coverage
 
 class OrchestrationProvider:
     def complete(self, messages, tools=None):
-        prompt = messages[0]["content"]
+        prompt = "\n\n".join(message["content"] for message in messages)
         source_id = (re.search(r"\[(S\d+)\]", prompt) or [None, "S1"])[1]
         if "Do not write page bodies" in prompt:
             return LLMResponse(content=json.dumps({"pages": [{
@@ -38,8 +38,9 @@ class RecordingProvider(OrchestrationProvider):
         self.discovery_prompts = []
 
     def complete(self, messages, tools=None):
-        if "Do not write page bodies" in messages[0]["content"]:
-            self.discovery_prompts.append(messages[0]["content"])
+        prompt = "\n\n".join(message["content"] for message in messages)
+        if "Do not write page bodies" in prompt:
+            self.discovery_prompts.append(prompt)
         return super().complete(messages, tools=tools)
 
 
@@ -71,6 +72,38 @@ def test_orchestrated_plan_batches_sources_and_guarantees_source_pages(tmp_path)
     assert len({item["source_refs"][0]["document_id"] for item in source_changes}) == 6
     assert len(concept_changes) == 1
     assert concept_changes[0]["source_count"] == 2
+    linked_sources = [item for item in source_changes if "共享概念" in item["related"]]
+    assert len(linked_sources) == 2
+    assert all("/library?collection=wiki" in item["content"] for item in linked_sources)
+
+
+def test_source_pages_fall_back_to_compact_navigation_instead_of_copying_the_document(tmp_path):
+    class OverlongSourceProvider(OrchestrationProvider):
+        def complete(self, messages, tools=None):
+            prompt = "\n\n".join(message["content"] for message in messages)
+            if "Do not write page bodies" in prompt:
+                return super().complete(messages, tools=tools)
+            page_type = re.search(r"^Page type: (.+)$", prompt, flags=re.MULTILINE).group(1)
+            if page_type != "wiki_source":
+                return super().complete(messages, tools=tools)
+            return LLMResponse(content=json.dumps({"pages": [{
+                "title": "资料 1",
+                "page_type": "wiki_source",
+                "summary": "过长资料页。",
+                "body": "逐章复述。" * 500,
+                "tags": [],
+                "related": [],
+                "claims": [{"text": "内容来自原文。", "source_ids": ["S1"]}],
+            }]}))
+
+    plan = WikiOrchestrator(
+        str(tmp_path), str(tmp_path), OverlongSourceProvider(),
+    ).create_plan([material(1)], scope_mode="uncovered")
+
+    source = next(item for item in plan["changes"] if item["page_type"] == "wiki_source")
+    assert "本页连接原始资料与后续概念页面" in source["content"]
+    assert "逐章复述" not in source["content"]
+    assert len(source["content"]) < 2200
 
 
 def test_large_library_discovery_reads_every_batch_instead_of_only_the_first_document(tmp_path):
@@ -168,3 +201,56 @@ def test_cancelled_orchestration_task_is_not_retryable(tmp_path):
     task = orchestrator.workflow.tasks.list()[0]
     assert task["status"] == "cancelled"
     assert task["retryable"] is False
+
+
+def test_cancellation_is_checked_before_each_model_request(tmp_path):
+    class CountingProvider(OrchestrationProvider):
+        def __init__(self):
+            self.calls = 0
+
+        def complete(self, messages, tools=None):
+            self.calls += 1
+            return super().complete(messages, tools=tools)
+
+    provider = CountingProvider()
+    orchestrator = WikiOrchestrator(str(tmp_path), str(tmp_path), provider, run_id="c" * 32)
+
+    plan = orchestrator.create_plan(
+        [material(1, "资料正文。" * 12000)],
+        scope_mode="uncovered",
+        run_id="c" * 32,
+        cancel_check=lambda: provider.calls >= 1,
+    )
+
+    assert provider.calls == 1
+    assert plan["status"] == "cancelled"
+    assert plan["phase"] == "cancelled"
+
+
+def test_wiki_budget_pause_persists_partial_plan(tmp_path):
+    orchestrator = WikiOrchestrator(
+        str(tmp_path), str(tmp_path), OrchestrationProvider(),
+        run_id="a" * 32,
+        budget={"max_requests": 1, "max_input_tokens": 300000, "max_output_tokens": 40000},
+    )
+
+    plan = orchestrator.create_plan([material(1)], scope_mode="uncovered", run_id="a" * 32)
+
+    assert plan["status"] == "paused_budget"
+    assert plan["usage"]["requests"] == 1
+    assert plan["remaining_pages"] >= 1
+    assert orchestrator.workflow.get_plan("a" * 32)["status"] == "paused_budget"
+
+
+def test_identical_wiki_run_reuses_strict_local_cache(tmp_path):
+    first_provider = RecordingProvider()
+    first = WikiOrchestrator(str(tmp_path), str(tmp_path), first_provider)
+    first.create_plan([material(1)], scope_mode="uncovered")
+    assert first_provider.discovery_prompts
+
+    second_provider = RecordingProvider()
+    second = WikiOrchestrator(str(tmp_path), str(tmp_path), second_provider)
+    plan = second.create_plan([material(1)], scope_mode="uncovered")
+
+    assert second_provider.discovery_prompts == []
+    assert plan["usage"]["cache_hits"] >= 2

@@ -111,4 +111,11 @@ class MiniMaxProvider(OpenAICompatibleProvider):
             ))
             logger.info("[MiniMax] tool_call id=%r name=%r", tc.get("id"), func.get("name"))
 
-        return LLMResponse(content=content, tool_calls=tool_calls)
+        return LLMResponse(
+            content=content,
+            tool_calls=tool_calls,
+            provider=self.name,
+            model=self.model,
+            request_id=str(data.get("id") or ""),
+            usage=self._normalize_usage(data),
+        )

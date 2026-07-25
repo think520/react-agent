@@ -22,6 +22,7 @@ PAGE_TYPE_DIRECTORIES = {
     "wiki_concept": "concepts",
     "wiki_analysis": "analyses",
     "wiki_question": "questions",
+    "wiki_note": "notes",
 }
 STRUCTURAL_FILES = {"index.md", "log.md", "source_registry.json", ".wiki_state.json"}
 BODY_SHRINK_THRESHOLD = 0.7
@@ -176,6 +177,10 @@ def merge_page(change: dict[str, Any], existing_paths: list[str]) -> WikiPage:
         raise ValueError("incoming body is unexpectedly shorter than the existing page")
 
     primary = metadata_items[0] if metadata_items else {}
+    expected_revision = change.get("base_revision")
+    current_revision = int(primary.get("content_revision") or 1)
+    if expected_revision is not None and int(expected_revision) != current_revision:
+        raise ValueError("page changed after the plan was created")
     title = str(primary.get("title") or change["title"])
     page_type = str(primary.get("type") or change["page_type"])
     if page_type != change["page_type"]:
@@ -205,6 +210,9 @@ def merge_page(change: dict[str, Any], existing_paths: list[str]) -> WikiPage:
         source_hash=str(change.get("source_hash") or ""),
         created=created,
         summary=str(change.get("summary") or primary.get("summary") or ""),
+        generated_by=str(primary.get("generated_by") or "bobodan"),
+        managed_by=str(primary.get("managed_by") or "ai"),
+        content_revision=current_revision + 1 if metadata_items else 1,
     )
 
 

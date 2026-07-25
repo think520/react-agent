@@ -8,7 +8,7 @@ from .openai_compat import OpenAICompatibleProvider
 
 logger = logging.getLogger(__name__)
 
-KNOWN_PROVIDER_TYPES = {"deepseek", "minimax", "openai"}
+KNOWN_PROVIDER_TYPES = {"deepseek", "minimax", "openai", "openai_compatible"}
 
 
 class ProviderFactory:
@@ -64,12 +64,12 @@ class ProviderFactory:
                 max_retries=agent_config.get("max_retries", 3),
             )
 
-        if provider_type == "openai":
+        if provider_type in {"openai", "openai_compatible"}:
             return OpenAICompatibleProvider(
                 api_key=api_key,
                 model=provider_config.get("model", "gpt-4"),
                 base_url=provider_config.get("base_url", "https://api.openai.com/v1"),
-                provider_name="openai",
+                provider_name=provider_config.get("provider_name") or provider_type,
                 temperature=agent_config.get("temperature", 0.7),
                 timeout=agent_config.get("timeout", 60),
                 max_retries=agent_config.get("max_retries", 3),

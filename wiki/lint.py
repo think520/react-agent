@@ -2,6 +2,7 @@
 
 import json
 import os
+import time
 import re
 import logging
 from dataclasses import dataclass, field
@@ -169,7 +170,7 @@ class WikiLinter:
 
         for title, filepath in pages.items():
             # Source pages are not orphans by definition
-            if "source" in filepath.lower():
+            if "source" in filepath.lower() or f"{os.sep}{self.config.note_dir}{os.sep}" in filepath:
                 continue
             # Index and log are not orphans
             if title in ("Wiki Index", "Wiki Log"):
@@ -181,6 +182,8 @@ class WikiLinter:
         # Find stale pages
         cutoff = datetime.now(timezone.utc) - timedelta(days=stale_days)
         for title, filepath in pages.items():
+            if f"{os.sep}{self.config.note_dir}{os.sep}" in filepath:
+                continue
             try:
                 mtime = datetime.fromtimestamp(os.path.getmtime(filepath), tz=timezone.utc)
                 if mtime < cutoff:
@@ -219,10 +222,18 @@ class WikiLinter:
         else:
             from .compiler import _parse_llm_json
 
+            started = time.perf_counter()
             response = llm_provider.complete([{
                 "role": "user",
                 "content": SEMANTIC_PROMPT.format(pages="\n\n".join(excerpts)),
             }])
+            from service.usage_service import UsageService
+            UsageService().record(
+                response,
+                subsystem="wiki",
+                operation="wiki_semantic_review",
+                duration_ms=round((time.perf_counter() - started) * 1000),
+            )
             parsed = _parse_llm_json(response.content or "")
             if not isinstance(parsed, dict) or not isinstance(parsed.get("issues"), list):
                 raise ValueError("The model did not return a valid semantic Wiki review")

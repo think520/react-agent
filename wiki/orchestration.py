@@ -6,16 +6,21 @@ import hashlib
 import json
 import os
 import re
+import sqlite3
 import threading
+import time
 import uuid
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Any
+from types import SimpleNamespace
 
 from .compiler import _parse_llm_json, _safe_filename
 from .reliability import PROCESS_RUNNER_ID, atomic_json
 from .schema import GENERATED_BY
 from .workflow import WikiWorkflow, _canonical_title, _read_frontmatter, _now
+from service.usage_service import UsageService
 
 
 BATCH_SIZE = 5
@@ -24,18 +29,52 @@ EVIDENCE_WINDOW_CHARS = 16000
 MAX_KNOWLEDGE_PAGES_PER_BATCH = 12
 MAX_PAGE_BODY_CHARS = 4500
 MAX_PAGE_SECTIONS = 7
+MAX_SOURCE_PAGE_BODY_CHARS = 2200
+MAX_SOURCE_PAGE_SECTIONS = 4
 RUN_LOCK = threading.RLock()
+PROMPT_SCHEMA_VERSION = 3
+DEFAULT_BUDGET = {"max_requests": 24, "max_input_tokens": 300000, "max_output_tokens": 40000}
 
 
-DISCOVERY_PROMPT = """You are discovering small, linked Wiki pages from local learning materials.
+class WikiBudgetExceeded(RuntimeError):
+    pass
+
+
+class WikiRunCancelled(RuntimeError):
+    pass
+
+
+class WikiGenerationCache:
+    def __init__(self, workspace: str):
+        root = os.path.join(os.path.abspath(workspace), ".bobodan", "wiki")
+        os.makedirs(root, exist_ok=True)
+        self.path = os.path.join(root, "cache.db")
+        with sqlite3.connect(self.path) as connection:
+            connection.execute("""
+                CREATE TABLE IF NOT EXISTS generation_cache (
+                    cache_key TEXT PRIMARY KEY,
+                    pages_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+            """)
+
+    def get(self, key: str) -> list[dict[str, Any]] | None:
+        with sqlite3.connect(self.path) as connection:
+            row = connection.execute(
+                "SELECT pages_json FROM generation_cache WHERE cache_key = ?", (key,),
+            ).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def put(self, key: str, pages: list[dict[str, Any]]) -> None:
+        with sqlite3.connect(self.path) as connection:
+            connection.execute(
+                "INSERT OR REPLACE INTO generation_cache(cache_key, pages_json, created_at) VALUES (?, ?, ?)",
+                (key, json.dumps(pages, ensure_ascii=False), _now()),
+            )
+
+
+DISCOVERY_SYSTEM = """You are discovering small, linked Wiki pages from local learning materials.
 Return JSON only. Do not write page bodies and do not invent source identifiers.
-
-User topic: {topic}
-User instruction: {instruction}
-
-Source excerpts:
-{source_excerpts}
-
 Return:
 {{"pages":[{{"title":"canonical title","page_type":"wiki_concept, wiki_entity, wiki_analysis, or wiki_question","summary":"one sentence","tags":["tag"],"related":["title"],"source_ids":["S1"]}}]}}
 
@@ -46,21 +85,18 @@ Rules:
 - Return no more than 12 candidates for this evidence window.
 """
 
-
-PAGE_PROMPT = """Write one focused Chinese Wiki page from supplied evidence.
-Return JSON only and do not invent source identifiers.
-
-Title: {title}
-Page type: {page_type}
-Candidate summary: {summary}
+DISCOVERY_PROMPT = """User topic: {topic}
 User instruction: {instruction}
-Existing page excerpt: {existing_page}
 
-Evidence:
-{evidence}
+Source excerpts:
+{source_excerpts}
+"""
 
+
+PAGE_SYSTEM = """Write one focused Chinese Wiki page from supplied evidence.
+Return JSON only and do not invent source identifiers.
 Return:
-{{"pages":[{{"title":"{title}","page_type":"{page_type}","summary":"one paragraph","body":"Markdown without a top-level heading","tags":["tag"],"related":["title"],"claims":[{{"text":"claim","source_ids":["S1"]}}]}}]}}
+{"pages":[{"title":"canonical title","page_type":"supplied page type","summary":"one paragraph","body":"Markdown without a top-level heading","tags":["tag"],"related":["title"],"claims":[{"text":"claim","source_ids":["S1"]}]}]}
 
 Rules:
 - Keep one canonical subject per page.
@@ -68,6 +104,23 @@ Rules:
 - Important claims require supplied source_ids.
 - Preserve useful facts from the existing page when updating it.
 - Prefer links to related pages over embedding unrelated subtopics.
+- For wiki_source, write a compact navigation page rather than reproducing the source chapter by chapter.
+- A wiki_source body must stay under 1800 Chinese characters and contain only a brief overview, a learning map, and key takeaways.
+- For wiki_concept, wiki_entity, wiki_analysis, and wiki_question, synthesize reusable knowledge that can stand apart from one source document.
+"""
+
+PAGE_PROMPT = """Title: {title}
+Page type: {page_type}
+Candidate summary: {summary}
+Related Wiki titles: {related_titles}
+User instruction: {instruction}
+Existing page revision: {existing_revision}
+Existing page excerpt: {existing_page}
+
+Evidence:
+{evidence}
+
+Additional repair requirement:
 {repair_instruction}
 """
 
@@ -222,11 +275,42 @@ class WikiRunStore:
 class WikiOrchestrator:
     """Plan a corpus Wiki in fair batches while preserving the legacy plan format."""
 
-    def __init__(self, workspace: str, vault_path: str, llm_provider):
+    def __init__(
+        self,
+        workspace: str,
+        vault_path: str,
+        llm_provider,
+        *,
+        run_id: str | None = None,
+        budget: dict[str, int] | None = None,
+        force_regenerate: bool = False,
+        discovery_provider=None,
+    ):
         self.workspace = os.path.abspath(workspace)
         self.vault_path = os.path.abspath(vault_path)
         self.llm = llm_provider
+        self.discovery_llm = discovery_provider or llm_provider
         self.workflow = WikiWorkflow(self.workspace, self.vault_path, llm_provider)
+        self.run_id = run_id
+        self.budget = (
+            {**DEFAULT_BUDGET, **budget}
+            if budget is not None
+            else {"max_requests": 1000000, "max_input_tokens": 1000000000, "max_output_tokens": 1000000000}
+        )
+        self.usage = {
+            "requests": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cache_hits": 0,
+            "duration_ms": 0,
+            "provider_cache_read_tokens": 0,
+            "provider_cache_miss_tokens": 0,
+        }
+        self.force_regenerate = force_regenerate
+        self.cache = WikiGenerationCache(self.workspace)
+        self.usage_service = UsageService()
+        self._usage_lock = threading.RLock()
+        self._cancel_check = None
 
     @staticmethod
     def _catalog(documents: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
@@ -293,12 +377,99 @@ class WikiOrchestrator:
             windows.append("\n\n".join(rendered))
         return windows
 
-    def _call_pages(self, prompt: str) -> list[dict[str, Any]]:
-        response = self.llm.complete([{"role": "user", "content": prompt}])
+    def _call_pages(self, system: str, prompt: str, operation: str) -> list[dict[str, Any]]:
+        if self._cancel_check and self._cancel_check():
+            raise WikiRunCancelled("Wiki run cancelled")
+        llm = self.discovery_llm if operation.startswith("wiki_discovery") else self.llm
+        provider = str(getattr(llm, "name", "") or llm.__class__.__name__)
+        model = str(getattr(llm, "model", "") or "unknown")
+        cache_key = hashlib.sha256(json.dumps({
+            "version": PROMPT_SCHEMA_VERSION,
+            "provider": provider,
+            "model": model,
+            "operation": operation,
+            "system": system,
+            "prompt": prompt,
+        }, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+        if not self.force_regenerate:
+            cached = self.cache.get(cache_key)
+            if cached is not None:
+                with self._usage_lock:
+                    self.usage["cache_hits"] += 1
+                return cached
+        estimated_input = max(1, (len(system) + len(prompt) + 1) // 2)
+        with self._usage_lock:
+            if self.usage["requests"] + 1 > self.budget["max_requests"]:
+                raise WikiBudgetExceeded("Wiki request budget reached")
+            if self.usage["input_tokens"] + estimated_input > self.budget["max_input_tokens"]:
+                raise WikiBudgetExceeded("Wiki input token budget reached")
+            self.usage["requests"] += 1
+            self.usage["input_tokens"] += estimated_input
+        started = time.perf_counter()
+        try:
+            response = llm.complete([
+                {"role": "system", "content": system},
+                {"role": "user", "content": prompt},
+            ])
+        except Exception as exc:
+            duration_ms = round((time.perf_counter() - started) * 1000)
+            with self._usage_lock:
+                self.usage["duration_ms"] += duration_ms
+            message = str(exc).casefold()
+            error_kind = (
+                "authentication" if "401" in message or "403" in message or "auth" in message
+                else "rate_limit" if "429" in message or "rate limit" in message
+                else "timeout" if "timeout" in message
+                else "network" if "connect" in message or "network" in message
+                else "provider_error"
+            )
+            self.usage_service.record(
+                SimpleNamespace(
+                    request_id="",
+                    provider=provider,
+                    model=model,
+                    usage={"input_tokens": estimated_input, "output_tokens": 0},
+                ),
+                subsystem="wiki",
+                operation=operation,
+                run_id=self.run_id,
+                duration_ms=duration_ms,
+                status="error",
+                provider=provider,
+                model=model,
+                error_kind=error_kind,
+            )
+            raise
+        duration_ms = round((time.perf_counter() - started) * 1000)
+        reported = getattr(response, "usage", None) or {}
+        output_tokens = int(reported.get("output_tokens") or max(1, len(str(getattr(response, "content", ""))) // 2))
+        with self._usage_lock:
+            self.usage["duration_ms"] += duration_ms
+            if reported.get("input_tokens") is not None:
+                self.usage["input_tokens"] += int(reported["input_tokens"]) - estimated_input
+            self.usage["output_tokens"] += output_tokens
+            if reported.get("cache_read_tokens") is not None:
+                self.usage["provider_cache_read_tokens"] += int(reported["cache_read_tokens"] or 0)
+            if reported.get("cache_miss_tokens") is not None:
+                self.usage["provider_cache_miss_tokens"] += int(reported["cache_miss_tokens"] or 0)
+        self.usage_service.record(
+            response,
+            subsystem="wiki",
+            operation=operation,
+            run_id=self.run_id,
+            duration_ms=duration_ms,
+            provider=provider,
+            model=model,
+        )
+        output_exceeded = self.usage["output_tokens"] > self.budget["max_output_tokens"]
         parsed = _parse_llm_json(str(getattr(response, "content", "") or ""))
         if not isinstance(parsed, dict) or not isinstance(parsed.get("pages"), list):
             raise ValueError("The model did not return a valid Wiki plan")
-        return [item for item in parsed["pages"] if isinstance(item, dict)]
+        pages = [item for item in parsed["pages"] if isinstance(item, dict)]
+        self.cache.put(cache_key, pages)
+        if output_exceeded:
+            raise WikiBudgetExceeded("Wiki output token budget reached")
+        return pages
 
     def _discover_batch(
         self,
@@ -315,9 +486,17 @@ class WikiOrchestrator:
                 source_excerpts=excerpts,
             )
             try:
-                discovered.extend(self._call_pages(prompt))
+                discovered.extend(self._call_pages(
+                    DISCOVERY_SYSTEM,
+                    prompt,
+                    "wiki_discovery",
+                ))
             except ValueError:
-                discovered.extend(self._call_pages(prompt + "\nThe previous response was invalid. Return the exact JSON shape only."))
+                discovered.extend(self._call_pages(
+                    DISCOVERY_SYSTEM,
+                    prompt + "\nThe previous response was invalid. Return the exact JSON shape only.",
+                    "wiki_discovery_repair",
+                ))
         return discovered
 
     @staticmethod
@@ -389,6 +568,21 @@ class WikiOrchestrator:
         return list(merged.values())
 
     @staticmethod
+    def _link_source_candidates(
+        source_candidates: list[dict[str, Any]],
+        knowledge_candidates: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        for source in source_candidates:
+            source_ids = set(source.get("source_ids") or [])
+            source["related"] = list(dict.fromkeys(
+                str(candidate.get("title") or "").strip()
+                for candidate in knowledge_candidates
+                if source_ids.intersection(candidate.get("source_ids") or [])
+                and str(candidate.get("title") or "").strip()
+            ))[:8]
+        return source_candidates
+
+    @staticmethod
     def _evidence(candidate: dict[str, Any], lookup: dict[str, dict[str, Any]]) -> str:
         rendered = []
         used = 0
@@ -434,32 +628,45 @@ class WikiOrchestrator:
         instruction: str,
     ) -> dict[str, Any] | None:
         key = f"{candidate['page_type']}:{_canonical_title(candidate['title'])}"
-        existing_body = (existing.get(key) or [{}])[0].get("body", "")
+        existing_page = (existing.get(key) or [{}])[0]
+        existing_body = existing_page.get("body", "")
+        existing_revision = int(existing_page.get("content_revision") or 1) if existing_page else 0
         repair = ""
         for attempt in range(2):
             prompt = PAGE_PROMPT.format(
                 title=candidate["title"],
                 page_type=candidate["page_type"],
                 summary=candidate.get("summary") or "",
+                related_titles="、".join(candidate.get("related") or []) or "(none)",
                 instruction=instruction.strip() or "Build a concise, traceable learning Wiki.",
+                existing_revision=existing_revision,
                 existing_page=str(existing_body)[:6000] or "(none)",
                 evidence=self._evidence(candidate, lookup),
                 repair_instruction=repair,
             )
             try:
-                pages = self._call_pages(prompt)
+                pages = self._call_pages(
+                    PAGE_SYSTEM,
+                    prompt,
+                    "wiki_drafting",
+                )
             except ValueError:
                 pages = []
             if pages:
                 draft = pages[0]
                 body = str(draft.get("body") or "").strip()
                 section_count = len(re.findall(r"^##\s+", body, flags=re.MULTILINE))
-                if body and len(body) <= MAX_PAGE_BODY_CHARS and section_count <= MAX_PAGE_SECTIONS:
+                max_body_chars = MAX_SOURCE_PAGE_BODY_CHARS if candidate["page_type"] == "wiki_source" else MAX_PAGE_BODY_CHARS
+                max_sections = MAX_SOURCE_PAGE_SECTIONS if candidate["page_type"] == "wiki_source" else MAX_PAGE_SECTIONS
+                if body and len(body) <= max_body_chars and section_count <= max_sections:
                     draft["title"] = candidate["title"]
                     draft["page_type"] = candidate["page_type"]
                     return draft
                 repair = (
-                    "The previous draft was too large. Rewrite it as a small overview page under 3000 characters "
+                    "The previous source page copied too much of the original. Rewrite it as a navigation page "
+                    "under 1800 Chinese characters with only a brief overview, learning map, and key takeaways."
+                    if candidate["page_type"] == "wiki_source"
+                    else "The previous draft was too large. Rewrite it as a small overview page under 3000 characters "
                     "with at most 6 second-level sections; move unrelated subtopics into related page links."
                 )
         if candidate["page_type"] == "wiki_source":
@@ -569,6 +776,7 @@ class WikiOrchestrator:
             "target": target,
             "content": content,
             "merge_paths": [item["relative_path"] for item in matches[1:]],
+            "base_revision": int(matches[0].get("content_revision") or 1) if matches else None,
             **({"split_reason": "page_requires_smaller_linked_topics"} if kind == "split" else {}),
         }
 
@@ -585,6 +793,7 @@ class WikiOrchestrator:
         run_id: str | None = None,
         progress=None,
         cancel_check=None,
+        generation_mode: str = "deep",
     ) -> dict[str, Any]:
         if not documents:
             raise ValueError("No learning materials matched this Wiki scope")
@@ -597,52 +806,97 @@ class WikiOrchestrator:
             "topic": topic,
             "instruction": instruction,
         })
+        batches: list[dict[str, Any]] = []
+        candidates: list[dict[str, Any]] = []
+        changes: list[dict[str, Any]] = []
+        status = "planned"
+        phase = "planned"
+        error = None
+        self._cancel_check = cancel_check
         try:
             catalog, lookup = self._catalog(documents)
             existing = self.workflow._existing_pages()
-            batches = []
-            candidates = []
-            for index in range(0, len(documents), BATCH_SIZE):
-                if cancel_check and cancel_check():
-                    raise RuntimeError("Wiki run cancelled")
-                batch = documents[index:index + BATCH_SIZE]
-                batch_ids = {str(item["document_id"]) for item in batch}
-                batch_lookup = {
-                    source_id: ref for source_id, ref in lookup.items()
-                    if str(ref["document_id"]) in batch_ids
-                }
-                self.workflow.tasks.update(task_id, phase="discovering", completed_batches=len(batches), total_batches=(len(documents) + BATCH_SIZE - 1) // BATCH_SIZE)
-                if progress:
-                    progress(phase="discovering", completed_batches=len(batches), total_batches=(len(documents) + BATCH_SIZE - 1) // BATCH_SIZE)
-                discovered = self._discover_batch(batch, batch_lookup, topic, instruction)
-                knowledge = self._merge_candidates(discovered, batch_lookup)[:MAX_KNOWLEDGE_PAGES_PER_BATCH]
-                candidates.extend(knowledge)
-                batches.append({
+            if generation_mode != "catalog":
+                for index in range(0, len(documents), BATCH_SIZE):
+                    if cancel_check and cancel_check():
+                        status, phase, error = "cancelled", "cancelled", "Wiki run cancelled"
+                        break
+                    batch = documents[index:index + BATCH_SIZE]
+                    batch_ids = {str(item["document_id"]) for item in batch}
+                    batch_lookup = {
+                        source_id: ref for source_id, ref in lookup.items()
+                        if str(ref["document_id"]) in batch_ids
+                    }
+                    self.workflow.tasks.update(task_id, phase="discovering", completed_batches=len(batches), total_batches=(len(documents) + BATCH_SIZE - 1) // BATCH_SIZE)
+                    if progress:
+                        progress(phase="discovering", completed_batches=len(batches), total_batches=(len(documents) + BATCH_SIZE - 1) // BATCH_SIZE, usage=dict(self.usage))
+                    try:
+                        discovered = self._discover_batch(batch, batch_lookup, topic, instruction)
+                    except WikiBudgetExceeded as exc:
+                        status, phase, error = "paused_budget", "paused_budget", str(exc)
+                        break
+                    except WikiRunCancelled as exc:
+                        status, phase, error = "cancelled", "cancelled", str(exc)
+                        break
+                    limit = 6 if generation_mode == "standard" else MAX_KNOWLEDGE_PAGES_PER_BATCH
+                    knowledge = self._merge_candidates(discovered, batch_lookup)[:limit]
+                    candidates.extend(knowledge)
+                    batches.append({
+                        "batch_id": uuid.uuid4().hex,
+                        "index": len(batches) + 1,
+                        "document_ids": [item["document_id"] for item in batch],
+                        "documents": [item.get("title") or item.get("source") for item in batch],
+                        "status": "planned",
+                    })
+            else:
+                batches = [{
                     "batch_id": uuid.uuid4().hex,
-                    "index": len(batches) + 1,
-                    "document_ids": [item["document_id"] for item in batch],
-                    "documents": [item.get("title") or item.get("source") for item in batch],
+                    "index": 1,
+                    "document_ids": [item["document_id"] for item in documents],
+                    "documents": [item.get("title") or item.get("source") for item in documents],
                     "status": "planned",
-                })
-            candidates = self._merge_candidates([
-                *self._source_candidates(documents, lookup),
-                *candidates,
-            ], lookup)
-            changes = []
-            for index, candidate in enumerate(candidates):
-                if cancel_check and cancel_check():
-                    raise RuntimeError("Wiki run cancelled")
-                self.workflow.tasks.update(task_id, phase="drafting", completed_pages=index, total_pages=len(candidates))
-                if progress:
-                    progress(phase="drafting", completed_pages=index, total_pages=len(candidates))
-                draft = self._draft_candidate(candidate, lookup, existing, instruction)
-                changes.append(self._render_change(candidate, draft, lookup, existing))
+                }]
+            source_candidates = self._link_source_candidates(
+                self._source_candidates(documents, lookup),
+                candidates,
+            )
+            candidates = self._merge_candidates([*source_candidates, *candidates], lookup)
+            if status == "planned":
+                for start in range(0, len(candidates), 2):
+                    if cancel_check and cancel_check():
+                        status, phase, error = "cancelled", "cancelled", "Wiki run cancelled"
+                        break
+                    group = candidates[start:start + 2]
+                    self.workflow.tasks.update(task_id, phase="drafting", completed_pages=len(changes), total_pages=len(candidates))
+                    if progress:
+                        progress(phase="drafting", completed_pages=len(changes), total_pages=len(candidates), usage=dict(self.usage))
+                    try:
+                        if generation_mode == "catalog":
+                            drafts = [self._fallback_source_page(candidate) for candidate in group]
+                        else:
+                            with ThreadPoolExecutor(max_workers=min(2, len(group))) as executor:
+                                drafts = list(executor.map(
+                                    lambda candidate: self._draft_candidate(candidate, lookup, existing, instruction),
+                                    group,
+                                ))
+                    except WikiBudgetExceeded as exc:
+                        status, phase, error = "paused_budget", "paused_budget", str(exc)
+                        break
+                    except WikiRunCancelled as exc:
+                        status, phase, error = "cancelled", "cancelled", str(exc)
+                        break
+                    changes.extend(
+                        self._render_change(candidate, draft, lookup, existing)
+                        for candidate, draft in zip(group, drafts)
+                    )
             plan_id = run_id or uuid.uuid4().hex
             plan = {
                 "plan_id": plan_id,
                 "run_id": plan_id,
-                "status": "planned",
+                "status": status,
                 "action": action,
+                "generation_mode": generation_mode,
+                "phase": phase,
                 "instruction": instruction.strip(),
                 "topic": topic.strip(),
                 "created_at": _now(),
@@ -661,11 +915,24 @@ class WikiOrchestrator:
                 },
                 "changes": changes,
                 "task_id": task_id,
+                "budget": dict(self.budget),
+                "usage": dict(self.usage),
+                "remaining_pages": max(0, len(candidates) - len(changes)),
+                **({"error": error} if error else {}),
             }
             atomic_json(self.workflow._plan_path(plan_id), plan)
-            self.workflow.tasks.update(task_id, status="completed", phase="planned", plan_id=plan_id, retryable=False)
+            self.workflow.tasks.update(
+                task_id,
+                status="completed" if status == "planned" else "cancelled" if status == "cancelled" else "failed",
+                phase=phase,
+                plan_id=plan_id,
+                error=error,
+                retryable=status == "paused_budget",
+            )
             if progress:
-                progress(status="planned", phase="planned", plan_id=plan_id)
+                progress(status=status, phase=phase, plan_id=plan_id, usage=dict(self.usage), error=error)
+            if status == "cancelled" and run_id is None:
+                raise RuntimeError("Wiki run cancelled")
             return plan
         except Exception as exc:
             cancelled = str(exc) == "Wiki run cancelled"

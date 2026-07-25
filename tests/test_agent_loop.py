@@ -133,7 +133,11 @@ def test_agent_loop_streams_text_events():
     llm = StreamingLLMProvider([
         [
             LLMStreamChunk(content_delta="hel"),
-            LLMStreamChunk(content_delta="lo"),
+            LLMStreamChunk(
+                content_delta="lo",
+                request_id="req-stream",
+                usage={"input_tokens": 8, "output_tokens": 2, "cache_read_tokens": None},
+            ),
         ]
     ])
     agent = AgentLoop(llm, session)
@@ -144,6 +148,12 @@ def test_agent_loop_streams_text_events():
     assert events[-1]["type"] == "assistant_done"
     assert events[-1]["content"] == "hello"
     assert events[-1]["termination_reason"] == "final_answer"
+    assert events[-1]["usage_records"] == [{
+        "request_id": "req-stream",
+        "provider": "",
+        "model": "",
+        "usage": {"input_tokens": 8, "output_tokens": 2, "cache_read_tokens": None},
+    }]
     assert session.messages[-1]["content"] == "hello"
 
 

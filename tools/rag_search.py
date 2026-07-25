@@ -64,6 +64,7 @@ def rag_search(
                 "page": metadata.get("page_start") or item.get("page_start"),
                 "slide": metadata.get("slide_start") or item.get("slide_start"),
                 "collection": item.get("collection", "material"),
+                "wiki_type": item.get("wiki_type"),
             })
 
         artifacts = []

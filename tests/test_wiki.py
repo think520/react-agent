@@ -44,7 +44,7 @@ def test_wiki_page_to_markdown():
 
 def test_wiki_page_types_valid():
     assert PAGE_TYPES == {
-        "wiki_entity", "wiki_concept", "wiki_source", "wiki_analysis", "wiki_question",
+        "wiki_entity", "wiki_concept", "wiki_source", "wiki_analysis", "wiki_question", "wiki_note",
     }
 
 

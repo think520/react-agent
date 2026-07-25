@@ -74,6 +74,29 @@ class WikiRunRequest(BaseModel):
     topic: str = Field(default="", max_length=500)
     instruction: str = Field(default="", max_length=1000)
     provider: str | None = None
+    generation_mode: Literal["catalog", "standard", "deep"] = "standard"
+    budget: dict[str, int] | None = None
+    force_regenerate: bool = False
+
+
+class WikiRunResumeRequest(BaseModel):
+    provider: str | None = None
+    additional_budget: dict[str, int] = Field(default_factory=dict)
+
+
+class WikiPageCreateRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=160)
+    body: str = Field(..., min_length=1, max_length=60000)
+    tags: list[str] = Field(default_factory=list, max_length=30)
+    related: list[str] = Field(default_factory=list, max_length=50)
+
+
+class WikiPageUpdateRequest(WikiPageCreateRequest):
+    expected_revision: int = Field(..., ge=1)
+
+
+class WikiRepairDraftRequest(BaseModel):
+    provider: str | None = None
 
 
 def _service(request: Request) -> KBService:
@@ -86,14 +109,28 @@ def _runtime_for(workspace: str):
     return get_library_runtime_context(workspace)
 
 
-def _preferred_provider(requested: str | None) -> str | None:
+def _preferred_provider(requested: str | None, task: str | None = None) -> str | None:
     if requested:
         return requested
     config = get_config()
-    return PreferenceService(
+    preferences = PreferenceService(
         get_default_provider_name(config),
         sorted(WEB_SKILL_NAMES),
-    ).get().get("ai", {}).get("default_provider")
+    ).get()
+    if task:
+        selected = preferences.get("ai", {}).get("task_providers", {}).get(task, "default")
+        if selected and selected != "default":
+            return selected
+    return preferences.get("ai", {}).get("default_provider")
+
+
+def _configure_wiki_provider(provider):
+    if provider is not None:
+        if hasattr(provider, "timeout"):
+            provider.timeout = 120
+        if hasattr(provider, "max_retries"):
+            provider.max_retries = 2
+    return provider
 
 
 def _public_sync(result: dict) -> dict:
@@ -168,6 +205,89 @@ def wiki_document_coverage(request: Request) -> dict:
 @router.post("/wiki/maintenance")
 def maintain_wiki(body: WikiMaintenanceRequest, request: Request) -> dict:
     return unwrap_service_result(_service(request).maintain_wiki(body.action))
+
+
+@router.post("/wiki/repair-plans")
+def create_wiki_repair_plan(request: Request) -> dict:
+    return unwrap_service_result(_service(request).maintain_wiki("plan"))
+
+
+@router.get("/wiki/repair-plans/{plan_id}")
+def get_wiki_repair_plan(plan_id: str, request: Request) -> dict:
+    return unwrap_service_result(
+        _service(request).get_wiki_repair_plan(plan_id),
+        status_code=404,
+        code="wiki_repair_plan_not_found",
+    )
+
+
+@router.post("/wiki/repair-plans/{plan_id}/draft-ai")
+def draft_wiki_repair_plan(plan_id: str, body: WikiRepairDraftRequest, request: Request) -> dict:
+    workspace = get_request_workspace(request)
+    try:
+        provider = _configure_wiki_provider(_runtime_for(workspace).create_provider(_preferred_provider(body.provider)))
+    except ValueError as exc:
+        raise APIError(409, "provider_unavailable", str(exc)) from exc
+    return unwrap_service_result(
+        _service(request).draft_wiki_repair_plan(plan_id, provider),
+        status_code=409,
+        code="wiki_repair_draft_failed",
+    )
+
+
+@router.post("/wiki/repair-plans/{plan_id}/apply")
+def apply_wiki_repair_plan(plan_id: str, request: Request) -> dict:
+    return unwrap_service_result(
+        _service(request).apply_wiki_repair_plan(plan_id, config=get_config()),
+        status_code=409,
+        code="wiki_repair_plan_not_applicable",
+    )
+
+
+@router.post("/wiki/pages")
+def create_wiki_page(body: WikiPageCreateRequest, request: Request) -> dict:
+    return unwrap_service_result(_service(request).create_wiki_page(
+        title=body.title, body=body.body, tags=body.tags, related=body.related, config=get_config(),
+    ), status_code=409, code="wiki_page_create_failed")
+
+
+@router.get("/wiki/pages/{document_id}")
+def get_wiki_page(document_id: str, request: Request) -> dict:
+    return unwrap_service_result(
+        _service(request).get_wiki_page(document_id), status_code=404, code="wiki_page_not_found",
+    )
+
+
+@router.patch("/wiki/pages/{document_id}")
+def update_wiki_page(document_id: str, body: WikiPageUpdateRequest, request: Request) -> dict:
+    result = _service(request).update_wiki_page(
+        document_id,
+        expected_revision=body.expected_revision,
+        title=body.title,
+        body=body.body,
+        tags=body.tags,
+        related=body.related,
+        config=get_config(),
+    )
+    return unwrap_service_result(result, status_code=409, code="wiki_page_revision_conflict")
+
+
+@router.post("/wiki/pages/{document_id}/archive")
+def archive_wiki_page(document_id: str, request: Request) -> dict:
+    return unwrap_service_result(
+        _service(request).archive_wiki_page(document_id, config=get_config()),
+        status_code=409,
+        code="wiki_page_archive_failed",
+    )
+
+
+@router.post("/wiki/pages/{document_id}/restore")
+def restore_wiki_page(document_id: str, request: Request) -> dict:
+    return unwrap_service_result(
+        _service(request).restore_wiki_page(document_id, config=get_config()),
+        status_code=409,
+        code="wiki_page_restore_failed",
+    )
 
 
 @router.post("/wiki/maintenance/semantic")
@@ -253,8 +373,12 @@ def recover_wiki_plan(plan_id: str, body: WikiPlanRecoveryRequest, request: Requ
 @router.post("/wiki/runs")
 def create_wiki_run(body: WikiRunRequest, request: Request) -> dict:
     workspace = get_request_workspace(request)
+    provider = None
+    discovery_provider = None
     try:
-        provider = _runtime_for(workspace).create_provider(_preferred_provider(body.provider))
+        if body.generation_mode != "catalog":
+            provider = _configure_wiki_provider(_runtime_for(workspace).create_provider(_preferred_provider(body.provider, "wiki_drafting")))
+            discovery_provider = _configure_wiki_provider(_runtime_for(workspace).create_provider(_preferred_provider(body.provider, "wiki_discovery")))
     except ValueError as exc:
         raise APIError(409, "provider_unavailable", str(exc)) from exc
     return unwrap_service_result(
@@ -267,10 +391,32 @@ def create_wiki_run(body: WikiRunRequest, request: Request) -> dict:
             topic=body.topic,
             instruction=body.instruction,
             config=get_config(),
+            generation_mode=body.generation_mode,
+            budget=body.budget,
+            force_regenerate=body.force_regenerate,
+            discovery_provider=discovery_provider,
         ),
         status_code=409,
         code="wiki_run_failed",
     )
+
+
+@router.post("/wiki/runs/estimate")
+def estimate_wiki_run(body: WikiRunRequest, request: Request) -> dict:
+    config = get_config()
+    provider_name = _preferred_provider(body.provider, "wiki_drafting") or ""
+    provider_config = (config.get("llm", {}).get("providers") or {}).get(provider_name, {})
+    return unwrap_service_result(_service(request).estimate_wiki_run(
+        scope_mode=body.scope_mode,
+        document_ids=body.document_ids,
+        course=body.course,
+        topic=body.topic,
+        instruction=body.instruction,
+        generation_mode=body.generation_mode,
+        provider_name=provider_name,
+        model=str(provider_config.get("model") or ""),
+        config=config,
+    ), status_code=409, code="wiki_run_estimate_failed")
 
 
 @router.get("/wiki/runs/{run_id}")
@@ -280,6 +426,33 @@ def get_wiki_run(run_id: str, request: Request) -> dict:
         status_code=404,
         code="wiki_run_not_found",
     )
+
+
+@router.post("/wiki/runs/{run_id}/resume")
+def resume_wiki_run(run_id: str, body: WikiRunResumeRequest, request: Request) -> dict:
+    workspace = get_request_workspace(request)
+    try:
+        provider = _configure_wiki_provider(_runtime_for(workspace).create_provider(_preferred_provider(body.provider, "wiki_drafting")))
+        discovery_provider = _configure_wiki_provider(_runtime_for(workspace).create_provider(_preferred_provider(body.provider, "wiki_discovery")))
+    except ValueError as exc:
+        raise APIError(409, "provider_unavailable", str(exc)) from exc
+    return unwrap_service_result(
+        _service(request).resume_wiki_run(run_id, provider, body.additional_budget, discovery_provider),
+        status_code=409,
+        code="wiki_run_resume_failed",
+    )
+
+
+@router.post("/wiki/runs/{run_id}/cancel")
+def cancel_wiki_run(run_id: str, request: Request) -> dict:
+    return unwrap_service_result(
+        _service(request).cancel_wiki_run(run_id), status_code=409, code="wiki_run_not_cancellable",
+    )
+
+
+@router.get("/wiki/runs/{run_id}/usage")
+def wiki_run_usage(run_id: str, request: Request) -> dict:
+    return unwrap_service_result(_service(request).wiki_run_usage(run_id))
 
 
 @router.post("/wiki/checkpoints/{checkpoint_id}/restore")

@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 
 # Valid wiki page types (prefixed to avoid collision with user notes)
 PAGE_TYPES = {
-    "wiki_entity", "wiki_concept", "wiki_source", "wiki_analysis", "wiki_question",
+    "wiki_entity", "wiki_concept", "wiki_source", "wiki_analysis", "wiki_question", "wiki_note",
 }
 
 # Frontmatter field names
@@ -42,6 +42,9 @@ class WikiPage:
     summary: str = ""
     schema_version: int = 1
     status: str = "active"
+    generated_by: str = GENERATED_BY
+    managed_by: str = "ai"
+    content_revision: int = 1
 
     def to_markdown(self) -> str:
         """Serialize to markdown with YAML frontmatter."""
@@ -54,7 +57,9 @@ class WikiPage:
             FM_TITLE: self.title,
             "summary": self.summary,
             "schema_version": self.schema_version,
-            FM_GENERATED_BY: GENERATED_BY,
+            FM_GENERATED_BY: self.generated_by,
+            "managed_by": self.managed_by,
+            "content_revision": max(1, int(self.content_revision or 1)),
             FM_TAGS: self.tags or [],
             FM_SOURCES: self.sources or [],
             FM_SOURCE_REFS: self.source_refs or [],
@@ -89,6 +94,7 @@ class WikiConfig:
     source_dir: str = "sources"
     analysis_dir: str = "analyses"
     question_dir: str = "questions"
+    note_dir: str = "notes"
     template_dir: str = "templates"
 
     def entities_path(self, vault_path: str) -> str:
@@ -111,6 +117,10 @@ class WikiConfig:
         import os
         return os.path.join(vault_path, self.wiki_dir, self.question_dir)
 
+    def notes_path(self, vault_path: str) -> str:
+        import os
+        return os.path.join(vault_path, self.wiki_dir, self.note_dir)
+
     def page_path(self, vault_path: str, page_type: str) -> str:
         mapping = {
             "wiki_source": self.sources_path,
@@ -118,6 +128,7 @@ class WikiConfig:
             "wiki_concept": self.concepts_path,
             "wiki_analysis": self.analyses_path,
             "wiki_question": self.questions_path,
+            "wiki_note": self.notes_path,
         }
         if page_type not in mapping:
             raise ValueError(f"Unsupported Wiki page type: {page_type}")
@@ -126,7 +137,7 @@ class WikiConfig:
     def page_dirs(self) -> tuple[str, ...]:
         return (
             self.source_dir, self.entity_dir, self.concept_dir,
-            self.analysis_dir, self.question_dir,
+            self.analysis_dir, self.question_dir, self.note_dir,
         )
 
     def index_path(self, vault_path: str) -> str:

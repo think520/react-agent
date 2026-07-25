@@ -125,7 +125,7 @@ class WikiWorkflow:
         pages: dict[str, list[dict]] = {}
         wiki_dir = os.path.join(self.vault_path, self.config.wiki_dir)
         for page_type in (
-            "wiki_source", "wiki_entity", "wiki_concept", "wiki_analysis", "wiki_question",
+            "wiki_source", "wiki_entity", "wiki_concept", "wiki_analysis", "wiki_question", "wiki_note",
         ):
             directory = self.config.page_path(self.vault_path, page_type)
             if not os.path.isdir(directory):
@@ -147,6 +147,8 @@ class WikiWorkflow:
                     "relative_path": os.path.relpath(path, wiki_dir).replace("\\", "/"),
                     "body": body[:2400],
                     "body_length": len(body),
+                    "content_revision": int(metadata.get("content_revision") or 1),
+                    "managed_by": metadata.get("managed_by") or ("ai" if metadata.get("generated_by") == GENERATED_BY else "user"),
                 })
         return pages
 
@@ -338,6 +340,7 @@ class WikiWorkflow:
                 "target": target,
                 "content": content,
                 "merge_paths": [item["relative_path"] for item in matches[1:]],
+                "base_revision": int(matches[0].get("content_revision") or 1) if matches else None,
             })
 
         plan_id = uuid.uuid4().hex

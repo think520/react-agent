@@ -61,9 +61,10 @@ class WikiIndexer:
             "wiki_source": "资料摘要",
             "wiki_analysis": "综合分析",
             "wiki_question": "问题与发现",
+            "wiki_note": "个人笔记",
         }
 
-        for page_type in ["wiki_source", "wiki_entity", "wiki_concept", "wiki_analysis", "wiki_question"]:
+        for page_type in ["wiki_source", "wiki_entity", "wiki_concept", "wiki_analysis", "wiki_question", "wiki_note"]:
             entries = existing.get(page_type, {})
             if not entries:
                 continue
@@ -94,7 +95,7 @@ class WikiIndexer:
         pages: list[WikiPage] = []
         skipped: list[str] = []
         for page_type in (
-            "wiki_source", "wiki_entity", "wiki_concept", "wiki_analysis", "wiki_question",
+            "wiki_source", "wiki_entity", "wiki_concept", "wiki_analysis", "wiki_question", "wiki_note",
         ):
             directory = self.config.page_path(self.vault_path, page_type)
             if not os.path.isdir(directory):
@@ -127,6 +128,9 @@ class WikiIndexer:
                     summary=str(metadata.get("summary") or ""),
                     schema_version=int(metadata.get("schema_version") or 1),
                     status=str(metadata.get("status") or "active"),
+                    generated_by=str(metadata.get("generated_by") or "user"),
+                    managed_by=str(metadata.get("managed_by") or ("ai" if metadata.get("generated_by") == "bobodan" else "user")),
+                    content_revision=int(metadata.get("content_revision") or 1),
                 ))
         self.rebuild_index(pages)
         return {"pages": len(pages), "skipped": skipped}
@@ -201,6 +205,7 @@ class WikiIndexer:
         type_map = {
             "实体": "wiki_entity", "概念": "wiki_concept", "来源": "wiki_source",
             "资料摘要": "wiki_source", "综合分析": "wiki_analysis", "问题与发现": "wiki_question",
+            "个人笔记": "wiki_note",
         }
 
         for line in content.split("\n"):

@@ -55,6 +55,8 @@ def _document_classification(source: str, kind: str = "", title: str = "") -> di
             wiki_type = "analysis"
         elif "/questions/" in normalized_source or kind == "wiki_question":
             wiki_type = "question"
+        elif "/notes/" in normalized_source or kind == "wiki_note":
+            wiki_type = "note"
     canonical_title = _canonical_wiki_key(title or os.path.splitext(os.path.basename(source))[0])
     canonical_family = "source" if wiki_type == "source" else "knowledge"
     canonical_key = f"{canonical_family}:{canonical_title}"
@@ -263,24 +265,267 @@ class KBService:
         health = self.wiki_health()
         if not health.get("ok"):
             return health
+        from wiki.repair import WikiRepairStore
+
+        store = WikiRepairStore(self.workspace, self._wiki_target_vault())
+        plan = store.create(health)
+        wiki_documents = self.list_documents(collection="wiki").get("documents") or []
+        by_title: dict[str, list[str]] = {}
+        for document in wiki_documents:
+            title = str(document.get("title") or "").strip()
+            if title:
+                by_title.setdefault(title, []).append(str(document["document_id"]))
+        changed = False
+        for item in plan.get("items") or []:
+            matches = by_title.get(str(item.get("title") or ""), [])
+            if len(matches) == 1:
+                item["page_id"] = matches[0]
+                changed = True
+        if changed:
+            plan = store.save(plan)
         return _ok(
             status="planned",
             archived_count=0,
             canonical_count=health.get("total_pages", 0),
-            repair_plan={
-                "action": "repair",
-                "requires_confirmation": True,
-                "issues": {
-                    "orphans": health.get("orphan_count", 0),
-                    "broken_links": health.get("broken_link_count", 0),
-                    "missing": health.get("missing_count", 0),
-                    "stale": health.get("stale_count", 0),
-                    "duplicates": health.get("duplicate_candidate_count", 0),
-                    "semantic": health.get("semantic_candidate_count", 0),
-                },
-            },
+            repair_plan=plan,
+            plan_id=plan["plan_id"],
             health={key: value for key, value in health.items() if key != "ok"},
         )
+
+    def get_wiki_repair_plan(self, plan_id: str) -> dict[str, Any]:
+        try:
+            from wiki.repair import WikiRepairStore
+
+            plan = WikiRepairStore(self.workspace, self._wiki_target_vault()).get(plan_id)
+        except (OSError, ValueError) as exc:
+            return _err(str(exc))
+        return _ok(**plan)
+
+    def apply_wiki_repair_plan(self, plan_id: str, config: dict | None = None) -> dict[str, Any]:
+        try:
+            from wiki.repair import WikiRepairStore
+
+            plan = WikiRepairStore(self.workspace, self._wiki_target_vault()).apply(plan_id)
+            summary = self._sync_registered_sources(mode="incremental", config=config or {})
+        except (OSError, ValueError) as exc:
+            return _err(str(exc))
+        return _ok(**plan, sync=summary.to_dict())
+
+    def draft_wiki_repair_plan(self, plan_id: str, llm_provider) -> dict[str, Any]:
+        try:
+            from wiki.repair import WikiRepairStore
+
+            store = WikiRepairStore(self.workspace, self._wiki_target_vault())
+            plan = store.get(plan_id)
+            review = self.review_wiki_semantics(llm_provider)
+            if not review.get("ok"):
+                return review
+            for item in plan.get("items") or []:
+                if item.get("execution") == "ai" and item.get("status") == "pending":
+                    item["status"] = "ready"
+            plan["ai_review"] = review.get("reviews") or []
+            plan = store.save(plan)
+        except (OSError, ValueError) as exc:
+            return _err(str(exc))
+        return _ok(**plan)
+
+    def _wiki_page_record(self, document_id: str) -> dict[str, Any] | None:
+        db_path = knowledge_path(self.workspace, "knowledge.db")
+        if not os.path.exists(db_path):
+            return None
+        from rag.sqlite_store import KBSQLiteStore
+
+        store = KBSQLiteStore(self.workspace)
+        store.init_db()
+        try:
+            document = store.get_document(document_id)
+        finally:
+            store.close()
+        if not document:
+            return None
+        public = self._public_document(document)
+        path = str(document.get("path") or "")
+        wiki_root = os.path.abspath(os.path.join(self._wiki_target_vault(), "wiki"))
+        if public.get("collection") != "wiki" or not path or not os.path.isfile(path):
+            return None
+        if os.path.commonpath([os.path.abspath(path), wiki_root]) != wiki_root:
+            return None
+        return {**document, **public, "path": path}
+
+    def get_wiki_page(self, document_id: str) -> dict[str, Any]:
+        record = self._wiki_page_record(document_id)
+        if not record:
+            return _err(f"Wiki page not found: {document_id}")
+        from wiki.reliability import read_page
+
+        metadata, body = read_page(record["path"])
+        body = re.sub(r"^#\s+[^\n]+\n+", "", body.strip(), count=1)
+        return _ok(page={
+            "document_id": document_id,
+            "title": str(metadata.get("title") or record.get("title") or ""),
+            "body": body,
+            "tags": list(metadata.get("tags") or []),
+            "related": list(metadata.get("related") or []),
+            "page_type": str(metadata.get("type") or record.get("kind") or "wiki_note"),
+            "generated_by": str(metadata.get("generated_by") or "user"),
+            "managed_by": str(metadata.get("managed_by") or ("ai" if metadata.get("generated_by") == "bobodan" else "user")),
+            "content_revision": int(metadata.get("content_revision") or 1),
+            "source_refs": list(metadata.get("source_refs") or []),
+        })
+
+    def create_wiki_page(
+        self,
+        *,
+        title: str,
+        body: str,
+        tags: list[str] | None = None,
+        related: list[str] | None = None,
+        config: dict | None = None,
+    ) -> dict[str, Any]:
+        from wiki.compiler import _safe_filename
+        from wiki.index import WikiIndexer
+        from wiki.reliability import atomic_text
+        from wiki.schema import WikiConfig, WikiPage
+
+        title = title.strip()
+        body = body.strip()
+        if not title or not body:
+            return _err("Wiki page title and body are required")
+        vault = self._wiki_target_vault()
+        wiki_config = WikiConfig()
+        directory = wiki_config.notes_path(vault)
+        os.makedirs(directory, exist_ok=True)
+        target = os.path.join(directory, f"{_safe_filename(title)}.md")
+        if os.path.exists(target):
+            return _err("A Wiki page with this title already exists")
+        page = WikiPage(
+            title=title,
+            page_type="wiki_note",
+            content=body,
+            tags=list(dict.fromkeys(tags or [])),
+            links=list(dict.fromkeys(related or [])),
+            generated_by="user",
+            managed_by="user",
+            content_revision=1,
+        )
+        atomic_text(target, page.to_markdown())
+        WikiIndexer(vault, wiki_config).rebuild_from_disk()
+        summary = self._sync_registered_sources(mode="incremental", config=config or {})
+        documents = self.list_documents(collection="wiki").get("documents", [])
+        created = next((item for item in documents if item.get("title") == title and item.get("wiki_type") == "note"), None)
+        return _ok(page=created or {"title": title, "wiki_type": "note"}, sync=summary.to_dict())
+
+    def update_wiki_page(
+        self,
+        document_id: str,
+        *,
+        expected_revision: int,
+        title: str,
+        body: str,
+        tags: list[str] | None = None,
+        related: list[str] | None = None,
+        config: dict | None = None,
+    ) -> dict[str, Any]:
+        record = self._wiki_page_record(document_id)
+        if not record:
+            return _err(f"Wiki page not found: {document_id}")
+        from wiki.index import WikiIndexer
+        from wiki.reliability import atomic_text, read_page
+        from wiki.schema import WikiConfig, WikiPage
+
+        metadata, _old_body = read_page(record["path"])
+        current_revision = int(metadata.get("content_revision") or 1)
+        if expected_revision != current_revision:
+            return _err("Wiki page changed in another view; reload before saving")
+        title = title.strip()
+        body = body.strip()
+        if not title or not body:
+            return _err("Wiki page title and body are required")
+        generated_by = str(metadata.get("generated_by") or "user")
+        page = WikiPage(
+            title=title,
+            page_type=str(metadata.get("type") or record.get("kind") or "wiki_note"),
+            content=body,
+            tags=list(dict.fromkeys(tags or [])),
+            sources=list(metadata.get("sources") or []),
+            links=list(dict.fromkeys(related or [])),
+            source_refs=list(metadata.get("source_refs") or []),
+            source_hash=str(metadata.get("source_hash") or ""),
+            indexable=bool(metadata.get("indexable", True)),
+            created=str(metadata.get("created") or ""),
+            summary=str(metadata.get("summary") or ""),
+            status=str(metadata.get("status") or "active"),
+            generated_by=generated_by,
+            managed_by="mixed" if generated_by == "bobodan" else "user",
+            content_revision=current_revision + 1,
+        )
+        atomic_text(record["path"], page.to_markdown())
+        WikiIndexer(self._wiki_target_vault(), WikiConfig()).rebuild_from_disk()
+        summary = self._sync_registered_sources(mode="incremental", config=config or {})
+        return _ok(page={
+            "document_id": document_id,
+            "title": title,
+            "body": body,
+            "tags": page.tags,
+            "related": page.links,
+            "page_type": page.page_type,
+            "generated_by": generated_by,
+            "managed_by": page.managed_by,
+            "content_revision": page.content_revision,
+            "source_refs": page.source_refs,
+        }, sync=summary.to_dict())
+
+    @property
+    def _wiki_page_archives_path(self) -> str:
+        return os.path.join(self.workspace, ".bobodan", "wiki", "page-archives.json")
+
+    def archive_wiki_page(self, document_id: str, config: dict | None = None) -> dict[str, Any]:
+        record = self._wiki_page_record(document_id)
+        if not record:
+            return _err(f"Wiki page not found: {document_id}")
+        from datetime import datetime, timezone
+        import uuid
+        from wiki.index import WikiIndexer
+        from wiki.reliability import atomic_json
+        from wiki.schema import WikiConfig
+
+        archive_root = os.path.join(self.workspace, ".bobodan", "archive", "wiki-pages")
+        os.makedirs(archive_root, exist_ok=True)
+        target = os.path.join(archive_root, f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:8]}-{os.path.basename(record['path'])}")
+        shutil.move(record["path"], target)
+        try:
+            with open(self._wiki_page_archives_path, "r", encoding="utf-8") as handle:
+                manifest = json.load(handle)
+        except (OSError, json.JSONDecodeError):
+            manifest = {}
+        manifest[document_id] = {"original": record["path"], "archived": target}
+        atomic_json(self._wiki_page_archives_path, manifest)
+        WikiIndexer(self._wiki_target_vault(), WikiConfig()).rebuild_from_disk()
+        summary = self._sync_registered_sources(mode="incremental", config=config or {})
+        return _ok(document_id=document_id, archived=True, sync=summary.to_dict())
+
+    def restore_wiki_page(self, document_id: str, config: dict | None = None) -> dict[str, Any]:
+        from wiki.index import WikiIndexer
+        from wiki.reliability import atomic_json
+        from wiki.schema import WikiConfig
+
+        try:
+            with open(self._wiki_page_archives_path, "r", encoding="utf-8") as handle:
+                manifest = json.load(handle)
+        except (OSError, json.JSONDecodeError):
+            return _err("Archived Wiki page not found")
+        item = manifest.get(document_id)
+        if not item or not os.path.isfile(item.get("archived", "")):
+            return _err("Archived Wiki page not found")
+        os.makedirs(os.path.dirname(item["original"]), exist_ok=True)
+        if os.path.exists(item["original"]):
+            return _err("The original Wiki page path is already in use")
+        shutil.move(item["archived"], item["original"])
+        manifest.pop(document_id, None)
+        atomic_json(self._wiki_page_archives_path, manifest)
+        WikiIndexer(self._wiki_target_vault(), WikiConfig()).rebuild_from_disk()
+        summary = self._sync_registered_sources(mode="incremental", config=config or {})
+        return _ok(document_id=document_id, restored=True, sync=summary.to_dict())
 
     def _wiki_target_vault(self) -> str:
         if self.is_portable_library:
@@ -504,6 +749,10 @@ class KBService:
         topic: str = "",
         instruction: str = "",
         config: dict | None = None,
+        generation_mode: str = "standard",
+        budget: dict[str, int] | None = None,
+        force_regenerate: bool = False,
+        discovery_provider=None,
     ) -> dict[str, Any]:
         try:
             from wiki.orchestration import BATCH_SIZE, WikiOrchestrator, WikiRunStore
@@ -518,13 +767,19 @@ class KBService:
             )
             if not documents:
                 return _err("No uncovered or matching learning materials were found")
+            if generation_mode not in {"catalog", "standard", "deep"}:
+                return _err("Unsupported Wiki generation mode")
+            all_document_ids = [item["document_id"] for item in documents]
+            if generation_mode == "standard":
+                documents = documents[:BATCH_SIZE]
+                coverage = coverage[:BATCH_SIZE]
             store = WikiRunStore(self.workspace)
             run = store.create({
                 "scope": {
                     "mode": scope_mode,
                     "seed_document_ids": list(document_ids or []),
                     "document_ids": [item["document_id"] for item in documents],
-                    "discovered_document_ids": [item["document_id"] for item in documents],
+                    "discovered_document_ids": all_document_ids,
                     "documents": [item.get("title") or item.get("source") for item in documents],
                 },
                 "topic": topic.strip(),
@@ -535,14 +790,31 @@ class KBService:
                 "completed_batches": 0,
                 "completed_pages": 0,
                 "total_pages": 0,
+                "generation_mode": generation_mode,
+                "budget": {"max_requests": 24, "max_input_tokens": 300000, "max_output_tokens": 40000, **(budget or {})},
+                "remaining_document_ids": all_document_ids[len(documents):],
+                "request": {
+                    "action": action,
+                    "scope_mode": scope_mode,
+                    "document_ids": list(document_ids or []),
+                    "course": course,
+                    "topic": topic,
+                    "instruction": instruction,
+                    "generation_mode": generation_mode,
+                    "force_regenerate": force_regenerate,
+                },
             })
 
             def worker():
                 try:
-                    WikiOrchestrator(
+                    plan = WikiOrchestrator(
                         self.workspace,
                         self._wiki_target_vault(),
                         llm_provider,
+                        run_id=run["run_id"],
+                        budget=run["budget"],
+                        force_regenerate=force_regenerate,
+                        discovery_provider=discovery_provider,
                     ).create_plan(
                         documents,
                         action=action,
@@ -554,6 +826,13 @@ class KBService:
                         run_id=run["run_id"],
                         progress=lambda **values: store.update(run["run_id"], **values),
                         cancel_check=lambda: store.cancel_requested(run["run_id"]),
+                        generation_mode=generation_mode,
+                    )
+                    plan["remaining_document_ids"] = run.get("remaining_document_ids") or []
+                    from wiki.reliability import atomic_json
+                    atomic_json(
+                        os.path.join(self.workspace, ".bobodan", "wiki", "plans", f"{plan['plan_id']}.json"),
+                        plan,
                     )
                 except Exception:
                     return
@@ -563,6 +842,162 @@ class KBService:
         except Exception as exc:
             return _err(str(exc))
         return _ok(**run)
+
+    def estimate_wiki_run(
+        self,
+        *,
+        scope_mode: str = "uncovered",
+        document_ids: list[str] | None = None,
+        course: str | None = None,
+        topic: str = "",
+        instruction: str = "",
+        generation_mode: str = "standard",
+        provider_name: str = "",
+        model: str = "",
+        config: dict | None = None,
+    ) -> dict[str, Any]:
+        try:
+            from service.usage_service import UsageService
+            from wiki.orchestration import BATCH_SIZE, WikiOrchestrator
+
+            documents, _coverage = self._wiki_run_documents(
+                scope_mode,
+                document_ids=document_ids,
+                course=course,
+                topic=topic,
+                instruction=instruction,
+                config=config,
+            )
+            if generation_mode == "standard":
+                documents = documents[:BATCH_SIZE]
+            if not documents:
+                return _err("No uncovered or matching learning materials were found")
+            _catalog, lookup = WikiOrchestrator._catalog(documents)
+            windows = WikiOrchestrator._prompt_windows(documents, lookup)
+            concept_max = 0 if generation_mode == "catalog" else 6 if generation_mode == "standard" else 12 * ((len(documents) + 4) // 5)
+            page_min = len(documents)
+            page_max = page_min + concept_max
+            discovery_min = 0 if generation_mode == "catalog" else len(windows)
+            discovery_max = discovery_min + ((discovery_min + 3) // 4)
+            drafting_min = 0 if generation_mode == "catalog" else page_min
+            drafting_max = 0 if generation_mode == "catalog" else page_max + ((page_max + 3) // 4)
+            request_min = discovery_min + drafting_min
+            request_max = discovery_max + drafting_max
+            source_chars = sum(len(str(item.get("text") or "")) for item in lookup.values())
+            input_min = 0 if generation_mode == "catalog" else max(1000, source_chars // 2)
+            input_max = 0 if generation_mode == "catalog" else input_min + page_max * 10000
+            output_min = 0
+            output_max = 0 if generation_mode == "catalog" else page_max * 3000
+            history = [
+                item for item in UsageService().summary(days=30)["entries"]
+                if item.get("subsystem") == "wiki"
+                and item.get("status") == "ok"
+                and item.get("run_id")
+                and int(item.get("duration_ms") or 0) > 0
+                and (not provider_name or str(item.get("provider") or "").casefold() == provider_name.casefold())
+                and (not model or str(item.get("model") or "").casefold() == model.casefold())
+            ]
+            discovery_history = [item for item in history if str(item.get("operation") or "").startswith("wiki_discovery")]
+            drafting_history = [item for item in history if item.get("operation") == "wiki_drafting"]
+
+            def profile(items: list[dict[str, Any]], field: str, fallback_low: int, fallback_high: int) -> tuple[int, int]:
+                values = sorted(int(item.get(field) or 0) for item in items if int(item.get(field) or 0) > 0)
+                if not values:
+                    return fallback_low, fallback_high
+                median = values[len(values) // 2]
+                p90 = values[min(len(values) - 1, int((len(values) - 1) * .9))]
+                return median, max(median, p90)
+
+            discovery_duration = profile(discovery_history, "duration_ms", 8000, 45000)
+            drafting_duration = profile(drafting_history, "duration_ms", 8000, 45000)
+            duration_range = [
+                round((discovery_min * discovery_duration[0] + drafting_min * drafting_duration[0]) / 1000),
+                round((discovery_max * discovery_duration[1] + drafting_max * drafting_duration[1]) / 1000),
+            ]
+            if generation_mode != "catalog" and discovery_history and drafting_history:
+                discovery_input = profile(discovery_history, "input_tokens", max(1000, source_chars // 2), max(1000, source_chars))
+                drafting_input = profile(drafting_history, "input_tokens", 1000, 10000)
+                drafting_output = profile(drafting_history, "output_tokens", 500, 3000)
+                discovery_output = profile(discovery_history, "output_tokens", 500, 3000)
+                input_min = discovery_min * discovery_input[0] + drafting_min * drafting_input[0]
+                input_max = discovery_max * discovery_input[1] + drafting_max * drafting_input[1]
+                output_min = discovery_min * discovery_output[0] + drafting_min * drafting_output[0]
+                output_max = discovery_max * discovery_output[1] + drafting_max * drafting_output[1]
+            sample_size = len(history)
+            confidence = (
+                "high" if sample_size >= 12 and len(discovery_history) >= 4 and len(drafting_history) >= 4
+                else "medium" if sample_size >= 6 and discovery_history and drafting_history
+                else "low"
+            )
+            return _ok(
+                generation_mode=generation_mode,
+                document_count=len(documents),
+                batch_count=(len(documents) + BATCH_SIZE - 1) // BATCH_SIZE,
+                estimated_pages=[page_min, page_max],
+                request_range=[request_min, request_max],
+                input_token_range=[input_min, input_max],
+                output_token_range=[output_min, output_max],
+                duration_range_seconds=duration_range,
+                rough=confidence == "low",
+                confidence=confidence,
+                historical_sample_size=sample_size,
+                local_cache_reuse_included=False,
+                assumptions=[
+                    "估算按 Wiki 发现与页面写作分别计算",
+                    "上界预留约 25% 的格式修复请求",
+                    "本地精确草稿缓存会让实际请求和耗时低于区间",
+                ],
+                provider=provider_name,
+                model=model,
+            )
+        except (OSError, ValueError) as exc:
+            return _err(str(exc))
+
+    def resume_wiki_run(self, run_id: str, llm_provider, additional_budget: dict[str, int] | None = None, discovery_provider=None) -> dict[str, Any]:
+        try:
+            from wiki.orchestration import WikiRunStore
+
+            store = WikiRunStore(self.workspace)
+            run = store.get(run_id)
+            if run.get("status") not in {"paused_budget", "cancelled", "failed"}:
+                return _err("This Wiki run is not paused")
+            budget = dict(run.get("budget") or {})
+            previous_usage = run.get("usage") or {}
+            additions = additional_budget or {}
+            for key in ("max_requests", "max_input_tokens", "max_output_tokens"):
+                value = additions.get(key, 0)
+                used_key = {
+                    "max_requests": "requests",
+                    "max_input_tokens": "input_tokens",
+                    "max_output_tokens": "output_tokens",
+                }.get(key)
+                remaining = max(0, int(budget.get(key) or 0) - int(previous_usage.get(used_key) or 0))
+                budget[key] = remaining + int(value)
+            request = run.get("request") or {}
+            result = self.start_wiki_run(
+                llm_provider,
+                action=request.get("action", "generate"),
+                scope_mode=request.get("scope_mode", "uncovered"),
+                document_ids=request.get("document_ids") or [],
+                course=request.get("course"),
+                topic=request.get("topic", ""),
+                instruction=request.get("instruction", ""),
+                generation_mode=request.get("generation_mode", "standard"),
+                budget=budget,
+                force_regenerate=bool(request.get("force_regenerate")),
+                discovery_provider=discovery_provider,
+            )
+            if not result.get("ok"):
+                return result
+            store.update(run_id, status="replaced", replacement_run_id=result["run_id"])
+            return _ok(previous_run_id=run_id, **{key: value for key, value in result.items() if key != "ok"})
+        except (OSError, ValueError) as exc:
+            return _err(str(exc))
+
+    def wiki_run_usage(self, run_id: str) -> dict[str, Any]:
+        from service.usage_service import UsageService
+
+        return _ok(**UsageService().summary(days=365, run_id=run_id))
 
     def get_wiki_run(self, run_id: str) -> dict[str, Any]:
         planned = self.get_wiki_plan(run_id)

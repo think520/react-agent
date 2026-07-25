@@ -85,6 +85,36 @@ class OpenAICompatibleProvider:
             args_str = json.dumps(args_str)
         return tc_id, name, args_str
 
+    @staticmethod
+    def _normalize_usage(data: dict) -> dict | None:
+        usage = data.get("usage")
+        if not isinstance(usage, dict):
+            return None
+        prompt_details = usage.get("prompt_tokens_details") or {}
+        cached = usage.get("prompt_cache_hit_tokens")
+        if cached is None:
+            cached = prompt_details.get("cached_tokens")
+        missed = usage.get("prompt_cache_miss_tokens")
+        prompt_tokens = int(usage.get("prompt_tokens") or 0)
+        cached_tokens = int(cached or 0) if cached is not None else None
+        missed_tokens = int(missed or 0) if missed is not None else (
+            max(0, prompt_tokens - cached_tokens) if cached_tokens is not None else None
+        )
+        reasoning = (usage.get("completion_tokens_details") or {}).get("reasoning_tokens")
+        cost = usage.get("cost")
+        if cost is None and isinstance(usage.get("cost_details"), dict):
+            cost = usage["cost_details"].get("upstream_inference_cost")
+        return {
+            "input_tokens": prompt_tokens,
+            "output_tokens": int(usage.get("completion_tokens") or 0),
+            "total_tokens": int(usage.get("total_tokens") or 0),
+            "cache_read_tokens": cached_tokens,
+            "cache_miss_tokens": missed_tokens,
+            "reasoning_tokens": int(reasoning or 0) if reasoning is not None else None,
+            "cache_reported": cached is not None or missed is not None,
+            "cost_usd": float(cost) if cost is not None else None,
+        }
+
     def _parse_response(self, data: dict) -> LLMResponse:
         """Parse OpenAI-format response JSON into LLMResponse."""
         choice = data["choices"][0]
@@ -99,7 +129,14 @@ class OpenAICompatibleProvider:
                 name=func.get("name", ""),
                 arguments=func.get("arguments", "{}"),
             ))
-        return LLMResponse(content=content, tool_calls=tool_calls)
+        return LLMResponse(
+            content=content,
+            tool_calls=tool_calls,
+            provider=self.name,
+            model=self.model,
+            request_id=str(data.get("id") or ""),
+            usage=self._normalize_usage(data),
+        )
 
     def _build_payload(self, messages: List[dict], tools: List[dict] = None, stream: bool = False) -> dict:
         payload = {
@@ -111,6 +148,7 @@ class OpenAICompatibleProvider:
             payload["tools"] = tools
         if stream:
             payload["stream"] = True
+            payload["stream_options"] = {"include_usage": True}
         return payload
 
     def _headers(self) -> dict:
@@ -138,6 +176,8 @@ class OpenAICompatibleProvider:
         return LLMStreamChunk(
             content_delta=content_delta,
             tool_call_deltas=tool_call_deltas,
+            usage=OpenAICompatibleProvider._normalize_usage(data),
+            request_id=str(data.get("id") or ""),
         )
 
     def complete(self, messages: List[dict], tools: List[dict] = None) -> LLMResponse:

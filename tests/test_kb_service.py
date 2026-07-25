@@ -196,6 +196,54 @@ def test_wiki_run_starts_in_background_and_persists_completion(svc, monkeypatch)
     assert current["plan_id"] == started["run_id"]
 
 
+def test_standard_wiki_run_only_schedules_next_five_documents(svc, monkeypatch):
+    documents = [{
+        "document_id": f"doc-{index}", "title": f"Lesson {index}", "source": f"raw/{index}.md",
+        "sections": [{"chunk_id": f"chunk-{index}", "text": "Grounded lesson."}],
+    } for index in range(8)]
+    coverage = [{
+        "document_id": item["document_id"], "status": "uncovered", "source_page_id": None,
+        "linked_page_count": 0, "source_fingerprint": str(index), "covered_at": None,
+    } for index, item in enumerate(documents)]
+    monkeypatch.setattr(svc, "_wiki_run_documents", lambda *args, **kwargs: (documents, coverage))
+    monkeypatch.setattr("wiki.orchestration.WikiOrchestrator.create_plan", lambda *args, **kwargs: {})
+
+    started = svc.start_wiki_run(object(), scope_mode="uncovered", generation_mode="standard")
+
+    assert len(started["scope"]["document_ids"]) == 5
+    assert started["remaining_document_ids"] == ["doc-5", "doc-6", "doc-7"]
+    assert started["budget"]["max_requests"] == 24
+
+
+def test_resume_wiki_run_only_grants_remaining_plus_added_budget(svc, monkeypatch):
+    from wiki.orchestration import WikiRunStore
+
+    store = WikiRunStore(svc.workspace)
+    run = store.create({
+        "request": {"scope_mode": "uncovered", "generation_mode": "standard"},
+        "budget": {"max_requests": 24, "max_input_tokens": 300000, "max_output_tokens": 40000},
+        "usage": {"requests": 24, "input_tokens": 250000, "output_tokens": 30000},
+    })
+    store.update(run["run_id"], status="paused_budget")
+    captured = {}
+
+    def restart(_provider, **kwargs):
+        captured.update(kwargs)
+        return {"ok": True, "run_id": "replacement"}
+
+    monkeypatch.setattr(svc, "start_wiki_run", restart)
+    result = svc.resume_wiki_run(run["run_id"], object(), {
+        "max_requests": 12, "max_input_tokens": 100000, "max_output_tokens": 10000,
+    })
+
+    assert result["ok"] is True
+    assert captured["budget"] == {
+        "max_requests": 12,
+        "max_input_tokens": 150000,
+        "max_output_tokens": 20000,
+    }
+
+
 def test_smart_wiki_scope_does_not_fall_back_to_the_whole_library_when_topic_search_fails(svc, monkeypatch):
     documents = [
         {"document_id": "doc-1", "title": "LangChain", "source": "raw/langchain.md", "sections": [{"chunk_id": "c1", "text": "Chains"}]},

@@ -106,8 +106,49 @@ def test_openai_compat_parse_response_no_tools():
     assert resp.tool_calls == []
 
 
+def test_openai_compat_normalizes_deepseek_and_openai_cache_usage():
+    provider = OpenAICompatibleProvider(
+        api_key="test", model="test-model", base_url="http://localhost", provider_name="deepseek",
+    )
+    deepseek = provider._parse_response({
+        "id": "req-1",
+        "choices": [{"message": {"content": "ok"}}],
+        "usage": {
+            "prompt_tokens": 100,
+            "completion_tokens": 20,
+            "total_tokens": 120,
+            "prompt_cache_hit_tokens": 80,
+            "prompt_cache_miss_tokens": 20,
+        },
+    })
+    assert deepseek.provider == "deepseek"
+    assert deepseek.model == "test-model"
+    assert deepseek.request_id == "req-1"
+    assert deepseek.usage["cache_read_tokens"] == 80
+    assert deepseek.usage["cache_miss_tokens"] == 20
+
+    openai = provider._normalize_usage({"usage": {
+        "prompt_tokens": 50,
+        "completion_tokens": 10,
+        "prompt_tokens_details": {"cached_tokens": 30},
+        "cost": 0.0012,
+    }})
+    assert openai["cache_read_tokens"] == 30
+    assert openai["cache_miss_tokens"] == 20
+    assert openai["cost_usd"] == 0.0012
+
+
+def test_openai_compat_marks_unreported_cache_as_unknown():
+    usage = OpenAICompatibleProvider._normalize_usage({"usage": {
+        "prompt_tokens": 50, "completion_tokens": 10, "total_tokens": 60,
+    }})
+    assert usage["cache_reported"] is False
+    assert usage["cache_read_tokens"] is None
+
+
 def test_openai_compat_parse_stream_chunk_tool_delta():
     data = {
+        "id": "stream-1",
         "choices": [{
             "delta": {
                 "content": "",
@@ -131,6 +172,17 @@ def test_openai_compat_parse_stream_chunk_tool_delta():
     assert chunk.tool_call_deltas[0].id == "call_1"
     assert chunk.tool_call_deltas[0].name == "read_file"
     assert chunk.tool_call_deltas[0].arguments == '{"path":"a'
+    assert chunk.request_id == "stream-1"
+
+
+def test_openai_compat_requests_stream_usage():
+    provider = OpenAICompatibleProvider(
+        api_key="test", model="test", base_url="http://localhost", provider_name="test",
+    )
+
+    payload = provider._build_payload([{"role": "user", "content": "hi"}], stream=True)
+
+    assert payload["stream_options"] == {"include_usage": True}
 
 
 def test_openai_compat_convert_messages():

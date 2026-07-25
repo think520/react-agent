@@ -20,6 +20,7 @@ from service.library_service import LibraryService
 from service.preference_service import PreferenceService
 from service.runtime_service import RuntimeService
 from service.research_service import ResearchService
+from service.usage_service import UsageService
 from web.backend.capabilities import WEB_SKILL_NAMES
 from web.backend.deps import (
     get_config,
@@ -223,6 +224,11 @@ def runtime_status() -> dict:
             "jina_fallback": bool(preferences.get("search", {}).get("jina_fallback", True)),
         },
     }
+
+
+@router.get("/usage")
+def llm_usage(days: int = 7) -> dict:
+    return {"ok": True, **UsageService().summary(days=max(1, min(days, 30)))}
 
 
 def _load_or_create_session(request: Request, chat_session_id: str | None) -> Session:

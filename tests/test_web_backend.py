@@ -178,7 +178,7 @@ def test_settings_endpoint_lists_local_skills(backend_client):
 
 def test_preferences_patch_revision_and_provider_validation(backend_client, monkeypatch):
     initial = backend_client.get("/api/settings").json()["preferences"]
-    assert initial["schema_version"] == 3
+    assert initial["schema_version"] == 4
     assert initial["search"] == {"provider": "auto", "permission": "ask", "jina_fallback": True}
     updated = backend_client.patch("/api/settings/preferences", json={
         "revision": initial["revision"],
@@ -217,7 +217,12 @@ def test_preferences_schema_two_migrates_to_ask_permission(backend_client):
 
     preferences = backend_client.get("/api/settings").json()["preferences"]
 
-    assert preferences["schema_version"] == 3
+    assert preferences["schema_version"] == 4
+    assert preferences["wiki"]["default_mode"] == "standard"
+    assert preferences["ai"]["task_providers"] == {
+        "wiki_discovery": "default",
+        "wiki_drafting": "default",
+    }
     assert preferences["revision"] == 4
     assert preferences["search"] == {"provider": "exa", "permission": "ask", "jina_fallback": False}
 
