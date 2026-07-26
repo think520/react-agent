@@ -119,15 +119,6 @@ def daily_read(request: Request, date: str | None = None) -> dict:
     return _unwrap(_service(request).daily_read(date=date))
 
 
-@router.post("/promote")
-def promote(request: Request) -> dict:
-    # Intentionally read-only from the Web UI: promotion preview only.
-    result = _unwrap(_service(request).promote(dry_run=True))
-    for candidate in result.get("candidates", []):
-        candidate.pop("path", None)
-    return result
-
-
 @router.get("/overview")
 def overview(request: Request) -> dict:
     return _unwrap(_service(request).overview())

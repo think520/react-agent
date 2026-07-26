@@ -8,7 +8,7 @@ Before any Web UI, page, component, prototype, TUI, or visual design work, also 
 
 ## Overview 
 
-波波蛋 (Bobodan) is a Python-based ReAct agent with multiple LLM provider support, session persistence, a skills system, a persistent memory system with daily memory and FTS5 search, a local knowledge base with RAG and knowledge graph, a wiki compilation layer, a quiz system, a learning path system, and a CLI REPL interface. Users chat with the agent which reasons and calls tools (read_file, write_file, list_dir, change_dir, stat_path, memory_save, memory_recall, memory_daily_save, memory_daily_read, memory_promote, knowledge_status, question_generate, quiz_start, quiz_submit, learning_path, learning_progress, learning_review, wiki_ingest, wiki_lint, obsidian_export_plan, obsidian_export_quiz_summary) in a loop until it produces a response.
+波波蛋 (Bobodan) is a Python-based ReAct agent with multiple LLM provider support, session persistence, a skills system, a persistent memory system with daily memory and FTS5 search, a local knowledge base with RAG and knowledge graph, a wiki compilation layer, a quiz system, a learning path system, and a CLI REPL interface. Users chat with the agent which reasons and calls tools (read_file, write_file, list_dir, change_dir, stat_path, memory_save, memory_recall, memory_daily_save, memory_daily_read, knowledge_status, question_generate, quiz_start, quiz_submit, learning_path, learning_progress, learning_review, wiki_ingest, wiki_lint, obsidian_export_plan, obsidian_export_quiz_summary) in a loop until it produces a response.
 
 ## Commands
 
@@ -48,11 +48,10 @@ pip install -r requirements-dev.txt      # with pytest
 /learning plans     # list saved learning plans
 /memory list        # list saved memories
 /memory show <name> # show memory details
-/memory search <query>  # search memories (FTS5 + vector)
+/memory search <query>  # search memories (FTS5)
 /memory forget <name>   # delete a memory
 /memory daily [content] # write/view today's daily memory
 /memory daily YYYY-MM-DD  # view specific date's memory
-/memory promote     # check and execute daily→permanent promotion
 /memory review      # show today's review list (from learning module)
 /memory stats       # show memory statistics (includes FTS5 stats)
 /wiki init <vault>  # initialize wiki directory structure
@@ -132,7 +131,7 @@ tools/
   obsidian_export.py # obsidian_export_plan, obsidian_export_quiz_summary (Obsidian writeback)
   rag_search.py   # rag_search tool (local RAG retrieval)
   graph_query.py  # graph_query tool (knowledge graph relationships)
-  memory_tools.py # memory_save, memory_recall, memory_daily_save, memory_daily_read, memory_promote
+  memory_tools.py # memory_save, memory_recall, memory_daily_save, memory_daily_read
   knowledge_status.py # knowledge_status tool (knowledge base overview)
   quiz_tools.py   # question_generate, quiz_start, quiz_submit tools
   agents.py       # register_delegate_tools — 3 delegate_* tools wired to specialist runner
@@ -149,7 +148,7 @@ agents/           # Learning Agent Orchestrator v1 (multi-agent skeleton)
 service/          # Business logic layer (CLI and tools delegate here)
   learning_service.py  # LearningService: plans, progress, reviews, mastery
   quiz_service.py      # QuizService: generate, start, submit, wrong book, weakness
-  memory_service.py    # MemoryService: permanent memory, daily memory, promotion
+  memory_service.py    # MemoryService: permanent memory, daily memory, personal knowledge
   kb_service.py        # KBService: sync, status, RAG search, graph query, reset
   agent_service.py     # AgentService: provider mgmt, session persistence, agent run
 knowledge/        # Knowledge base management
@@ -170,11 +169,10 @@ learning/         # Learning path and progress tracking
   progress.py     # ProgressTracker: mastery overview, auto-infer from quiz
   path.py         # LearningPathGenerator: LLM-based personalized learning plans
   quiz_integration.py # record_quiz_learning_effect + session_summary (quiz→memory→mastery bridge)
-memory/           # Memory upgrade: daily memory, FTS5 index, promotion
-  store.py        # MemoryIndexStore: SQLite + FTS5 full-text search (chunks, recall_log, promotion_log)
+memory/           # Memory upgrade: daily memory, FTS5 index, personal knowledge store
+  store.py        # MemoryIndexStore: SQLite + FTS5 full-text search (chunks, recall_log)
   daily.py        # DailyMemoryManager: daily memory files in .bobodan/daily/
-  search.py       # MemorySearcher: FTS5 primary + vector fallback
-  promotion.py    # PromotionEngine: daily→permanent promotion scoring
+  search.py       # MemorySearcher: FTS5 with OR/LIKE progressive relaxation
 mcp_client/       # MCP (Model Context Protocol) client integration
   config.py       # YAML loading + ${ENV_VAR} substitution
   event_loop.py   # AsyncEventLoop: background thread bridge for async MCP SDK
@@ -206,14 +204,11 @@ rag/              # RAG v2: SQLite+FTS5, Qdrant, hybrid retrieval, multi-format 
     pdf_parser.py # Page-aware PDF parsing (PyMuPDF + pypdf fallback)
     pptx_parser.py # Slide-aware PPT parsing (python-pptx)
     docx_parser.py # Heading-style-aware Word parsing (python-docx)
-  chunker.py      # Legacy: TextChunk, chunk_text (paragraph-aware sliding window)
-  embeddings.py   # Legacy: LocalEmbeddingProvider sparse TF+L2
-  vector_store.py # Legacy: LocalVectorStore JSON-backed sparse index
-  dense_store.py  # Legacy: DenseVectorStore JSON-backed dense index
+  chunker.py      # Legacy: TextChunk, chunk_text (kept for JSON index fallback + memory chunking)
+  vector_store.py # Legacy: LocalVectorStore JSON sparse index (kept for rag_index.json fallback)
+  embeddings.py   # Legacy: LocalEmbeddingProvider sparse TF+L2 (used by vector_store)
   ollama.py       # OllamaEmbeddingClient: probe, embed, cache availability
-  router.py       # Legacy: VectorStoreRouter auto/local/ollama
   retriever.py    # search_index: Orchestrator entry point (legacy fallback)
-  ingest.py       # Document loading (md/txt/pdf)
   citations.py    # format_search_results (updated for v2 result schema)
 wiki/             # LLM wiki compilation layer (Karpathy pattern)
   schema.py       # WikiPage, CompileResult, WikiConfig, source registry
@@ -287,13 +282,13 @@ Permanent memories (`.bobodan/memory/*.md`): YAML frontmatter (`name`, `descript
 
 Daily memories (`.bobodan/daily/YYYY-MM-DD.md`): Timestamped entries with YAML frontmatter (`date`, `tags`). Used as buffer for learning notes, quiz results, and transient context. Today + yesterday injected into system prompt automatically.
 
-Storage: `.bobodan/memory.db` (SQLite) with FTS5 full-text search for fast keyword retrieval. `memory_index.json` (vector store) kept as fallback. FTS5 triggers auto-sync with chunks table.
+Storage: `.bobodan/memory.db` (SQLite) with FTS5 full-text search for fast keyword retrieval. FTS5 triggers auto-sync with chunks table. The old `memory_index.json` vector store is no longer written or read.
 
-Search: `MemorySearcher` uses FTS5 as primary, `LocalVectorStore` vector similarity as fallback.
+Search: `MemorySearcher` uses FTS5 with progressive relaxation (AND match → OR match → per-token LIKE). The old JSON vector fallback is retired.
 
-Promotion: `PromotionEngine` evaluates daily memories for promotion to permanent. Score = 0.4×frequency + 0.4×quiz_association + 0.2×recency (30-day half-life). Threshold: score ≥ 0.6 and recall_count ≥ 2. Triggered by `/memory promote` or `memory_promote` tool.
+Promotion: retired. The legacy PromotionEngine (frequency/recency scoring over daily memories) never worked reliably with Chinese text and was replaced by the P5F.1 personal knowledge candidate/confirm flow in `memory/personal_store.py`.
 
-Tools: `memory_save`, `memory_recall` (FTS5 search), `memory_daily_save`, `memory_daily_read`, `memory_promote`. REPL: `/memory list|show|search|forget|daily|promote|review|stats`.
+Tools: `memory_save`, `memory_recall` (FTS5 search), `memory_daily_save`, `memory_daily_read`. REPL: `/memory list|show|search|forget|daily|review|stats`.
 
 ## RAG v2 — Hybrid Retrieval System
 
@@ -321,7 +316,7 @@ Four retrieval methods, unified through `RetrievalOrchestrator`:
 
 **Tool**: `rag_search` accepts optional `mode` parameter (`auto|hybrid|directory|directory_grep`).
 
-**Legacy files** (`vector_store.py`, `dense_store.py`, `router.py`): retained but not used by the new pipeline. Old JSON indexes (`.knowledge/rag_index.json`) are legacy artifacts.
+**Legacy files**: `dense_store.py`, `router.py`, and `ingest.py` have been removed. `vector_store.py` + `chunker.py` + `embeddings.py` remain only to read old `.knowledge/rag_index.json` sparse indexes and to chunk legacy memory entries; new code must use the v2 pipeline.
 
 Full design: [`docs/rag_design.md`](docs/rag_design.md).
 

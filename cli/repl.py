@@ -165,7 +165,6 @@ class REPL:
         self.agent_timeout = 300  # seconds, per-turn timeout
         self.prompt_session = None
         self.show_tool_calls = True
-        self.rag_router = None
         self.rag_backend_info = {}
         self.mcp_prompt = None
         self.agent_registry = None
@@ -208,16 +207,23 @@ class REPL:
             rag_config = self.config.get("rag") or {}
             embedding_backend = rag_config.get("embedding_backend", "auto")
             if embedding_backend != "local":
-                from rag.router import VectorStoreRouter
+                from rag.embedding_service import EmbeddingService
                 try:
-                    self.rag_router = VectorStoreRouter(os.getcwd(), self.config)
-                    info = self.rag_router.get_backend_info()
-                    self.rag_backend_info = info
+                    service = EmbeddingService(self.config)
+                    if service.is_available():
+                        model_info = service.get_model_info()
+                        self.rag_backend_info = {
+                            "active": "dense",
+                            "fallback": "sparse",
+                            "mode": embedding_backend,
+                            "model": model_info.get("model"),
+                            "dim": model_info.get("dim"),
+                        }
+                    else:
+                        self.rag_backend_info = {"active": "sparse", "fallback": None, "mode": embedding_backend}
                 except Exception:
-                    self.rag_router = None
                     self.rag_backend_info = {"active": "sparse", "fallback": None, "mode": "auto"}
             else:
-                self.rag_router = None
                 self.rag_backend_info = {"active": "sparse", "fallback": None, "mode": "local"}
 
             # MCP server registration (must run before AgentLoop so its
@@ -1245,9 +1251,6 @@ class REPL:
         elif action == "daily":
             self.handle_memory_daily(parts[1:])
 
-        elif action == "promote":
-            self.handle_memory_promote(parts[1:])
-
         elif action == "review":
             self.handle_memory_review()
 
@@ -1266,7 +1269,6 @@ class REPL:
                     ("daily chunks", fts_info.get("daily_chunks", "N/A")),
                     ("permanent chunks", fts_info.get("permanent_chunks", "N/A")),
                     ("recalls", fts_info.get("total_recalls", "N/A")),
-                    ("promotions", fts_info.get("total_promotions", "N/A")),
                     ("base dir", result.get("base_dir", "")),
                 ],
             )
@@ -1311,35 +1313,6 @@ class REPL:
         else:
             print_error(result["error"])
 
-    def handle_memory_promote(self, args: list[str]):
-        """Handle /memory promote [--dry-run]"""
-        from service.memory_service import MemoryService
-        svc = MemoryService(self.session.workspace_root)
-        dry_run = "--dry-run" in args
-
-        result = svc.promote(dry_run=dry_run)
-        candidates = result["candidates"]
-
-        if not candidates:
-            print_notice("没有待晋升的每日记忆。")
-            return
-
-        print()
-        print(f"  \033[1;37m晋升候选 ({len(candidates)}):\033[0m")
-        for c in candidates:
-            status = "\033[1;32m✓ eligible\033[0m" if c["eligible"] else "\033[1;31m✗\033[0m"
-            print(
-                f"    {c['date']} — score: {c['score']:.2f} "
-                f"(freq={c['frequency']:.1f}, quiz={c['quiz']:.1f}, recency={c['recency']:.1f}) "
-                f"recalls={c['recall_count']} — {status}"
-            )
-            if c.get("promoted"):
-                print(f"      → {c['details']}")
-
-        if dry_run:
-            print("\n  (Dry run — 未执行晋升)")
-        print()
-
     def handle_memory_review(self):
         """Show today's review list from learning scheduler."""
         try:
@@ -1368,7 +1341,6 @@ class REPL:
         print("  \033[1;38;5;210m  /memory forget <name>\033[0m     删除记忆")
         print("  \033[1;38;5;210m  /memory daily [content]\033[0m   写入/查看今日记忆")
         print("  \033[1;38;5;210m  /memory daily YYYY-MM-DD\033[0m  查看指定日期记忆")
-        print("  \033[1;38;5;210m  /memory promote\033[0m           检查并执行记忆晋升")
         print("  \033[1;38;5;210m  /memory review\033[0m            今日复习清单")
         print("  \033[1;38;5;210m  /memory stats\033[0m             记忆统计")
         print()

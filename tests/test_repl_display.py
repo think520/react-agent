@@ -83,7 +83,7 @@ def _path_tail(p: str, n: int) -> str:
         # Other built-in tools: short JSON fallback
         ("memory_save", {"name": "foo"}, 60, '{"name":"foo"}'),
         ("knowledge_status", {}, 60, ""),
-        ("memory_promote", {}, 60, ""),
+        ("memory_daily_read", {}, 60, ""),
     ],
 )
 def test_summarize_tool_args(tool_name, args, limit, expected):

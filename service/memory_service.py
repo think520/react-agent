@@ -155,41 +155,6 @@ class MemoryService:
 
         return _ok(content=content, date=date_label)
 
-    # --- Promotion ---
-
-    def promote(self, dry_run: bool = False) -> dict[str, Any]:
-        from memory.promotion import PromotionEngine
-        engine = PromotionEngine(self.workspace)
-
-        candidates = engine.run_promotion_check()
-        if not candidates:
-            return _ok(candidates=[], promoted=0, dry_run=dry_run)
-
-        promoted_count = 0
-        results = []
-        for c in candidates:
-            entry = {
-                "path": c["path"],
-                "date": c["date"],
-                "score": c["score"],
-                "eligible": c["eligible"],
-                "recall_count": c["recall_count"],
-                "frequency": c["frequency"],
-                "quiz": c["quiz"],
-                "recency": c["recency"],
-            }
-            if c["eligible"] and not dry_run:
-                result = engine.promote(c["path"])
-                entry["promoted"] = result["promoted"]
-                entry["details"] = result.get("details", "")
-                if result["promoted"]:
-                    promoted_count += 1
-            else:
-                entry["promoted"] = False
-            results.append(entry)
-
-        return _ok(candidates=results, promoted=promoted_count, dry_run=dry_run)
-
     # --- Stats ---
 
     def get_stats(self) -> dict[str, Any]:

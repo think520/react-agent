@@ -1492,27 +1492,20 @@ def test_library_delete_uses_stable_contract(backend_client, monkeypatch):
     assert "C:\\private" not in response.text
 
 
-def test_memory_daily_and_promotion_strip_paths(backend_client, monkeypatch):
+def test_memory_daily_strip_paths(backend_client, monkeypatch):
     monkeypatch.setattr(
         "web.backend.routers.memory.MemoryService.daily_save",
         lambda self, content, tags: {
-            "ok": True, "path": "C:\\private\\daily.md", "date": "2026-07-10"
-        },
-    )
-    monkeypatch.setattr(
-        "web.backend.routers.memory.MemoryService.promote",
-        lambda self, dry_run: {
-            "ok": True,
-            "candidates": [{"path": "C:\\private\\daily.md", "date": "2026-07-10"}],
-            "promoted": 0,
-            "dry_run": dry_run,
+            "ok": True, "path": "C:\private\daily.md", "date": "2026-07-10"
         },
     )
 
     saved = backend_client.post("/api/memory/daily", json={"content": "Remember"})
-    promoted = backend_client.post("/api/memory/promote?dry_run=true")
     assert saved.json() == {"ok": True, "date": "2026-07-10"}
-    assert "C:\\private" not in promoted.text
+
+    # The legacy promotion endpoint is retired
+    promoted = backend_client.post("/api/memory/promote")
+    assert promoted.status_code in (404, 405)
 
 
 def test_personal_knowledge_api_is_library_scoped(backend_client, tmp_path):

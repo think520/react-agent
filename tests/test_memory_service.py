@@ -151,21 +151,6 @@ def test_daily_read_specific_date(svc):
     assert result["content"] == ""
 
 
-# --- promote ---
-
-def test_promote_no_candidates(svc):
-    result = svc.promote()
-    assert result["ok"]
-    assert result["candidates"] == []
-    assert result["promoted"] == 0
-
-
-def test_promote_dry_run(svc):
-    result = svc.promote(dry_run=True)
-    assert result["ok"]
-    assert result["dry_run"] is True
-
-
 # --- get_stats ---
 
 def test_get_stats(manager, svc):
@@ -187,7 +172,6 @@ def test_all_results_have_ok_field(svc, manager):
         svc.forget("y"),
         svc.daily_save("text"),
         svc.daily_read(),
-        svc.promote(),
         svc.get_stats(),
     ]
     for r in methods:

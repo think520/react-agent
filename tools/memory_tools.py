@@ -95,42 +95,6 @@ def memory_daily_read(date: str | None = None, session=None) -> ToolResult:
         return ToolResult(ok=False, content=f"Error reading daily memory: {e}")
 
 
-def memory_promote(dry_run: bool = False, session=None) -> ToolResult:
-    """Check and execute promotion of daily memories to permanent memory."""
-    try:
-        from service.memory_service import MemoryService
-        svc = MemoryService(_get_workspace(session))
-        result = svc.promote(dry_run=dry_run)
-
-        candidates = result["candidates"]
-        if not candidates:
-            return ToolResult(ok=True, content="No daily memories are ready for promotion yet.")
-
-        lines = [f"Found {len(candidates)} daily memory candidates:\n"]
-        for c in candidates:
-            status = "✓ eligible" if c["eligible"] else "✗ not ready"
-            lines.append(
-                f"  {c['date']} — score: {c['score']:.2f} "
-                f"(freq={c['frequency']:.1f}, quiz={c['quiz']:.1f}, recency={c['recency']:.1f}) "
-                f"recalls={c['recall_count']} — {status}"
-            )
-            if c.get("promoted"):
-                lines.append(f"    → {c['details']}")
-
-        if dry_run:
-            lines.append("\n(Dry run — no memories were promoted)")
-        elif result["promoted"] > 0:
-            lines.append(f"\nPromoted {result['promoted']} daily memories to permanent.")
-        else:
-            lines.append("\nNo memories met the promotion threshold (score ≥ 0.6, recalls ≥ 2).")
-
-        return ToolResult(ok=True, content="\n".join(lines), data={
-            "candidates": len(candidates), "promoted": result["promoted"],
-        })
-    except Exception as e:
-        return ToolResult(ok=False, content=f"Error checking promotions: {e}")
-
-
 def request_memory_confirmation(
     title: str,
     content: str,
@@ -275,24 +239,6 @@ register_tool(
         "required": [],
     },
     func=memory_daily_read,
-)
-
-register_tool(
-    name="memory_promote",
-    description="Check and promote daily memories to permanent memory. "
-                "Promotes memories that have been recalled frequently, are related to quiz performance, "
-                "and are at least 3 days old. Use dry_run=true to preview without promoting.",
-    params_schema={
-        "type": "object",
-        "properties": {
-            "dry_run": {
-                "type": "boolean",
-                "description": "If true, only show candidates without promoting (default: false)",
-            },
-        },
-        "required": [],
-    },
-    func=memory_promote,
 )
 
 register_tool(

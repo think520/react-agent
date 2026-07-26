@@ -7,7 +7,7 @@ from .rag_search import rag_search
 from .graph_query import graph_query
 from .concept_map import concept_map_query, concept_map_status
 from .memory_tools import (
-    memory_save, memory_recall, memory_daily_save, memory_daily_read, memory_promote,
+    memory_save, memory_recall, memory_daily_save, memory_daily_read,
     request_memory_confirmation,
 )
 from .knowledge_status import knowledge_status
@@ -21,7 +21,7 @@ __all__ = ["TOOL_REGISTRY", "get_tools_schema", "execute_tool", "ToolResult",
            "read_file", "write_file", "list_dir", "change_dir", "stat_path",
            "http_request", "obsidian_sync", "rag_search", "graph_query",
            "concept_map_query", "concept_map_status",
-           "memory_save", "memory_recall", "memory_daily_save", "memory_daily_read", "memory_promote",
+           "memory_save", "memory_recall", "memory_daily_save", "memory_daily_read",
            "request_memory_confirmation",
            "knowledge_status", "question_generate", "quiz_start", "quiz_submit",
            "learning_path", "learning_progress", "learning_review",

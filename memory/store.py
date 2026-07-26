@@ -27,14 +27,6 @@ CREATE TABLE IF NOT EXISTS recall_log (
     recalled_at TEXT NOT NULL,
     query_hash TEXT
 );
-
-CREATE TABLE IF NOT EXISTS promotion_log (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    daily_path TEXT NOT NULL,
-    promoted_at TEXT NOT NULL,
-    score REAL NOT NULL,
-    details TEXT
-);
 """
 
 
@@ -234,87 +226,10 @@ class MemoryIndexStore:
         finally:
             conn.close()
 
-    def get_recall_count_since(self, path_prefix: str, since_iso: str) -> int:
-        """Get recall count for path prefix since a given date."""
-        conn = self._connect()
-        try:
-            row = conn.execute(
-                """SELECT COUNT(*) as cnt FROM recall_log rl
-                   JOIN chunks c ON rl.chunk_id = c.id
-                   WHERE c.path LIKE ? AND rl.recalled_at >= ?""",
-                (f"{path_prefix}%", since_iso),
-            ).fetchone()
-            return row["cnt"] if row else 0
-        finally:
-            conn.close()
 
-    def get_chunks_by_source(self, source: str) -> list[dict]:
-        """Get all chunks with matching source prefix."""
-        conn = self._connect()
-        try:
-            rows = conn.execute(
-                "SELECT id, path, source, text, date FROM chunks WHERE source LIKE ?",
-                (f"{source}%",),
-            ).fetchall()
-            return [
-                {
-                    "id": r["id"],
-                    "path": r["path"],
-                    "source": r["source"],
-                    "text": r["text"],
-                    "date": r["date"],
-                }
-                for r in rows
-            ]
-        finally:
-            conn.close()
 
-    def get_daily_paths(self) -> list[str]:
-        """Get all unique paths from daily source chunks."""
-        conn = self._connect()
-        try:
-            rows = conn.execute(
-                "SELECT DISTINCT path FROM chunks WHERE source = 'daily' ORDER BY path"
-            ).fetchall()
-            return [r["path"] for r in rows]
-        finally:
-            conn.close()
 
-    def get_promotion_candidates(self, min_age_days: int = 3) -> list[dict]:
-        """Get daily memory paths older than min_age_days that haven't been promoted."""
-        from datetime import timedelta
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=min_age_days)).strftime("%Y-%m-%d")
 
-        conn = self._connect()
-        try:
-            rows = conn.execute(
-                """SELECT DISTINCT c.path, c.date
-                   FROM chunks c
-                   WHERE c.source = 'daily'
-                     AND c.date IS NOT NULL
-                     AND c.date <= ?
-                     AND c.path NOT IN (
-                         SELECT daily_path FROM promotion_log
-                     )
-                   ORDER BY c.date""",
-                (cutoff,),
-            ).fetchall()
-            return [{"path": r["path"], "date": r["date"]} for r in rows]
-        finally:
-            conn.close()
-
-    def record_promotion(self, daily_path: str, score: float, details: dict) -> None:
-        """Record a promotion event."""
-        import json
-        conn = self._connect()
-        try:
-            conn.execute(
-                "INSERT INTO promotion_log (daily_path, promoted_at, score, details) VALUES (?, ?, ?, ?)",
-                (daily_path, _now_iso(), score, json.dumps(details, ensure_ascii=False)),
-            )
-            conn.commit()
-        finally:
-            conn.close()
 
     def count_chunks(self, source: str | None = None) -> int:
         """Count chunks, optionally filtered by source."""
@@ -342,13 +257,11 @@ class MemoryIndexStore:
                 "SELECT COUNT(*) as cnt FROM chunks WHERE source = 'permanent'"
             ).fetchone()["cnt"]
             recalls = conn.execute("SELECT COUNT(*) as cnt FROM recall_log").fetchone()["cnt"]
-            promotions = conn.execute("SELECT COUNT(*) as cnt FROM promotion_log").fetchone()["cnt"]
             return {
                 "total_chunks": total,
                 "daily_chunks": daily,
                 "permanent_chunks": permanent,
                 "total_recalls": recalls,
-                "total_promotions": promotions,
             }
         finally:
             conn.close()

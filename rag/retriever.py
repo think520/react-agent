@@ -140,13 +140,8 @@ def _search_legacy(
     top_k: int,
     config: dict,
 ) -> list[dict]:
-    """Legacy search using old VectorStoreRouter."""
-    if config.get("rag"):
-        from .router import VectorStoreRouter
-        router = VectorStoreRouter(workspace, config)
-        return router.search(query=query, course=course, top_k=top_k)
-
-    # No config — use sparse store directly
+    """Legacy search over the old JSON sparse index."""
+    del config  # legacy dense routing is retired; sparse JSON index only
     index_path = knowledge_path(workspace, "rag_index.json")
     from .vector_store import LocalVectorStore
     store = LocalVectorStore(index_path)

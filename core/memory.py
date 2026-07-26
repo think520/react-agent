@@ -149,9 +149,6 @@ class MemoryManager:
         # Update index
         self._update_index()
 
-        # Update vector store
-        self._update_vector_store(entry)
-
         # Update FTS5 index
         self._update_fts_index(entry)
 
@@ -181,9 +178,6 @@ class MemoryManager:
         # Update index
         self._update_index()
 
-        # Remove from vector store
-        self._remove_from_vector_store(name)
-
         # Remove from FTS5 index
         self._remove_from_fts_index(name)
 
@@ -196,33 +190,20 @@ class MemoryManager:
         return self.entries
 
     def search(self, query: str, top_k: int = 5) -> list[dict]:
-        """Search memories using FTS5 as primary, vector as fallback."""
-        # Try FTS5 first
+        """Search memories via the FTS5 index (with LIKE fallback inside)."""
         try:
             from memory.search import MemorySearcher
             searcher = MemorySearcher(self.workspace_root, os.path.relpath(self.base_dir, self.workspace_root))
             results = searcher.search(query, limit=top_k)
-            if results:
-                return [
-                    {
-                        "text": r["text"],
-                        "source": r.get("path", r.get("source", "")),
-                        "score": r.get("score", 0),
-                        "metadata": {"method": r.get("method", "fts5")},
-                    }
-                    for r in results
-                ]
-        except Exception as e:
-            logger.debug("FTS5 search unavailable, falling back to vector: %s", e)
-
-        # Fallback to vector store
-        try:
-            from rag.vector_store import LocalVectorStore
-            store = LocalVectorStore(self.index_path)
-            store.load()
-            if not store.chunks:
-                return []
-            return store.search(query, top_k=top_k)
+            return [
+                {
+                    "text": r["text"],
+                    "source": r.get("path", r.get("source", "")),
+                    "score": r.get("score", 0),
+                    "metadata": {"method": r.get("method", "fts5")},
+                }
+                for r in results
+            ]
         except Exception as e:
             logger.warning("Memory search failed: %s", e)
             return []
@@ -247,60 +228,15 @@ class MemoryManager:
         with open(index_path, "w", encoding="utf-8") as f:
             f.write("\n".join(lines))
 
-    def _update_vector_store(self, entry: MemoryEntry) -> None:
-        """Add or update entry in the vector store."""
-        try:
-            from rag.vector_store import LocalVectorStore
-            from rag.chunker import chunk_text
+    def _update_vector_store(self, entry: MemoryEntry) -> None:  # pragma: no cover - retired
+        """Retired: the legacy JSON vector index is no longer written.
 
-            store = LocalVectorStore(self.index_path)
-            store.load()
+        FTS5 (memory/store.py) is the sole memory index. Kept as a no-op so
+        old callers don't break during the deprecation window.
+        """
 
-            # Remove old chunks for this entry first
-            source_prefix = f"memory://{entry.name}"
-            store.chunks = [
-                c for c in store.chunks
-                if not c.get("source", "").startswith(source_prefix)
-            ]
-
-            # Chunk and add new content
-            full_text = f"{entry.name}: {entry.description}\n\n{entry.content}"
-            chunks = chunk_text(
-                full_text,
-                source=source_prefix,
-                metadata={"name": entry.name, "type": entry.type},
-            )
-
-            for chunk in chunks:
-                item = {
-                    "id": chunk.id,
-                    "text": chunk.text,
-                    "source": chunk.source,
-                    "metadata": chunk.metadata,
-                    "vector": store.embedding_provider.embed(chunk.text),
-                }
-                store.chunks.append(item)
-
-            store.save()
-        except Exception as e:
-            logger.warning("Failed to update memory vector store: %s", e)
-
-    def _remove_from_vector_store(self, name: str) -> None:
-        """Remove all chunks for a memory entry from the vector store."""
-        try:
-            from rag.vector_store import LocalVectorStore
-
-            store = LocalVectorStore(self.index_path)
-            store.load()
-
-            source_prefix = f"memory://{name}"
-            store.chunks = [
-                c for c in store.chunks
-                if not c.get("source", "").startswith(source_prefix)
-            ]
-            store.save()
-        except Exception as e:
-            logger.warning("Failed to remove from memory vector store: %s", e)
+    def _remove_from_vector_store(self, name: str) -> None:  # pragma: no cover - retired
+        """Retired: see _update_vector_store."""
 
     def build_memory_prompt(self) -> str | None:
         """Build a system prompt fragment containing all memories.
@@ -371,16 +307,6 @@ class MemoryManager:
         for entry in entries:
             by_type[entry.type] = by_type.get(entry.type, 0) + 1
 
-        # Check vector store
-        vector_chunks = 0
-        try:
-            from rag.vector_store import LocalVectorStore
-            store = LocalVectorStore(self.index_path)
-            store.load()
-            vector_chunks = len(store.chunks)
-        except Exception:
-            pass
-
         # Check FTS5 index
         fts_stats = {}
         try:
@@ -393,7 +319,6 @@ class MemoryManager:
         return {
             "total": len(entries),
             "by_type": by_type,
-            "vector_chunks": vector_chunks,
             "base_dir": self.base_dir,
             "memory_dir": self.memory_dir,
             "fts": fts_stats,
@@ -441,21 +366,21 @@ class MemoryManager:
 
             idx_store = MemoryIndexStore(self.workspace_root, os.path.relpath(self.base_dir, self.workspace_root))
 
-            # Remove old chunks for this entry
-            source_prefix = f"permanent://{entry.name}"
-            idx_store.remove_by_source(source_prefix)
+            # Remove old chunks for this entry (chunks are keyed by path)
+            entry_path = f"permanent://{entry.name}"
+            idx_store.remove_by_path(entry_path)
 
             # Chunk and index
             full_text = f"{entry.name}: {entry.description}\n\n{entry.content}"
             chunks = chunk_text(
                 full_text,
-                source=source_prefix,
+                source=entry_path,
                 metadata={"name": entry.name, "type": entry.type},
             )
             for chunk in chunks:
                 idx_store.index_chunk(
                     chunk_id=chunk.id,
-                    path=f"permanent://{entry.name}",
+                    path=entry_path,
                     source="permanent",
                     text=chunk.text,
                 )
@@ -467,6 +392,6 @@ class MemoryManager:
         try:
             from memory.store import MemoryIndexStore
             idx_store = MemoryIndexStore(self.workspace_root, os.path.relpath(self.base_dir, self.workspace_root))
-            idx_store.remove_by_source(f"permanent://{name}")
+            idx_store.remove_by_path(f"permanent://{name}")
         except Exception as e:
             logger.debug("Failed to remove from FTS5 index: %s", e)

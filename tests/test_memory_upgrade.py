@@ -1,4 +1,4 @@
-"""Tests for memory upgrade: store, daily, search, promotion."""
+"""Tests for memory upgrade: store, daily, search."""
 
 import json
 import os
@@ -10,7 +10,6 @@ import pytest
 from memory.store import MemoryIndexStore, _make_chunk_id
 from memory.daily import DailyMemoryManager
 from memory.search import MemorySearcher
-from memory.promotion import PromotionEngine
 
 
 # --- MemoryIndexStore ---
@@ -63,17 +62,6 @@ def test_store_recall_logging(tmp_path):
     count = store.get_recall_count("test.md")
     assert count == 2
 
-
-def test_store_promotion_candidates(tmp_path):
-    store = MemoryIndexStore(str(tmp_path))
-    old_date = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%d")
-    recent_date = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
-    store.index_text(path=f"/daily/{old_date}.md", source="daily", text="old memory", date=old_date)
-    store.index_text(path=f"/daily/{recent_date}.md", source="daily", text="recent memory", date=recent_date)
-    candidates = store.get_promotion_candidates(min_age_days=3)
-    # Only the old one should be a candidate
-    assert len(candidates) == 1
-    assert candidates[0]["date"] == old_date
 
 
 def test_store_stats(tmp_path):
@@ -183,112 +171,11 @@ def test_searcher_daily_only(tmp_path):
     assert all(r["source"] == "daily" for r in results)
 
 
-# --- PromotionEngine ---
-
-def test_promotion_score_low_for_new(tmp_path):
-    engine = PromotionEngine(str(tmp_path))
-    # Create a daily file for today
-    daily = DailyMemoryManager(str(tmp_path))
-    daily.append("test content")
-
-    today = daily._today_str()
-    filepath = daily._file_path(today)
-    ps = engine.score(filepath, today)
-    # New file should have low score (high recency, but 0 recall and 0 quiz)
-    assert ps.total_score < 0.6
-    assert not ps.eligible
 
 
-def test_promotion_eligible_with_enough_recalls(tmp_path):
-    store = MemoryIndexStore(str(tmp_path))
-    engine = PromotionEngine(str(tmp_path))
-
-    # Simulate a very old daily memory with many recalls
-    # Use a date far enough that recency_score is negligible
-    old_date = "2025-01-01"
-    daily = DailyMemoryManager(str(tmp_path))
-    daily.append("Important concept about algorithms", date=old_date)
-    filepath = daily._file_path(old_date)
-
-    # Index it and record recalls
-    chunk_id = store.index_text(path=filepath, source="daily", text="Important concept", date=old_date)
-    for _ in range(5):
-        store.record_recall(chunk_id)
-
-    ps = engine.score(filepath, old_date)
-    assert ps.recall_count == 5
-    assert ps.frequency_score == 1.0
-    # frequency=1.0 * 0.4 + quiz=0 * 0.4 + recency≈0 * 0.2 = 0.4
-    # Need quiz data to reach 0.6. With no quiz data, score = 0.4
-    assert ps.total_score >= 0.4
-    # Verify the components are correct
-    assert ps.frequency_score == 1.0
-    assert ps.recency_score < 0.1  # very old
 
 
-def test_promote_creates_permanent_memory(tmp_path, monkeypatch):
-    store = MemoryIndexStore(str(tmp_path))
-    engine = PromotionEngine(str(tmp_path))
 
-    old_date = "2025-01-01"
-    daily = DailyMemoryManager(str(tmp_path))
-    daily.append("- Dijkstra algorithm\n- Shortest path", date=old_date)
-    filepath = daily._file_path(old_date)
-
-    chunk_id = store.index_text(path=filepath, source="daily", text="Dijkstra", date=old_date)
-    for _ in range(5):
-        store.record_recall(chunk_id)
-
-    # Mock quiz score to return a value that makes total >= 0.6
-    monkeypatch.setattr(engine, "_get_quiz_score", lambda d: 0.5)
-
-    result = engine.promote(filepath)
-    assert result["promoted"] is True
-
-    # Check permanent memory was created
-    from core.memory import MemoryManager
-    manager = MemoryManager(str(tmp_path))
-    entries = manager.load_entries()
-    names = [e.name for e in entries]
-    assert f"daily-{old_date}" in names
-
-
-def test_promote_rejects_low_score(tmp_path):
-    engine = PromotionEngine(str(tmp_path))
-    daily = DailyMemoryManager(str(tmp_path))
-    daily.append("some content")
-    today = daily._today_str()
-    filepath = daily._file_path(today)
-
-    result = engine.promote(filepath)
-    assert result["promoted"] is False
-
-
-def test_run_promotion_check(tmp_path):
-    store = MemoryIndexStore(str(tmp_path))
-    engine = PromotionEngine(str(tmp_path))
-
-    old_date = (datetime.now(timezone.utc) - timedelta(days=60)).strftime("%Y-%m-%d")
-    recent_date = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
-
-    daily = DailyMemoryManager(str(tmp_path))
-    daily.append("old content", date=old_date)
-    daily.append("recent content", date=recent_date)
-
-    # Index the daily files in the store (simulating what the system does)
-    old_path = daily._file_path(old_date)
-    recent_path = daily._file_path(recent_date)
-    store.index_text(path=old_path, source="daily", text="old content", date=old_date)
-    store.index_text(path=recent_path, source="daily", text="recent content", date=recent_date)
-
-    results = engine.run_promotion_check(min_age_days=3)
-    # Only old one should appear
-    dates = [r["date"] for r in results]
-    assert old_date in dates
-    assert recent_date not in dates
-
-
-# --- Integration with core/memory.py ---
 
 def test_memory_manager_fts_integration(tmp_path):
     """Test that saving a memory also indexes it in FTS5."""
@@ -370,12 +257,6 @@ def test_memory_daily_command_view_today(tmp_path, capsys):
     assert "Test daily note" in output
 
 
-def test_memory_promote_command_empty(tmp_path, capsys):
-    repl = _make_repl(tmp_path)
-    repl.handle_memory_promote([])
-    output = capsys.readouterr().out
-    assert "没有" in output or "no" in output.lower()
-
 
 def test_memory_review_command_no_data(tmp_path, capsys):
     repl = _make_repl(tmp_path)
@@ -409,11 +290,3 @@ def test_memory_daily_read_tool_empty(tmp_path):
     assert "no" in result.content.lower() or "暂无" in result.content
 
 
-def test_memory_promote_tool_no_candidates(tmp_path):
-    from tools.memory_tools import memory_promote
-
-    class FakeSession:
-        workspace_root = str(tmp_path)
-
-    result = memory_promote(session=FakeSession())
-    assert result.ok

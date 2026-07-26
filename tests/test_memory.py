@@ -82,31 +82,27 @@ def test_memory_manager_index_file(tmp_path):
     assert "Visual learner" in content
 
 
-# --- Vector store integration ---
+# --- FTS index integration ---
 
-def test_memory_save_updates_vector_store(tmp_path):
+def test_memory_save_updates_fts_index(tmp_path):
     manager = MemoryManager(str(tmp_path))
     manager.save("python-level", "Python experience", "Intermediate Python developer", "user")
 
-    store = LocalVectorStore(manager.index_path)
-    store.load()
-    assert len(store.chunks) > 0
-    assert any("python" in c.get("source", "") for c in store.chunks)
+    from memory.store import MemoryIndexStore
+    store = MemoryIndexStore(str(tmp_path))
+    assert store.count_chunks(source="permanent") > 0
 
 
-def test_memory_forget_removes_from_vector_store(tmp_path):
+def test_memory_forget_removes_from_fts_index(tmp_path):
     manager = MemoryManager(str(tmp_path))
     manager.save("temp-mem", "temporary", "will be deleted", "user")
 
-    store = LocalVectorStore(manager.index_path)
-    store.load()
-    chunks_before = len(store.chunks)
-    assert chunks_before > 0
+    from memory.store import MemoryIndexStore
+    store = MemoryIndexStore(str(tmp_path))
+    assert store.count_chunks(source="permanent") > 0
 
     manager.forget("temp-mem")
-
-    store.load()
-    assert len(store.chunks) == 0
+    assert store.count_chunks(source="permanent") == 0
 
 
 def test_memory_search(tmp_path):
@@ -216,7 +212,7 @@ def test_memory_stats(tmp_path):
     assert stats["total"] == 2
     assert stats["by_type"]["user"] == 1
     assert stats["by_type"]["feedback"] == 1
-    assert stats["vector_chunks"] > 0
+    assert stats["fts"].get("permanent_chunks", 0) > 0
 
 
 # --- Agent tools ---

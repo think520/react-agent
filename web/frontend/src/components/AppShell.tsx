@@ -7,27 +7,26 @@ import {
   Map,
   Menu,
   MessageCircle,
-  MoreHorizontal,
   PanelLeft,
   PanelRight,
   PenLine,
   Plus,
-  RefreshCw,
-  Search,
   Settings,
   Sparkles,
-  Trash2,
   X,
 } from "lucide-react";
 import { NavLink, Outlet, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { api, setActiveLibraryId } from "../lib/api";
+import { toErrorMessage } from "../lib/errors";
+import { useUiStore } from "../stores/uiStore";
 import type { Attribution, ChatSessionSummary, DocumentSummary, KnowledgeContext, LibraryMigrationPreview, LibrarySummary, ReviewQueue, SettingsSummary } from "../types";
-import { formatSessionTime, groupAttributionSources, IconButton, LoadingState, textValue } from "./common";
+import { groupAttributionSources, IconButton, textValue } from "./common";
 import { OnboardingDialog } from "./OnboardingDialog";
 import { LibrarySetupDialog, type LibrarySetupMode } from "./LibrarySetupDialog";
 import { SettingsDialog, SettingsUnavailableDialog } from "./SettingsDialog";
 import { ConceptSidebar } from "./ConceptSidebar";
+import { SessionRail } from "./SessionRail";
 
 export interface LibrarySetupOptions {
   initialMode?: LibrarySetupMode;
@@ -175,22 +174,6 @@ function LearningContext({
   );
 }
 
-function sessionGroup(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "更早";
-  const today = new Date();
-  const startToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  const startDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  const dayDiff = Math.round((startToday.getTime() - startDate.getTime()) / 86_400_000);
-  if (dayDiff === 0) return "今天";
-  if (dayDiff === 1) return "昨天";
-  const weekday = startToday.getDay() || 7;
-  const startWeek = new Date(startToday);
-  startWeek.setDate(startToday.getDate() - weekday + 1);
-  if (startDate >= startWeek) return "本周";
-  return "更早";
-}
-
 export function AppShell() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -200,28 +183,15 @@ export function AppShell() {
   const [sessions, setSessions] = useState<ChatSessionSummary[]>([]);
   const [settings, setSettings] = useState<SettingsSummary | null>(null);
   const [documents, setDocuments] = useState<DocumentSummary[]>([]);
-  const [selectedDocumentIds, setSelectedDocumentIds] = useState<string[]>(() => {
-    try { return JSON.parse(localStorage.getItem("bobodan:scope:documents") || "[]"); }
-    catch { return []; }
-  });
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [initialDataLoaded, setInitialDataLoaded] = useState(false);
   const [review, setReview] = useState<ReviewQueue | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [contextOpen, setContextOpen] = useState(false);
   const [conceptDetailId, setConceptDetailId] = useState<string | null>(null);
   const [knowledgeContext, setKnowledgeContext] = useState<KnowledgeContext | null>(null);
   const [sourceContext, setSourceContext] = useState<Attribution | null>(null);
-  const [leftSavedOpen, setLeftSavedOpen] = useState(() => localStorage.getItem("bobodan:sidebar:left") !== "false");
-  const [rightSavedOpen, setRightSavedOpen] = useState(() => localStorage.getItem("bobodan:sidebar:right") !== "false");
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
-  const [leftPreview, setLeftPreview] = useState(false);
-  const [rightPreview, setRightPreview] = useState(false);
   const previewTimer = useRef<number | null>(null);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editingName, setEditingName] = useState("");
   const [loadingSessions, setLoadingSessions] = useState(true);
-  const [sessionQuery, setSessionQuery] = useState("");
   const [libraries, setLibraries] = useState<LibrarySummary[]>([]);
   const [activeLibrary, setActiveLibrary] = useState<LibrarySummary | null>(null);
   const [librarySetupOpen, setLibrarySetupOpen] = useState(false);
@@ -236,7 +206,27 @@ export function AppShell() {
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
 
+  // Cross-cutting UI state lives in the store (persisted keys included).
+  const selectedDocumentIds = useUiStore((state) => state.documentScope);
+  const toggleDocumentScope = useUiStore((state) => state.toggleDocumentScope);
+  const setDocumentScope = useUiStore((state) => state.setDocumentScope);
+  const clearDocumentScope = useUiStore((state) => state.clearDocumentScope);
+  const pruneDocumentScope = useUiStore((state) => state.pruneDocumentScope);
+  const leftSavedOpen = useUiStore((state) => state.leftSidebarOpen);
+  const rightSavedOpen = useUiStore((state) => state.rightSidebarOpen);
+  const setPanelOpen = useUiStore((state) => state.setPanelOpen);
+  const sidebarOpen = useUiStore((state) => state.mobileSidebarOpen);
+  const setSidebarOpen = useUiStore((state) => state.setMobileSidebarOpen);
+  const contextOpen = useUiStore((state) => state.mobileContextOpen);
+  const setContextOpen = useUiStore((state) => state.setMobileContextOpen);
+  const leftPreview = useUiStore((state) => state.leftPreview);
+  const rightPreview = useUiStore((state) => state.rightPreview);
+  const setPreview = useUiStore((state) => state.setPreview);
+  const togglePreview = useUiStore((state) => state.togglePreview);
+  const setLearningProfile = useUiStore((state) => state.setLearningProfile);
+
   const settingsSection = searchParams.get("settings");
+  const activeLibraryId = activeLibrary?.library_id || null;
 
   useEffect(() => {
     if (section !== "knowledge-map") setConceptDetailId(null);
@@ -291,7 +281,7 @@ export function AppShell() {
       setDocumentImportVersion((current) => current + 1);
       await loadScopedData();
     } catch (reason) {
-      setDocumentImportError(reason instanceof Error ? reason.message : "资料导入失败。");
+      setDocumentImportError(toErrorMessage(reason, "资料导入失败。"));
     } finally {
       setDocumentImporting(false);
       navigate("/library");
@@ -369,9 +359,7 @@ export function AppShell() {
 
   useEffect(() => {
     if (!settings || localStorage.getItem("bobodan:preferences:migrated") === "1") return;
-    let legacy: { displayName?: string; learningGoal?: string; memoryEnabled?: boolean } = {};
-    try { legacy = JSON.parse(localStorage.getItem("bobodan:learning-profile") || "{}"); }
-    catch { legacy = {}; }
+    const legacy = useUiStore.getState().learningProfile;
     const patch: Record<string, unknown> = {};
     if ((legacy.displayName && !settings.preferences.user.display_name) || (legacy.learningGoal && !settings.preferences.user.long_term_goal)) {
       patch.user = {
@@ -436,15 +424,11 @@ export function AppShell() {
   }
 
   useEffect(() => {
-    if (!activeLibrary || !pendingDocumentFiles.current.length) return;
+    if (!activeLibraryId || !pendingDocumentFiles.current.length) return;
     const files = pendingDocumentFiles.current;
     pendingDocumentFiles.current = [];
     void uploadDocuments(files);
-  }, [activeLibrary?.library_id, uploadDocuments]);
-
-  useEffect(() => {
-    localStorage.setItem("bobodan:scope:documents", JSON.stringify(selectedDocumentIds));
-  }, [selectedDocumentIds]);
+  }, [activeLibraryId, uploadDocuments]);
 
   useEffect(() => {
     if (!initialDataLoaded || !activeLibrary || localStorage.getItem("bobodan:onboarding:v1") === "complete") return;
@@ -482,7 +466,7 @@ export function AppShell() {
     const result = await api.migrateLibrary(path, name);
     setActiveLibraryId(result.library.library_id);
     setActiveLibrary(result.library);
-    setSelectedDocumentIds([]);
+    clearDocumentScope();
     const registry = await api.libraries();
     setLibraries(registry.libraries);
     navigate("/library");
@@ -496,16 +480,15 @@ export function AppShell() {
     const library = await api.activateLibrary(libraryId);
     setActiveLibraryId(library.library_id);
     setActiveLibrary(library);
-    setSelectedDocumentIds([]);
+    clearDocumentScope();
     navigate("/chat");
     await loadScopedData();
   }
 
   useEffect(() => {
     if (!initialDataLoaded || documents.length === 0) return;
-    const valid = new Set(documents.map((document) => document.document_id));
-    setSelectedDocumentIds((current) => current.filter((id) => valid.has(id)));
-  }, [documents, initialDataLoaded]);
+    pruneDocumentScope(documents.map((document) => document.document_id));
+  }, [documents, initialDataLoaded, pruneDocumentScope]);
 
   useEffect(() => {
     const onResize = () => setViewportWidth(window.innerWidth);
@@ -516,7 +499,7 @@ export function AppShell() {
   useEffect(() => {
     setSidebarOpen(false);
     setContextOpen(false);
-  }, [location.pathname]);
+  }, [location.pathname, setContextOpen, setSidebarOpen]);
 
   const activeSession = useMemo(
     () => sessions.find((session) => session.chat_session_id === params.sessionId),
@@ -524,14 +507,6 @@ export function AppShell() {
   );
   const meta = pageMeta[section] || pageMeta.chat;
   const title = activeSession?.name || meta[1];
-  const groupedSessions = useMemo(() => {
-    const query = sessionQuery.trim().toLocaleLowerCase();
-    const filtered = sessions.filter((session) => !query || (session.name || "未命名会话").toLocaleLowerCase().includes(query));
-    return ["今天", "昨天", "本周", "更早"].map((label) => ({
-      label,
-      sessions: filtered.filter((session) => sessionGroup(session.last_active) === label),
-    })).filter((group) => group.sessions.length);
-  }, [sessionQuery, sessions]);
 
   const desktop = viewportWidth >= 768;
   const rightAutoCollapsed = viewportWidth < 1288;
@@ -541,75 +516,44 @@ export function AppShell() {
 
   function openConceptDetail(conceptId: string) {
     setConceptDetailId(conceptId);
-    if (desktop) persistPanel("right", true);
+    if (desktop) setPanelOpen("right", true);
     else setContextOpen(true);
   }
 
   const showKnowledgeContext = useCallback((context: KnowledgeContext) => {
     setKnowledgeContext(context);
-    if (desktop) persistPanel("right", true);
+    if (desktop) setPanelOpen("right", true);
     else setContextOpen(true);
-  }, [desktop]);
+  }, [desktop, setContextOpen, setPanelOpen]);
 
   const clearKnowledgeContext = useCallback(() => setKnowledgeContext(null), []);
 
   function showSourceContext(attribution: Attribution) {
     setSourceContext(attribution);
     setConceptDetailId(null);
-    if (desktop) persistPanel("right", true);
+    if (desktop) setPanelOpen("right", true);
     else setContextOpen(true);
-  }
-
-  function persistPanel(side: "left" | "right", open: boolean) {
-    localStorage.setItem(`bobodan:sidebar:${side}`, String(open));
-    if (side === "left") setLeftSavedOpen(open);
-    else setRightSavedOpen(open);
   }
 
   function schedulePreview(side: "left" | "right", open: boolean) {
     if (!desktop) return;
     if (previewTimer.current !== null) window.clearTimeout(previewTimer.current);
-    previewTimer.current = window.setTimeout(() => {
-      if (side === "left") setLeftPreview(open);
-      else setRightPreview(open);
-    }, 200);
+    previewTimer.current = window.setTimeout(() => setPreview(side, open), 200);
   }
 
   function togglePanel(side: "left" | "right") {
     const autoCollapsed = side === "left" ? leftAutoCollapsed : rightAutoCollapsed;
     if (autoCollapsed) {
-      if (side === "left") setLeftPreview((value) => !value);
-      else setRightPreview((value) => !value);
+      togglePreview(side);
       return;
     }
-    persistPanel(side, !(side === "left" ? leftSavedOpen : rightSavedOpen));
-  }
-
-  function toggleDocumentScope(documentId: string) {
-    setSelectedDocumentIds((current) => current.includes(documentId)
-      ? current.filter((id) => id !== documentId)
-      : [...current, documentId]);
+    setPanelOpen(side, !(side === "left" ? leftSavedOpen : rightSavedOpen));
   }
 
   const selectedDocuments = useMemo(
     () => documents.filter((document) => selectedDocumentIds.includes(document.document_id)),
     [documents, selectedDocumentIds],
   );
-
-  async function saveRename(id: string) {
-    const name = editingName.trim();
-    if (!name) return;
-    await api.renameSession(id, name);
-    setEditingId(null);
-    await refreshSessions();
-  }
-
-  async function removeSession(session: ChatSessionSummary) {
-    if (!window.confirm(`删除会话「${session.name || "未命名会话"}」？此操作无法撤销。`)) return;
-    await api.deleteSession(session.chat_session_id);
-    if (params.sessionId === session.chat_session_id) navigate("/chat");
-    await refreshSessions();
-  }
 
   return (
     <div className={`app-shell ${leftOpen ? "" : "left-collapsed"} ${rightOpen ? "" : "right-collapsed"} ${leftPreview ? "left-preview" : ""} ${rightPreview ? "right-preview" : ""}`}>
@@ -633,29 +577,12 @@ export function AppShell() {
             </NavLink>
           ))}
         </nav>
-        <div className="session-section">
-          <div className="section-label"><span>最近对话</span><IconButton label="刷新会话" onClick={() => void refreshSessions()}><RefreshCw size={15} /></IconButton></div>
-          <label className="session-search"><Search size={14} /><input value={sessionQuery} onChange={(event) => setSessionQuery(event.target.value)} placeholder="搜索对话" aria-label="搜索对话" /></label>
-          {loadingSessions ? <LoadingState label="正在找回会话…" /> : groupedSessions.length ? (
-            <div className="session-list">{groupedSessions.map((group) => <section className="session-group" key={group.label}><div className="session-group-label">{group.label}</div>{group.sessions.map((session) => (
-              <div className={`session-row ${params.sessionId === session.chat_session_id ? "active" : ""}`} key={session.chat_session_id}>
-                {editingId === session.chat_session_id ? (
-                  <form onSubmit={(event) => { event.preventDefault(); void saveRename(session.chat_session_id); }}>
-                    <input autoFocus value={editingName} maxLength={120} onChange={(event) => setEditingName(event.target.value)} onBlur={() => void saveRename(session.chat_session_id)} />
-                  </form>
-                ) : (
-                  <button className="session-main" onClick={() => navigate(`/chat/${session.chat_session_id}`)}>
-                    <span>{session.name || "未命名会话"}</span><small>{formatSessionTime(session.last_active)}</small>
-                  </button>
-                )}
-                <div className="session-actions">
-                  <IconButton label="重命名" onClick={() => { setEditingId(session.chat_session_id); setEditingName(session.name || ""); }}><MoreHorizontal size={15} /></IconButton>
-                  <IconButton label="删除会话" onClick={() => void removeSession(session)}><Trash2 size={14} /></IconButton>
-                </div>
-              </div>
-            ))}</section>)}</div>
-          ) : <p className="sidebar-empty">{sessionQuery ? "没有找到匹配的对话。" : "你的学习对话会保存在这里。"}</p>}
-        </div>
+        <SessionRail
+          sessions={sessions}
+          loading={loadingSessions}
+          activeSessionId={params.sessionId}
+          refreshSessions={refreshSessions}
+        />
         <div className="profile-row">
           <span className="profile-avatar">库</span>
           <span><strong>{activeLibrary?.name || "尚未选择资料库"}</strong><small>{settings?.default_provider || "等待连接 AI"}</small></span>
@@ -676,7 +603,7 @@ export function AppShell() {
           settings,
           refreshSettings,
           refreshSessions,
-          openContext: () => desktop ? persistPanel("right", true) : setContextOpen(true),
+          openContext: () => desktop ? setPanelOpen("right", true) : setContextOpen(true),
           conceptDetailId,
           openConceptDetail,
           closeConceptDetail: () => setConceptDetailId(null),
@@ -687,8 +614,8 @@ export function AppShell() {
           selectedDocumentIds,
           selectedDocuments,
           toggleDocumentScope,
-          setDocumentScope: (documentIds) => setSelectedDocumentIds(Array.from(new Set(documentIds))),
-          clearDocumentScope: () => setSelectedDocumentIds([]),
+          setDocumentScope,
+          clearDocumentScope,
           libraries,
           activeLibrary,
           openLibrarySetup,
@@ -746,7 +673,7 @@ export function AppShell() {
         onToggleDocument={toggleDocumentScope}
         onComplete={(profile) => {
           localStorage.setItem("bobodan:onboarding:v1", "complete");
-          localStorage.setItem("bobodan:learning-profile", JSON.stringify(profile));
+          setLearningProfile(profile);
           if (settings) {
             void api.patchPreferences(settings.preferences.revision, {
               user: { display_name: profile.displayName, long_term_goal: profile.learningGoal },
