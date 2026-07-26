@@ -45,16 +45,8 @@ Conversation:
 
 
 def _parse_array(text: str) -> list[dict]:
-    cleaned = re.sub(r"```(?:json)?\s*|```", "", text or "").strip()
-    start = cleaned.find("[")
-    end = cleaned.rfind("]")
-    if start < 0 or end < start:
-        return []
-    try:
-        value = json.loads(cleaned[start:end + 1])
-    except json.JSONDecodeError:
-        return []
-    return value if isinstance(value, list) else []
+    from core.llm_json import parse_llm_array
+    return [item for item in parse_llm_array(text) if isinstance(item, dict)]
 
 
 class MemoryConsolidationService:

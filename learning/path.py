@@ -198,42 +198,6 @@ class LearningPathGenerator:
 
     @staticmethod
     def _parse_plan_json(text: str) -> dict:
-        """Parse JSON plan from LLM response."""
-        import re
-        text = re.sub(r"```(?:json)?\s*", "", text)
-        text = re.sub(r"```\s*$", "", text)
-        text = text.strip()
-
-        # Try direct parse
-        try:
-            data = json.loads(text)
-            if isinstance(data, dict):
-                return data
-        except json.JSONDecodeError:
-            pass
-
-        # Find { ... }
-        start = text.find("{")
-        if start == -1:
-            return {}
-        depth = 0
-        end = -1
-        for i in range(start, len(text)):
-            if text[i] == "{":
-                depth += 1
-            elif text[i] == "}":
-                depth -= 1
-                if depth == 0:
-                    end = i
-                    break
-        if end == -1:
-            return {}
-
-        try:
-            return json.loads(text[start:end + 1])
-        except json.JSONDecodeError:
-            try:
-                fixed = re.sub(r",\s*([}\]])", r"\1", text[start:end + 1])
-                return json.loads(fixed)
-            except json.JSONDecodeError:
-                return {}
+        """Parse JSON plan from LLM response (shared implementation)."""
+        from core.llm_json import parse_llm_object
+        return parse_llm_object(text) or {}

@@ -73,38 +73,9 @@ def _safe_filename(name: str) -> str:
 
 
 def _parse_llm_json(text: str) -> dict | None:
-    """Extract JSON from LLM response. Handles markdown fences and extra text."""
-    # Try direct parse first
-    text = text.strip()
-    if text.startswith("```"):
-        # Strip markdown fences
-        text = re.sub(r'^```(?:json)?\s*', '', text)
-        text = re.sub(r'\s*```$', '', text)
-        text = text.strip()
-
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        pass
-
-    # Try to find JSON object in text
-    start = text.find("{")
-    if start == -1:
-        return None
-
-    # Bracket-depth tracking
-    depth = 0
-    for i in range(start, len(text)):
-        if text[i] == "{":
-            depth += 1
-        elif text[i] == "}":
-            depth -= 1
-            if depth == 0:
-                try:
-                    return json.loads(text[start:i + 1])
-                except json.JSONDecodeError:
-                    return None
-    return None
+    """Extract JSON object from LLM response (shared implementation)."""
+    from core.llm_json import parse_llm_object
+    return parse_llm_object(text)
 
 
 class WikiCompiler:

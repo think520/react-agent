@@ -300,3 +300,33 @@ class TestToolArgParseError:
         tool_messages = [m for m in session.messages if m.get("role") == "tool"]
         assert tool_messages, "tool message must exist for the failed call"
         assert "Invalid tool arguments" in tool_messages[0]["content"]
+
+
+# ---------------------------------------------------------------------------
+# core/llm_json — shared parser replaces 4 duplicated implementations
+# ---------------------------------------------------------------------------
+
+class TestLLMJsonParsers:
+    def test_object_with_fences_and_prose(self):
+        from core.llm_json import parse_llm_object
+        text = '好的，这是计划：\n```json\n{"title": "计划", "steps": []}\n```'
+        assert parse_llm_object(text) == {"title": "计划", "steps": []}
+
+    def test_object_trailing_comma_repair(self):
+        from core.llm_json import parse_llm_object
+        assert parse_llm_object('{"a": 1,}') == {"a": 1}
+
+    def test_object_unparseable_returns_none(self):
+        from core.llm_json import parse_llm_object
+        assert parse_llm_object("完全不是 JSON") is None
+
+    def test_array_with_nested_brackets(self):
+        from core.llm_json import parse_llm_array
+        text = '前言 [ {"options": ["A", "B"]}, {"options": []} ] 后记'
+        result = parse_llm_array(text)
+        assert len(result) == 2
+        assert result[0]["options"] == ["A", "B"]
+
+    def test_array_unparseable_returns_empty(self):
+        from core.llm_json import parse_llm_array
+        assert parse_llm_array("nothing here") == []

@@ -46,58 +46,9 @@ QUESTION_GENERATION_PROMPT = """你是一个题目生成器。根据以下课程
 
 
 def _parse_json_from_llm(text: str) -> list[dict]:
-    """Extract and parse JSON array from LLM response, handling common formatting issues."""
-    # Strip markdown code fences
-    text = re.sub(r"```(?:json)?\s*", "", text)
-    text = re.sub(r"```\s*$", "", text)
-    text = text.strip()
-
-    # Try direct parse first (ideal case: clean JSON array)
-    try:
-        data = json.loads(text)
-        if isinstance(data, list):
-            return data
-    except json.JSONDecodeError:
-        pass
-
-    # Find the first [ and matching ] using bracket depth tracking
-    start = text.find("[")
-    if start == -1:
-        logger.warning("No JSON array found in LLM response: %.200s", text)
-        return []
-
-    depth = 0
-    end = -1
-    for i in range(start, len(text)):
-        if text[i] == "[":
-            depth += 1
-        elif text[i] == "]":
-            depth -= 1
-            if depth == 0:
-                end = i
-                break
-
-    if end == -1:
-        logger.warning("Unmatched [ in LLM response: %.200s", text[start:])
-        return []
-
-    json_str = text[start : end + 1]
-    try:
-        data = json.loads(json_str)
-    except json.JSONDecodeError as e:
-        logger.warning("Failed to parse JSON from LLM response: %s | raw: %.300s", e, json_str)
-        # Try to fix trailing commas
-        try:
-            fixed = re.sub(r",\s*([}\]])", r"\1", json_str)
-            data = json.loads(fixed)
-        except json.JSONDecodeError:
-            return []
-
-    if not isinstance(data, list):
-        logger.warning("LLM response is not a JSON array: %s", type(data).__name__)
-        return []
-
-    return data
+    """Extract and parse a JSON array from an LLM response."""
+    from core.llm_json import parse_llm_array
+    return parse_llm_array(text)
 
 
 def _validate_question(item: dict) -> bool:
