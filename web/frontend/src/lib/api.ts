@@ -481,7 +481,7 @@ export type ChatStreamEvent =
   | { event: "run_completed"; data: { chat_session_id: string; termination_reason: string } }
   | { event: "run_failed"; data: { error: { code: string; message: string } } };
 
-function parseFrame(frame: string): ChatStreamEvent | null {
+export function parseFrame(frame: string): ChatStreamEvent | null {
   let event = "message";
   const dataLines: string[] = [];
   for (const line of frame.split(/\r?\n/)) {
@@ -489,7 +489,13 @@ function parseFrame(frame: string): ChatStreamEvent | null {
     if (line.startsWith("data:")) dataLines.push(line.slice(5).trimStart());
   }
   if (!dataLines.length) return null;
-  return { event, data: JSON.parse(dataLines.join("\n")) } as ChatStreamEvent;
+  try {
+    return { event, data: JSON.parse(dataLines.join("\n")) } as ChatStreamEvent;
+  } catch {
+    // A malformed frame must not break the rest of the stream.
+    console.warn("[bobodan] 跳过无法解析的 SSE 帧", { event, frame });
+    return null;
+  }
 }
 
 export async function streamChat(

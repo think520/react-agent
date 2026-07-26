@@ -64,7 +64,7 @@ class LearningPathGenerator:
     ) -> LearningPlan:
         """Generate a learning plan based on user goal, mastery state, and course materials."""
         # Gather data sources
-        weakness_info = self._get_weakness_summary(course)
+        weakness_info = self._get_weakness_summary(workspace)
         mastery_info = self._get_mastery_summary(course)
         course_info = self._get_course_info(workspace, course)
 
@@ -101,21 +101,23 @@ class LearningPathGenerator:
         plan.id = self.store.save_plan(plan)
         return plan
 
-    def _get_weakness_summary(self, course: str | None = None) -> str:
+    def _get_weakness_summary(self, workspace: str = ".") -> str:
         """Get weakness summary from quiz review."""
         try:
             from quiz.review import QuizReviewer
             from quiz.store import QuizStore
-            quiz_store = QuizStore(self.store.db_path.rsplit("/", 1)[0] if "/" in self.store.db_path else ".")
+            quiz_store = QuizStore(workspace)
             reviewer = QuizReviewer(quiz_store)
-            analysis = reviewer.get_weakness_analysis(course=course)
+            analysis = reviewer.get_weakness_analysis()
             if not analysis:
                 return ""
             lines = []
             for item in analysis[:10]:
-                lines.append(f"- {item['concept']}: 正确率 {item['accuracy']:.0%}, 错题 {item['wrong_count']} 道")
+                accuracy = 1.0 - item["error_rate"]
+                lines.append(f"- {item['concept']}: 正确率 {accuracy:.0%}, 错题 {item['wrong_count']} 道")
             return "\n".join(lines)
-        except Exception:
+        except Exception as exc:
+            logger.warning("Weakness summary unavailable for learning plan: %s", exc)
             return ""
 
     def _get_mastery_summary(self, course: str | None = None) -> str:

@@ -26,7 +26,7 @@ def _compute_result_summary(tool_name: str, result: ToolResult) -> str | None:
         if cwd:
             return f"→ {cwd}"
     if tool_name == "http_request":
-        status = result.data.get("status") if isinstance(result.data, dict) else None
+        status = result.data.get("status_code") if isinstance(result.data, dict) else None
         if status:
             return f"status {status}"
     return None
@@ -228,10 +228,12 @@ class AgentLoop:
                     for tc in response.tool_calls:
                         logger.info(f"[AgentLoop] calling tool — id={tc.id!r} name={tc.name!r}")
 
+                        args_parse_error = None
                         try:
                             args = json.loads(tc.arguments) if isinstance(tc.arguments, str) else tc.arguments
-                        except json.JSONDecodeError:
+                        except json.JSONDecodeError as exc:
                             args = {}
+                            args_parse_error = str(exc)
 
                         tool_start_event = {
                             "type": "tool_start",
@@ -244,7 +246,17 @@ class AgentLoop:
                             self.trace_writer.write(tool_start_event)
 
                         start_ts = time.monotonic()
-                        if (
+                        if args_parse_error is not None:
+                            # Tell the model its arguments were malformed instead of
+                            # silently running the tool with empty args.
+                            result = ToolResult(
+                                ok=False,
+                                content=(
+                                    f"Invalid tool arguments for {tc.name}: JSON parse error "
+                                    f"({args_parse_error}). Re-issue the tool call with valid JSON."
+                                ),
+                            )
+                        elif (
                             self.allowed_tool_names is not None
                             and tc.name not in self.allowed_tool_names
                         ):

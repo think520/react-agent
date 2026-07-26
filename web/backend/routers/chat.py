@@ -1360,9 +1360,37 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
             "chat_session_id": session.session_id,
             "provider": provider_name,
         })
+        latest_attribution = initial_attribution
+        pending_artifacts: list[dict[str, Any]] = []
+        persisted = False
+
+        def persist_session() -> dict[str, Any]:
+            # Runs in the normal completion path AND in finally (client
+            # disconnect / GeneratorExit), so a mid-stream drop never loses
+            # the turn that was already appended to the session.
+            nonlocal persisted
+            if persisted or not body.save:
+                return {"ok": True}
+            persisted = True
+            _attach_user_references(session, body.references)
+            _attach_attribution(session, latest_attribution)
+            _attach_artifacts(session, pending_artifacts)
+            _attach_personalization(session, personalization.get("references") or [])
+            save_result = AgentService.save_session(session, get_session_save_dir(config, workspace))
+            if save_result["ok"] and memory_enabled:
+                try:
+                    from service.memory_consolidation import MemoryConsolidationService
+                    MemoryConsolidationService(
+                        workspace,
+                        config=config,
+                        session_dir=get_session_save_dir(config, workspace),
+                        legacy_workspace=get_workspace(),
+                    ).schedule_session(session.session_id, len(session.messages), delay_seconds=90)
+                except Exception as exc:
+                    logger.warning("Could not schedule memory consolidation: %s", exc)
+            return save_result
+
         try:
-            latest_attribution = initial_attribution
-            pending_artifacts: list[dict[str, Any]] = []
             run_operations: list[dict[str, Any]] = []
             if initial_attribution:
                 yield encode_sse("citation", {"run_id": run_id, "attribution": initial_attribution})
@@ -1416,11 +1444,7 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
             yield encode_sse("chat_artifact", {"run_id": run_id, "artifact": run_summary})
 
             if body.save:
-                _attach_user_references(session, body.references)
-                _attach_attribution(session, latest_attribution)
-                _attach_artifacts(session, pending_artifacts)
-                _attach_personalization(session, personalization.get("references") or [])
-                save_result = AgentService.save_session(session, get_session_save_dir(config, workspace))
+                save_result = persist_session()
                 if not save_result["ok"]:
                     yield encode_sse("run_failed", {
                         "run_id": run_id,
@@ -1430,17 +1454,6 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
                         },
                     })
                     return
-                if memory_enabled:
-                    try:
-                        from service.memory_consolidation import MemoryConsolidationService
-                        MemoryConsolidationService(
-                            workspace,
-                            config=config,
-                            session_dir=get_session_save_dir(config, workspace),
-                            legacy_workspace=get_workspace(),
-                        ).schedule_session(session.session_id, len(session.messages), delay_seconds=90)
-                    except Exception as exc:
-                        logger.warning("Could not schedule memory consolidation: %s", exc)
 
             yield encode_sse("run_completed", {
                 "run_id": run_id,
@@ -1456,5 +1469,12 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
                     "message": "The AI run failed. Please try again.",
                 },
             })
+        finally:
+            # Client disconnects raise GeneratorExit here; persist whatever
+            # the agent already produced instead of dropping the whole turn.
+            try:
+                persist_session()
+            except Exception:
+                logger.exception("Failed to persist chat session after stream interruption")
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from core.db import open_connection
 from knowledge.paths import knowledge_path
 
 
@@ -20,13 +20,8 @@ class ResearchStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._init_schema()
 
-    def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.path)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON")
-        conn.execute("PRAGMA journal_mode = WAL")
-        conn.execute("PRAGMA busy_timeout = 5000")
-        return conn
+    def _connect(self):
+        return open_connection(str(self.path))
 
     def _init_schema(self) -> None:
         with self._connect() as conn:

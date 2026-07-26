@@ -13,7 +13,7 @@ from typing import Any
 
 from quiz.store import QuizStore
 from quiz.generator import QuestionGenerator
-from quiz.evaluator import QuizEvaluator
+from quiz.evaluator import GradingError, QuizEvaluator
 from quiz.schema import Question, QuizAttempt
 
 logger = logging.getLogger(__name__)
@@ -23,8 +23,8 @@ def _ok(**kwargs: Any) -> dict[str, Any]:
     return {"ok": True, **kwargs}
 
 
-def _err(error: str) -> dict[str, Any]:
-    return {"ok": False, "error": error}
+def _err(error: str, **extra: Any) -> dict[str, Any]:
+    return {"ok": False, "error": error, **extra}
 
 
 def _get_llm_provider(config: dict | None = None):
@@ -284,7 +284,14 @@ class QuizService:
         except Exception:
             evaluator = QuizEvaluator()
 
-        is_correct, feedback = evaluator.evaluate(question, answer)
+        try:
+            is_correct, feedback = evaluator.evaluate(question, answer)
+        except GradingError as exc:
+            logger.warning("Grading unavailable for question %s: %s", question_id, exc)
+            return _err(
+                "批改服务暂时不可用，本次作答未记录，请稍后重试。",
+                code="grading_unavailable",
+            )
 
         attempt_record = QuizAttempt(
             session_id=session_id,

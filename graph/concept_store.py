@@ -727,16 +727,15 @@ class ConceptStore:
 
         # Collect relationships between the loaded concepts only
         rels: list[dict[str, Any]] = []
-        seen_rels: set[str] = set()
-        with self._connect() as con:
-            rows = con.execute(
-                """SELECT * FROM relationships
-                   WHERE from_id IN ({ph}) AND to_id IN ({ph})
-                """.format(ph=",".join("?" * len(concept_ids))),
-                list(concept_ids) * 2,
-            ).fetchall()
-            rels = [dict(r) for r in rows]
-            seen_rels = {r["rel_id"] for r in rels}
+        if concept_ids:
+            with self._connect() as con:
+                rows = con.execute(
+                    """SELECT * FROM relationships
+                       WHERE from_id IN ({ph}) AND to_id IN ({ph})
+                    """.format(ph=",".join("?" * len(concept_ids))),
+                    list(concept_ids) * 2,
+                ).fetchall()
+                rels = [dict(r) for r in rows]
 
         positions = self.get_positions(view_id=view_id)
         candidates = self.list_candidates() if include_candidates else []

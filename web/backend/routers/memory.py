@@ -120,7 +120,8 @@ def daily_read(request: Request, date: str | None = None) -> dict:
 
 
 @router.post("/promote")
-def promote(request: Request, dry_run: bool = True) -> dict:
+def promote(request: Request) -> dict:
+    # Intentionally read-only from the Web UI: promotion preview only.
     result = _unwrap(_service(request).promote(dry_run=True))
     for candidate in result.get("candidates", []):
         candidate.pop("path", None)

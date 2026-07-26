@@ -1,7 +1,10 @@
 import inspect
+import logging
 import os
 from dataclasses import dataclass, field
 from typing import Callable, Any
+
+logger = logging.getLogger(__name__)
 
 TOOL_REGISTRY: dict[str, Callable] = {}
 TOOL_SCHEMAS: list[dict] = []
@@ -118,4 +121,5 @@ def execute_tool(name: str, args: dict, session=None) -> Any:
             result = ToolResult(ok=True, content=str(result))
         return result
     except Exception as e:
+        logger.exception("Tool %s raised an unexpected exception", name)
         return ToolResult(ok=False, content=f"Tool execution error: {str(e)}")

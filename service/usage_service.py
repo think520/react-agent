@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import os
-import sqlite3
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from core.db import open_connection
 
 
 def _home() -> Path:
@@ -22,10 +23,8 @@ class UsageService:
         self.path = root / "usage.db"
         self._init_db()
 
-    def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        return connection
+    def _connect(self):
+        return open_connection(str(self.path), wal=False)
 
     def _init_db(self) -> None:
         with self._connect() as connection:

@@ -1,5 +1,6 @@
 import copy
 import json
+import logging
 import os
 import queue
 import shlex
@@ -9,6 +10,8 @@ import time
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 from core.agent_loop import AgentLoop
 from cli.markdown_render import (

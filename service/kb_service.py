@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import json
+import logging
 import shutil
 import hashlib
 import re
@@ -17,6 +18,8 @@ from functools import lru_cache
 from typing import Any
 
 from knowledge.paths import knowledge_dir, knowledge_path
+
+logger = logging.getLogger(__name__)
 
 
 def _ok(**kwargs: Any) -> dict[str, Any]:
@@ -834,8 +837,18 @@ class KBService:
                         os.path.join(self.workspace, ".bobodan", "wiki", "plans", f"{plan['plan_id']}.json"),
                         plan,
                     )
-                except Exception:
-                    return
+                except Exception as exc:
+                    logger.exception("Wiki run %s failed during planning", run["run_id"])
+                    try:
+                        store.update(
+                            run["run_id"],
+                            status="failed",
+                            phase="error",
+                            error=f"整理运行失败：{exc}",
+                            retryable=True,
+                        )
+                    except Exception:
+                        logger.exception("Could not mark wiki run %s as failed", run["run_id"])
 
             import threading
             threading.Thread(target=worker, name=f"wiki-run-{run['run_id'][:8]}", daemon=True).start()

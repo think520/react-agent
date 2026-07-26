@@ -156,7 +156,7 @@ class LearningStore:
         with self._conn() as conn:
             rows = conn.execute(
                 """SELECT * FROM mastery
-                   WHERE status IN ('learning', 'needs_review')
+                   WHERE status IN ('learning', 'needs_review', 'mastered')
                    AND next_review IS NOT NULL AND next_review <= ?
                    ORDER BY next_review ASC LIMIT ?""",
                 (now, limit),

@@ -43,6 +43,27 @@ describe("api client", () => {
     }));
   });
 
+  it("skips malformed SSE frames without breaking later events", async () => {
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode("event: run_started\ndata: {\"run_id\":\"r1\",\"chat_session_id\":\"s1\"}\n\n"));
+        controller.enqueue(encoder.encode("event: message_delta\ndata: {broken json!!\n\n"));
+        controller.enqueue(encoder.encode("event: message_delta\ndata: {\"content\":\"世界\"}\n\n"));
+        controller.close();
+      },
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(body, { status: 200 })));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const events: string[] = [];
+
+    await streamChat("hello", undefined, [], {}, (event) => events.push(event.event));
+
+    expect(events).toEqual(["run_started", "message_delta"]);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
   it("preserves the stable API error code", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
       error: { code: "provider_unavailable", message: "AI 尚未连接" },

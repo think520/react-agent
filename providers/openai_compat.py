@@ -217,6 +217,7 @@ class OpenAICompatibleProvider:
         headers = self._headers()
 
         last_error = None
+        started = False  # once chunks were yielded, retrying would replay duplicate content
         for attempt in range(self.max_retries):
             try:
                 with httpx.Client(base_url=self.base_url, timeout=self.timeout) as client:
@@ -233,6 +234,7 @@ class OpenAICompatibleProvider:
                                     return
                                 if not data:
                                     continue
+                                started = True
                                 yield self._parse_stream_chunk(json.loads(data))
                             return
 
@@ -248,10 +250,14 @@ class OpenAICompatibleProvider:
 
             except httpx.TimeoutException:
                 last_error = f"{self.name} API timeout"
+                if started:
+                    raise Exception(f"{self.name} stream interrupted mid-response: {last_error}")
                 logger.warning(f"[{self.name}] {last_error} - retry {attempt + 1}/{self.max_retries}")
                 time.sleep(2 ** attempt)
             except httpx.ConnectError:
                 last_error = f"{self.name} API connection error"
+                if started:
+                    raise Exception(f"{self.name} stream interrupted mid-response: {last_error}")
                 logger.warning(f"[{self.name}] {last_error} - retry {attempt + 1}/{self.max_retries}")
                 time.sleep(2 ** attempt)
 

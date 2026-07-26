@@ -6,7 +6,6 @@ import hashlib
 import json
 import os
 import re
-import sqlite3
 import threading
 import time
 import uuid
@@ -20,6 +19,7 @@ from .compiler import _parse_llm_json, _safe_filename
 from .reliability import PROCESS_RUNNER_ID, atomic_json
 from .schema import GENERATED_BY
 from .workflow import WikiWorkflow, _canonical_title, _read_frontmatter, _now
+from core.db import open_connection
 from service.usage_service import UsageService
 
 
@@ -49,7 +49,7 @@ class WikiGenerationCache:
         root = os.path.join(os.path.abspath(workspace), ".bobodan", "wiki")
         os.makedirs(root, exist_ok=True)
         self.path = os.path.join(root, "cache.db")
-        with sqlite3.connect(self.path) as connection:
+        with open_connection(self.path, wal=False) as connection:
             connection.execute("""
                 CREATE TABLE IF NOT EXISTS generation_cache (
                     cache_key TEXT PRIMARY KEY,
@@ -59,14 +59,14 @@ class WikiGenerationCache:
             """)
 
     def get(self, key: str) -> list[dict[str, Any]] | None:
-        with sqlite3.connect(self.path) as connection:
+        with open_connection(self.path, wal=False) as connection:
             row = connection.execute(
                 "SELECT pages_json FROM generation_cache WHERE cache_key = ?", (key,),
             ).fetchone()
         return json.loads(row[0]) if row else None
 
     def put(self, key: str, pages: list[dict[str, Any]]) -> None:
-        with sqlite3.connect(self.path) as connection:
+        with open_connection(self.path, wal=False) as connection:
             connection.execute(
                 "INSERT OR REPLACE INTO generation_cache(cache_key, pages_json, created_at) VALUES (?, ?, ?)",
                 (key, json.dumps(pages, ensure_ascii=False), _now()),
