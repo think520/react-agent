@@ -13,7 +13,7 @@ from urllib.parse import quote
 
 import yaml
 
-from .compiler import _parse_llm_json, _safe_filename
+from .utils import parse_wiki_json, safe_filename
 from .index import WikiIndexer
 from .reliability import (
     WIKI_WRITE_LOCK, WikiTaskStore, atomic_text, merge_page, stage_change, validate_change,
@@ -187,7 +187,7 @@ class WikiWorkflow:
         if llm_provider is None:
             raise ValueError("No configured model is available for Wiki planning")
         response = llm_provider.complete([{"role": "user", "content": prompt}])
-        parsed = _parse_llm_json(response.content or "")
+        parsed = parse_wiki_json(response.content or "")
         if not isinstance(parsed, dict) or not isinstance(parsed.get("pages"), list):
             raise ValueError("The model did not return a valid Wiki plan")
         return parsed
@@ -320,13 +320,13 @@ class WikiWorkflow:
             if matches:
                 target = matches[0]["relative_path"]
             elif page_type == "wiki_source":
-                target = f"{directory}/{datetime.now().strftime('%Y-%m-%d')}_{_safe_filename(title)}.md"
+                target = f"{directory}/{datetime.now().strftime('%Y-%m-%d')}_{safe_filename(title)}.md"
             elif page_type == "wiki_analysis" and not title.startswith("分析_"):
-                target = f"{directory}/分析_{_safe_filename(title)}.md"
+                target = f"{directory}/分析_{safe_filename(title)}.md"
             elif page_type == "wiki_question" and not title.startswith(("问题_", "发现_")):
-                target = f"{directory}/问题_{_safe_filename(title)}.md"
+                target = f"{directory}/问题_{safe_filename(title)}.md"
             else:
-                target = f"{directory}/{_safe_filename(title)}.md"
+                target = f"{directory}/{safe_filename(title)}.md"
             changes.append({
                 "change_id": uuid.uuid4().hex,
                 "kind": kind,

@@ -395,9 +395,9 @@ Memory 与个人学习知识库共同沉淀：
 
 ### 3.1 总体判断
 
-Bobodan 已经完成“学习 Agent 引擎”“Web 产品化基础”“本地学习闭环 Web MVP”“用户主动触发的 LLM Wiki”“便携文件夹资料库”“Wiki 可靠性增强”“Web UI 系统体验与设置中心”“可信联网资料扩展”“个人学习知识库”和“全库 Wiki 编排”主体流程。普通用户可以在浏览器中切换多个本地资料库，完成资料学习、个性化设置、用户确认式网页研究，以及可查看、确认、编辑和删除的长期个人知识沉淀。
+Bobodan 已经完成“学习 Agent 引擎”“Web 产品化基础”“本地学习闭环 Web MVP”“便携文件夹资料库”“Web UI 系统体验与设置中心”“可信联网资料扩展”“个人学习知识库”和“知识地图”主体流程。旧 Wiki 整理能力保留在高级维护 / 历史整理边界，不再作为资料导入、Chat 检索或日常阅读的必经层。普通用户可以在浏览器中切换多个本地资料库，完成资料学习、个性化设置、用户确认式网页研究，以及可查看、确认、编辑和删除的长期个人知识沉淀。
 
-现有技术路线不需要推倒重来。Python + FastAPI + SQLite / Qdrant + React Web UI 仍然适合本地优先的个人学习助手。P5C 已整理 Web 产品合约，P5D 已完成 Library → Chat → Practice → Review，P5E 已完成用户确认式 LLM Wiki，P5E.1 已把测试工作区升级为通用文件夹资料库，P5E.2 已补齐 Wiki 可靠性，P5E.3 已补齐用户偏好与设置中心，P5F 已补齐可信联网候选、证据快照和网页来源练习，P5F.1 已补齐确定性学习事件、候选确认和已确认个人知识，P5E.4 已通过真实资料验收，P5E.5 已补齐 Wiki 使用引导、手写编辑和 AI 成本控制，P5E.6 已实施知识地图产品重置。下一步进入 P5G 发布收尾。
+现有技术路线不需要推倒重来。Python + FastAPI + SQLite / Qdrant + React Web UI 仍然适合本地优先的个人学习助手。P5C 已整理 Web 产品合约，P5D 已完成 Library → Chat → Practice → Review，P5E.1 已把测试工作区升级为通用文件夹资料库，P5E.3 已补齐用户偏好与设置中心，P5F 已补齐可信联网候选、证据快照和网页来源练习，P5F.1 已补齐确定性学习事件、候选确认和已确认个人知识，P5E.6 已实施知识地图产品重置。2026-07-26 审查整改进一步退役了旧 memory、JSON RAG、JSON / Neo4j graph 和 Wiki compiler 的正常运行路径。下一步进入 P5G 发布收尾。
 
 一句话结论：
 
@@ -408,13 +408,13 @@ Bobodan 已经完成“学习 Agent 引擎”“Web 产品化基础”“本地�
 | 模块 | 当前判断 | 说明 |
 |---|---|---|
 | Agent Runtime | 可用且测试充分 | ReAct、流式输出、工具调用、session、provider 已稳定运行 |
-| RAG v2 | 较成熟 | SQLite / FTS5 / Qdrant / hybrid / directory / grep 已具备完整检索骨架；扫描页和图片文字尚不会被识别，需要提取完整性报告避免静默漏读 |
-| Quiz / Learning | Web 闭环可用 | 支持范围出题、精确题目会话、题内问 AI、练习恢复、批改、掌握度变化和 Review 聚合 |
-| Memory | P5F.1 完成 | 全局 / 资料库双层 SQLite、确定性学习事件、90 秒对话整理、候选确认、显式记忆卡、旧记忆迁移、Markdown 导出和个性化依据已落地；旧 daily Markdown 保持只读 |
-| Service Layer | 产品化基础完成 | CLI / Web 共用 runtime、config 与 service，Review / Practice 聚合已补齐 |
+| RAG v2 | 较成熟 | SQLite / FTS5 / Qdrant / hybrid / directory / grep 已具备完整检索骨架；中文检索使用规范化文本与 CJK 2-gram，检索管线按 workspace / 配置缓存；扫描页和图片文字尚不会被识别，需要提取完整性报告避免静默漏读 |
+| Quiz / Learning | Web 闭环可用 | 支持范围出题、错题误区变式、精确题目会话、题内问 AI、练习恢复、批改、SM-2 复习和 Review 聚合 |
+| Memory | P5F.1 完成 | 全局 / 资料库双层 SQLite、确定性学习事件、候选确认、显式记忆卡、旧记忆迁移、Markdown 导出和请求级个性化已落地；旧 Markdown 仅供只读预览 / 导入，不再由正常运行时读写或注入 Prompt |
+| Service Layer | 产品化基础完成 | CLI / Web 共用 runtime、config 与 service；统一成功 / 错误信封和结构化错误码已落地 |
 | FastAPI | P5F.1 完成 | 已有稳定错误结构、流式事件、资料库隔离、Wiki / 联网证据、个人知识 CRUD、候选确认、阅读进度、旧记忆迁移和 Chat 记忆确认 API |
-| Web UI | P5E.6 完成 | Chat、Library、Practice、Review、设置中心、个人知识管理、Wiki 编辑、成本控制和知识地图界面已落地；桌面发布壳尚未实现 |
-| 测试 | 全栈回归已建立 | Python `1148 passed`；Vitest `5 passed`；TypeScript 与生产构建通过；Playwright 桌面、窄屏和移动端 `75 passed` |
+| Web UI | P5E.6 完成 | Chat、Library、Practice、Review、设置中心、个人知识管理、历史整理、成本控制和知识地图界面已落地；主页面使用路由级懒加载和应用级错误边界，桌面发布壳尚未实现 |
+| 测试 | 全栈回归已建立 | Python、前端 lint、TypeScript 构建与 Vitest 均有回归命令；本轮最终数量以提交前验证结果为准，不在指南中固化易过期计数 |
 
 ### 3.3 P5C / P5D / P5E 已解决的问题与剩余边界
 
@@ -472,6 +472,24 @@ P5F.1 已补齐：
 - 开发期仍是 Vite + FastAPI 两个进程；FastAPI 静态托管、`bobodan web`、PyInstaller sidecar 和 Electron 安装包尚未实现。
 - MCP / specialist 不进入首发 Workbench；只有请求级 ToolContext 和发布安全边界稳定后才重新评估。
 
+### 3.3.1 2026-07-26 审查整改边界
+
+本轮整改遵循“只保留一个正常运行真相源，旧数据只做显式迁移”的原则：
+
+| 领域 | 当前边界 |
+|---|---|
+| Memory | 正常运行只使用 `personal_knowledge` SQLite 和请求级 `personalization_context`；旧 `.bobodan/memory/*.md`、daily 文件只由迁移预览读取，不再写入，也不再静态注入 Agent Prompt |
+| RAG | `knowledge.db` 是唯一检索入口；`rag_index*.json` 不读取、不更新、不作为 fallback。缺少 SQLite 索引时明确返回 `unavailable` |
+| Knowledge Map | `concept_graph.db` 只保存用户审查后的概念、关系和证据；旧 `graph_store.json` 不参与回答，设置页仅惰性检测并提供迁移预览 |
+| Legacy graph migration | Concept / 语义关系进入候选审查；Memory 永不进入概念图谱，可作为个人知识导入候选；可能重复只提示不自动丢弃；成功校验后才归档旧 JSON 并记录 SHA-256 与迁移时间 |
+| Wiki | 旧 `WikiCompiler` 和 `wiki_ingest` 入口退役；保留 workflow / orchestration 作为高级维护、历史整理、lint 和状态查看，不把 Wiki 页面当作 RAG 必需证据 |
+| Provider | Provider 暴露完整同步 / 流式契约，并使用 `ProviderTimeout`、`ProviderConnectionError`、`ProviderConfigError` 等类型化错误；factory 使用注册表装配 |
+| Service | Service 共用 `service/_result.py` 返回 `ok/code/error` 结构，Web 错误适配按 code 映射状态码，不再依赖错误文案字符串 |
+| Learning | 复习调度升级为带 `ease_factor`、`interval_days` 的保守 SM-2；错题重练把原题与用户错误答案交给生成器，产出针对同一误区的不同问法 |
+| Frontend | 页面路由使用 `React.lazy` / `Suspense` 分块；Chat 流归约、命令路由、错误展示和部分状态职责从巨型组件中提取为可测试单元 |
+
+旧数据不会被 reset 或同步流程静默删除。旧索引和图谱文件可以保留为迁移来源，但正常 Chat、检索、知识地图和个性化运行时不得继续消费它们。
+
 ### 3.4 优化原则
 
 - 以“用户完成一次学习闭环”为进度单位，不以页面或模块数量为进度单位。
@@ -515,7 +533,7 @@ Agent / RAG / Quiz / Learning / Memory
 - 开发模式：Vite dev server + FastAPI，Vite proxy `/api`。
 - 发布模式：Vite production build 由 FastAPI 托管静态文件，一个本地进程启动。
 - 运行边界：默认只绑定 `127.0.0.1`，按单用户本地应用设计，本阶段不做登录和多租户。
-- 保留现有 SQLite、Qdrant、JSON / Markdown 存储，不进行无收益的数据层重写。
+- 保留现有 SQLite、Qdrant 以及必要的配置 / 元数据 JSON；RAG、概念图谱和个人知识使用各自 SQLite truth source。旧 Markdown / JSON 用户数据只保留只读迁移边界，不为兼容继续维护第二套 runtime。
 
 ### P5C：产品化基础
 
@@ -830,6 +848,8 @@ P5E.2 已完成：结构文件由程序确定性维护；模型输出在写入�
 
 ### P5E.4：LLM Wiki 全库编排与覆盖系统（完成）
 
+> 历史阶段说明：本节记录 P5E.4 当时的实现与验收。其“每份资料生成 Wiki 页面 / 以覆盖率驱动日常流程”的产品位置已被 P5E.6 取代；当前只在高级维护 / 历史整理中保留 workflow 和 orchestration。
+
 P5E.4 修正早期 Wiki 将大量选中文档顺序截断后交给一次模型调用的问题。正式 Wiki 流程以整个活动资料库为发现边界，不要求用户记住哪些资料已经整理，也不把手动选择默认解释为排除其他资料。
 
 默认流程：
@@ -934,6 +954,8 @@ P5F 收尾修正进一步补齐：
 
 ### P5E.5：Wiki 易用性、手写编辑与 AI 成本控制（完成）
 
+> 历史阶段说明：本节记录 P5E.5 当时的实现。P5E.6 之后 Library、Chat 和知识地图不依赖 Wiki 整理完成度，`wiki_note` 等历史页面也不是原始资料证据。
+
 P5E.5 解决 P5E.4 验收后暴露的产品问题：修复预览没有后续动作、首次用户不理解资料与 Wiki 的关系、完整未覆盖范围耗时过长，以及模型调用没有真实用量和缓存可见性。
 
 默认流程调整为：
@@ -1007,6 +1029,7 @@ P5E.6 不在本阶段做：复杂全图一次性可视化、导入即自动概�
 4. **`web/backend/routers/graph.py`** — 12 个 REST 端点，覆盖图状态、子图、概念 CRUD、关系 CRUD、候选操作、提取触发和位置保存；`/api/graph` 纳入 library-scoped 中间件。
 5. **前端** — Sigma.js v3 + Graphology WebGL 渲染；`KnowledgeMapPage`（三视图：地图 / 目录 / 来源）、`GraphCanvas`、`ConceptSidebar`（180ms 滑入侧栏）、`CandidateReviewPanel`（底部 sheet + 键盘快捷键）；导航新增"知识地图"入口。
 6. **`tests/test_concept_store.py`** + **`tests/test_concept_service.py`** — 覆盖 DDL、CRUD、候选压制、图状态、子图邻居、服务层验证和 LLM 提取 mock。
+7. **旧图谱迁移** — “设置 → 记忆与数据”惰性检测 `graph_store.json`，展示 Concept / Memory / 关系与风险预览；用户选择后导入候选，校验完成才归档源文件。旧 JSON / Neo4j 图不再参与同步、Agent 工具或 Library 状态统计。
 
 ### P5G：文档完整性、Windows 桌面发布与支撑页面
 
@@ -1549,6 +1572,10 @@ mastered / learning / needs_review
 - 到期复习知识点加入。
 - 用户手动加入。
 
+调度实现使用保守 SM-2：首次答对间隔 1 天、第二次 6 天，之后按 `interval_days × ease_factor` 递增；答错重置为 1 天并降低 ease（最低 1.3）。`mastered` 仍会在到期后回到复习队列，不再永久退出循环。
+
+错题开始重练时，不直接重复原题，也不只按概念随机出题。系统把原题、正确答案和用户的错误答案交给生成器，要求生成考察同一误区但表述不同的变式题，并保留原题证据范围。
+
 复习页显示示例：
 
 ```text
@@ -1752,7 +1779,7 @@ Learning Layer
   quiz / learning / review / mastery
 
 Memory Layer
-  memory / daily memory / permanent memory / personal learning knowledge / FTS5
+  personal learning knowledge / learning events / legacy read-only migration
 
 Storage Layer
   .knowledge / .bobodan / .session / Obsidian vault
@@ -1771,7 +1798,9 @@ Storage Layer
 - `knowledge/` 管知识库状态、manifest、导入报告和统计。
 - `quiz/` 管题库、练习、批改、错题。
 - `learning/` 管学习路径、掌握度、复习。
-- `memory/` 管用户长期上下文、个人学习知识和候选提升，不替代原始资料库或资料 Wiki。
+- `memory/` 管用户长期上下文、个人学习知识、候选确认和旧数据只读迁移，不替代原始资料库或知识地图。
+- Provider 失败必须保留类型信息；可重试超时、连接失败和配置错误不能在 service / Web 边界退化成同一种字符串异常。
+- Service 对外统一返回结构化结果信封；router 负责把稳定错误码转换为 HTTP，不从自然语言错误消息猜状态。
 - `cli/` 和 `web/` 只负责交互，不写核心业务。
 
 依赖方向：
@@ -1822,7 +1851,7 @@ memory -> cli
 `.bobodan/`：
 
 - 不可从索引重建的本地用户数据。
-- 包含 permanent memory、daily memory、trace、memory db，以及 Web 上传资料的托管副本目录 `sources/`。
+- 包含个人知识数据库、trace、迁移来源 / 元数据，以及 Web 上传资料的托管副本目录 `sources/`。旧 permanent / daily Markdown 可能继续存在，但只作为显式迁移来源。
 - 不应随便删除。
 
 个人学习知识库：
@@ -1831,7 +1860,14 @@ memory -> cli
 - 用户级全局数据只保存称呼、低风险偏好和长期目标；掌握度、错题、课程进度、学习笔记和资料相关结论必须带 `library_id`。
 - 未确认候选不得注入为稳定事实；敏感画像、健康判断和人格推断默认不自动保存。
 - 确认后的高价值内容可以导出到 Markdown / Obsidian，但导出文件不与数据库双向自动同步。
-- 用户删除或清空后，memory prompt、Chat 检索、Practice 个性化与 Review 推荐必须在下一次请求前刷新。
+- 用户删除或清空后，请求级个性化上下文、Chat 检索、Practice 个性化与 Review 推荐必须在下一次请求前刷新；禁止保留进程启动时生成的静态 memory prompt。
+
+知识地图与旧图谱：
+
+- `concept_graph.db` 是已审查概念、关系、证据和候选状态的 truth source。
+- 候选概念不得作为 Agent 的知识依据；只允许返回候选数量 / 状态摘要，用户审查确认后才进入正式图谱。
+- `graph_store.json`、旧 Neo4j 数据和旧图谱工具不参与正常运行；旧 JSON 只在“设置 → 记忆与数据”中惰性检测、预览和显式迁移。
+- 迁移发现的 Memory 节点无条件排除出概念图谱；可导入个人知识的项目必须由用户选择，可能重复只提示，不自动跳过。
 
 `.bobodan/sources/`：
 
@@ -1865,7 +1901,7 @@ Obsidian vault：
 
 - 用户原始资料和可读输出目标。
 - 原始资料是 truth source。
-- wiki 页面是编译层。
+- 历史 Wiki 页面是高级维护 / 只读整理产物，不是 Chat RAG 的必要中间层。
 - `.knowledge/` 是运行时索引。
 
 ## 9. 新功能判断

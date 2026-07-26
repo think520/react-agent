@@ -6,7 +6,6 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
-from core.memory import MemoryManager
 from core.skills import build_skills_system_prompt, list_skills
 from core.trace import TraceWriter
 from providers.factory import ProviderFactory
@@ -19,18 +18,14 @@ class RuntimeContext:
     skills_dir: str
     skills_prompt: str | None
     skill_count: int
-    memory_manager: MemoryManager | None
-    memory_prompt: str | None
     memory_count: int
 
-    def refresh_memory(self) -> str | None:
-        if self.memory_manager is None:
-            self.memory_prompt = None
-            self.memory_count = 0
-            return None
-        self.memory_prompt = self.memory_manager.build_memory_prompt()
-        self.memory_count = len(self.memory_manager.list_entries())
-        return self.memory_prompt
+    def refresh_memory(self) -> None:
+        """Refresh the structured personal-knowledge count for status UI."""
+        from service.memory_service import MemoryService
+
+        result = MemoryService(self.workspace).overview()
+        self.memory_count = int(result.get("knowledge_count") or 0) if result.get("ok") else 0
 
     def create_provider(self, provider_name: str | None = None):
         return RuntimeService.create_provider(self.config, provider_name)
@@ -63,17 +58,14 @@ class RuntimeService:
         skills_prompt = build_skills_system_prompt(skills_dir) if skills_enabled else None
         skill_count = len(list_skills(skills_dir)) if skills_enabled else 0
 
-        memory_manager = None
-        memory_prompt = None
         memory_count = 0
         memory_config = config.get("memory", {})
         if memory_config.get("enabled", True):
-            memory_manager = MemoryManager(
-                workspace,
-                base_dir=memory_config.get("dir", ".bobodan"),
-            )
-            memory_prompt = memory_manager.build_memory_prompt()
-            memory_count = len(memory_manager.list_entries())
+            from service.memory_service import MemoryService
+
+            result = MemoryService(workspace).overview()
+            if result.get("ok"):
+                memory_count = int(result.get("knowledge_count") or 0)
 
         return RuntimeContext(
             workspace=workspace,
@@ -81,8 +73,6 @@ class RuntimeService:
             skills_dir=skills_dir,
             skills_prompt=skills_prompt,
             skill_count=skill_count,
-            memory_manager=memory_manager,
-            memory_prompt=memory_prompt,
             memory_count=memory_count,
         )
 

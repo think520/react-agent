@@ -54,10 +54,10 @@ def _path_tail(p: str, n: int) -> str:
         ("read_file", None, 60, ""),
         ("read_file", {}, 60, ""),
         ("read_file", {"other": "x"}, 60, ""),
-        # rag_search / graph_query
+        # rag_search / concept_map_query
         ("rag_search", {"query": "transformer attention"}, 60, "transformer attention"),
         ("rag_search", {"query": "x" * 200}, 60, "x" * 59 + "…"),
-        ("graph_query", {"concept": "neural nets"}, 60, "neural nets"),
+        ("concept_map_query", {"concept": "neural nets"}, 60, "neural nets"),
         # delegate_triage / delegate_planner
         ("delegate_triage", {"query": "foo bar"}, 60, "foo bar"),
         ("delegate_planner", {"goal": "learn rust"}, 60, "learn rust"),

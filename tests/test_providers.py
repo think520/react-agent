@@ -1,6 +1,9 @@
+import httpx
 import pytest
 from providers.base import LLMProvider
-from providers.types import LLMResponse, ToolCall
+from providers.errors import ProviderConfigError, ProviderTimeout
+from providers.factory import ProviderFactory
+from providers.types import LLMResponse, LLMStreamChunk, ToolCall
 from providers.openai_compat import OpenAICompatibleProvider
 from providers.minimax import MiniMaxProvider
 
@@ -8,12 +11,16 @@ from providers.minimax import MiniMaxProvider
 class MockProvider:
     def __init__(self):
         self.name = "mock"
+        self.model = "mock-model"
 
     def complete(self, messages: list[dict], tools: list[dict] = None) -> LLMResponse:
         return LLMResponse(content="mock response")
 
     def get_name(self) -> str:
         return self.name
+
+    def complete_stream(self, messages: list[dict], tools: list[dict] = None):
+        yield LLMStreamChunk(content_delta="mock response")
 
 
 def test_llm_provider_protocol():
@@ -257,3 +264,63 @@ def test_minimax_convert_messages_merges_system():
     # No name fields on any message
     for msg in converted:
         assert "name" not in msg
+
+
+def test_openai_compat_timeout_raises_typed_error(monkeypatch):
+    class Client:
+        def __init__(self, **_kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def post(self, *_args, **_kwargs):
+            raise httpx.TimeoutException("timed out")
+
+    monkeypatch.setattr("providers.openai_compat.httpx.Client", Client)
+    monkeypatch.setattr("providers.openai_compat.time.sleep", lambda _seconds: None)
+    provider = OpenAICompatibleProvider(
+        api_key="test", model="test", base_url="http://localhost",
+        provider_name="test", max_retries=1,
+    )
+
+    with pytest.raises(ProviderTimeout):
+        provider.complete([{"role": "user", "content": "hi"}])
+
+
+def test_provider_factory_uses_registry_and_typed_config_errors(monkeypatch):
+    monkeypatch.setenv("TEST_PROVIDER_KEY", "secret")
+    provider = ProviderFactory.create(
+        {"type": "openai_compatible", "api_key_env": "TEST_PROVIDER_KEY", "model": "custom"},
+        {"temperature": 0.2},
+    )
+    assert provider.name == "openai_compatible"
+    assert provider.model == "custom"
+    with pytest.raises(ProviderConfigError):
+        ProviderFactory.create({"type": "unknown", "api_key_env": "TEST_PROVIDER_KEY"}, {})
+
+
+def test_minimax_stream_refusal_drops_buffered_tool_calls(monkeypatch):
+    def stream(_self, _messages, _tools=None):
+        yield LLMStreamChunk(tool_call_deltas=[{"index": 0}], request_id="r1")
+        yield LLMStreamChunk(content_delta="抱歉，我无法执行这个操作。", request_id="r1")
+
+    monkeypatch.setattr(OpenAICompatibleProvider, "complete_stream", stream)
+    chunks = list(MiniMaxProvider(api_key="test").complete_stream([]))
+    assert "".join(chunk.content_delta for chunk in chunks) == "抱歉，我无法执行这个操作。"
+    assert not any(chunk.tool_call_deltas for chunk in chunks)
+
+
+def test_minimax_stream_emits_buffered_tool_calls_when_not_refused(monkeypatch):
+    delta = {"index": 0, "id": "call-1"}
+
+    def stream(_self, _messages, _tools=None):
+        yield LLMStreamChunk(tool_call_deltas=[delta], request_id="r1")
+        yield LLMStreamChunk(content_delta="我来查询资料。", request_id="r1")
+
+    monkeypatch.setattr(OpenAICompatibleProvider, "complete_stream", stream)
+    chunks = list(MiniMaxProvider(api_key="test").complete_stream([]))
+    assert chunks[-1].tool_call_deltas == [delta]

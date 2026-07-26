@@ -1,7 +1,6 @@
-"""Memory system: daily memory and FTS5 index (legacy read-only tier)."""
+"""Structured personal knowledge and read-only legacy migration support."""
 
-from .daily import DailyMemoryManager
-from .store import MemoryIndexStore
-from .search import MemorySearcher
+from .legacy import LegacyMemoryEntry, LegacyMemoryReader
+from .personal_store import PersonalKnowledgeStore
 
-__all__ = ["DailyMemoryManager", "MemoryIndexStore", "MemorySearcher"]
+__all__ = ["LegacyMemoryEntry", "LegacyMemoryReader", "PersonalKnowledgeStore"]

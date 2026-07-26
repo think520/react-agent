@@ -1,9 +1,4 @@
-"""Local RAG ingestion and retrieval modules (RAG v2).
-
-Legacy note: `chunker.py` and `vector_store.py` remain only for the old JSON
-sparse index fallback (`.knowledge/rag_index.json`) and legacy memory chunking.
-The retired dense/router/ingest stack has been removed.
-"""
+"""Local SQLite/Qdrant ingestion and retrieval modules (RAG v2)."""
 
 from .retriever import search_index
 

@@ -4,6 +4,7 @@ import pytest
 
 from quiz.store import QuizStore
 from quiz.schema import Question, QuizSession, QuizAttempt
+from rag.sqlite_store import KBSQLiteStore, make_chunk_row
 from service.quiz_service import QuizService
 
 
@@ -240,6 +241,56 @@ def test_get_wrong_answer_book_with_data(store, svc):
     result = svc.get_wrong_answer_book()
     assert result["ok"]
     assert len(result["entries"]) == 1
+
+
+def test_wrong_answer_variant_uses_original_question_and_user_answer(store, svc, workspace, monkeypatch):
+    kb = KBSQLiteStore(workspace)
+    kb.init_db()
+    kb.upsert_document("doc1", "lesson.md", "hash", title="算法课")
+    kb.insert_chunks([make_chunk_row(
+        "chunk1", "doc1", "lesson.md", 0,
+        "Dijkstra 算法每次选择当前距离最小的未访问节点，属于贪心策略。",
+    )])
+    kb.close()
+
+    question = Question(
+        type="single_choice",
+        question="Dijkstra 使用哪种策略？",
+        options=["A. 分治", "B. 贪心"],
+        answer="B",
+        explanation="每次选择当前距离最小的节点。",
+        concepts=["Dijkstra", "贪心算法"],
+        sources=[{
+            "source_type": "local", "source_id": "chunk1", "title": "算法课",
+            "document_id": "doc1", "chunk_id": "chunk1",
+        }],
+    )
+    question.id = store.add_question(question)
+    session = store.create_session([question.id])
+    attempt_id = store.record_attempt(QuizAttempt(
+        session_id=session.id,
+        question_id=question.id,
+        user_answer="A",
+        is_correct=False,
+    ))
+
+    class LLM:
+        prompt = ""
+
+        def complete(self, messages):
+            self.prompt = messages[0]["content"]
+            return type("Response", (), {"content": '[{"type":"single_choice","question":"在最短路计算中，每一步优先处理哪个节点？","options":["A. 当前距离最小的未访问节点","B. 编号最大的节点"],"answer":"A","explanation":"这是贪心选择。","concepts":["Dijkstra","贪心算法"],"difficulty":"medium","source_ids":["S1"]}]'})()
+
+    llm = LLM()
+    monkeypatch.setattr("service.quiz_service._get_llm_provider", lambda config=None: llm)
+    result = svc.generate_wrong_answer_variant(attempt_id)
+
+    assert result["ok"] is True
+    assert result["question"]["question"] != question.question
+    assert "用户错误答案：A" in llm.prompt
+    assert "Dijkstra 使用哪种策略" in llm.prompt
+    saved = store.get_question(result["question_id"])
+    assert saved.sources[0]["chunk_id"] == "chunk1"
 
 
 # --- get_weakness_analysis ---

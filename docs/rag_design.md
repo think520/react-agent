@@ -1,5 +1,7 @@
 # Bobodan Full RAG Design
 
+> 实现状态（2026-07-27）：RAG v2 已是唯一正常运行检索链路。SQLite `knowledge.db` 是元数据和 FTS truth source，Qdrant 是可选语义索引；旧 `rag_index*.json`、`rag/vector_store.py`、`rag/embeddings.py` 和旧 chunker 已退出 runtime。本文保留最初设计背景，但以下章节以当前实现边界为准。
+
 ## 1. 目标
 
 Bobodan 的知识库检索升级为完整 RAG 基础设施，支持四种检索方式：
@@ -17,11 +19,11 @@ Directory Index -> 文档级路由 -> document-level results
 directory_grep -> Directory 选文档 -> grep 搜原文 -> evidence results
 ```
 
-本设计是完整知识库检索层，为 CLI、tools、FastAPI、未来 Web UI 共用。
+本设计是完整知识库检索层，为 CLI、tools、FastAPI 和 React Web UI 共用。
 
-## 2. 当前问题
+## 2. 原始问题与当前结论
 
-当前项目已有：
+本设计启动时项目已有：
 
 - `rag/vector_store.py`：本地 sparse vector JSON（纯 TF，无 IDF）。
 - `rag/dense_store.py`：Ollama dense embedding JSON（线性扫描）。
@@ -31,7 +33,7 @@ directory_grep -> Directory 选文档 -> grep 搜原文 -> evidence results
 - `service/kb_service.py`：知识库 service 层入口。
 - `graph/`：知识图谱，概念关系存储。
 
-现有 RAG 缺：
+当时 RAG 缺：
 
 - 没有统一知识库数据库（SQLite）。
 - 没有正经向量数据库（Qdrant）。
@@ -42,6 +44,8 @@ directory_grep -> Directory 选文档 -> grep 搜原文 -> evidence results
 - 没有 heading-aware chunking。
 - 没有多格式（PDF/PPT/Word）统一解析。
 - 没有 FastAPI KB search endpoint。
+
+以上基础能力现已落地。当前剩余产品边界不是“是否有 RAG”，而是：扫描页 / 图片文字仍不可检索，需要提取完整性报告；无向量能力时必须明确展示关键词模式；知识地图只能增强结构理解，不能替代原始 chunk 证据。
 
 ## 3. 技术选型
 
@@ -232,8 +236,8 @@ content_hash = hash(file_content)  # 文件内容的 hash
 处理策略：
 
 - 不读取、不更新、不作为 fallback。
-- full reindex 成功后自动删除。
-- `/kb reset` 会自然清理。
+- full reindex 和 `/kb reset` 不自动删除，避免在无用户确认时清理历史文件。
+- 旧文件需要处理时走显式迁移或归档入口。
 - 如果只有旧索引没有新索引，提示用户重新 sync。
 
 ## 5. 多格式解析与切块
@@ -451,6 +455,7 @@ class RetrievalResult:
 - 精确术语："ReLU"、"Transformer"、"Adam optimizer"。
 - 英文缩写、人名、模型名、文件名。
 - 课程原文中的关键词。
+- 中文短语和不带空格的概念名称。
 
 排序：
 
@@ -460,8 +465,18 @@ class RetrievalResult:
 FTS5 索引字段：
 
 ```sql
-chunks_fts(text, title, heading_text, source, course)
+chunks_fts(text, title, heading_text, source, course, search_text)
 ```
+
+`search_text` 是为 FTS 检索生成的可重建字段：
+
+1. 对正文、标题和 heading 做 Unicode NFKC 规范化与 `casefold`。
+2. 英文 / 数字继续保留常规 token，避免破坏术语、缩写和文件名检索。
+3. 连续中文按 CJK 2-gram 展开，例如“注意力机制”产生“注意 / 意力 / 力机 / 机制”。
+4. 查询端使用相同规范化和 2-gram 规则，并用 OR 组合候选 term，避免长中文短语被 `unicode61` 当成单一 token 后完全失配。
+5. 旧数据库迁移时补写 `search_text` 并重建 FTS 表；之后由外部内容触发器保持同步。
+
+2-gram 是 lexical recall 增强，不改变向量检索，也不把 n-gram 文本返回给用户。最终 `RetrievalHit.text` 始终来自原始 chunk。
 
 ### 6.4 Directory Retriever
 
@@ -882,18 +897,20 @@ Graph = 独立概念关系查询层
 RAG = 原文证据和文档检索层
 ```
 
-- sync pipeline 继续构建 `graph_store.json`。
-- `graph_query` tool 继续独立注册，Agent 自主决定何时调用。
-- Orchestrator 不调用 `graph_query`，不融合 graph results。
+- sync pipeline 不再构建 `graph_store.json` 或 Neo4j 图。
+- 已审查知识地图由 `concept_graph.db` 和 `concept_map_query` 提供；候选概念不参与 Agent 回答。
+- Orchestrator 不直接融合 graph results。知识型问题以 `library_search` 的原文证据为骨架，概念图谱只做结构增强。
 
 原因：
 
 - 图谱查询的是 concept node / relationship edge，和 chunk/document 不是同一粒度。
 - 概念关系查询（"学 X 之前要先学什么"）vs 原文证据查询（"课件里怎么解释 X"）是不同场景。
-- `graph_query` 已经独立工作，不需要重写。
+- 图谱查询保持独立工具契约，避免把 concept / relationship 与 chunk 排名混为一层。
 - 第一版目标已经够大，不增加额外复杂度。
 
-后续可考虑 Graph as RAG enhancement（query expansion / answer structuring），但不是当前阶段。
+旧 `graph_store.json` 只用于“设置 → 记忆与数据”的显式迁移预览。迁移成功并校验后才归档；正常检索、回答、Library 状态和同步流程都不再读取它。
+
+后续可考虑 Graph as RAG enhancement（query expansion / answer structuring），但不能绕过原文证据门禁。
 
 ## 11. 配置
 
@@ -990,20 +1007,21 @@ tests/test_kb_api.py
 ```text
 obsidian/sync.py                 # 改用新 chunking + SQLite + Qdrant 写入
 rag/retriever.py                 # 改用 Orchestrator 作为入口
-rag/chunker.py                   # 保留旧实现作为 fallback，新版在 chunker_v2.py
 service/kb_service.py            # 新增 mode 参数
 tools/rag_search.py              # 新增 mode 参数
 config.yaml
 requirements.txt
 ```
 
-保留但标记 legacy：
+已退役并删除的 legacy runtime：
 
 ```text
-rag/vector_store.py              # legacy，新链路不调用
-rag/dense_store.py               # legacy，新链路不调用
-rag/router.py                    # legacy，新链路不调用
+rag/vector_store.py              # 旧 JSON sparse store
+rag/embeddings.py                # 旧 embedding 适配
+rag/chunker.py                   # 旧无 heading 切块器
 ```
+
+`rag_index*.json` 文件可以继续留在用户目录作为历史迁移 / 排查资料，但代码不再为它们保留 reader 或 fallback。
 
 ## 13. 迁移策略
 
@@ -1012,8 +1030,8 @@ rag/router.py                    # legacy，新链路不调用
 旧 JSON 索引是 legacy artifact，不进入新架构：
 
 - 不读取、不更新、不作为 fallback。
-- full reindex 成功后可清理旧 JSON。
-- `/kb reset` 会自然删除。
+- full reindex 和 `/kb reset` 不主动删除旧 JSON；reset 只重建当前索引，避免无确认的数据丢失。
+- 用户需要清理历史文件时必须走明确的迁移 / 归档动作。
 
 ### 13.2 Incremental Sync
 
@@ -1075,7 +1093,7 @@ full sync 完全重建 SQLite + Qdrant：
 - 重新扫描、解析、chunk、写入。
 - 重建 FTS5（通过触发器自动完成）。
 - 重建 directory_entries。
-- 清理旧 JSON 索引文件。
+- 使当前 workspace 的 RetrievalOrchestrator 缓存失效，下一次检索基于新索引重建管线。
 
 ### 13.4 SQLite 是 Truth Source
 
@@ -1088,6 +1106,17 @@ full sync 完全重建 SQLite + Qdrant：
 
 - incremental sync：FTS5 增量更新（触发器自动同步）。
 - full sync / repair：rebuild FTS5。
+- schema 升级发现缺少 `search_text` 时补列、回填规范化文本并重建 FTS5。
+- CJK 2-gram 与英文 token 在同一个 `search_text` 中共存；查询端生成规则必须与写入端一致。
+
+### 13.6 Orchestrator Cache
+
+`rag/retriever.py` 按“workspace 绝对路径 + RAG 配置”缓存 RetrievalOrchestrator、SQLite store 和 embedding / vector 依赖，避免每次搜索重复 DDL、连接初始化和 Ollama probe。
+
+- 缓存是进程内、有界 LRU，不是第二份数据真相源。
+- 每个缓存项有独立重入锁，保护共享 SQLite 连接和本地 Qdrant 客户端。
+- sync、reindex、delete 或 reset 改变索引后，必须调用 `clear_retrieval_cache(workspace)`。
+- 淘汰 / 清空缓存时显式关闭 SQLite 连接。
 
 ## 14. 测试计划
 
@@ -1098,6 +1127,8 @@ full sync 完全重建 SQLite + Qdrant：
    - course filter
    - vector_status 更新
    - directory_entries 写入
+   - 中文短语 2-gram 命中与英文检索回归
+   - 旧 schema 增加 `search_text` 后重建 FTS5
 
 2. Qdrant store
    - local path 初始化
@@ -1140,6 +1171,8 @@ full sync 完全重建 SQLite + Qdrant：
    - auto mode 路由
    - hybrid 空结果 fallback to directory_grep
    - 显式 mode 不 fallback
+   - 同 workspace / config 复用管线
+   - reindex 后缓存失效并读取新索引
 
 8. Query Router
    - directory_grep 模式匹配
@@ -1180,9 +1213,10 @@ pytest
 
 完成后应满足：
 
-- `obsidian_sync` 后生成 SQLite + Qdrant 索引（无旧 JSON 索引）。
+- `obsidian_sync` 后生成 SQLite + Qdrant 索引，不生成或更新旧 JSON 索引（历史文件可以原地保留）。
 - `rag_search` 默认走 hybrid（auto mode）。
 - exact keyword 查询由 FTS5 命中。
+- 不带空格的中文短语可以由 CJK 2-gram FTS 命中，英文术语检索不退化。
 - semantic 查询由 Qdrant vector 命中。
 - "在哪里提到"类问题走 directory_grep。
 - "哪些文档"类问题走 directory。
@@ -1194,6 +1228,8 @@ pytest
 - 没有 Ollama 时，FTS5 / directory / grep 仍可用。
 - 没有 `rg` 时，Python fallback 仍可用。
 - CLI、tool、KBService、FastAPI 都使用同一套检索逻辑（Orchestrator）。
+- 同一 workspace 的重复检索复用有界 Orchestrator 缓存；索引变更后缓存明确失效。
+- 旧 JSON 索引不存在运行时 fallback，缺少 `knowledge.db` 时返回可见的 unavailable 状态。
 - 全量测试通过。
 
 ## 16. 不做事项

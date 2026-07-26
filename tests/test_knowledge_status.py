@@ -133,7 +133,7 @@ def test_build_library_summary(tmp_path):
     ]
     save_manifest(ws, records)
 
-    # Create graph store
+    # A retired graph file may still exist, but summary reads only the reviewed map.
     graph_data = {
         "version": 1,
         "backend": "local",
@@ -148,13 +148,24 @@ def test_build_library_summary(tmp_path):
     with open(os.path.join(knowledge_dir, "graph_store.json"), "w") as f:
         json.dump(graph_data, f)
 
+    from graph.concept_store import ConceptStore
+
+    concept_store = ConceptStore(os.path.join(knowledge_dir, "concept_graph.db"))
+    first = concept_store.upsert_concept(name="A", level="core")
+    second = concept_store.upsert_concept(name="B", level="detail")
+    concept_store.upsert_relationship(
+        from_id=first["concept_id"],
+        to_id=second["concept_id"],
+        rel_type="应用于",
+    )
+
     summary = build_library_summary(ws)
     assert summary.total_files == 2
     assert summary.total_chunks == 5
     assert summary.total_errors == 1
     assert summary.graph_nodes == 2
     assert summary.graph_relationships == 1
-    assert summary.graph_backend == "local"
+    assert summary.graph_backend == "concept_sqlite"
     assert len(summary.courses) == 1
     assert summary.courses[0].name == "OS"
     assert summary.courses[0].error_count == 1

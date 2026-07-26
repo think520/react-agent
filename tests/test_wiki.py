@@ -1,4 +1,4 @@
-"""Tests for wiki module: schema, compiler, index, lint."""
+"""Tests for maintained Wiki schema, workflow support, index, and lint."""
 
 import json
 import os
@@ -237,113 +237,6 @@ def test_task_store_recovers_interrupted_process_tasks(tmp_path):
     assert task["retryable"] is True
 
 
-# --- Compiler ---
-
-def test_compiler_compile_source_no_llm(tmp_path, monkeypatch):
-    """Test compile_source without LLM tracks source but generates no pages."""
-    from wiki.compiler import WikiCompiler
-
-    src = tmp_path / "test.md"
-    src.write_text("# Test\n\nSome content about algorithms.", encoding="utf-8")
-
-    compiler = WikiCompiler(str(tmp_path), str(tmp_path / "vault"), llm_provider=None)
-    monkeypatch.setattr(compiler, "_get_llm", lambda: None)
-
-    result = compiler.compile_source(str(src))
-    assert result.sources_count == 1
-    assert len(result.pages) == 0  # no LLM = no pages, just registry tracking
-
-
-def test_compiler_incremental_skip(tmp_path, monkeypatch):
-    """Test that unchanged sources are skipped."""
-    from wiki.compiler import WikiCompiler
-
-    src = tmp_path / "test.md"
-    src.write_text("# Test\n\nContent.", encoding="utf-8")
-
-    vault = tmp_path / "vault"
-    compiler = WikiCompiler(str(tmp_path), str(vault), llm_provider=None)
-    monkeypatch.setattr(compiler, "_get_llm", lambda: None)
-
-    # First compile
-    result1 = compiler.compile_source(str(src))
-    assert result1.sources_count == 1
-
-    # Save state manually
-    from wiki.schema import save_wiki_state
-    from wiki.compiler import _content_hash
-    state = {"sources": {str(src): _content_hash(src.read_text(encoding="utf-8"))}}
-    save_wiki_state(str(vault), state)
-
-    # Second compile — should skip
-    result2 = compiler.compile_source(str(src))
-    assert str(src) in result2.skipped
-    assert result2.sources_count == 0
-
-
-def test_compiler_force_recompile(tmp_path, monkeypatch):
-    """Test force=True bypasses incremental check."""
-    from wiki.compiler import WikiCompiler
-
-    src = tmp_path / "test.md"
-    src.write_text("# Test\n\nContent.", encoding="utf-8")
-
-    vault = tmp_path / "vault"
-    compiler = WikiCompiler(str(tmp_path), str(vault), llm_provider=None)
-    monkeypatch.setattr(compiler, "_get_llm", lambda: None)
-
-    # First compile
-    compiler.compile_source(str(src))
-
-    # Save state with same hash
-    from wiki.schema import save_wiki_state
-    from wiki.compiler import _content_hash
-    state = {"sources": {str(src): _content_hash(src.read_text(encoding="utf-8"))}}
-    save_wiki_state(str(vault), state)
-
-    # Force recompile
-    result = compiler.compile_source(str(src), force=True)
-    assert result.sources_count == 1
-    assert str(src) not in result.skipped
-
-
-def test_compiler_write_pages(tmp_path):
-    """Test write_pages creates files in correct directories."""
-    from wiki.compiler import WikiCompiler
-
-    vault = tmp_path / "vault"
-    compiler = WikiCompiler(str(tmp_path), str(vault))
-
-    result = CompileResult(pages=[
-        WikiPage(title="Algo", page_type="wiki_entity", content="An algorithm."),
-        WikiPage(title="Greedy", page_type="wiki_concept", content="A strategy."),
-    ])
-
-    written = compiler.write_pages(result)
-    assert len(written) == 2
-    for path in written:
-        assert os.path.exists(path)
-
-
-def test_parse_llm_json():
-    """Test JSON extraction from LLM response."""
-    from wiki.compiler import _parse_llm_json
-
-    # Direct JSON
-    result = _parse_llm_json('{"entities": [], "concepts": []}')
-    assert result is not None
-
-    # With markdown fences
-    result = _parse_llm_json('```json\n{"entities": []}\n```')
-    assert result is not None
-
-    # With extra text
-    result = _parse_llm_json('Here is the result:\n{"entities": []}\nDone.')
-    assert result is not None
-
-    # Invalid
-    result = _parse_llm_json('no json here')
-    assert result is None
 
 
 # --- REPL commands ---

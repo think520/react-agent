@@ -7,26 +7,13 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
 from service.memory_service import MemoryService
-from service.preference_service import PreferenceService
-from web.backend.capabilities import WEB_SKILL_NAMES
 from web.backend.deps import (
-    get_config, get_default_provider_name, get_request_workspace, get_workspace,
+    get_preferences,
+    get_config, get_request_workspace, get_workspace,
 )
 from web.backend.errors import APIError, unwrap_service_result
 
 router = APIRouter()
-
-
-class SaveMemoryRequest(BaseModel):
-    name: str = Field(..., min_length=1)
-    description: str = ""
-    content: str = Field(..., min_length=1)
-    entry_type: str = "user"
-
-
-class DailySaveRequest(BaseModel):
-    content: str = Field(..., min_length=1)
-    tags: list[str] | None = None
 
 
 class KnowledgeCreateRequest(BaseModel):
@@ -70,53 +57,12 @@ def _unwrap(result: dict):
 
 def _require_memory_write_enabled() -> None:
     config = get_config()
-    preferences = PreferenceService(
-        get_default_provider_name(config),
-        sorted(WEB_SKILL_NAMES),
-    ).get()
+    preferences = get_preferences(config)
     if not (
         config.get("memory", {}).get("enabled", True)
         and preferences.get("memory", {}).get("enabled", True)
     ):
         raise APIError(409, "memory_disabled", "Learning memory is disabled. Enable it before saving personal knowledge.")
-
-
-@router.get("")
-def list_entries(request: Request) -> dict:
-    return _unwrap(_service(request).list_entries())
-
-
-@router.post("")
-def save_memory(body: SaveMemoryRequest, request: Request) -> dict:
-    _require_memory_write_enabled()
-    return _unwrap(_service(request).save(
-        name=body.name,
-        description=body.description,
-        content=body.content,
-        entry_type=body.entry_type,
-    ))
-
-
-@router.get("/search")
-def recall(request: Request, query: str, top_k: int = 5) -> dict:
-    return _unwrap(_service(request).recall(query=query, top_k=top_k))
-
-
-@router.get("/stats")
-def stats(request: Request) -> dict:
-    return _unwrap(_service(request).get_stats())
-
-
-@router.post("/daily")
-def daily_save(body: DailySaveRequest, request: Request) -> dict:
-    _require_memory_write_enabled()
-    result = _unwrap(_service(request).daily_save(body.content, tags=body.tags))
-    return {"ok": True, "date": result["date"]}
-
-
-@router.get("/daily/read")
-def daily_read(request: Request, date: str | None = None) -> dict:
-    return _unwrap(_service(request).daily_read(date=date))
 
 
 @router.get("/overview")
@@ -138,10 +84,7 @@ def create_knowledge(body: KnowledgeCreateRequest, request: Request) -> dict:
 @router.patch("/knowledge/{item_id}")
 def update_knowledge(item_id: str, body: KnowledgeUpdateRequest, request: Request) -> dict:
     _require_memory_write_enabled()
-    result = _service(request).update_knowledge(item_id, body.revision, body.patch)
-    if result.get("error") == "knowledge_revision_conflict":
-        raise APIError(409, "knowledge_revision_conflict", "Personal knowledge changed in another request. Reload and try again.")
-    return _unwrap(result)
+    return _unwrap(_service(request).update_knowledge(item_id, body.revision, body.patch))
 
 
 @router.delete("/knowledge/{item_id}")
@@ -203,14 +146,3 @@ def consolidate(body: ConsolidateRequest, request: Request) -> dict:
     return _unwrap(MemoryConsolidationService(
         get_request_workspace(request), legacy_workspace=get_workspace(),
     ).consolidate_now(session_id=body.session_id))
-
-
-@router.get("/{name}")
-def get_entry(name: str, request: Request) -> dict:
-    result = _unwrap(_service(request).get_entry(name))
-    return {key: value for key, value in result.items() if key != "file_path"}
-
-
-@router.delete("/{name}")
-def forget(name: str, request: Request) -> dict:
-    return _unwrap(_service(request).forget(name))

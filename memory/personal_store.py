@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from knowledge.paths import knowledge_path
+from core.db import create_connection, open_connection
 
 
 GLOBAL_DB_FILENAME = "personal-knowledge.db"
@@ -160,21 +161,12 @@ class PersonalKnowledgeStore:
     def _conn(self, scope: str):
         path = self.global_path if scope == "global" else self.library_path
         path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(path)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        try:
+        with open_connection(str(path)) as conn:
             yield conn
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            conn.close()
 
     def _ensure(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(path)
+        conn = create_connection(str(path))
         try:
             conn.executescript(_SCHEMA)
             try:

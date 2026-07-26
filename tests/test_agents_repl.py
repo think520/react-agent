@@ -24,11 +24,6 @@ def repl():
     return r
 
 
-def test_specialists_in_all_commands():
-    from cli.repl import ALL_COMMANDS
-    assert "specialists" in ALL_COMMANDS
-
-
 def test_specialists_in_command_hints():
     from cli.repl import COMMAND_HINTS
     hints = [c for c, _ in COMMAND_HINTS]

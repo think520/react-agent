@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { BookOpen, Edit2, ExternalLink, FileText, PenLine, X } from "lucide-react";
+import { BookOpen, Edit2, FileText, PenLine, X } from "lucide-react";
 import { api } from "../lib/api";
 import type { ConceptDetail, ConceptNode, RelationshipEdge } from "../types";
 

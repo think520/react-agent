@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUp, BookOpen, Brain, Check, Command, ExternalLink, FilePlus2, FileText, FolderOpen, Globe2, Library, MessageCircle, Paperclip, RotateCcw, Square, Sparkles, X } from "lucide-react";
+import { ArrowUp, BookOpen, Brain, Check, Command, FilePlus2, FileText, FolderOpen, Globe2, Library, MessageCircle, Paperclip, RotateCcw, Square, Sparkles, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useNavigate, useOutletContext, useParams } from "react-router-dom";
@@ -7,8 +7,24 @@ import { useNavigate, useOutletContext, useParams } from "react-router-dom";
 import type { AppOutletContext } from "../components/AppShell";
 import { AttributionBadges, BrandIllustration, ErrorNotice, IconButton, LoadingState } from "../components/common";
 import { WikiPlanCard } from "../components/WikiPlanCard";
+import { KnowledgeContextCard } from "../components/artifacts/KnowledgeContextCard";
+import { MemoryConfirmationCard } from "../components/artifacts/MemoryConfirmationCard";
+import { PracticeReadyCard } from "../components/artifacts/PracticeReadyCard";
+import { SettingsChangeCard } from "../components/artifacts/SettingsChangeCard";
+import { WebCandidatesCard } from "../components/artifacts/WebCandidatesCard";
+import { WebConsentCard } from "../components/artifacts/WebConsentCard";
+import { WebEvidenceCard } from "../components/artifacts/WebEvidenceCard";
+import { WikiFocusCard } from "../components/artifacts/WikiFocusCard";
+import { WikiResultCard } from "../components/artifacts/WikiResultCard";
+import { useChatStream, type ProcessBrandState } from "../hooks/useChatStream";
 import { api, streamChat } from "../lib/api";
-import type { ChatArtifact, ChatMessage, ChatReference, KnowledgeContextArtifact, MemoryConfirmationArtifact, PersonalizationRef, PracticeReadyArtifact, RunSummaryArtifact, SettingsChangeArtifact, WebCandidatesArtifact, WebConsentArtifact, WebEvidenceArtifact, WikiFocusArtifact, WikiPlanArtifact, WikiResultArtifact } from "../types";
+import { routeSlashCommand } from "../lib/commandRouter";
+import { toErrorMessage } from "../lib/errors";
+import { parseMentionDraft } from "../lib/mention";
+import { looksLikeSettingsChange } from "../lib/settingsIntent";
+import { useHandoffStore } from "../stores/handoffStore";
+import { useUiStore } from "../stores/uiStore";
+import type { ChatArtifact, ChatReference, KnowledgeContextArtifact, MemoryConfirmationArtifact, PersonalizationRef, PracticeReadyArtifact, RunSummaryArtifact, SettingsChangeArtifact, WebCandidatesArtifact, WebConsentArtifact, WebEvidenceArtifact, WikiFocusArtifact, WikiPlanArtifact, WikiResultArtifact } from "../types";
 
 interface SlashItem {
   value: string;
@@ -31,20 +47,6 @@ const WEB_COMMANDS: SlashItem[] = [
   { value: "/learning today", label: "/learning today", description: "整理今日学习任务", kind: "command" },
   { value: "/quiz generate ", label: "/quiz generate", description: "按主题生成 5 道题", kind: "command" },
 ];
-
-const SETTINGS_PHRASES = [
-  "回答短一点", "简短一点", "回答简洁", "少说一点", "回答详细", "讲深入", "更深入", "详细一点",
-  "标准回答", "恢复标准", "正常详细", "引导我", "苏格拉底", "多提问", "直接讲解", "讲解式",
-  "直接告诉我", "陪我练", "陪练", "多练习", "反馈直接", "直接批评", "严格一点", "反馈温和",
-  "温和一点", "别太直接", "关闭记忆", "不要记忆", "停用记忆", "开启记忆", "打开记忆", "启用记忆",
-];
-
-function looksLikeSettingsChange(message: string) {
-  const text = message.replace(/\s+/g, "").toLocaleLowerCase();
-  return SETTINGS_PHRASES.some((phrase) => text.includes(phrase));
-}
-
-type ProcessBrandState = "thinking" | "reading" | "writing" | "ready";
 
 function processTitle(state: ProcessBrandState) {
   if (state === "reading") return "正在查找资料";
@@ -70,6 +72,21 @@ function formatDuration(seconds: number) {
   return `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`;
 }
 
+const TOOL_LABELS: Record<string, string> = {
+  rag_search: "资料检索",
+  concept_map_query: "知识地图",
+  concept_map_status: "知识地图状态",
+  question_generate: "生成练习题",
+  quiz_start: "准备练习",
+  quiz_submit: "批改答案",
+  learning_path: "学习路线",
+  learning_progress: "学习进度",
+  learning_review: "复习内容",
+  request_memory_confirmation: "记忆确认",
+  request_web_search: "联网确认",
+  web_research: "网页检索",
+};
+
 function RunSummary({ artifact }: { artifact?: RunSummaryArtifact }) {
   if (!artifact) return null;
   const hitCount = artifact.operations.reduce((total, item) => total + (item.hit_count || 0), 0);
@@ -81,23 +98,26 @@ function RunSummary({ artifact }: { artifact?: RunSummaryArtifact }) {
   return <details className={`run-summary ${artifact.status}`}>
     <summary><Check size={14} /><strong>{artifact.status === "completed" ? "处理完成" : "处理未完成"}</strong><span>{summary}</span><small>{formatDuration(artifact.total_elapsed)}</small></summary>
     {artifact.operations.length > 0 && <div>{artifact.operations.map((operation, index) => <p key={`${operation.tool_name}:${index}`}>
-      <span>{operation.tool_name === "rag_search" ? "资料检索" : operation.tool_name === "concept_map_query" ? "知识地图" : operation.tool_name}</span>
+      <span>{TOOL_LABELS[operation.tool_name] || "学习工具"}</span>
       {operation.query && <q>{operation.query}</q>}
       {operation.operation && <code>{operation.operation}</code>}
+      {operation.tool_name === "rag_search" && operation.semantic_available === false && (
+        <span className="retrieval-degraded">
+          {operation.hit_count ? "当前仅使用关键词检索" : "关键词检索未命中，向量检索当前不可用"}
+        </span>
+      )}
       <small>{operation.status === "completed" ? "完成" : "失败"} · {formatDuration(operation.elapsed || 0)}</small>
     </p>)}</div>}
   </details>;
 }
 
-function displaySettingValue(value: unknown) {
-  if (value === true) return "开启";
-  if (value === false) return "关闭";
-  const labels: Record<string, string> = {
-    concise: "简洁", standard: "标准", deep: "深入",
-    guided: "引导式", explanatory: "讲解式", practice: "陪练式",
-    gentle: "温和", direct: "直接",
-  };
-  return labels[String(value)] || String(value);
+function initialDraft(sessionId: string | undefined, peekOnly = false) {
+  const handoff = sessionId
+    ? null
+    : peekOnly
+      ? useHandoffStore.getState().chatDraft
+      : useHandoffStore.getState().consumeChatDraft();
+  return handoff || localStorage.getItem(`bobodan:draft:${sessionId || "new"}`) || "";
 }
 
 export function ChatPage() {
@@ -123,23 +143,29 @@ export function ChatPage() {
     documentImporting,
     libraryReady,
   } = useOutletContext<AppOutletContext>();
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [draft, setDraft] = useState(() => localStorage.getItem(`bobodan:draft:${sessionId || "new"}`) || "");
+  const {
+    messages,
+    setMessages,
+    status,
+    setStatus,
+    brandState,
+    setBrandState,
+    handleStreamEvent,
+    settleLastMessage,
+  } = useChatStream();
+  const [draft, setDraft] = useState(() => initialDraft(sessionId, true));
   const [loading, setLoading] = useState(Boolean(sessionId));
   const [sending, setSending] = useState(false);
-  const [status, setStatus] = useState("");
-  const [brandState, setBrandState] = useState<ProcessBrandState>("thinking");
   const [practiceStarting, setPracticeStarting] = useState("");
   const [error, setError] = useState("");
   const [paletteIndex, setPaletteIndex] = useState(0);
   const [paletteDismissed, setPaletteDismissed] = useState(false);
   const [wikiPlanLoading, setWikiPlanLoading] = useState(false);
-  const [selectedProvider, setSelectedProvider] = useState(() => localStorage.getItem("bobodan:provider:new") || "");
+  const [selectedProvider, setSelectedProvider] = useState(() => useUiStore.getState().newSessionProvider || "");
   const [references, setReferences] = useState<ChatReference[]>([]);
   const [webOnce, setWebOnce] = useState(false);
-  const [strictDocumentScope, setStrictDocumentScope] = useState(
-    () => localStorage.getItem("bobodan:scope:strict") === "true",
-  );
+  const strictDocumentScope = useUiStore((state) => state.strictDocumentScope);
+  const toggleStrictDocumentScope = useUiStore((state) => state.toggleStrictDocumentScope);
   const [webSelections, setWebSelections] = useState<Record<string, string[]>>({});
   const [referenceDocuments, setReferenceDocuments] = useState(documents);
   const [mentionTab, setMentionTab] = useState<"document" | "session">("document");
@@ -152,19 +178,22 @@ export function ChatPage() {
   const leaveChatRef = useRef(false);
 
   useEffect(() => {
-    setDraft(localStorage.getItem(`bobodan:draft:${sessionId || "new"}`) || "");
+    let cancelled = false;
+    setDraft(initialDraft(sessionId));
     setError("");
+    useUiStore.getState().setSourceContext(null);
     if (!sessionId) {
       setMessages([]);
       setReferences([]);
       clearKnowledgeContext();
-      setSelectedProvider(localStorage.getItem("bobodan:provider:new") || settings?.default_provider || "");
+      setSelectedProvider(useUiStore.getState().newSessionProvider || settings?.default_provider || "");
       setLoading(false);
       return;
     }
     setLoading(true);
     void api.session(sessionId)
       .then((session) => {
+        if (cancelled) return;
         setMessages(session.messages);
         setReferences([]);
         setSelectedProvider(session.provider_name || settings?.default_provider || "");
@@ -175,9 +204,10 @@ export function ChatPage() {
         if (latestKnowledgeContext) showKnowledgeContext(latestKnowledgeContext.context);
         else clearKnowledgeContext();
       })
-      .catch((reason: Error) => setError(reason.message))
-      .finally(() => setLoading(false));
-  }, [sessionId, settings?.default_provider, showKnowledgeContext, clearKnowledgeContext]);
+      .catch((reason: Error) => { if (!cancelled) setError(reason.message); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [sessionId, settings?.default_provider, showKnowledgeContext, clearKnowledgeContext, setMessages]);
 
   useEffect(() => {
     if (!selectedProvider && settings?.default_provider) setSelectedProvider(settings.default_provider);
@@ -189,15 +219,11 @@ export function ChatPage() {
       return;
     }
     void api.documents("all").then(setReferenceDocuments).catch(() => setReferenceDocuments(documents));
-  }, [activeLibrary?.library_id, documents]);
+  }, [activeLibrary, documents]);
 
   useEffect(() => {
     localStorage.setItem(`bobodan:draft:${sessionId || "new"}`, draft);
   }, [draft, sessionId]);
-
-  useEffect(() => {
-    localStorage.setItem("bobodan:scope:strict", String(strictDocumentScope));
-  }, [strictDocumentScope]);
 
   useEffect(() => {
     sessionIdRef.current = sessionId;
@@ -208,12 +234,14 @@ export function ChatPage() {
       .filter((artifact): artifact is WikiPlanArtifact => artifact.type === "wiki_plan" && (artifact.status === "planning" || artifact.plan.status === "planning"))
       .map((artifact) => artifact.plan_id),
   ), [messages]);
+  const planningRunKey = planningRunIds.join("|");
 
   useEffect(() => {
-    if (!planningRunIds.length) return;
+    if (!planningRunKey) return;
+    const runIds = planningRunKey.split("|");
     let cancelled = false;
     const poll = async () => {
-      for (const runId of planningRunIds) {
+      for (const runId of runIds) {
         try {
           const run = await api.wikiRun(runId);
           if (cancelled) return;
@@ -229,7 +257,7 @@ export function ChatPage() {
     void poll();
     const timer = window.setInterval(() => void poll(), 1600);
     return () => { cancelled = true; window.clearInterval(timer); };
-  }, [planningRunIds.join("|")]);
+  }, [planningRunKey, setMessages]);
 
   useEffect(() => {
     const element = scrollRef.current;
@@ -247,44 +275,34 @@ export function ChatPage() {
       openLibrarySetup();
       return;
     }
-    if (message === "/new") { setDraft(""); navigate("/chat"); return; }
-    if (message === "/library") { setDraft(""); navigate("/library"); return; }
-    if (message === "/wiki") { setDraft(""); navigate("/library?collection=wiki"); return; }
-    if (message === "/wiki generate") {
+    const route = webResearchId ? { kind: "none" as const } : routeSlashCommand(message, { webOnce });
+    if (route.kind === "navigate") { setDraft(""); navigate(route.to); return; }
+    if (route.kind === "wiki-generate") {
       setDraft("");
       const plan = latestArtifact("wiki_plan") as WikiPlanArtifact | undefined;
       if (plan?.status === "planned") await applyWikiPlan(plan);
       else setError("请先使用 /wiki plan 创建并审查一份 Wiki 计划。" );
       return;
     }
-    if (message === "/wiki plan" || message.startsWith("/wiki plan ")) {
+    if (route.kind === "wiki-focus") {
       setDraft("");
-      await createWikiFocus(message.slice("/wiki plan".length).trim());
+      await createWikiFocus(route.instruction, route.action);
       return;
     }
-    if (message === "/wiki update" || message.startsWith("/wiki update ")) {
-      setDraft("");
-      await createWikiFocus(message.slice("/wiki update".length).trim(), "update");
-      return;
-    }
-    if (message === "/practice") { setDraft(""); navigate("/practice"); return; }
-    if (message === "/review") { setDraft(""); navigate("/review"); return; }
-    if (message.startsWith("/quiz generate ")) {
-      const topic = message.slice("/quiz generate ".length).trim();
-      if (topic) localStorage.setItem("bobodan:practice-topic", topic);
+    if (route.kind === "practice-topic") {
+      if (route.topic) useHandoffStore.getState().setPracticeTopic(route.topic);
       setDraft("");
       navigate("/practice");
       return;
     }
-    if (!webResearchId && (webOnce || message === "/web search" || message.startsWith("/web search "))) {
-      const query = message.startsWith("/web search") ? message.slice("/web search".length).trim() : message;
-      if (!query) {
-        setError("请在 /web search 后输入需要查找的内容。" );
-        return;
-      }
+    if (route.kind === "web-search-empty") {
+      setError("请在 /web search 后输入需要查找的内容。" );
+      return;
+    }
+    if (route.kind === "web-search") {
       setDraft("");
       setWebOnce(false);
-      await startWebSearch(query, undefined, true);
+      await startWebSearch(route.query, undefined, true);
       return;
     }
     const pendingFocus = latestArtifact("wiki_focus") as WikiFocusArtifact | undefined;
@@ -304,7 +322,7 @@ export function ChatPage() {
         return;
       } catch (reason) {
         if (!(reason instanceof Error) || !("code" in reason) || (reason as Error & { code?: string }).code !== "settings_change_not_detected") {
-          setError(reason instanceof Error ? reason.message : "无法创建设置变更确认。" );
+          setError(toErrorMessage(reason, "无法创建设置变更确认。"));
           return;
         }
       } finally {
@@ -326,9 +344,7 @@ export function ChatPage() {
     const controller = new AbortController();
     abortRef.current = controller;
     try {
-      let profile: { learningGoal?: string; webEnabled?: boolean } = {};
-      try { profile = JSON.parse(localStorage.getItem("bobodan:learning-profile") || "{}"); }
-      catch { profile = {}; }
+      const profile = useUiStore.getState().learningProfile;
       await streamChat(message, sessionId, selectedDocumentIds, {
         ...profile,
         memoryEnabled: settings?.preferences.memory.enabled ?? true,
@@ -336,59 +352,15 @@ export function ChatPage() {
         references: outgoingReferences,
         webResearchId,
         strictDocumentScope,
-      }, (streamEvent) => {
-        if (streamEvent.event === "run_started") {
-          nextSessionId = streamEvent.data.chat_session_id;
-          sessionIdRef.current = streamEvent.data.chat_session_id;
-        }
-        if (streamEvent.event === "status") {
-          setStatus(streamEvent.data.message);
-          if (["rag_search", "web_research"].includes(streamEvent.data.tool_name || "") || /资料|检索|查找|读取|网页/.test(streamEvent.data.message)) setBrandState("reading");
-          else if (["question_generate", "quiz_start"].includes(streamEvent.data.tool_name || "") || /题目|练习|生成/.test(streamEvent.data.message)) setBrandState("writing");
-          setMessages((current) => current.map((item, index) => index === current.length - 1
-            ? {
-                ...item,
-                process: [...(item.process || []), {
-                  phase: streamEvent.data.phase,
-                  message: streamEvent.data.message,
-                  toolName: streamEvent.data.tool_name,
-                  elapsed: streamEvent.data.elapsed,
-                }],
-              }
-            : item));
-        }
-        if (streamEvent.event === "message_delta") {
-          setStatus("正在组织回答");
-          setBrandState("writing");
-          setMessages((current) => current.map((item, index) => index === current.length - 1
-            ? { ...item, content: item.content + streamEvent.data.content }
-            : item));
-        }
-        if (streamEvent.event === "citation") {
-          setStatus("已找到相关资料，正在整理");
-          setBrandState("reading");
-          setMessages((current) => current.map((item, index) => index === current.length - 1
-            ? { ...item, attribution: streamEvent.data.attribution }
-            : item));
-        }
-        if (streamEvent.event === "personalization") {
-          setMessages((current) => current.map((item, index) => index === current.length - 1
-            ? { ...item, personalization: streamEvent.data.references }
-            : item));
-        }
-        if (streamEvent.event === "chat_artifact") {
-          const artifact = streamEvent.data.artifact.type === "practice_ready"
-            ? { ...streamEvent.data.artifact, chat_session_id: nextSessionId }
-            : streamEvent.data.artifact;
-          if (artifact.type === "knowledge_context") showKnowledgeContext(artifact.context);
-          setMessages((current) => current.map((item, index) => index === current.length - 1
-            ? { ...item, artifacts: [...(item.artifacts || []), artifact] }
-            : item));
-        }
-        if (streamEvent.event === "run_failed") throw new Error(streamEvent.data.error.message);
-        if (streamEvent.event === "run_completed") { setBrandState("ready"); setStatus("回答已经整理完成"); }
-      }, controller.signal);
-      setMessages((current) => current.map((item, index) => index === current.length - 1 ? { ...item, pending: false } : item));
+      }, (streamEvent) => handleStreamEvent(streamEvent, {
+        onRunStarted: (chatSessionId) => {
+          nextSessionId = chatSessionId;
+          sessionIdRef.current = chatSessionId;
+        },
+        getSessionId: () => nextSessionId,
+        onKnowledgeContext: showKnowledgeContext,
+      }), controller.signal);
+      settleLastMessage();
       await new Promise((resolve) => window.setTimeout(resolve, 600));
       setStatus("");
       await refreshSessions();
@@ -399,13 +371,12 @@ export function ChatPage() {
     } catch (reason) {
       if (reason instanceof DOMException && reason.name === "AbortError") {
         setStatus("");
-        setMessages((current) => current.map((item, index) => index === current.length - 1 ? { ...item, pending: false } : item));
+        settleLastMessage();
         return;
       }
-      const messageText = reason instanceof Error ? reason.message : "本轮回答失败，请重新发送。";
-      setError(messageText);
+      setError(toErrorMessage(reason, "本轮回答失败，请重新发送。"));
       setStatus("");
-      setMessages((current) => current.map((item, index) => index === current.length - 1 ? { ...item, pending: false, failed: true } : item));
+      settleLastMessage(true);
     } finally {
       abortRef.current = null;
       setSending(false);
@@ -433,7 +404,7 @@ export function ChatPage() {
       if (!sessionId) navigate(`/chat/${result.chat_session_id}`, { replace: true });
       await refreshChatSession(result.chat_session_id);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "联网搜索暂时不可用。" );
+      setError(toErrorMessage(reason, "联网搜索暂时不可用。"));
     } finally {
       setStatus("");
       setSending(false);
@@ -452,7 +423,7 @@ export function ChatPage() {
       await api.rejectWebConsent(artifact.artifact_id, sessionId);
       await refreshChatSession(sessionId);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "无法取消本次联网请求。" );
+      setError(toErrorMessage(reason, "无法取消本次联网请求。"));
     } finally {
       setSending(false);
     }
@@ -472,7 +443,7 @@ export function ChatPage() {
     });
   }
 
-  async function useWebCandidates(artifact: WebCandidatesArtifact) {
+  async function applyWebCandidates(artifact: WebCandidatesArtifact) {
     if (!sessionId) return;
     const selected = webSelections[artifact.search_id] || [];
     if (!selected.length) return;
@@ -490,7 +461,7 @@ export function ChatPage() {
         return;
       }
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "选中的网页暂时无法读取。" );
+      setError(toErrorMessage(reason, "选中的网页暂时无法读取。"));
     } finally {
       setStatus("");
       setSending(false);
@@ -498,15 +469,7 @@ export function ChatPage() {
   }
 
   async function createWikiFocus(instruction: string, action: "generate" | "update" = "generate") {
-    let carriedScope: {
-      scopeMode?: "uncovered" | "smart_library" | "selected_only" | "course";
-      documentIds?: string[];
-      wikiDocumentIds?: string[];
-      course?: string | null;
-      topic?: string;
-    } = {};
-    try { carriedScope = JSON.parse(localStorage.getItem("bobodan:wiki-scope") || "{}"); }
-    catch { carriedScope = {}; }
+    const carriedScope = useHandoffStore.getState().wikiScope || {};
     const documentIds = carriedScope.documentIds?.length ? carriedScope.documentIds : selectedDocumentIds;
     const wikiDocumentIds = carriedScope.wikiDocumentIds || [];
     const scopeMode = carriedScope.scopeMode || (wikiDocumentIds.length ? "selected_only" : "smart_library");
@@ -527,11 +490,11 @@ export function ChatPage() {
         topic: carriedScope.topic || instruction,
         instruction,
       });
-      localStorage.removeItem("bobodan:wiki-scope");
+      useHandoffStore.getState().clearWikiScope();
       if (!sessionId) navigate(`/chat/${result.chat_session_id}`, { replace: true });
       await refreshChatSession(result.chat_session_id);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "无法整理 Wiki 重点。" );
+      setError(toErrorMessage(reason, "无法整理 Wiki 重点。"));
     } finally {
       setWikiPlanLoading(false);
       setStatus("");
@@ -547,7 +510,7 @@ export function ChatPage() {
       await api.reviseWikiFocus(focus.artifact_id, sessionId, revision);
       await refreshChatSession(sessionId);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "无法调整 Wiki 重点。" );
+      setError(toErrorMessage(reason, "无法调整 Wiki 重点。"));
     } finally {
       setWikiPlanLoading(false);
       setStatus("");
@@ -563,7 +526,7 @@ export function ChatPage() {
       await api.confirmWikiFocus(focus.artifact_id, sessionId);
       await refreshChatSession(sessionId);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "无法生成 Wiki 计划。" );
+      setError(toErrorMessage(reason, "无法生成 Wiki 计划。"));
     } finally {
       setWikiPlanLoading(false);
       setStatus("");
@@ -589,7 +552,7 @@ export function ChatPage() {
             : item),
         })));
       } catch { /* keep the persisted chat artifact when refresh is unavailable */ }
-      if (!stagedFailure) setError(reason instanceof Error ? reason.message : "Wiki 写入失败。" );
+      if (!stagedFailure) setError(toErrorMessage(reason, "Wiki 写入失败。"));
     } finally {
       setWikiPlanLoading(false);
     }
@@ -605,7 +568,7 @@ export function ChatPage() {
       await api.recoverChatWikiPlan(artifact.plan_id, sessionId, strategy);
       await refreshChatSession(sessionId);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "无法继续处理这份 Wiki 计划。" );
+      setError(toErrorMessage(reason, "无法继续处理这份 Wiki 计划。"));
     } finally {
       setWikiPlanLoading(false);
       setStatus("");
@@ -625,7 +588,7 @@ export function ChatPage() {
           : item),
       })));
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "无法取消这轮 Wiki 整理。" );
+      setError(toErrorMessage(reason, "无法取消这轮 Wiki 整理。"));
     } finally {
       setWikiPlanLoading(false);
     }
@@ -639,13 +602,13 @@ export function ChatPage() {
       await api.restoreChatWikiCheckpoint(artifact.checkpoint_id, sessionId);
       await refreshChatSession(sessionId);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "无法撤销本轮 Wiki 整理。" );
+      setError(toErrorMessage(reason, "无法撤销本轮 Wiki 整理。"));
     } finally {
       setWikiPlanLoading(false);
     }
   }
 
-  function usePrompt(value: string) {
+  function applyPrompt(value: string) {
     setDraft(value);
     inputRef.current?.focus();
   }
@@ -654,13 +617,13 @@ export function ChatPage() {
     const topic = messages[index - 1]?.role === "user"
       ? messages[index - 1].content
       : messages[index].content.slice(0, 160);
-    localStorage.setItem("bobodan:practice-topic", topic);
+    const handoff = useHandoffStore.getState();
+    handoff.setPracticeTopic(topic);
     const isWebContinuation = messages[index - 1]?.role === "user" && messages[index - 1].content === "使用选中的网页来源继续回答。";
     const evidence = isWebContinuation
       ? messages.slice(0, index + 1).flatMap((message) => message.artifacts || []).filter((artifact): artifact is WebEvidenceArtifact => artifact.type === "web_evidence" && artifact.status !== "failed").at(-1)
       : undefined;
-    if (evidence) localStorage.setItem("bobodan:practice-web-research", evidence.research_id);
-    else localStorage.removeItem("bobodan:practice-web-research");
+    handoff.setPracticeWebResearch(evidence ? evidence.research_id : null);
     navigate("/practice");
   }
 
@@ -682,7 +645,7 @@ export function ChatPage() {
     } catch (reason) {
       leaveChatRef.current = false;
       if (!sessionId) navigate(`/chat/${activeSessionId}`, { replace: true });
-      setError(reason instanceof Error ? reason.message : "暂时无法开始这轮练习。" );
+      setError(toErrorMessage(reason, "暂时无法开始这轮练习。"));
     } finally {
       setPracticeStarting("");
     }
@@ -702,11 +665,11 @@ export function ChatPage() {
         await api.updateSessionProvider(sessionId, provider);
         await refreshSessions();
       } else {
-        localStorage.setItem("bobodan:provider:new", provider);
+        useUiStore.getState().setNewSessionProvider(provider);
       }
     } catch (reason) {
       setSelectedProvider(previous);
-      setError(reason instanceof Error ? reason.message : "无法切换模型。" );
+      setError(toErrorMessage(reason, "无法切换模型。"));
     }
   }
 
@@ -716,7 +679,7 @@ export function ChatPage() {
       await api.patchPreferences(settings.preferences.revision, { assistant: { answer_depth: value } });
       await refreshSettings();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "回答深度没有保存成功。" );
+      setError(toErrorMessage(reason, "回答深度没有保存成功。"));
     }
   }
 
@@ -728,7 +691,7 @@ export function ChatPage() {
       await api.resolveSettingsProposal(artifact.proposal_id, sessionId, action);
       await Promise.all([refreshChatSession(sessionId), refreshSettings()]);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "设置变更没有处理成功。" );
+      setError(toErrorMessage(reason, "设置变更没有处理成功。"));
     } finally {
       setSending(false);
     }
@@ -747,7 +710,7 @@ export function ChatPage() {
       );
       await refreshChatSession(sessionId);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "无法更新这条记忆。" );
+      setError(toErrorMessage(reason, "无法更新这条记忆。"));
     } finally {
       setSending(false);
     }
@@ -778,10 +741,10 @@ export function ChatPage() {
     : [];
   const paletteOpen = !paletteDismissed && filteredSlashItems.length > 0;
 
-  const mentionMatch = draft.match(/(?:^|\s)@([^\s@]*)$/);
-  const rawMentionQuery = mentionMatch?.[1] || "";
-  const mentionQuery = rawMentionQuery === "资料" || rawMentionQuery === "会话" ? "" : rawMentionQuery.toLocaleLowerCase();
-  const effectiveMentionTab = rawMentionQuery === "会话" ? "session" : rawMentionQuery === "资料" ? "document" : mentionTab;
+  const mention = parseMentionDraft(draft);
+  const rawMentionQuery = mention?.raw || "";
+  const mentionQuery = mention?.query || "";
+  const effectiveMentionTab = mention?.forcedTab || mentionTab;
   const mentionItems = effectiveMentionTab === "document"
     ? referenceDocuments.filter((document) => !mentionQuery || `${document.title} ${document.source}`.toLocaleLowerCase().includes(mentionQuery)).slice(0, 12).map((document) => ({
         type: "document" as const,
@@ -796,7 +759,7 @@ export function ChatPage() {
         title: session.name || "未命名会话",
         subtitle: new Date(session.last_active).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }),
       }));
-  const mentionOpen = Boolean(mentionMatch) && !mentionDismissed && mentionItems.length > 0 && !draft.startsWith("/");
+  const mentionOpen = Boolean(mention) && !mentionDismissed && mentionItems.length > 0;
 
   function chooseMention(item: (typeof mentionItems)[number]) {
     if (item.type === "session" && references.filter((reference) => reference.type === "session").length >= 3) {
@@ -828,95 +791,57 @@ export function ChatPage() {
   }
 
   function artifactSurface(artifact: ChatArtifact) {
-    if (artifact.type === "run_summary") return null;
-    if (artifact.type === "knowledge_context") {
-      const context = (artifact as KnowledgeContextArtifact).context;
-      return <section className="knowledge-context-block" key={artifact.artifact_id}>
-        <header><span><Brain size={15} />概念关系</span><button className="text-link" type="button" onClick={() => showKnowledgeContext(context)}>在学习书桌查看</button></header>
-        <div>{(context.relationships || []).slice(0, 5).map((relation) => <p key={relation.rel_id}>
-          <button type="button" onClick={() => openConceptDetail(relation.from_id)}>{relation.from_name}</button>
-          <span>{relation.rel_type}</span>
-          <button type="button" onClick={() => openConceptDetail(relation.to_id)}>{relation.to_name}</button>
-          {relation.evidence_status === "stale" && <small>来源已变化</small>}
-        </p>)}</div>
-        {context.concepts[0] && <button className="quiet-button" type="button" onClick={() => navigate("/knowledge-map", { state: { focusConceptId: context.root?.concept_id || context.concepts[0].concept_id } })}>在知识地图查看</button>}
-      </section>;
+    switch (artifact.type) {
+      case "knowledge_context":
+        return <KnowledgeContextCard
+          key={artifact.artifact_id}
+          artifact={artifact}
+          onShowContext={showKnowledgeContext}
+          onOpenConcept={openConceptDetail}
+          onOpenMap={(conceptId) => navigate("/knowledge-map", { state: { focusConceptId: conceptId } })}
+        />;
+      case "memory_confirmation":
+        return <MemoryConfirmationCard key={artifact.artifact_id} artifact={artifact} busy={sending} onResolve={(item, action) => void resolveMemoryProposal(item, action)} />;
+      case "settings_change":
+        return <SettingsChangeCard key={artifact.artifact_id} artifact={artifact} busy={sending} onResolve={(item, action) => void resolveSettingsChange(item, action)} />;
+      case "web_consent":
+        return <WebConsentCard key={artifact.artifact_id} artifact={artifact} busy={sending} onResolve={(item, action) => void resolveWebConsent(item, action)} />;
+      case "web_candidates":
+        return <WebCandidatesCard
+          key={artifact.artifact_id}
+          artifact={artifact}
+          selected={webSelections[artifact.search_id] || artifact.selected_candidate_ids || []}
+          busy={sending}
+          onToggle={toggleWebCandidate}
+          onUse={(item) => void applyWebCandidates(item)}
+        />;
+      case "web_evidence":
+        return <WebEvidenceCard key={artifact.artifact_id} artifact={artifact} />;
+      case "practice_ready":
+        return <PracticeReadyCard key={artifact.artifact_id} artifact={artifact} starting={practiceStarting === artifact.artifact_id} onStart={(item) => void startPreparedPractice(item)} />;
+      case "wiki_focus":
+        return <WikiFocusCard
+          key={artifact.artifact_id}
+          artifact={artifact}
+          busy={wikiPlanLoading}
+          onAdjust={() => { setDraft("请调整重点："); inputRef.current?.focus(); }}
+          onConfirm={(item) => void confirmWikiFocus(item)}
+        />;
+      case "wiki_plan":
+        return <WikiPlanCard
+          key={artifact.artifact_id}
+          plan={artifact.plan}
+          busy={wikiPlanLoading}
+          onApply={artifact.status === "planned" ? () => void applyWikiPlan(artifact) : undefined}
+          onCancel={artifact.status === "planning" ? () => void cancelWikiRun(artifact) : undefined}
+          onKeepExisting={artifact.status === "planned" && artifact.plan.staging?.length ? () => void recoverWikiPlan(artifact, "keep_existing") : undefined}
+          onRegenerate={artifact.status === "planned" && artifact.plan.staging?.length ? () => void recoverWikiPlan(artifact, "regenerate") : undefined}
+        />;
+      case "wiki_result":
+        return <WikiResultCard key={artifact.artifact_id} artifact={artifact} busy={wikiPlanLoading} onUndo={(item) => void undoWikiPlan(item)} />;
+      default:
+        return null;
     }
-    if (artifact.type === "memory_confirmation") {
-      return <section className={`memory-confirmation-card ${artifact.status}`} key={artifact.artifact_id}>
-        <header><span><Brain size={15} />个人知识</span><strong>{artifact.status === "pending" ? "确认后才会长期记住" : artifact.status === "confirmed" ? "已经记住" : "没有保存"}</strong></header>
-        <div className="memory-confirmation-content"><small>{artifact.scope === "global" ? "所有资料库" : "当前资料库"} · {artifact.kind}</small><h4>{artifact.title}</h4>{artifact.before && <del>{artifact.before.content}</del>}<p>{artifact.content}</p></div>
-        {artifact.requires_warning && artifact.status === "pending" && <div className="memory-sensitive-warning">这可能涉及健康、身份或其他敏感信息。确认后只保存在本地，你可以随时编辑或删除。</div>}
-        {artifact.status === "pending" && <footer><button className="quiet-button" disabled={sending} onClick={() => void resolveMemoryProposal(artifact, "reject")}>不保存</button><button className="primary-button" disabled={sending} onClick={() => void resolveMemoryProposal(artifact, "confirm")}><Check size={15} />{artifact.requires_warning ? "了解并记住" : "确认记住"}</button></footer>}
-      </section>;
-    }
-    if (artifact.type === "settings_change") {
-      return <section className={`settings-change-card ${artifact.status}`} key={artifact.artifact_id}>
-        <header><span>设置变更</span><strong>{artifact.status === "pending" ? "确认后才会生效" : artifact.status === "applied" ? "设置已更新" : "已取消修改"}</strong></header>
-        <div className="settings-change-list">{artifact.changes.map((change) => <div key={change.key}><span>{change.label}</span><del>{displaySettingValue(change.before)}</del><i>→</i><strong>{displaySettingValue(change.after)}</strong></div>)}</div>
-        {artifact.status === "pending" && <footer><button className="quiet-button" disabled={sending} onClick={() => void resolveSettingsChange(artifact, "reject")}>取消</button><button className="primary-button" disabled={sending} onClick={() => void resolveSettingsChange(artifact, "apply")}><Check size={15} />确认修改</button></footer>}
-      </section>;
-    }
-    if (artifact.type === "web_consent") {
-      return <section className={`web-consent-card ${artifact.status}`} key={artifact.artifact_id}>
-        <header><span><Globe2 size={15} />联网资料</span><strong>{artifact.status === "pending" ? "本地证据暂时不足" : artifact.status === "approved" ? "已同意联网查找" : "已继续使用本地资料"}</strong></header>
-        <p>{artifact.reason}</p><blockquote>{artifact.query}</blockquote>
-        {artifact.status === "pending" && <footer><button className="quiet-button" disabled={sending} onClick={() => void resolveWebConsent(artifact, "reject")}>只用本地资料</button><button className="primary-button" disabled={sending} onClick={() => void resolveWebConsent(artifact, "approve")}><Globe2 size={15} />联网查找</button></footer>}
-      </section>;
-    }
-    if (artifact.type === "web_candidates") {
-      const selected = webSelections[artifact.search_id] || artifact.selected_candidate_ids || [];
-      const selectable = artifact.status === "ready" || artifact.status === "partial" || (artifact.status === "failed" && artifact.candidates.length > 0);
-      const qualityLabels = { official: "官方/教育", reference: "参考资料", community: "社区内容", unknown: "普通网页" };
-      return <section className={`web-candidates-card ${artifact.status}`} key={artifact.artifact_id}>
-        <header><span><Globe2 size={15} />网页候选</span><strong>{artifact.status === "failed" ? "没有找到可用来源" : artifact.status === "fetching" ? "正在读取来源" : artifact.status === "used" ? "已选择来源" : `找到 ${artifact.candidates.length} 个候选`}</strong></header>
-        <p>搜索摘要只用于选择，勾选后才会读取网页正文。最多选择 4 个。</p>
-        {artifact.candidates.length > 0 && <div className="web-candidate-list">{artifact.candidates.map((candidate) => <label className={selected.includes(candidate.candidate_id) ? "selected" : ""} key={candidate.candidate_id}><input type="checkbox" checked={selected.includes(candidate.candidate_id)} disabled={!selectable || sending} onChange={() => toggleWebCandidate(artifact, candidate.candidate_id)} /><span><strong>{candidate.title}</strong><small>{candidate.domain} · {qualityLabels[candidate.quality_hint]}</small><p>{candidate.snippet}</p></span><a href={candidate.url} target="_blank" rel="noreferrer" aria-label={`打开 ${candidate.title}`} onClick={(event) => event.stopPropagation()}><ExternalLink size={14} /></a></label>)}</div>}
-        {selectable && <footer><small>{selected.length ? `已选择 ${selected.length} 个来源` : artifact.status === "ready" ? "尚未选择来源" : "可以重新选择来源并重试"}</small><button className="primary-button" disabled={!selected.length || sending} onClick={() => void useWebCandidates(artifact)}><BookOpen size={15} />{artifact.status === "ready" ? "使用选中来源" : "重新读取来源"}</button></footer>}
-      </section>;
-    }
-    if (artifact.type === "web_evidence") {
-      return <section className={`web-evidence-card ${artifact.status}`} key={artifact.artifact_id}>
-        <header><span><BookOpen size={15} />网页证据</span><strong>{artifact.status === "failed" ? "来源读取失败" : artifact.status === "partial" ? "部分来源可用" : "证据快照已保存"}</strong></header>
-        {artifact.sources.length ? <div>{artifact.sources.map((source) => <a href={source.url || "#"} target="_blank" rel="noreferrer" key={source.source_id}><span><strong>{source.title}</strong><small>{source.domain} · {source.reader === "jina" ? "Jina Reader 后备" : "直接读取"} · {source.accessed_at ? new Date(source.accessed_at).toLocaleString("zh-CN") : ""}</small></span><ExternalLink size={14} /></a>)}</div> : <p>这些网页没有返回可核实的正文，未用于回答。</p>}
-      </section>;
-    }
-    if (artifact.type === "practice_ready") {
-      return <section className={`practice-ready-card ${artifact.status}`} key={artifact.artifact_id}>
-        <BrandIllustration state="ready" size={56} />
-        <div><header><span>练习已就绪</span><strong>{artifact.count} 道题已经准备好</strong></header><p>{artifact.topic}</p><AttributionBadges attribution={artifact.attribution} /></div>
-        <button className="primary-button" disabled={practiceStarting === artifact.artifact_id} onClick={() => void startPreparedPractice(artifact)}><BookOpen size={15} />{artifact.status === "started" ? "继续练习" : practiceStarting === artifact.artifact_id ? "正在打开" : "开始练习"}</button>
-      </section>;
-    }
-    if (artifact.type === "wiki_focus") {
-      return <section className="wiki-focus-card" key={artifact.artifact_id}>
-        <header><span>Wiki Focus</span><strong>先确认整理重点</strong></header>
-        <p>资料范围：{artifact.scope.documents.join("、")}</p>
-        {artifact.instruction && <blockquote>{artifact.instruction}</blockquote>}
-        {artifact.status === "awaiting_confirmation" && <footer>
-          <button className="quiet-button" onClick={() => { setDraft("请调整重点："); inputRef.current?.focus(); }}>调整重点</button>
-          <button className="primary-button" disabled={wikiPlanLoading} onClick={() => void confirmWikiFocus(artifact)}>按此重点继续</button>
-        </footer>}
-        {artifact.status === "confirmed" && <small>重点已确认，计划已生成。</small>}
-      </section>;
-    }
-    if (artifact.type === "wiki_plan") {
-      return <WikiPlanCard
-        key={artifact.artifact_id}
-        plan={artifact.plan}
-        busy={wikiPlanLoading}
-        onApply={artifact.status === "planned" ? () => void applyWikiPlan(artifact) : undefined}
-        onCancel={artifact.status === "planning" ? () => void cancelWikiRun(artifact) : undefined}
-        onKeepExisting={artifact.status === "planned" && artifact.plan.staging?.length ? () => void recoverWikiPlan(artifact, "keep_existing") : undefined}
-        onRegenerate={artifact.status === "planned" && artifact.plan.staging?.length ? () => void recoverWikiPlan(artifact, "regenerate") : undefined}
-      />;
-    }
-    if (artifact.type === "wiki_result") return <section className={`wiki-result-card ${artifact.status}`} key={artifact.artifact_id}>
-      <header><span>Wiki Result</span><strong>{artifact.status === "restored" ? "已恢复检查点" : "Wiki 已写入"}</strong></header>
-      {artifact.kept_existing?.length ? <p>已保留“{artifact.kept_existing.join("、")}”的原页面，并写入其余 {artifact.written?.length || 0} 个页面。</p> : artifact.written?.length ? <p>本轮写入 {artifact.written.length} 个页面。</p> : <p>{artifact.status === "restored" ? "本轮变更已经撤销。" : "已保存变更和检查点。"}</p>}
-      {artifact.status === "applied" && artifact.checkpoint_id && <footer><button className="quiet-button" disabled={wikiPlanLoading} onClick={() => void undoWikiPlan(artifact)}>撤销本轮写入</button></footer>}
-    </section>;
-    return null;
   }
 
   const composer = (
@@ -1000,12 +925,12 @@ export function ChatPage() {
         <div className="composer-toolbar">
           <IconButton label={documents.length ? "选择资料范围" : "前往资料库"} type="button" onClick={() => documents.length ? openContext() : navigate("/library")}><Paperclip /></IconButton>
           <IconButton label={webOnce ? "取消本轮联网搜索" : "本轮搜索网页候选"} className={webOnce ? "web-on" : ""} type="button" disabled={sending} onClick={() => setWebOnce((value) => !value)}><Globe2 /></IconButton>
-          {selectedDocuments.length > 0 && <span className="composer-scope"><Library size={13} />{selectedDocuments.length} 份优先资料<button className="scope-mode-toggle" type="button" title={strictDocumentScope ? "当前只检索选中资料，点击恢复全库检索" : "当前检索全库并优先这些资料，点击限制为仅选中"} onClick={() => setStrictDocumentScope((value) => !value)}>{strictDocumentScope ? "仅这些" : "全库优先"}</button><button type="button" aria-label="清空优先资料" title="清空优先资料" onClick={clearDocumentScope}><X size={12} /></button></span>}
+          {selectedDocuments.length > 0 && <span className="composer-scope"><Library size={13} />{selectedDocuments.length} 份优先资料<button className="scope-mode-toggle" type="button" title={strictDocumentScope ? "当前只检索选中资料，点击恢复全库检索" : "当前检索全库并优先这些资料，点击限制为仅选中"} onClick={toggleStrictDocumentScope}>{strictDocumentScope ? "仅这些" : "全库优先"}</button><button type="button" aria-label="清空优先资料" title="清空优先资料" onClick={clearDocumentScope}><X size={12} /></button></span>}
           {webOnce && <span className="composer-web-scope"><Globe2 size={13} />本轮联网</span>}
           <label className={`composer-select model ${activeProvider?.configured ? "connected" : "offline"}`} title="本会话使用的模型"><i /><select aria-label="当前模型" value={selectedProvider} disabled={sending} onChange={(event) => void changeProvider(event.target.value)}>{settings?.providers.map((provider) => <option key={provider.name} value={provider.name} disabled={!provider.configured}>{provider.name}{provider.configured ? "" : "（不可用）"}</option>)}</select></label>
           <label className="composer-select depth" title="回答深度"><select aria-label="回答深度" value={settings?.preferences.assistant.answer_depth || "standard"} disabled={sending || !settings} onChange={(event) => void changeAnswerDepth(event.target.value as "concise" | "standard" | "deep")}><option value="concise">简洁</option><option value="standard">标准</option><option value="deep">深入</option></select></label>
           <span className="composer-hint">Enter 发送 · Shift Enter 换行</span>
-          {sending && abortRef.current ? <button className="send-button stop" type="button" aria-label="停止生成" onClick={() => abortRef.current?.abort()}><Square /></button> : <button className="send-button" type="submit" disabled={!draft.trim() || sending || !libraryReady} aria-label="发送"><ArrowUp /></button>}
+          {sending ? <button className="send-button stop" type="button" aria-label="停止生成" onClick={() => abortRef.current?.abort()}><Square /></button> : <button className="send-button" type="submit" disabled={!draft.trim() || !libraryReady} aria-label="发送"><ArrowUp /></button>}
         </div>
       </div>
     </form>
@@ -1050,8 +975,8 @@ export function ChatPage() {
             {composer}
             {wikiPlanLoading && <BobodanProcess state="reading" detail={status || "正在生成 Wiki 计划"} />}
             <div className="starter-actions">
-              <button onClick={() => usePrompt("根据我的资料，帮我梳理今天最值得学习的三个知识点。")}>梳理学习重点</button>
-              <button onClick={() => usePrompt("请先用直觉解释，再给出严谨推导。")}>先讲直觉，再补证明</button>
+              <button onClick={() => applyPrompt("根据我的资料，帮我梳理今天最值得学习的三个知识点。")}>梳理学习重点</button>
+              <button onClick={() => applyPrompt("请先用直觉解释，再给出严谨推导。")}>先讲直觉，再补证明</button>
               <button disabled={documentImporting} onClick={startDocumentImport}><FilePlus2 size={15} />{documentImporting ? "正在导入" : "导入资料"}</button>
               <button onClick={() => navigate("/practice")}><BookOpen size={15} />开始练习</button>
             </div>

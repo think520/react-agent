@@ -583,6 +583,23 @@ export interface MemoryConfirmationArtifact {
   knowledge_item_id?: string;
 }
 
+export interface LegacyGraphPreview {
+  detected: boolean;
+  path: string;
+  concepts: Array<{ id: string; name: string }>;
+  memories: Array<{
+    id: string;
+    name: string;
+    content: string;
+    quality: "complete" | "name_only";
+    covered_by_legacy_memory: boolean;
+    possible_duplicate?: string | null;
+    recommended: boolean;
+  }>;
+  excluded: Record<string, number>;
+  relationships: number;
+}
+
 export interface KnowledgeContextRelationship extends RelationshipEdge {
   evidence_status: "valid" | "stale" | "missing";
   valid_evidence_count: number;
@@ -614,6 +631,9 @@ export interface RunSummaryOperation {
   document_count?: number;
   concept_count?: number;
   relationship_count?: number;
+  retrieval_mode?: string;
+  semantic_available?: boolean;
+  fallback_from?: string;
 }
 
 export interface RunSummaryArtifact {

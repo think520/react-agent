@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -40,6 +40,16 @@ describe("Bobodan app shell", () => {
       if (path.endsWith("/api/chat/sessions")) return jsonResponse({ sessions: [] });
       if (path.includes("/api/kb/documents")) return jsonResponse({ documents: [] });
       if (path.endsWith("/api/learning/review-queue")) return jsonResponse({ due_concepts: [], wrong_answers: [], weaknesses: [] });
+      if (path.endsWith("/api/memory/overview")) return jsonResponse({ knowledge_count: 0, pending_candidate_count: 0 });
+      if (path.endsWith("/api/graph/legacy/preview")) return jsonResponse({
+        detected: true,
+        path: "F:/study/.knowledge/graph_store.json",
+        concepts: [{ id: "Concept:RAG", name: "RAG" }],
+        memories: [{ id: "Memory:偏好", name: "偏好", content: "偏好", quality: "name_only", covered_by_legacy_memory: false, possible_duplicate: null, recommended: true }],
+        excluded: { Note: 1 },
+        relationships: 0,
+      });
+      if (path.endsWith("/api/graph/legacy/import")) return jsonResponse({ concept_candidates: [], memory_candidates: [], archived: true });
       throw new Error(`Unexpected request: ${path}`);
     }));
   });
@@ -52,7 +62,7 @@ describe("Bobodan app shell", () => {
   it("shows the real study navigation and Today state", async () => {
     render(<MemoryRouter initialEntries={["/chat"]}><App /></MemoryRouter>);
 
-    expect(screen.getByRole("heading", { name: "今天想学点什么？", level: 2 })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "今天想学点什么？", level: 2 })).toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: "对话" }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("link", { name: "练习" }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("link", { name: "复习" }).length).toBeGreaterThan(0);
@@ -93,5 +103,22 @@ describe("Bobodan app shell", () => {
     expect(dialog).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "设置暂时不可用" })).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "重新连接" })).toBeInTheDocument();
+  });
+
+  it("requires confirmation before explicitly archiving all legacy graph data", async () => {
+    localStorage.setItem("bobodan:onboarding:v1", "complete");
+    const confirm = vi.fn(() => true);
+    vi.stubGlobal("confirm", confirm);
+
+    render(<MemoryRouter initialEntries={["/chat?settings=memory"]}><App /></MemoryRouter>);
+
+    expect(await screen.findByText("旧版知识图谱迁移")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "全部跳过并归档" }));
+
+    await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledWith(
+      "/api/graph/legacy/import",
+      expect.objectContaining({ body: JSON.stringify({ concept_ids: [], memory_ids: [], archive: true }) }),
+    ));
   });
 });

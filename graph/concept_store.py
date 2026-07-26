@@ -19,8 +19,9 @@ import json
 import sqlite3
 import time
 import uuid
-from contextlib import contextmanager
-from typing import Any, Generator
+from typing import Any
+
+from core.db import open_connection
 
 
 _DDL = """
@@ -119,20 +120,8 @@ class ConceptStore:
     # Connection
     # ------------------------------------------------------------------
 
-    @contextmanager
-    def _connect(self) -> Generator[sqlite3.Connection, None, None]:
-        con = sqlite3.connect(self._db_path, timeout=15)
-        con.row_factory = sqlite3.Row
-        con.execute("PRAGMA journal_mode=WAL")
-        con.execute("PRAGMA foreign_keys=ON")
-        try:
-            yield con
-            con.commit()
-        except Exception:
-            con.rollback()
-            raise
-        finally:
-            con.close()
+    def _connect(self):
+        return open_connection(self._db_path, busy_timeout_ms=15000)
 
     def _ensure_schema(self) -> None:
         with self._connect() as con:

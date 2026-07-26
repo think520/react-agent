@@ -281,12 +281,6 @@ def test_print_model_status_overridden(repl, fake_provider, monkeypatch, capsys)
 # --- Command registration ---
 
 
-def test_model_registered_in_all_commands():
-    """'model' should appear in ALL_COMMANDS for tab completion."""
-    from cli.repl import ALL_COMMANDS
-    assert "model" in ALL_COMMANDS
-
-
 def test_model_in_command_hints():
     """'model' should appear in COMMAND_HINTS for live autocomplete."""
     from cli.repl import COMMAND_HINTS

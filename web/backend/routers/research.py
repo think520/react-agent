@@ -11,12 +11,10 @@ from pydantic import BaseModel, Field
 from core.session import Session
 from research.providers import SearchProviderError
 from service.agent_service import AgentService
-from service.preference_service import PreferenceService
 from service.research_service import ResearchService
-from web.backend.capabilities import WEB_SKILL_NAMES
 from web.backend.deps import (
+    get_preferences,
     get_config,
-    get_default_provider_name,
     get_request_library_id,
     get_request_workspace,
     get_session_save_dir,
@@ -45,7 +43,7 @@ class WebSourceSelectRequest(BaseModel):
 
 def _preferences() -> dict:
     config = get_config()
-    return PreferenceService(get_default_provider_name(config), sorted(WEB_SKILL_NAMES)).get()
+    return get_preferences(config)
 
 
 def _load_session(request: Request, session_id: str | None) -> Session:

@@ -77,8 +77,8 @@ def think_verb_color_at(elapsed_s: float) -> str:
 # --- Tool arg summarization (Q5 A3) -----------------------------------------
 
 _PATH_TOOLS = frozenset({"read_file", "write_file", "list_dir", "stat_path"})
-_QUERY_TOOLS = frozenset({"rag_search", "graph_query"})
-_QUERY_KEY_BY_TOOL = {"rag_search": "query", "graph_query": "concept"}
+_QUERY_TOOLS = frozenset({"rag_search", "concept_map_query"})
+_QUERY_KEY_BY_TOOL = {"rag_search": "query", "concept_map_query": "concept"}
 
 
 def _tail(s: str, n: int) -> str:

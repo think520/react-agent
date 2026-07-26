@@ -1,401 +1,173 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Bobodan（波波蛋）是一个本地优先、Chat-first 的个人学习助手。开始产品、架构或界面工作前，先读 `docs/PROJECT_GUIDE.md`；界面工作还必须读 `docs/DESIGN.md`。
 
-Before product, planning, architecture, or Web UI work, read `docs/PROJECT_GUIDE.md` first. It is the current source of truth for Bobodan's product positioning, current stage, next steps, feature priority, and architecture boundaries.
+## 当前产品边界
 
-Before any Web UI, page, component, prototype, TUI, or visual design work, also read `docs/DESIGN.md`. It defines Bobodan's required theme colors and visual direction; do not invent a different palette or generic SaaS/AI-gradient style.
+- Chat 是主入口；Library 负责导入、阅读和触发概念提取；Practice / Review 负责练习闭环。
+- 原始资料是知识型回答和练习的事实来源。Wiki、概念摘要和个人知识不能冒充原文证据。
+- 知识地图只包含用户已审查的概念和关系。未审查候选只显示状态摘要，不参与回答。
+- Wiki 已降级为高级维护和历史整理能力，不是一级导航，也不是默认 RAG 中间层。
+- 个人知识使用结构化 SQLite 存储，按全局和资料库隔离；旧 Markdown memory / daily 只读保留用于迁移。
+- `.knowledge/` 是可重建运行时索引，但旧 `rag_index*.json`、`graph_store.json` 和旧记忆文件可能是用户唯一历史数据，迁移完成前不得静默删除。
 
-## Overview 
+## 常用命令
 
-波波蛋 (Bobodan) is a Python-based ReAct agent with multiple LLM provider support, session persistence, a skills system, a persistent memory system with daily memory and FTS5 search, a local knowledge base with RAG and knowledge graph, a wiki compilation layer, a quiz system, a learning path system, and a CLI REPL interface. Users chat with the agent which reasons and calls tools (read_file, write_file, list_dir, change_dir, stat_path, memory_save, memory_recall, memory_daily_save, memory_daily_read, knowledge_status, question_generate, quiz_start, quiz_submit, learning_path, learning_progress, learning_review, wiki_ingest, wiki_lint, obsidian_export_plan, obsidian_export_quiz_summary) in a loop until it produces a response.
-
-## Commands
-
-### Run the agent
-```bash
+```powershell
 python agent.py
-python agent.py -c config.yaml
-python agent.py --session-id <id>  # resume saved session
-python agent.py -v                 # verbose logging (DEBUG level)
+python agent.py --session-id <id>
+
+.venv\Scripts\python.exe -m pytest -q
+
+cd web/frontend
+npm run lint
+npm run build
+npm test -- --run
 ```
 
-### Install dependencies
-```bash
-pip install -r requirements.txt          # runtime only
-pip install -r requirements-dev.txt      # with pytest
+主要 CLI 命令：
+
+```text
+/kb sync <vault> [course_dir] [--full]
+/kb status
+/kb search <query> [--course name] [--top-k n]
+/kb graph <concept> [--limit n]
+/kb reset --yes
+
+/quiz generate <topic> [--count n] [--course name]
+/quiz start [count] [--course name]
+/quiz wrong | weak | stats
+
+/learning plan <goal>
+/learning progress [concept]
+/learning review | today | plans
+/learning mark <concept> mastered|learning|needs_review
+
+/memory list | show | search | forget | stats | review
+/memory legacy
+
+/wiki init <vault>
+/wiki lint [vault]
+/wiki status [vault]
 ```
 
-### REPL commands
-```
-/skill list         # list available skills
-/skill <name>       # show skill content
-/skill run <name>   # run skill as agent task
-/kb sync <vault> [course_dir] [--full]   # sync Obsidian vault to knowledge base
-/kb status          # show knowledge base stats (courses, chunks, errors, graph)
-/kb search <query> [--course name] [--top-k n]  # local RAG search
-/kb graph <concept> [--intent related] [--limit n]  # knowledge graph query
-/kb reset --yes     # delete generated .knowledge/ indexes
-/quiz generate <topic> [--count n] [--course name]  # generate quiz questions
-/quiz start [count] [--course name]  # start a quiz practice session
-/quiz wrong         # show wrong answer book
-/quiz weak          # show weakness analysis by concept
-/quiz stats         # show quiz question counts by type
-/learning plan <goal> [--course name] [--deadline date]  # generate learning plan
-/learning progress [concept]  # show mastery overview or concept detail
-/learning review    # show today's review list
-/learning mark <concept> mastered|learning|needs_review  # manually set mastery
-/learning plans     # list saved learning plans
-/memory list        # list saved memories
-/memory show <name> # show memory details
-/memory search <query>  # search memories (FTS5)
-/memory forget <name>   # delete a memory
-/memory daily [content] # write/view today's daily memory
-/memory daily YYYY-MM-DD  # view specific date's memory
-/memory review      # show today's review list (from learning module)
-/memory stats       # show memory statistics (includes FTS5 stats)
-/wiki init <vault>  # initialize wiki directory structure
-/wiki ingest <source> [--vault path] [--force]  # compile sources into wiki pages
-/wiki lint [vault]  # wiki health check (orphans, broken links, stale)
-/wiki status [vault]  # wiki statistics
-/ui                 # show UI settings
-/ui tools on|off    # toggle tool call display during streaming
-/model              # show active provider / model
-/model list         # list all configured providers
-/model use <name>   # switch active provider at runtime (no config rewrite)
-/specialists                       # list all configured specialists
-/specialists status                # recent in-memory invocations (last 3)
-/specialists tools <name>          # effective tool set after filtering
-/session list                 # list saved sessions (name, id, time)
-/session save [name]          # save session with optional name
-/session resume               # interactive session picker
-/session load <id|name>       # load by id, prefix, or name
-/status             # show runtime status
-```
+旧 `/wiki ingest`、旧 memory save/recall/daily 工具和旧 `graph_query` 已退役，不要重新接回。
 
-### Run tests
-```bash
-pytest
-pytest tests/test_session.py        # single test file
-pytest tests/ -v                     # verbose
-```
+## 架构真相
 
-### Environment setup
-```bash
-cp .env.example .env                 # then edit .env with API keys
-```
-
-## Git workflow
-
-**Before branching or writing code**, sync with remote:
-```bash
-git fetch origin
-git status              # verify clean working tree
-git pull --rebase       # if behind
-```
-
-**Commit / PR / push standards:**
-- Commit message: English, concise, one-line summary preferred. Multi-line only when the "why" needs context — never restate the diff.
-- PR title: < 70 chars, conventional prefix (`feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:`, `perf:`).
-- PR body: short — Summary (1-3 sentences), What's in (5-8 bullets max), Test plan (checkbox list). No diff restating, no padding.
-- Push only on explicit user request. Never auto-push.
-- Keep working tree tidy: don't mix local-only config (personal API keys, dev-only MCP servers) into feature commits.
-
-## Architecture
-
-```
-agent.py          # CLI entry point, parses args, starts REPL
-config.yaml       # Provider, agent, session, skills, memory configuration
-.env              # API keys (copy from .env.example)
+```text
 core/
-  session.py      # Session dataclass, message history, save/load to JSON
-  agent_loop.py   # ReAct loop: calls LLM, parses tool calls, executes tools
-  skills.py       # Skills discovery, frontmatter parsing, XML prompt formatting
-  memory.py       # Memory system: MemoryManager, MemoryEntry, MEMORY.md index
-cli/
-  repl.py         # REPL class: handles input, commands, streaming feedback
-  markdown_render.py  # Rich-based terminal rendering (panels, tables, markdown)
-providers/
-  types.py        # ToolCall and LLMResponse dataclasses (unified internal types)
-  base.py         # LLMProvider protocol (complete, get_name)
-  openai_compat.py # OpenAICompatibleProvider base class (raw httpx, shared logic)
-  factory.py      # ProviderFactory: creates providers from config.yaml
-  deepseek.py     # DeepseekProvider (inherits OpenAICompatibleProvider)
-  minimax.py      # MiniMaxProvider (raw httpx, refusal detection)
-tools/
-  base.py         # Tool registry, ToolResult, workspace security (DENY_READ_PATTERNS)
-  file_ops.py     # read_file, write_file tools (with size limit, binary check, overwrite guard)
-  dir_ops.py      # list_dir, change_dir, stat_path tools
-  http_req.py     # http_request tool (GET/POST/etc.)
-  obsidian_tool.py # obsidian_sync tool (syncs vault to .knowledge/)
-  obsidian_export.py # obsidian_export_plan, obsidian_export_quiz_summary (Obsidian writeback)
-  rag_search.py   # rag_search tool (local RAG retrieval)
-  graph_query.py  # graph_query tool (knowledge graph relationships)
-  memory_tools.py # memory_save, memory_recall, memory_daily_save, memory_daily_read
-  knowledge_status.py # knowledge_status tool (knowledge base overview)
-  quiz_tools.py   # question_generate, quiz_start, quiz_submit tools
-  agents.py       # register_delegate_tools — 3 delegate_* tools wired to specialist runner
-agents/           # Learning Agent Orchestrator v1 (multi-agent skeleton)
-  base.py         # BaseSpecialist ABC (subclass contract)
-  config.py       # SpecialistConfig: Python defaults + YAML merge
-  registry.py     # SpecialistRegistry + last_invocations deque(maxlen=10)
-  runner.py       # run(name, task, parent_session) → ToolResult; tool filter; timeout
-  prompt.py       # system_prompt 模板渲染
-  specialists/
-    doc_reader.py # DocReaderSpecialist — long doc → digest (context isolation)
-    triage.py     # TriageSpecialist — JSON decision (model substitution + sandbox)
-    planner.py    # PlannerSpecialist — learning plan (state-write orchestration)
-service/          # Business logic layer (CLI and tools delegate here)
-  learning_service.py  # LearningService: plans, progress, reviews, mastery
-  quiz_service.py      # QuizService: generate, start, submit, wrong book, weakness
-  memory_service.py    # MemoryService: permanent memory, daily memory, personal knowledge
-  kb_service.py        # KBService: sync, status, RAG search, graph query, reset
-  agent_service.py     # AgentService: provider mgmt, session persistence, agent run
-knowledge/        # Knowledge base management
-  documents.py    # DocumentRecord, build_document_records (per-file import tracking)
-  manifest.py     # .knowledge/manifest.json read/write
-  import_report.py # ImportReport: post-sync error and summary reports
-  library.py      # LibrarySummary: aggregate stats across courses, graph, and chunks
-quiz/             # Quiz system (SQLite-backed)
-  schema.py       # Question, QuizSession, QuizAttempt dataclasses
-  store.py        # QuizStore: SQLite CRUD for questions, sessions, attempts
-  generator.py    # QuestionGenerator: LLM-based question generation from RAG chunks
-  evaluator.py    # QuizEvaluator: auto-grade choice/T-F, LLM-grade short answer
-  review.py       # QuizReviewer: wrong answer book and weakness analysis
-learning/         # Learning path and progress tracking
-  schema.py       # Mastery, LearningPlan dataclasses
-  store.py        # LearningStore: SQLite tables for mastery and learning plans
-  scheduler.py    # ReviewScheduler: simple spaced repetition (1/3/7/14 days)
-  progress.py     # ProgressTracker: mastery overview, auto-infer from quiz
-  path.py         # LearningPathGenerator: LLM-based personalized learning plans
-  quiz_integration.py # record_quiz_learning_effect + session_summary (quiz→memory→mastery bridge)
-memory/           # Memory upgrade: daily memory, FTS5 index, personal knowledge store
-  store.py        # MemoryIndexStore: SQLite + FTS5 full-text search (chunks, recall_log)
-  daily.py        # DailyMemoryManager: daily memory files in .bobodan/daily/
-  search.py       # MemorySearcher: FTS5 with OR/LIKE progressive relaxation
-mcp_client/       # MCP (Model Context Protocol) client integration
-  config.py       # YAML loading + ${ENV_VAR} substitution
-  event_loop.py   # AsyncEventLoop: background thread bridge for async MCP SDK
-  manager.py      # MCPManager: per-server state, lazy connect, reload
-  naming.py       # build_safe_tool_name: server__tool format with sanitization
-  catalog.py      # build_mcp_tool_specs: enumerate tools across servers
-  tool_wrapper.py # make_mcp_tool_func: wrap as Bobodan ToolResult
-  prompt.py       # build_mcp_status_prompt: system prompt segment
-  transport_base.py    # Transport abstract base
-  transport_stdio.py   # stdio transport (subprocess + SDK)
-  transport_sse.py     # SSE transport (legacy HTTP+SSE)
-  transport_http.py    # streamable_http transport (modern HTTP)
-rag/              # RAG v2: SQLite+FTS5, Qdrant, hybrid retrieval, multi-format parsers
-  schema.py       # RetrievalHit, DocumentHit, RetrievalResult, HybridResult
-  sqlite_store.py # KBSQLiteStore: SQLite + FTS5 (documents, chunks, directory_entries)
-  qdrant_store.py # QdrantStore: Qdrant local persistent vector store
-  embedding_service.py # EmbeddingService: Ollama embedding wrapper
-  source_section.py # SourceSection: unified intermediate structure for parsers
-  chunker_v2.py   # heading-aware adaptive chunking (replaces chunker.py for v2)
-  rrf.py          # RRF (Reciprocal Rank Fusion) for vector + FTS5
-  hybrid.py       # HybridRetriever: vector + FTS5 → RRF fusion
-  directory.py    # DirectoryRetriever: document-level routing
-  grep_retriever.py # GrepRetriever: exact text search + intent-aware evidence
-  orchestrator.py # RetrievalOrchestrator: hybrid/directory/directory_grep dispatch
-  query_router.py # Rule-based query routing (no LLM in v1)
-  parsers/        # Multi-format document parsers
-    __init__.py   # parse_document dispatch by extension
-    markdown_parser.py # Heading-aware Markdown/Markdown splitting
-    pdf_parser.py # Page-aware PDF parsing (PyMuPDF + pypdf fallback)
-    pptx_parser.py # Slide-aware PPT parsing (python-pptx)
-    docx_parser.py # Heading-style-aware Word parsing (python-docx)
-  chunker.py      # Legacy: TextChunk, chunk_text (kept for JSON index fallback + memory chunking)
-  vector_store.py # Legacy: LocalVectorStore JSON sparse index (kept for rag_index.json fallback)
-  embeddings.py   # Legacy: LocalEmbeddingProvider sparse TF+L2 (used by vector_store)
-  ollama.py       # OllamaEmbeddingClient: probe, embed, cache availability
-  retriever.py    # search_index: Orchestrator entry point (legacy fallback)
-  citations.py    # format_search_results (updated for v2 result schema)
-wiki/             # LLM wiki compilation layer (Karpathy pattern)
-  schema.py       # WikiPage, CompileResult, WikiConfig, source registry
-  compiler.py     # WikiCompiler: LLM-based source→wiki page compilation
-  index.py        # WikiIndexer: index.md catalog + log.md chronicle
-  lint.py         # WikiLinter: orphan/broken link/stale page detection
-tools/
-  mcp.py          # register_mcp_tools: REPL integration entry point for MCP
-skills/           # Skills directory (configurable via config.yaml)
-  aihot/          # AI news skill
-  course-learning/ # RAG + graph course-learning Q&A
-  study-loop/     # learning workflow guidance
-  exam-prep/      # exam prep and weak-concept practice
-  obsidian-workspace/ # Obsidian / knowledge base sync and export
-    SKILL.md      # YAML frontmatter (name, description) + Markdown instructions
+  agent_loop.py       ReAct 循环、工具执行、运行时证据门禁
+  session.py          会话模型和 JSON 持久化
+  db.py               SQLite 连接、WAL、busy_timeout 和迁移帮助函数
+  llm_json.py         统一 LLM JSON 提取与修复
+
+service/
+  agent_service.py    Provider、会话和 Agent 运行入口
+  kb_service.py       资料同步、查询、RAG 和高级 Wiki 维护
+  concept_service.py  概念提取、候选审查和知识地图
+  memory_service.py   个人知识、候选、事件和旧记忆迁移
+  quiz_service.py     出题、练习、批改、错题变式
+  learning_service.py 学习计划、SM-2 复习和掌握度
+
+rag/
+  sqlite_store.py     documents/chunks/FTS5 真相源；中文 CJK 2-gram
+  qdrant_store.py     可降级的向量索引
+  hybrid.py           vector + FTS5 → RRF
+  directory.py        文档级路由
+  grep_retriever.py   原文定位
+  retriever.py        按资料库缓存的统一检索入口和能力状态
+
+graph/
+  concept_store.py    已审查概念、关系、证据、候选和布局位置
+
+memory/
+  personal_store.py   全局 / 资料库个人知识、学习事件和候选队列
+  legacy.py           旧 Markdown 记忆只读解析
+
+wiki/
+  workflow.py         维护计划和用户确认工作流
+  orchestration.py    大型任务、预算、恢复和检查点
+  lint.py             只读健康检查
+  utils.py            共享文件名和 LLM JSON 工具
+
+web/backend/          FastAPI 路由、稳定 SSE 和错误信封
+web/frontend/         React 桌面 UI；Zustand 管理跨页状态；路由按需加载
 ```
 
-## Knowledge assistant modules
+以下模块已经删除，禁止恢复为正常运行时依赖：
 
-RAG v2 and knowledge graph are additive modules. Keep the existing Agent loop,
-provider abstraction, session model, and REPL stable unless a change is explicitly
-needed for tool integration.
+- `core/memory.py`、`memory/store.py`、`memory/search.py`、`memory/daily.py`
+- `rag/chunker.py`、`rag/vector_store.py`、`rag/embeddings.py`
+- `graph/local_store.py`、`graph/neo4j_store.py`、`graph/store.py`、`graph/schema.py`
+- `wiki/compiler.py`
 
-```
-obsidian/        # Obsidian vault scanning and Markdown/frontmatter/link/tag parsing
-rag/             # RAG v2: multi-format parsing, heading-aware chunking, SQLite+FTS5,
-                 #   Qdrant vectors, RRF fusion, hybrid/directory/grep retrieval, orchestrator
-graph/           # Knowledge graph schema, local JSON store, optional Neo4j adapter
-tools/           # Agent-facing wrappers for sync, RAG search, and graph query
-.knowledge/      # Runtime: knowledge.db (SQLite), qdrant/ (vectors), manifest, sync_state
-```
+## 关键契约
 
-### Knowledge data rules
+### Agent 和证据
 
-- `.knowledge/` is generated runtime state. Do not commit it, and it may be safely
-  deleted when rebuilding indexes from source notes/documents.
-- Knowledge tools must keep workspace boundary checks. They should not scan or
-  index paths outside the current workspace unless a future explicit allow-list is
-  added first.
-- Neo4j is optional: when `NEO4J_URI`, `NEO4J_USERNAME`, and `NEO4J_PASSWORD` are
-  missing or the driver is unavailable, graph operations must continue through the
-  local JSON graph store.
-- Knowledge graph stays independent from RetrievalOrchestrator — different granularity
-  (concept relationships vs chunk evidence).
-- SQLite is the truth source for RAG v2. Qdrant failures never roll back SQLite writes.
-  `documents.vector_status` tracks Qdrant indexing state (`pending|indexed|error`).
+- 知识型问题默认以 `library_search` / `rag_search` 的原始 chunk 为证据骨架。
+- `concept_map_query` 只读取已审查图谱，用来补充结构；候选不能绕过审查进入回答。
+- `personal_knowledge_recall` 只调整讲解方式或补充明确标注的个人上下文。
+- `service/evidence_policy.py` 和 AgentLoop 结束前验证共同构成运行时证据门禁。Prompt 只是指导，不是质量保证。
+- stale 概念证据可以继续展示关系，但不能满足原文证据门禁；需要重新定位或重新检索。
 
-### Key patterns
+### RAG
 
-**Service layer**: Business logic lives in `service/` — CLI `repl.py` and agent tools both delegate to service methods. Each service is stateless: methods take parameters, return `{"ok": bool, ...}` dicts. `AgentService.create_provider()` returns live LLMProvider instances (not JSON DTOs); `AgentService.load_session()` returns Session objects. FastAPI routers should convert these to JSON summaries themselves. Session ownership: service methods mutate the session passed in — callers needing rollback must pass a copy.
+- SQLite `knowledge.db` 是唯一 RAG 真相源；不存在时返回 `retrieval_mode="unavailable"`，不回退旧 JSON。
+- 无向量能力时返回 `fts_only`，前端必须让降级可见。
+- FTS5 索引含 NFKC/casefold 和中文 2-gram 搜索文本；旧索引在打开时按需迁移重建。
+- RetrievalOrchestrator 按 workspace + RAG 配置缓存；缓存连接跨线程使用时必须由管线锁保护，reset 前必须清缓存。
+- `document_id` 是资料稳定 ID；新概念证据尽量带 `chunk_id`。旧证据可空，不强制模糊回填。
 
-**Provider creation**: `ProviderFactory.create_from_config(config.yaml)` reads `llm.default_provider` from config and instantiates the matching provider class. For runtime switching, `AgentService.create_provider(config, provider_name)` (called by REPL after `/model use`) takes the full config and provider name.
+### 知识地图和迁移
 
-**Provider types**: All providers return `LLMResponse(content: str, tool_calls: list[ToolCall])`. `ToolCall` has `id`, `name`, `arguments` fields. `LLMProvider` protocol: `complete(messages, tools=None) -> LLMResponse`. Providers also implement `complete_stream()` returning `Iterator[LLMStreamChunk]` for streaming; `AgentLoop._complete_with_events()` auto-detects streaming support via `getattr(self.llm, "complete_stream")`. `AgentLoop.set_provider(llm_provider)` swaps the active provider mid-session; previous turns remain in the session as context for the new model.
+- 资料同步不再写旧 JSON / Neo4j 图。概念必须经过“提取候选 → 用户审查 → 写入图谱”。
+- `graph_store.json` 只在“设置 → 记忆与数据”惰性检测。
+- Concept 和语义关系进入迁移候选；Memory 永远不进入概念图谱，只能进入个人知识候选。
+- 薄 Memory、可能重复和被旧 Markdown 流程覆盖的项目必须在预览里说明；模糊重复只提示，不自动跳过。
+- 迁移成功并校验后才归档旧 JSON，同时记录 SHA-256、迁移时间和数量。
 
-**Tool registration**: Tools auto-register at import time — `tools/__init__.py` imports all tool modules, each of which calls `register_tool()` at module level. Adding a new tool: create the file, call `register_tool()`, add the import to `tools/__init__.py`.
+### 个人知识
 
-**Tool execution**: Tools are registered via `register_tool(name, description, params_schema, func)`. `execute_tool(name, args, session)` returns `ToolResult(ok: bool, content: str, data: dict)`. Tools enforce workspace root boundary (`_is_within_workspace`) and deny list (`_is_denied_path` for `.env`, `.git`, etc.). `content` goes to the LLM, `data` is for programmatic use (e.g., `change_dir` sets `data["cwd"]`).
+- `personal_knowledge` 是长期知识真相源；请求级 `personalization_context` 有长度上限。
+- 旧 `.bobodan/memory/*.md` 和 `.bobodan/daily/*.md` 不再写入、不再注入 system prompt。
+- 明确用户要求通过确认卡或管理页面写入；自动整理只能生成候选。
+- 资料库请求必须带正确 library 上下文，不能跨库读取资料、错题或学习事件。
 
-**Session persistence**: Sessions save to `.session/<id>.json` (configurable). The cwd is stored in the session and used by all tools as the workspace root.
+### 练习和复习
 
-**ReAct loop**: `AgentLoop.run_stream(user_input)` (or the convenience wrapper `run()`) adds the user message, calls the LLM, executes each `ToolCall`, and loops until the LLM returns text instead of tool calls (max 8 iterations). The REPL calls `run_stream()` in a background thread and renders events (`assistant_delta`, `tool_start`, `tool_end`, `assistant_done`) in real time. Message ordering is always: `user → assistant(tool_calls) → tool → assistant`. The REPL deep-copies the session before each turn so timeouts don't pollute state.
+- Question 的来源由检索结果确定性保存，模型只能选择 `source_ids`，不能自行编造来源。
+- 批改解析失败重试一次；仍失败返回 `grading_unavailable`，不能记为答错。
+- 错题重练使用“原题 + 用户错误答案 + 原文证据”生成不同问法，不能只重放原题。
+- 复习调度使用保守 SM-2：首次 1 天、第二次 6 天、之后按 ease factor 增长；答错重置为 1 天，ease 最低 1.3。
 
-**Skills system**: Skills are loaded from `skills/` directory (configurable). Each skill is a subdirectory containing a `SKILL.md` file with YAML frontmatter (`name`, `description`) and Markdown body (instructions). At startup, `build_skills_system_prompt()` scans the directory, parses frontmatter, and formats an XML catalog into a system message. The model reads the catalog and autonomously decides which skill to load via `read_file`. `/skill run <name>` strips frontmatter and sends the body as a user message prefixed with `[Skill: name]`. A stable `SKILLS_PROMPT_MARKER` in the injected system message prevents duplicate injection on session restore. System messages are protected from trimming in `_trim_messages()`.
+### Provider
 
-**Base system prompt**: `core/agent_loop.py` injects a stable Bobodan base prompt once per session using `BASE_SYSTEM_PROMPT_MARKER`. It defines Bobodan as a local-first personal assistant with strong learning capabilities, while leaving persona/tone customization to memory or future user instructions. The legacy base prompt string is retained only as a cleanup sentinel for old saved sessions.
+- `LLMProvider` 必须提供 `name`、`model`、`complete()`、`complete_stream()` 和 `get_name()`。
+- Provider 失败使用 `ProviderError`、`ProviderTimeout`、`ProviderConnectionError`、`ProviderConfigError`。
+- 配置错误不可静默降级；流式输出一旦已经 yield 内容，中途失败不得从头重试，避免重复回答。
+- MiniMax 流式工具调用在完整拒绝检测前缓存；拒绝回答不得执行缓冲工具调用。
 
-**Memory system**: Two-tier memory with lifecycle management.
+### 服务和 Web
 
-Permanent memories (`.bobodan/memory/*.md`): YAML frontmatter (`name`, `description`, `type`, `created`, `updated`). Four types: `user` (profile), `feedback` (corrections), `project` (context), `reference` (external pointers). Auto-generated `MEMORY.md` index.
+- 服务返回 `service/_result.py` 的 `{ok, ...}` 或 `{ok: false, code, error}`。
+- FastAPI 使用 `unwrap_service_result`，按结构化 code 映射 HTTP，不用错误字符串猜状态。
+- SSE 事件解析必须容忍坏帧；会话保存放在流生成器 `finally`，断线也保存已完成内容。
+- 正文不展示模型原始思维链。过程只显示中文状态、工具摘要、引用和结构化 artifact。
 
-Daily memories (`.bobodan/daily/YYYY-MM-DD.md`): Timestamped entries with YAML frontmatter (`date`, `tags`). Used as buffer for learning notes, quiz results, and transient context. Today + yesterday injected into system prompt automatically.
+## 编码纪律
 
-Storage: `.bobodan/memory.db` (SQLite) with FTS5 full-text search for fast keyword retrieval. FTS5 triggers auto-sync with chunks table. The old `memory_index.json` vector store is no longer written or read.
+- 修改前先定义可验证成功条件；优先写回归测试复现 bug。
+- 只做与任务相关的最小改动，不顺手重构邻近代码。
+- 文件搜索优先 `rg`；不可用时再用 PowerShell `Select-String`。
+- 文件编辑使用 `apply_patch`，保留用户已有未提交改动。
+- 删除或归档用户数据前先验证精确路径和迁移结果。
+- 不把旧 JSON、旧 Markdown 记忆或 Wiki 整理页重新接成回答事实来源。
+- 当前发布目标是 Windows 桌面端；除非用户重新要求，不执行移动端验收。
 
-Search: `MemorySearcher` uses FTS5 with progressive relaxation (AND match → OR match → per-token LIKE). The old JSON vector fallback is retired.
+## Git
 
-Promotion: retired. The legacy PromotionEngine (frequency/recency scoring over daily memories) never worked reliably with Chinese text and was replaced by the P5F.1 personal knowledge candidate/confirm flow in `memory/personal_store.py`.
-
-Tools: `memory_save`, `memory_recall` (FTS5 search), `memory_daily_save`, `memory_daily_read`. REPL: `/memory list|show|search|forget|daily|review|stats`.
-
-## RAG v2 — Hybrid Retrieval System
-
-Four retrieval methods, unified through `RetrievalOrchestrator`:
-
-1. **Vector** (Qdrant + Ollama): semantic similarity via dense embeddings.
-2. **FTS5** (SQLite): keyword/term/exact match via BM25 ranking.
-3. **Directory** (SQLite): document-level routing — finds which documents are relevant.
-4. **Grep** (rg/Python): exact text search in source files with context expansion.
-
-**Retrieval modes** (`rag/orchestrator.py`):
-- `hybrid` (default): Vector + FTS5 → RRF fusion → chunk-level results.
-- `directory`: Hybrid broad search → document aggregation → document-level results.
-- `directory_grep`: Directory → grep evidence → exact source/context results.
-- `auto`: rule-based routing (directory_grep > directory > hybrid), hybrid empty → fallback to directory_grep.
-
-**Storage** (`.knowledge/`):
-- `knowledge.db` — SQLite: documents, chunks, chunks_fts (FTS5), directory_entries, retrieval_runs.
-- `qdrant/` — Qdrant local persistent: `bobodan_chunks` collection, cosine distance, HNSW.
-- `manifest.json`, `sync_state.json`, `import_report.json` — metadata and sync state.
-
-**Multi-format parsing** (`rag/parsers/`): Markdown (heading-aware), PDF (page-aware via PyMuPDF), PPT (slide-aware via python-pptx), Word (heading-style via python-docx). All parsed to `SourceSection` → `chunker_v2` → `TextChunk`.
-
-**Embedding**: Ollama `qwen3-embedding:0.6b` via `EmbeddingService`. Graceful degradation: no Ollama → FTS5/directory/grep still work.
-
-**Tool**: `rag_search` accepts optional `mode` parameter (`auto|hybrid|directory|directory_grep`).
-
-**Legacy files**: `dense_store.py`, `router.py`, and `ingest.py` have been removed. `vector_store.py` + `chunker.py` + `embeddings.py` remain only to read old `.knowledge/rag_index.json` sparse indexes and to chunk legacy memory entries; new code must use the v2 pipeline.
-
-Full design: [`docs/rag_design.md`](docs/rag_design.md).
-
-## MCP (Model Context Protocol) Client
-
-Bobodan can connect to external MCP servers and expose their tools to the LLM agent. Three transports: stdio (subprocess), streamable_http, SSE. All backed by the official `mcp` Python SDK 1.19+.
-
-**Architecture** (`mcp_client/`):
-- `event_loop.py` — `AsyncEventLoop` singleton: background daemon thread runs asyncio, `run_sync(coro, timeout)` bridges sync→async via `run_coroutine_threadsafe`
-- `manager.py` — `MCPManager`: per-server state (config, transport, connected/error, tools), lazy connect on first tool call, `reload()` diffs config and adds/removes/reconnects
-- `config.py` — config loader; supports both `transport` and `type` field names; substitutes `${ENV_VAR}` in any string field (fail-fast on missing); validates stdio needs `command`, http needs `url` with `http(s)://`
-- `naming.py` — `build_safe_tool_name(server, tool, reserved)`: sanitizes special chars to `-`, truncates server to 30 chars and combined to 64, appends `-2`/`-3` on collision against reserved names
-- `catalog.py` — `build_mcp_tool_specs(mgr, reserved)`: connects to each enabled server and returns a list of `{safe_name, server, tool_name, description, inputSchema}` dicts
-- `tool_wrapper.py` — `make_mcp_tool_func(server, tool, mgr)`: returns a function that calls `mgr.call()` and converts the MCP result to a `ToolResult(ok, content, data)`
-- `prompt.py` — `build_mcp_status_prompt(mgr)`: returns the `## MCP Servers` segment for the system prompt; lists each enabled server's connection state and tool count
-
-**Transports** (`mcp_client/transport_*.py`): all three implement the same `Transport` ABC (`connect / disconnect / list_tools / call_tool / is_connected`). They wrap the corresponding SDK context manager and `mcp.ClientSession`. The call_tool result conversion uses `btype` to disambiguate text/image/resource blocks.
-
-**REPL integration** (`tools/mcp.py` + `cli/repl.py`):
-- `tools/mcp.register_mcp_tools(config)` is called once at REPL startup, before `AgentLoop` is constructed. It builds the catalog and calls `register_tool()` for each MCP tool. Per-server connect failures are isolated: a server that can't connect is logged and skipped, others register.
-- `core/agent_loop.py` takes a new `mcp_prompt` parameter and injects it as a system message on first turn (HTML comment marker for idempotency).
-- `/mcp` command group: `list` (default), `status`, `restart [name]`, `tools <name>`, `reload`. See `cli/repl.py`.
-- Startup panel shows `mcp: <connected>/<total> connected, N tools`.
-
-**Config schema** (`config.yaml`):
-```yaml
-mcp:
-  enabled: true
-  connection_timeout: 30
-  tool_call_timeout: 60
-  servers:
-    github:        # stdio (auto-inferred from `command`)
-      command: uvx
-      args: ["mcp-server-git"]
-    amap:          # streamable_http
-      transport: streamable_http
-      url: "https://mcp.example.com/mcp"
-      headers:
-        Authorization: "Bearer ${GITHUB_TOKEN}"
-    legacy:        # sse (default for url without explicit transport)
-      transport: sse
-      url: "https://mcp.example.com/sse"
-```
-
-**Security model**: trust-first. Any server in `config.yaml` is fully trusted; all its tools are auto-available. No per-tool approval gate (that's Phase 2 per the harness plan).
-
-**Testing**: `tests/test_mcp_*.py` covers config, event loop, manager, naming, catalog, prompt, all three transports (SDK-mocked), and the REPL commands — 76 tests total.
-
-## Learning Agent Orchestrator (multi-agent skeleton)
-
-**v1 scope**: 3 built-in specialists — `doc_reader` (context isolation), `triage` (model substitution + sandbox), `planner` (state-write orchestration). Main bobodan dispatches to specialists via dedicated `delegate_*` tools. No peer-to-peer, no recursion, no parallelism. See [`docs/agents_design.md`](docs/agents_design.md) for the full design.
-
-**Architecture** (`agents/` + `tools/agents.py`):
-- `agents/base.py` defines the `BaseSpecialist` ABC (name, system_prompt_template, data_to_content, defaults)
-- `agents/registry.py` owns the registry and in-memory `last_invocations` deque (max 10)
-- `agents/runner.py` is the only module that creates sub-AgentLoops — enforces all runtime invariants
-- `tools/agents.py` registers 3 delegate tools (`delegate_doc_reader`, `delegate_triage`, `delegate_planner`) with specialist-specific schemas
-- `REPL._make_active_provider` is the helper used by both `initialize()` and `run_agent_streaming()`; specialist runners do the same pattern with their own config
-
-**Hard runtime invariants** (enforced by `runner.build_specialist_tools` + `assert_invariants`):
-- `delegate_*` and `memory_*` tools are NEVER exposed to a specialist
-- MCP tools default-denied; opt-in only via `allow_mcp: true` AND exact name in `allowed_tools` (two doors; `all`/`*` does not auto-include MCP)
-- Timeout → `ToolResult(ok=False, error_type=timeout)`; crash → `error_type=crash`; invalid triage `recommended_specialist` → `error_type=contract_violation`
-- Parent session `messages` is never mutated by specialist
-- Specialist internals (display events OK, messages never enter parent session)
-
-**REPL integration** (`tools/agents.py` + `cli/repl.py`):
-- `register_delegate_tools(registry, get_session, get_app_config)` called at REPL startup, before `AgentLoop` is constructed (so the tools_schema snapshot includes the delegate tools)
-- `/specialists` lists configured specialists; `/specialists status` shows recent in-memory calls; `/specialists tools <name>` shows the filtered tool set
-- Specialist failures never crash the parent agent — they surface as `ok=False` tool results
-
-**Testing**: `tests/test_agents_*.py` covers 7 mandatory invariants (no delegate_/memory_ leak, MCP two-door, timeout/crash/contract_violation paths, parent session immutability) — 64 tests, all boundary-first with mock sub-AgentLoop.
-
-## Provider API
-
-Providers must implement `LLMProvider` protocol:
-- `complete(messages: list[dict], tools: list[dict] | None = None) -> LLMResponse`
-- `get_name() -> str`
-
-**`OpenAICompatibleProvider`** (`providers/openai_compat.py`) is the base class for OpenAI-compatible APIs. Handles message conversion (`_convert_messages`), HTTP requests, and response parsing (`_parse_response`). Deepseek and OpenAI providers inherit from it.
-
-**MiniMax provider** (`providers/minimax.py`) uses raw httpx with its own message conversion and refusal detection (skips tool_calls when content contains refusal language).
+- Commit 使用简洁英文 conventional prefix。
+- 不提交 API key、个人配置、`.knowledge/`、构建产物或临时文件。
+- 只在用户明确要求时 push；本任务只提交，不推送。

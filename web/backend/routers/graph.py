@@ -98,9 +98,32 @@ class ExtractRequest(BaseModel):
     force: bool = False
 
 
+class LegacyGraphImportRequest(BaseModel):
+    concept_ids: list[str] = Field(default_factory=list, max_length=1000)
+    memory_ids: list[str] = Field(default_factory=list, max_length=1000)
+    archive: bool = True
+
+
 # ------------------------------------------------------------------
 # Graph state
 # ------------------------------------------------------------------
+
+@router.get("/legacy/preview")
+def legacy_graph_preview(request: Request) -> dict:
+    from service.legacy_graph_migration import LegacyGraphMigrationService
+
+    return _unwrap(LegacyGraphMigrationService(get_request_workspace(request)).preview())
+
+
+@router.post("/legacy/import")
+def legacy_graph_import(body: LegacyGraphImportRequest, request: Request) -> dict:
+    from service.legacy_graph_migration import LegacyGraphMigrationService
+
+    return _unwrap(LegacyGraphMigrationService(get_request_workspace(request)).migrate(
+        concept_ids=body.concept_ids,
+        memory_ids=body.memory_ids,
+        archive=body.archive,
+    ))
 
 @router.get("/state")
 def graph_state(

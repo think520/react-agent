@@ -1,6 +1,5 @@
-"""Knowledge graph schema and store adapters."""
+"""Reviewed concept-map persistence."""
 
-from .local_store import LocalGraphStore
-from .store import get_graph_store
+from .concept_store import ConceptStore
 
-__all__ = ["LocalGraphStore", "get_graph_store"]
+__all__ = ["ConceptStore"]

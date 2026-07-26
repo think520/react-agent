@@ -13,6 +13,7 @@ from rag.grep_retriever import (
     GrepRetriever, GrepMatch, _is_evidence_thin, _assess_confidence,
     _python_grep, _matches_to_hits,
 )
+from rag.retriever import _retrieval_pipeline, clear_retrieval_cache
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────
@@ -99,9 +100,11 @@ class TestHybridRetriever:
         mock_sqlite.search_fts5.return_value = [
             _hit("fts1", 0.5, retrievers=["fts5"], text="FTS result 1"),
         ]
-        mock_sqlite.get_chunk_by_id.return_value = {
-            "id": "vec1", "text": "Vector result 1",
-            "heading_path_json": '["Ch1"]', "heading_text": "Ch1",
+        mock_sqlite.get_chunks_by_ids.return_value = {
+            "vec1": {
+                "id": "vec1", "text": "Vector result 1",
+                "heading_path_json": '["Ch1"]', "heading_text": "Ch1",
+            },
         }
 
         # Configure Qdrant mock
@@ -126,6 +129,7 @@ class TestHybridRetriever:
         vec_hit = next((h for h in result.top_chunks if h.chunk_id == "vec1"), None)
         assert vec_hit is not None
         assert vec_hit.text == "Vector result 1"
+        retriever.sqlite.get_chunks_by_ids.assert_called_once_with(["vec1"])
 
     def test_no_embedding_client(self):
         mock_sqlite = MagicMock()
@@ -136,6 +140,68 @@ class TestHybridRetriever:
         result = retriever.search("test", top_k=5)
         assert len(result.vector_hits) == 0
         assert len(result.fts_hits) > 0
+        assert result.vector_available is False
+
+    def test_empty_embedding_falls_back_to_fts(self):
+        retriever = self._make_retriever()
+        retriever.embedding_client.embed.return_value = []
+
+        result = retriever.search("test", top_k=5)
+
+        assert result.vector_hits == []
+        assert result.vector_available is False
+        assert len(result.fts_hits) > 0
+
+
+def test_retrieval_pipeline_is_cached_per_workspace(tmp_path, monkeypatch):
+    created = []
+    closed = []
+
+    class SQLite:
+        def __init__(self, workspace, **kwargs):
+            created.append((workspace, kwargs))
+
+        def init_db(self):
+            pass
+
+        def close(self):
+            closed.append("sqlite")
+
+    class Qdrant:
+        def close(self):
+            closed.append("qdrant")
+
+    class Embedding:
+        def __init__(self, _config):
+            self.client = object()
+
+    monkeypatch.setattr("rag.sqlite_store.KBSQLiteStore", SQLite)
+    monkeypatch.setattr("rag.qdrant_store.QdrantStore", lambda *_args: Qdrant())
+    monkeypatch.setattr("rag.embedding_service.EmbeddingService", Embedding)
+    monkeypatch.setattr("rag.hybrid.HybridRetriever", lambda *_args: object())
+    monkeypatch.setattr("rag.directory.DirectoryRetriever", lambda *_args: object())
+    monkeypatch.setattr("rag.grep_retriever.GrepRetriever", lambda *_args: object())
+    monkeypatch.setattr("rag.orchestrator.RetrievalOrchestrator", lambda *_args: object())
+
+    clear_retrieval_cache()
+    first = _retrieval_pipeline(str(tmp_path), {"rag": {"retrieval": {"default_mode": "hybrid"}}})
+    second = _retrieval_pipeline(str(tmp_path), {"rag": {"retrieval": {"default_mode": "hybrid"}}})
+    assert first is second
+    assert len(created) == 1
+    assert created[0][1]["check_same_thread"] is False
+    clear_retrieval_cache()
+    assert closed == ["sqlite", "qdrant"]
+
+
+def test_vector_store_failure_marks_semantic_search_unavailable():
+    retriever = TestHybridRetriever()._make_retriever()
+    retriever.qdrant.search.side_effect = RuntimeError("qdrant unavailable")
+
+    result = retriever.search("test", top_k=5)
+
+    assert result.vector_hits == []
+    assert result.vector_available is False
+    assert len(result.fts_hits) > 0
 
 
 # ── DirectoryRetriever ──────────────────────────────────────────────────

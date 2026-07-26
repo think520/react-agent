@@ -13,7 +13,6 @@ fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 
 from core.session import Session
-from core.memory import MemoryManager
 from service.memory_service import MemoryService
 from web.backend.app import create_app
 from web.backend.deps import reset_dependency_caches
@@ -982,12 +981,19 @@ def test_run_summary_omits_unchanged_query_and_keeps_rewrite():
         "ok": True,
         "elapsed": 0.3,
         "args": {"query": "Transformer 架构 工作流程"},
-        "metrics": {"hit_count": 5, "document_count": 2},
+        "metrics": {
+            "hit_count": 5,
+            "document_count": 2,
+            "retrieval_mode": "fts_only",
+            "semantic_available": False,
+        },
     }, "解释 Transformer")
 
     assert "query" not in unchanged
     assert rewritten["query"] == "Transformer 架构 工作流程"
     assert rewritten["hit_count"] == 5
+    assert rewritten["retrieval_mode"] == "fts_only"
+    assert rewritten["semantic_available"] is False
 
 
 def test_user_profile_is_delimited_as_untrusted_prompt_data():
@@ -1071,7 +1077,6 @@ def test_chat_run_maps_safe_events_and_injects_runtime(backend_client, monkeypat
     assert "SECRET" not in body
     assert "C:\\private" not in body
     assert captured["skills_prompt"] == "skills prompt"
-    assert captured["memory_prompt"] is None
     assert captured["trace_writer"] is not None
     assert "Lesson 1" in captured["request_prompt"]
     assert captured["session"].active_document_ids == ["doc-1"]
@@ -1086,6 +1091,43 @@ def test_chat_run_maps_safe_events_and_injects_runtime(backend_client, monkeypat
         item["function"]["name"] for item in captured["tools_schema"]
     }
     assert schema_names == set(captured["allowed_tool_names"])
+
+
+def test_chat_stream_finalizer_retries_failed_session_save(backend_client, monkeypatch):
+    runtime = SimpleNamespace(
+        workspace=str(backend_client.workspace),
+        skills_prompt=None,
+        create_provider=lambda _name: object(),
+        create_trace=lambda _session_id: object(),
+    )
+    save_results = iter([
+        {"ok": False, "error": "temporary failure"},
+        {"ok": True},
+    ])
+    save_calls = []
+
+    def fake_run_stream(**kwargs):
+        kwargs["session"].add_message("user", kwargs["user_input"])
+        kwargs["session"].add_message("assistant", "partial answer")
+        yield {"type": "assistant_delta", "content": "partial answer"}
+        yield {"type": "assistant_done", "content": "partial answer", "termination_reason": "final_answer"}
+
+    def fake_save(session, save_dir):
+        save_calls.append((session.session_id, save_dir))
+        return next(save_results)
+
+    monkeypatch.setattr("web.backend.routers.chat.get_runtime_context", lambda: runtime)
+    monkeypatch.setattr("web.backend.routers.chat.AgentService.run_stream", fake_run_stream)
+    monkeypatch.setattr("web.backend.routers.chat.AgentService.save_session", fake_save)
+    monkeypatch.setattr(
+        "web.backend.routers.chat.MemoryService.personalization_context",
+        lambda self, query: {"ok": True, "content": "", "references": []},
+    )
+
+    response = backend_client.post("/api/chat/runs", json={"message": "hello"})
+
+    assert "event: run_failed" in response.text
+    assert len(save_calls) == 2
 
 
 def test_chat_persists_web_consent_artifact_without_network_access(backend_client, monkeypatch):
@@ -1492,22 +1534,6 @@ def test_library_delete_uses_stable_contract(backend_client, monkeypatch):
     assert "C:\\private" not in response.text
 
 
-def test_memory_daily_strip_paths(backend_client, monkeypatch):
-    monkeypatch.setattr(
-        "web.backend.routers.memory.MemoryService.daily_save",
-        lambda self, content, tags: {
-            "ok": True, "path": "C:\private\daily.md", "date": "2026-07-10"
-        },
-    )
-
-    saved = backend_client.post("/api/memory/daily", json={"content": "Remember"})
-    assert saved.json() == {"ok": True, "date": "2026-07-10"}
-
-    # The legacy promotion endpoint is retired
-    promoted = backend_client.post("/api/memory/promote")
-    assert promoted.status_code in (404, 405)
-
-
 def test_personal_knowledge_api_is_library_scoped(backend_client, tmp_path):
     first, first_root = create_test_library(backend_client, tmp_path, "FirstMemory")
     first_headers = {"X-Bobodan-Library-ID": first["library_id"]}
@@ -1584,8 +1610,11 @@ def test_candidate_confirmation_and_legacy_preview(backend_client, tmp_path):
     assert confirmed.status_code == 200
     assert confirmed.json()["item"]["scope"] == "global"
 
-    MemoryManager(str(backend_client.workspace)).save(
-        "legacy-style", "旧偏好", "喜欢先看例子", "user",
+    legacy_dir = backend_client.workspace / ".bobodan" / "memory"
+    legacy_dir.mkdir(parents=True, exist_ok=True)
+    (legacy_dir / "legacy-style.md").write_text(
+        "---\nname: legacy-style\ntype: user\ndescription: 旧偏好\n---\n\n喜欢先看例子",
+        encoding="utf-8",
     )
     preview = backend_client.get("/api/memory/legacy/preview", headers=headers)
     assert preview.status_code == 200
@@ -1599,7 +1628,7 @@ def test_candidate_confirmation_and_legacy_preview(backend_client, tmp_path):
 
 def test_chat_memory_confirmation_requires_user_action(backend_client, monkeypatch):
     runtime = SimpleNamespace(
-        workspace=str(backend_client.workspace), skills_prompt=None, memory_prompt="legacy",
+        workspace=str(backend_client.workspace), skills_prompt=None,
         create_provider=lambda _name: object(), refresh_memory=lambda: None,
         create_trace=lambda _session_id: object(),
     )

@@ -1,11 +1,19 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
+import type { Attribution, KnowledgeContext } from "../types";
+
 export interface LearningProfile {
   displayName?: string;
   learningGoal?: string;
   memoryEnabled?: boolean;
   webEnabled?: boolean;
+}
+
+/** Mirrors LibrarySetupOptions in AppShell (kept structural to avoid a component import). */
+export interface LibrarySetupDialogState {
+  initialMode?: "create" | "open" | "migrate";
+  importCount?: number;
 }
 
 interface UiState {
@@ -16,16 +24,27 @@ interface UiState {
   strictDocumentScope: boolean;
   newSessionProvider: string;
   learningProfile: LearningProfile;
-  // Ephemeral UI state (mobile overlays / hover previews).
+  // Ephemeral UI state (mobile overlays / hover previews / dialogs / context panel).
   mobileSidebarOpen: boolean;
   mobileContextOpen: boolean;
   leftPreview: boolean;
   rightPreview: boolean;
+  onboardingOpen: boolean;
+  librarySetup: LibrarySetupDialogState | null;
+  conceptDetailId: string | null;
+  knowledgeContext: KnowledgeContext | null;
+  sourceContext: Attribution | null;
   setPanelOpen: (side: "left" | "right", open: boolean) => void;
   setMobileSidebarOpen: (open: boolean) => void;
   setMobileContextOpen: (open: boolean) => void;
   setPreview: (side: "left" | "right", open: boolean) => void;
   togglePreview: (side: "left" | "right") => void;
+  setOnboardingOpen: (open: boolean) => void;
+  openLibrarySetup: (options?: LibrarySetupDialogState) => void;
+  closeLibrarySetup: () => void;
+  setConceptDetailId: (conceptId: string | null) => void;
+  setKnowledgeContext: (context: KnowledgeContext | null) => void;
+  setSourceContext: (attribution: Attribution | null) => void;
   setDocumentScope: (documentIds: string[]) => void;
   toggleDocumentScope: (documentId: string) => void;
   pruneDocumentScope: (validIds: string[]) => void;
@@ -60,6 +79,11 @@ export const useUiStore = create<UiState>()(
       mobileContextOpen: false,
       leftPreview: false,
       rightPreview: false,
+      onboardingOpen: false,
+      librarySetup: null,
+      conceptDetailId: null,
+      knowledgeContext: null,
+      sourceContext: null,
       setPanelOpen: (side, open) => set(side === "left" ? { leftSidebarOpen: open } : { rightSidebarOpen: open }),
       setMobileSidebarOpen: (open) => set({ mobileSidebarOpen: open }),
       setMobileContextOpen: (open) => set({ mobileContextOpen: open }),
@@ -67,6 +91,12 @@ export const useUiStore = create<UiState>()(
       togglePreview: (side) => set((state) => side === "left"
         ? { leftPreview: !state.leftPreview }
         : { rightPreview: !state.rightPreview }),
+      setOnboardingOpen: (open) => set({ onboardingOpen: open }),
+      openLibrarySetup: (options = {}) => set({ librarySetup: options }),
+      closeLibrarySetup: () => set({ librarySetup: null }),
+      setConceptDetailId: (conceptId) => set({ conceptDetailId: conceptId }),
+      setKnowledgeContext: (context) => set({ knowledgeContext: context }),
+      setSourceContext: (attribution) => set({ sourceContext: attribution }),
       setDocumentScope: (documentIds) => set({ documentScope: Array.from(new Set(documentIds)) }),
       toggleDocumentScope: (documentId) => set((state) => ({
         documentScope: state.documentScope.includes(documentId)

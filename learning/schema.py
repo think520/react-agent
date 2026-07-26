@@ -1,14 +1,21 @@
 from dataclasses import dataclass, field
 
+MASTERY_UNSEEN = "unseen"
+MASTERY_LEARNING = "learning"
+MASTERY_MASTERED = "mastered"
+MASTERY_NEEDS_REVIEW = "needs_review"
+
 
 @dataclass
 class Mastery:
     """Tracks mastery state for a single knowledge concept."""
     concept: str
-    status: str = "unseen"  # unseen, learning, mastered, needs_review
+    status: str = MASTERY_UNSEEN
     score: float = 0.0      # 0.0 ~ 1.0
     review_count: int = 0
     consecutive_correct: int = 0
+    ease_factor: float = 2.5
+    interval_days: int = 0
     last_reviewed: str | None = None
     next_review: str | None = None
     source: str = "auto"    # auto (from quiz) or manual (user override)

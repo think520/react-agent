@@ -5,7 +5,7 @@ RAG v2 pipeline:
 2. Parse each file → SourceSection list (via rag/parsers)
 3. Chunk sections → TextChunk list (via rag/chunker_v2)
 4. Write to SQLite (KBSQLiteStore) + Qdrant (QdrantStore)
-5. Build graph (unchanged)
+5. Preserve reviewed concept-map evidence
 6. Save manifest + import report
 """
 
@@ -15,7 +15,6 @@ import logging
 import os
 from dataclasses import dataclass, field
 
-from graph.store import get_graph_store
 from knowledge.documents import DocumentRecord, build_document_records
 from knowledge.import_report import ImportReport, save_import_report
 from knowledge.manifest import save_manifest
@@ -192,9 +191,6 @@ def sync_sources(
     total_chunks = 0
     doc_records: list[DocumentRecord] = []
 
-    # Collect all notes for graph building
-    all_notes = notes
-
     for source, abs_path, content_hash, kind in changed_sources:
         try:
             # Parse document into sections
@@ -343,12 +339,15 @@ def sync_sources(
             except Exception:
                 pass
 
-    # ── Step 6: Build graph ─────────────────────────────────────────────
-    graph_store = get_graph_store(workspace)
-    relationship_count = graph_store.replace_from_notes(all_notes)
-    graph_store_path = getattr(graph_store, "graph_path", None)
-    if hasattr(graph_store, "close"):
-        graph_store.close()
+    # ── Step 6: Read reviewed concept-map status ────────────────────────
+    # Source sync no longer writes the retired JSON graph. Concepts only
+    # enter the map through extraction candidates and explicit review.
+    from service.concept_service import ConceptService
+
+    graph_status = ConceptService(workspace).get_status()
+    relationship_count = int(graph_status.get("relationship_count") or 0)
+    graph_backend = "concept_sqlite"
+    graph_store_path = None
 
     # ── Step 7: Save state ──────────────────────────────────────────────
     _save_state(workspace, new_state)
@@ -384,7 +383,7 @@ def sync_sources(
         "updated_files": updated_files,
         "chunk_count": total_chunks,
         "relationship_count": relationship_count,
-        "graph_backend": graph_store.backend_name,
+        "graph_backend": graph_backend,
         "mode": mode,
     }
     save_manifest(workspace, doc_records, sync_summary_dict, vault_path=vault_path)
@@ -395,7 +394,7 @@ def sync_sources(
         error_files=len(errors),
         chunk_count=total_chunks,
         relationship_count=relationship_count,
-        graph_backend=graph_store.backend_name,
+        graph_backend=graph_backend,
         errors=errors,
     ))
 
@@ -407,7 +406,7 @@ def sync_sources(
         updated_files=updated_files,
         chunk_count=total_chunks,
         relationship_count=relationship_count,
-        graph_backend=graph_store.backend_name,
+        graph_backend=graph_backend,
         rag_index_path=index_path,
         graph_store_path=graph_store_path,
         error_files=len(errors),

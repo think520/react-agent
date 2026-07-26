@@ -22,12 +22,12 @@ from service.concept_service import ConceptService
 from service.evidence_policy import CombinedResponsePolicy, ConceptMapPolicy, LocalEvidencePolicy
 from service.kb_service import KBService
 from service.memory_service import MemoryService
-from service.preference_service import PreferenceService
 from service.quiz_service import QuizService
 from service.research_service import ResearchService
 from service.usage_service import UsageService
 from tools import get_tools_schema
 from web.backend.deps import (
+    get_preferences,
     get_config,
     get_default_provider_name,
     get_library_runtime_context,
@@ -84,10 +84,7 @@ def _runtime_for(workspace: str):
 
 
 def _preferences(config: dict[str, Any]) -> dict[str, Any]:
-    return PreferenceService(
-        get_default_provider_name(config),
-        sorted(WEB_SKILL_NAMES),
-    ).get()
+    return get_preferences(config)
 
 
 def _web_tools_schema(allowed_tool_names: frozenset[str] = _WEB_TOOL_NAMES) -> list[dict]:
@@ -1371,12 +1368,12 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
             nonlocal persisted
             if persisted or not body.save:
                 return {"ok": True}
-            persisted = True
             _attach_user_references(session, body.references)
             _attach_attribution(session, latest_attribution)
             _attach_artifacts(session, pending_artifacts)
             _attach_personalization(session, personalization.get("references") or [])
             save_result = AgentService.save_session(session, get_session_save_dir(config, workspace))
+            persisted = bool(save_result.get("ok"))
             if save_result["ok"] and memory_enabled:
                 try:
                     from service.memory_consolidation import MemoryConsolidationService
@@ -1404,7 +1401,6 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
                 user_input=body.message,
                 provider=provider,
                 skills_prompt=skills_prompt,
-                memory_prompt=None,
                 trace_writer=runtime.create_trace(session.session_id),
                 tools_schema=_web_tools_schema(allowed_tool_names),
                 allowed_tool_names=allowed_tool_names,

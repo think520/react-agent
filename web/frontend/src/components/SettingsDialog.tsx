@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity, Bot, BookOpenText, Brain, Check, ChevronLeft, CircleUserRound,
-  Cpu, Database, Gauge, RefreshCw, Search, Settings2, ShieldCheck, Sparkles, Wrench, X,
+  Cpu, Database, Gauge, RefreshCw, Search, ShieldCheck, Sparkles, Wrench, X,
 } from "lucide-react";
 
 import { api } from "../lib/api";
-import type { LibrarySummary, MemoryOverview, RuntimeStatus, SettingsSummary, UserPreferences } from "../types";
+import type { LegacyGraphPreview, LibrarySummary, MemoryOverview, RuntimeStatus, SettingsSummary } from "../types";
 import { BrandIllustration, IconButton } from "./common";
 import { MemoryManagerDialog } from "./MemoryManagerDialog";
 
@@ -67,6 +67,10 @@ export function SettingsDialog({
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus | null>(null);
   const [memoryOverview, setMemoryOverview] = useState<MemoryOverview | null>(null);
   const [memoryManagerOpen, setMemoryManagerOpen] = useState(false);
+  const [legacyGraph, setLegacyGraph] = useState<LegacyGraphPreview | null>(null);
+  const [legacyConceptIds, setLegacyConceptIds] = useState<string[]>([]);
+  const [legacyMemoryIds, setLegacyMemoryIds] = useState<string[]>([]);
+  const [migrationBusy, setMigrationBusy] = useState(false);
   const [usage, setUsage] = useState<Awaited<ReturnType<typeof api.llmUsage>> | null>(null);
   const [usageDays, setUsageDays] = useState<7 | 30>(7);
   const dialogRef = useRef<HTMLElement>(null);
@@ -93,7 +97,25 @@ export function SettingsDialog({
   useEffect(() => {
     if (!activeLibrary) { setMemoryOverview(null); return; }
     void api.memoryOverview().then(setMemoryOverview).catch(() => setMemoryOverview(null));
+  }, [activeLibrary]);
+
+  useEffect(() => {
+    setLegacyGraph(null);
+    setLegacyConceptIds([]);
+    setLegacyMemoryIds([]);
   }, [activeLibrary?.library_id]);
+
+  useEffect(() => {
+    if (active !== "memory" || !activeLibrary || legacyGraph) return;
+    let cancelled = false;
+    void api.legacyGraphPreview().then((preview) => {
+      if (cancelled) return;
+      setLegacyGraph(preview);
+      setLegacyConceptIds(preview.concepts.map((item) => item.id));
+      setLegacyMemoryIds(preview.memories.filter((item) => item.recommended).map((item) => item.id));
+    }).catch((reason: Error) => { if (!cancelled) setError(reason.message); });
+    return () => { cancelled = true; };
+  }, [active, activeLibrary, legacyGraph]);
 
   useEffect(() => {
     if (active !== "ai") return;
@@ -105,6 +127,11 @@ export function SettingsDialog({
     const needle = query.trim().toLocaleLowerCase();
     return needle ? sections.filter((item) => `${item.label} ${item.aliases}`.toLocaleLowerCase().includes(needle)) : sections;
   }, [query]);
+  const recommendedMemories = legacyGraph?.memories.filter((item) => item.recommended) || [];
+  const allConceptsSelected = Boolean(legacyGraph?.concepts.length)
+    && legacyConceptIds.length === legacyGraph?.concepts.length;
+  const allRecommendedMemoriesSelected = recommendedMemories.length > 0
+    && recommendedMemories.every((item) => legacyMemoryIds.includes(item.id));
 
   useEffect(() => setSearchIndex(0), [query]);
 
@@ -128,6 +155,39 @@ export function SettingsDialog({
       setError(reason instanceof Error ? reason.message : "设置没有保存成功。");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function migrateLegacyGraph() {
+    if (!legacyGraph?.detected || migrationBusy) return;
+    if (!window.confirm("导入后，概念和记忆仍需在候选区确认。校验成功后会归档旧 JSON，是否继续？")) return;
+    setMigrationBusy(true);
+    setError("");
+    try {
+      const result = await api.importLegacyGraph(legacyConceptIds, legacyMemoryIds);
+      setNotice(`已创建 ${result.concept_candidates.length} 条概念候选和 ${result.memory_candidates.length} 条个人知识候选。`);
+      setLegacyGraph({ ...legacyGraph, detected: false });
+      void api.memoryOverview().then(setMemoryOverview).catch(() => undefined);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "旧版知识图谱迁移失败");
+    } finally {
+      setMigrationBusy(false);
+    }
+  }
+
+  async function archiveLegacyGraphWithoutImport() {
+    if (!legacyGraph?.detected || migrationBusy) return;
+    if (!window.confirm("确认不导入任何旧概念或记忆，并将旧 JSON 归档？归档文件仍会保留在本地，但这些内容不会进入候选区。")) return;
+    setMigrationBusy(true);
+    setError("");
+    try {
+      await api.importLegacyGraph([], []);
+      setNotice("已按你的选择跳过全部旧数据，并保留归档文件和迁移校验记录。");
+      setLegacyGraph({ ...legacyGraph, detected: false });
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "旧版知识图谱归档失败");
+    } finally {
+      setMigrationBusy(false);
     }
   }
 
@@ -207,6 +267,14 @@ export function SettingsDialog({
     </>;
     if (active === "memory") return <>
       <section className="settings-group"><header><h3>学习记忆</h3><p>关闭后停止候选整理、长期知识写入和个性化；做题进度、错题和掌握度仍会保存。</p></header><SettingRow label="启用学习记忆"><Toggle label="启用学习记忆" checked={preferences.memory.enabled} onChange={(value) => void patchPreferences({ memory: { enabled: value } })} /></SettingRow><SettingRow label="个人知识" hint={`${memoryOverview?.knowledge_count || 0} 条已确认 · ${memoryOverview?.pending_candidate_count || 0} 条待确认`}><button className="quiet-button" disabled={!activeLibrary} onClick={() => setMemoryManagerOpen(true)}><Brain size={15} />管理个人知识</button></SettingRow></section>
+      {legacyGraph?.detected && <section className="settings-group"><header><h3>旧版知识图谱迁移</h3><p>旧 JSON 不再参与回答。逐项核对后导入候选区，校验成功才归档原文件。</p></header>
+        <SettingRow label="概念候选" hint={`${legacyConceptIds.length}/${legacyGraph.concepts.length} 个已选择 · ${legacyGraph.relationships} 条语义关系`}><label className="migration-check"><input type="checkbox" checked={allConceptsSelected} onChange={(event) => setLegacyConceptIds(event.target.checked ? legacyGraph.concepts.map((item) => item.id) : [])} />选择全部</label></SettingRow>
+        {legacyGraph.concepts.length > 0 && <details className="migration-preview"><summary>查看概念列表</summary><div>{legacyGraph.concepts.map((item) => <label key={item.id}><input type="checkbox" checked={legacyConceptIds.includes(item.id)} onChange={(event) => setLegacyConceptIds((current) => event.target.checked ? [...current, item.id] : current.filter((id) => id !== item.id))} /><span><strong>{item.name}</strong><small>进入知识地图候选区，仍需审查</small></span></label>)}</div></details>}
+        <SettingRow label="旧记忆候选" hint={`${legacyMemoryIds.length}/${recommendedMemories.length} 条已选择 · ${legacyGraph.memories.filter((item) => item.quality === "name_only").length} 条只有名称`}><label className="migration-check"><input type="checkbox" checked={allRecommendedMemoriesSelected} onChange={(event) => setLegacyMemoryIds(event.target.checked ? recommendedMemories.map((item) => item.id) : [])} />选择建议项</label></SettingRow>
+        {legacyGraph.memories.length > 0 && <details className="migration-preview"><summary>查看记忆风险</summary><div>{legacyGraph.memories.map((item) => <label className={!item.recommended ? "disabled" : ""} key={item.id}><input type="checkbox" disabled={!item.recommended} checked={legacyMemoryIds.includes(item.id)} onChange={(event) => setLegacyMemoryIds((current) => event.target.checked ? [...current, item.id] : current.filter((id) => id !== item.id))} /><span><strong>{item.name}</strong><small>{item.covered_by_legacy_memory ? "已由旧记忆迁移流程覆盖" : item.possible_duplicate ? `可能与“${item.possible_duplicate}”重复，请自行判断` : item.quality === "name_only" ? "只有名称，导入后参考价值可能较低" : "内容较完整"}</small></span></label>)}</div></details>}
+        {Object.keys(legacyGraph.excluded).length > 0 && <p className="settings-warning">不会进入概念图谱：{Object.entries(legacyGraph.excluded).map(([label, count]) => `${label} ${count} 个`).join(" · ")}</p>}
+        <div className="migration-actions"><button className="danger-text-button" disabled={migrationBusy} onClick={() => void archiveLegacyGraphWithoutImport()}>全部跳过并归档</button><button className="quiet-button" disabled={migrationBusy || (!legacyConceptIds.length && !legacyMemoryIds.length)} onClick={() => void migrateLegacyGraph()}><Database size={15} />{migrationBusy ? "正在处理…" : "迁移所选数据"}</button></div>
+      </section>}
       <section className="settings-boundary"><ShieldCheck size={20} /><div><strong>本地数据边界</strong><p>原始资料只读，设置不会把资料上传到 Bobodan 服务。当前资料库：{activeLibrary?.name || "尚未选择"}。</p></div></section>
     </>;
     if (active === "skills") return <section className="settings-group"><header><h3>Web 安全 Skills</h3><p>这里只显示浏览器运行时能够完整执行的学习技能。</p></header>{settings.skills.length ? settings.skills.map((skill) => <SettingRow key={skill.name} label={skill.name} hint={`${skill.description} · 能力：${skill.capabilities.join("、")} · 来源：${skill.source}`}><Toggle label={`${skill.name} 技能`} checked={preferences.skills.enabled_names.includes(skill.name)} onChange={(value) => { const names = value ? [...preferences.skills.enabled_names, skill.name] : preferences.skills.enabled_names.filter((item) => item !== skill.name); void patchPreferences({ skills: { enabled_names: names } }); }} /></SettingRow>) : <p className="settings-empty">当前没有可用于 Web 的 Skills。</p>}</section>;

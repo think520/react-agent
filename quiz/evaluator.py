@@ -1,6 +1,6 @@
-import json
 import logging
-import re
+
+from core.llm_json import parse_llm_object
 
 from .schema import Question
 
@@ -41,19 +41,9 @@ def _normalize_bool_answer(raw: str) -> str:
 
 def _parse_grading_response(text: str) -> tuple[bool, str]:
     """Parse LLM grading response. Raises GradingError when no verdict exists."""
-    # Strip markdown code fences
-    text = re.sub(r"```(?:json)?\s*", "", text)
-    text = re.sub(r"```\s*$", "", text)
-
-    start = text.find("{")
-    end = text.rfind("}")
-    if start == -1 or end == -1:
+    data = parse_llm_object(text)
+    if data is None:
         raise GradingError("no JSON object found in grading response")
-
-    try:
-        data = json.loads(text[start : end + 1])
-    except json.JSONDecodeError as exc:
-        raise GradingError(f"grading JSON invalid: {exc}") from exc
     if "is_correct" not in data:
         raise GradingError("grading JSON missing is_correct")
     is_correct = bool(data.get("is_correct"))

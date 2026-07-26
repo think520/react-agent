@@ -11,6 +11,28 @@ from .schema import Question
 
 logger = logging.getLogger(__name__)
 
+WRONG_ANSWER_VARIANT_PROMPT = """你是一个错题变式生成器。请根据原题、用户的错误答案和原始资料，生成 1 道考察同一误区但问法不同的题目。
+
+要求：
+1. 不得原样复述原题，不得只替换少量词语。
+2. 题目必须继续考察原题对应的知识点和用户暴露出的误区。
+3. 答案和解析必须能够由给出的原始资料支持，不得补充资料外事实。
+4. source_ids 只能使用原始资料中出现的来源编号。
+5. 所有内容使用中文。
+
+原题：{question}
+原题类型：{question_type}
+原题选项：{options}
+正确答案：{answer}
+用户错误答案：{wrong_answer}
+原题解析：{explanation}
+知识点：{concepts}
+
+原始资料：
+{material}
+
+只输出一个严格 JSON 数组，字段与普通题目一致。"""
+
 QUESTION_GENERATION_PROMPT = """你是一个题目生成器。根据以下课程材料，生成 {count} 道练习题。
 
 要求：
@@ -244,6 +266,76 @@ class QuestionGenerator:
                 created_at=datetime.now(timezone.utc).isoformat(),
             ))
         return questions[:count]
+
+    def generate_wrong_answer_variant(
+        self,
+        original: Question,
+        wrong_answer: str,
+        chunks: list[dict],
+    ) -> Question | None:
+        """Generate a different formulation targeting the same misconception."""
+        if not chunks:
+            self.failure_kind = "no_evidence"
+            return None
+
+        source_refs: dict[str, dict] = {}
+        material_parts: list[str] = []
+        for index, chunk in enumerate(chunks[:6], 1):
+            source_id = f"S{index}"
+            source = str(chunk.get("source") or chunk.get("title") or "本地资料")
+            metadata = chunk.get("metadata") or {}
+            source_refs[source_id] = {
+                "source_type": "local",
+                "source_id": str(chunk.get("chunk_id") or source_id),
+                "title": str(chunk.get("title") or metadata.get("title") or source),
+                "document_id": chunk.get("document_id"),
+                "chunk_id": chunk.get("chunk_id"),
+                "heading": metadata.get("heading_text") or chunk.get("heading_text"),
+                "page": metadata.get("page_start") or chunk.get("page_start"),
+                "slide": metadata.get("slide_start") or chunk.get("slide_start"),
+            }
+            material_parts.append(f"[来源 {source_id}: {source}]\n{chunk.get('text', '')}")
+
+        prompt = WRONG_ANSWER_VARIANT_PROMPT.format(
+            question=original.question,
+            question_type=original.type,
+            options="；".join(original.options),
+            answer=original.answer,
+            wrong_answer=wrong_answer,
+            explanation=original.explanation,
+            concepts="、".join(original.concepts),
+            material="\n\n".join(material_parts),
+        )
+        response = self.llm.complete([{"role": "user", "content": prompt}])
+        raw_text = response.content if hasattr(response, "content") else str(response)
+        items = [item for item in _parse_json_from_llm(raw_text) if _validate_question(item)]
+        original_label = self._normalized_label(original.question)
+        item = next(
+            (candidate for candidate in items if self._normalized_label(candidate["question"]) != original_label),
+            None,
+        )
+        if not item:
+            self.failure_kind = "invalid_model_output"
+            return None
+
+        selected_sources = [
+            source_refs[source_id]
+            for source_id in item.get("source_ids", [])
+            if source_id in source_refs
+        ] or list(source_refs.values())[:3]
+        return Question(
+            type=item["type"],
+            question=item["question"],
+            options=item.get("options", []),
+            answer=item["answer"],
+            explanation=item.get("explanation", ""),
+            concepts=item.get("concepts") or original.concepts,
+            difficulty=item.get("difficulty", original.difficulty),
+            source=selected_sources[0]["title"] if selected_sources else original.source,
+            attribution_kind="local_extension",
+            sources=selected_sources,
+            created_at=datetime.now(timezone.utc).isoformat(),
+        )
 
     def generate_from_query(
         self,

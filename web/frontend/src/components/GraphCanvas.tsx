@@ -123,7 +123,6 @@ export function GraphCanvas({
       });
     }
 
-    let renderer: Sigma;
     const settings: Partial<SigmaSettings> = {
       defaultNodeColor: C.paperSoft,
       defaultEdgeColor: C.inkBlueFaint,
@@ -187,7 +186,7 @@ export function GraphCanvas({
       },
     };
 
-    renderer = new Sigma(graph, containerRef.current, settings);
+    const renderer = new Sigma(graph, containerRef.current, settings);
     sigmaRef.current = renderer;
     graphRef.current = graph;
 

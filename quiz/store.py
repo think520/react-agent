@@ -2,6 +2,7 @@ import json
 import os
 import sqlite3
 from knowledge.paths import knowledge_path
+from core.db import create_connection
 from datetime import datetime, timezone
 
 from .schema import Question, QuizSession, QuizAttempt
@@ -104,11 +105,7 @@ class QuizStore:
         self._ensure_db()
 
     def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA foreign_keys=ON")
-        return conn
+        return create_connection(self.db_path)
 
     def _ensure_db(self) -> None:
         conn = self._connect()
@@ -405,6 +402,38 @@ class QuizStore:
                     "source": r["source"],
                 })
             return results
+        finally:
+            conn.close()
+
+    def get_wrong_answer(self, attempt_id: int) -> dict | None:
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                """SELECT qa.id as attempt_id, qa.user_answer, qa.feedback, qa.answered_at,
+                          q.id as question_id, q.type, q.question, q.options, q.answer,
+                          q.explanation, q.concepts, q.difficulty, q.source
+                   FROM quiz_attempts qa
+                   JOIN questions q ON qa.question_id = q.id
+                   WHERE qa.id = ? AND qa.is_correct = 0""",
+                (attempt_id,),
+            ).fetchone()
+            if not row:
+                return None
+            return {
+                "attempt_id": row["attempt_id"],
+                "user_answer": row["user_answer"],
+                "feedback": row["feedback"],
+                "answered_at": row["answered_at"],
+                "question_id": row["question_id"],
+                "type": row["type"],
+                "question": row["question"],
+                "options": json.loads(row["options"]),
+                "answer": row["answer"],
+                "explanation": row["explanation"],
+                "concepts": json.loads(row["concepts"]),
+                "difficulty": row["difficulty"],
+                "source": row["source"],
+            }
         finally:
             conn.close()
 

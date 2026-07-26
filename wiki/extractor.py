@@ -13,10 +13,11 @@ Extraction constraints (from design doc §2.4):
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 from typing import Any, Callable
+
+from core.llm_json import parse_llm_object
 
 logger = logging.getLogger(__name__)
 
@@ -285,20 +286,7 @@ class ConceptExtractor:
 
 def _parse_response(raw: str) -> dict[str, Any] | None:
     """Extract the JSON object from the LLM reply."""
-    # Strip markdown fences if present
-    text = raw.strip()
-    match = re.search(r"```(?:json)?\s*([\s\S]+?)\s*```", text)
-    if match:
-        text = match.group(1).strip()
-    # Find first {...}
-    start = text.find("{")
-    end = text.rfind("}")
-    if start == -1 or end == -1:
-        return None
-    try:
-        return json.loads(text[start : end + 1])
-    except json.JSONDecodeError:
-        return None
+    return parse_llm_object(raw)
 
 
 def _validate_and_clip(

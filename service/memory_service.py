@@ -1,21 +1,11 @@
-"""MemoryService — business logic for permanent memory, daily memory, and promotion.
-
-Used by both cli/repl.py and tools/memory_tools.py.
-Returns structured dicts, no ANSI/HTML formatting.
-"""
+"""Structured personal-knowledge service and legacy import boundary."""
 
 from __future__ import annotations
 
 import re
 from typing import Any
 
-
-def _ok(**kwargs: Any) -> dict[str, Any]:
-    return {"ok": True, **kwargs}
-
-
-def _err(error: str) -> dict[str, Any]:
-    return {"ok": False, "error": error}
+from service._result import err as _err, ok as _ok
 
 
 class MemoryService:
@@ -29,138 +19,6 @@ class MemoryService:
     def _personal_store(self):
         from memory.personal_store import PersonalKnowledgeStore
         return PersonalKnowledgeStore(self.workspace, home=self.home)
-
-    def _manager(self):
-        from core.memory import MemoryManager
-        return MemoryManager(self.workspace)
-
-    # --- Permanent memory ---
-
-    def save(
-        self,
-        name: str,
-        description: str,
-        content: str,
-        entry_type: str = "user",
-    ) -> dict[str, Any]:
-        if not name or not name.strip():
-            return _err("name is required")
-        if not content or not content.strip():
-            return _err("content is required")
-
-        valid_types = {"user", "feedback", "project", "reference"}
-        if entry_type not in valid_types:
-            entry_type = "user"
-
-        manager = self._manager()
-        entry = manager.save(
-            name=name.strip(),
-            description=description.strip() if description else "",
-            content=content.strip(),
-            entry_type=entry_type,
-        )
-        return _ok(name=entry.name, type=entry.type)
-
-    def recall(self, query: str, top_k: int = 5) -> dict[str, Any]:
-        if not query or not query.strip():
-            return _err("query is required")
-
-        manager = self._manager()
-        results = manager.search(query.strip(), top_k=max(1, min(top_k, 10)))
-
-        if not results:
-            entries = manager.list_entries()
-            if entries:
-                all_entries = [
-                    {"name": e.name, "type": e.type, "description": e.description}
-                    for e in entries
-                ]
-                return _ok(results=[], fallback=all_entries)
-            return _ok(results=[], fallback=[])
-
-        formatted = []
-        for r in results:
-            source = r.get("source", "").replace("memory://", "").replace("permanent://", "")
-            formatted.append({
-                "source": source,
-                "score": r.get("score", 0),
-                "text": r.get("text", "")[:200],
-                "method": r.get("metadata", {}).get("method", ""),
-            })
-        return _ok(results=formatted)
-
-    def list_entries(self) -> dict[str, Any]:
-        manager = self._manager()
-        entries = manager.list_entries()
-        result = [
-            {"name": e.name, "type": e.type, "description": e.description}
-            for e in entries
-        ]
-        return _ok(entries=result)
-
-    def get_entry(self, name: str) -> dict[str, Any]:
-        manager = self._manager()
-        manager.load_entries()
-        entry = manager.get_entry(name)
-        if not entry:
-            return _err(f"Memory not found: {name}")
-        return _ok(
-            name=entry.name,
-            type=entry.type,
-            description=entry.description,
-            content=entry.content,
-            created=entry.created,
-            updated=entry.updated,
-            file_path=entry.file_path,
-        )
-
-    def forget(self, name: str) -> dict[str, Any]:
-        manager = self._manager()
-        if manager.forget(name):
-            return _ok(name=name)
-        return _err(f"Memory not found: {name}")
-
-    # --- Daily memory ---
-
-    def daily_save(self, content: str, tags: list[str] | None = None) -> dict[str, Any]:
-        if not content or not content.strip():
-            return _err("content is required")
-
-        from memory.daily import DailyMemoryManager
-        daily = DailyMemoryManager(self.workspace)
-        filepath = daily.append(content.strip(), tags=tags)
-
-        # Index in FTS5 (best-effort)
-        try:
-            from memory.store import MemoryIndexStore
-            import datetime as dt
-            today = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d")
-            idx = MemoryIndexStore(self.workspace)
-            idx.index_text(path=filepath, source="daily", text=content.strip(), date=today)
-        except Exception:
-            pass
-
-        return _ok(path=filepath, date=daily._today_str())
-
-    def daily_read(self, date: str | None = None) -> dict[str, Any]:
-        from memory.daily import DailyMemoryManager
-        daily = DailyMemoryManager(self.workspace)
-
-        if not date:
-            content = daily.get_today()
-            date_label = daily._today_str()
-        else:
-            content = daily.read(date)
-            date_label = date
-
-        return _ok(content=content, date=date_label)
-
-    # --- Stats ---
-
-    def get_stats(self) -> dict[str, Any]:
-        manager = self._manager()
-        stats = manager.get_stats()
-        return _ok(**stats)
 
     # --- Structured personal knowledge ---
 
@@ -197,7 +55,10 @@ class MemoryService:
         except FileNotFoundError as exc:
             return _err(str(exc))
         except RuntimeError:
-            return _err("knowledge_revision_conflict")
+            return _err(
+                "Personal knowledge changed in another request. Reload and try again.",
+                code="knowledge_revision_conflict",
+            )
         except ValueError as exc:
             return _err(str(exc))
         return _ok(item=item)
@@ -259,13 +120,10 @@ class MemoryService:
         return _ok(content=self._personal_store().export_markdown(scope=scope))
 
     def legacy_preview(self) -> dict[str, Any]:
-        from core.memory import MemoryManager
-        from pathlib import Path
+        from memory.legacy import LegacyMemoryReader
 
-        manager = MemoryManager(self.legacy_workspace)
-        entries = manager.list_entries()
-        daily_dir = Path(self.legacy_workspace) / ".bobodan" / "daily"
-        daily = sorted(path.name for path in daily_dir.glob("*.md")) if daily_dir.exists() else []
+        reader = LegacyMemoryReader(self.legacy_workspace)
+        entries = reader.list_entries()
         return _ok(
             entries=[{
                 "name": entry.name,
@@ -275,14 +133,16 @@ class MemoryService:
                 "suggested_scope": "global" if entry.type in {"user", "feedback"} else "library",
                 "suggested_kind": "profile_fact" if entry.type == "user" else "course_insight",
             } for entry in entries],
-            daily_files=daily,
+            daily_files=reader.list_daily_files(),
         )
 
     def import_legacy(self, selections: list[dict[str, str]]) -> dict[str, Any]:
-        from core.memory import MemoryManager
+        from memory.legacy import LegacyMemoryReader
 
-        manager = MemoryManager(self.legacy_workspace)
-        by_name = {entry.name: entry for entry in manager.list_entries()}
+        by_name = {
+            entry.name: entry
+            for entry in LegacyMemoryReader(self.legacy_workspace).list_entries()
+        }
         created = []
         skipped = []
         for selection in selections:

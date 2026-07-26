@@ -211,7 +211,7 @@ def test_repl_timeout_does_not_modify_session(monkeypatch, capsys):
     assert len(repl.session.messages) == messages_before
     output = capsys.readouterr().out
     assert "timeout" in output.lower()
-    assert "session not modified" in output.lower()
+    assert "session not modified" not in output.lower()
 
 
 def test_repl_success_commits_session(monkeypatch, capsys):
@@ -642,15 +642,27 @@ Dijkstra solves shortest path problems with [[图]] and [[优先队列]].
     assert "RAG Search Results" in search_output
     assert "obsidian/Dijkstra.md" in search_output
 
+    from graph.concept_store import ConceptStore
+
+    concept_store = ConceptStore(str(tmp_path / ".knowledge" / "concept_graph.db"))
+    algorithm = concept_store.upsert_concept(name="Dijkstra 算法", level="core")
+    queue = concept_store.upsert_concept(name="优先队列", level="detail")
+    concept_store.upsert_relationship(
+        from_id=algorithm["concept_id"],
+        to_id=queue["concept_id"],
+        rel_type="应用于",
+    )
+
     repl.handle_kb_command("graph Dijkstra 算法")
     graph_output = capsys.readouterr().out
-    assert "Graph Query" in graph_output
+    assert "知识地图" in graph_output
     assert "优先队列" in graph_output
 
     repl.handle_kb_command("reset --yes")
     reset_output = capsys.readouterr().out
     assert "Knowledge base reset" in reset_output
-    assert not (tmp_path / ".knowledge").exists()
+    assert not (tmp_path / ".knowledge" / "knowledge.db").exists()
+    assert (tmp_path / ".knowledge" / "concept_graph.db").exists()
 
 
 def test_kb_reset_requires_yes(tmp_path, capsys):

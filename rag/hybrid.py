@@ -54,8 +54,12 @@ class HybridRetriever:
         Returns:
             HybridResult with top_chunks, all_chunk_hits, and raw hits.
         """
-        # Vector retrieval
-        vector_hits = self._vector_search(query, candidate_k, course)
+        # Probe once per search so callers can distinguish "no semantic hit"
+        # from "semantic retrieval is unavailable".
+        embedding_available = self._vector_available()
+        vector_hits, vector_available = self._vector_search(
+            query, candidate_k, course, vector_available=embedding_available
+        )
 
         # FTS5 retrieval
         fts_hits = self._fts_search(query, candidate_k, course)
@@ -77,26 +81,36 @@ class HybridRetriever:
             all_chunk_hits=all_fused,
             vector_hits=vector_hits,
             fts_hits=fts_hits,
+            vector_available=vector_available,
         )
 
-    def _vector_search(
-        self, query: str, top_k: int, course: str | None
-    ) -> list[RetrievalHit]:
-        """Search Qdrant for semantically similar chunks."""
+    def _vector_available(self) -> bool:
         if self.embedding_client is None:
-            return []
-
+            return False
         try:
-            if not self.embedding_client.is_available():
-                return []
+            return bool(self.embedding_client.is_available())
         except Exception:
-            return []
+            return False
+
+    def _vector_search(
+        self,
+        query: str,
+        top_k: int,
+        course: str | None,
+        *,
+        vector_available: bool | None = None,
+    ) -> tuple[list[RetrievalHit], bool]:
+        """Search Qdrant for semantically similar chunks."""
+        if vector_available is None:
+            vector_available = self._vector_available()
+        if not vector_available or self.embedding_client is None:
+            return [], False
 
         try:
             # Get query embedding
             vectors = self.embedding_client.embed([query])
             if not vectors or not vectors[0]:
-                return []
+                return [], False
 
             query_vector = vectors[0]
 
@@ -107,11 +121,11 @@ class HybridRetriever:
             if course:
                 hits = [h for h in hits if self._matches_course(h, course)]
 
-            return hits
+            return hits, True
 
         except Exception as e:
             logger.warning("Vector search failed: %s", e)
-            return []
+            return [], False
 
     def _fts_search(
         self, query: str, top_k: int, course: str | None
@@ -125,9 +139,11 @@ class HybridRetriever:
 
     def _hydrate_texts(self, hits: list[RetrievalHit]) -> list[RetrievalHit]:
         """Fill in text from SQLite for hits that came from Qdrant (text="")."""
+        missing_ids = [hit.chunk_id for hit in hits if not hit.text]
+        chunks_by_id = self.sqlite.get_chunks_by_ids(missing_ids)
         for hit in hits:
             if not hit.text:
-                row = self.sqlite.get_chunk_by_id(hit.chunk_id)
+                row = chunks_by_id.get(hit.chunk_id)
                 if row:
                     hit.text = row.get("text", "")
                     # Also update heading info if missing

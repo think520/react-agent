@@ -14,7 +14,6 @@ import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
 import { List, Map as MapIcon, Maximize2, Network, Search, Sparkles, Table } from "lucide-react";
 import { api } from "../lib/api";
 import type {
-  ConceptCandidate,
   ConceptNode,
   GraphState,
   KnowledgeMapView,
@@ -140,9 +139,9 @@ export function KnowledgeMapPage() {
     }, 800);
   }
 
-  function handleCandidatesChanged() {
+  const handleCandidatesChanged = useCallback(() => {
     void loadGraph();
-  }
+  }, [loadGraph]);
 
   const pendingCount = graphState?.pending_count ?? 0;
   const isEmpty = !loading && !error && (graphState?.total_concepts ?? 0) === 0;
@@ -315,38 +314,44 @@ interface DirectoryViewProps {
   onSelect: (id: string) => void;
 }
 
+function DirectorySection({
+  title,
+  items,
+  selectedConceptId,
+  onSelect,
+}: {
+  title: string;
+  items: ConceptNode[];
+  selectedConceptId: string | null;
+  onSelect: (conceptId: string) => void;
+}) {
+  if (!items.length) return null;
+  return (
+    <section className="km-dir-section">
+      <div className="km-dir-section-title">{title}</div>
+      <ul className="km-dir-list">
+        {items.map((c) => (
+          <li key={c.concept_id}>
+            <button
+              className={`km-dir-item ${selectedConceptId === c.concept_id ? "selected" : ""}`}
+              onClick={() => onSelect(c.concept_id)}
+            >
+              <span className="km-dir-name">{c.name}</span>
+              {c.definition && (
+                <span className="km-dir-def">{c.definition}</span>
+              )}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function DirectoryView({ concepts, selectedConceptId, onSelect }: DirectoryViewProps) {
   const clusters = concepts.filter((c) => c.level === "cluster");
   const cores = concepts.filter((c) => c.level === "core");
   const details = concepts.filter((c) => c.level === "detail");
-
-  const Section = ({
-    title,
-    items,
-  }: {
-    title: string;
-    items: ConceptNode[];
-  }) =>
-    items.length ? (
-      <section className="km-dir-section">
-        <div className="km-dir-section-title">{title}</div>
-        <ul className="km-dir-list">
-          {items.map((c) => (
-            <li key={c.concept_id}>
-              <button
-                className={`km-dir-item ${selectedConceptId === c.concept_id ? "selected" : ""}`}
-                onClick={() => onSelect(c.concept_id)}
-              >
-                <span className="km-dir-name">{c.name}</span>
-                {c.definition && (
-                  <span className="km-dir-def">{c.definition}</span>
-                )}
-              </button>
-            </li>
-          ))}
-        </ul>
-      </section>
-    ) : null;
 
   if (!concepts.length) {
     return (
@@ -358,9 +363,9 @@ function DirectoryView({ concepts, selectedConceptId, onSelect }: DirectoryViewP
 
   return (
     <div className="km-directory">
-      <Section title="主题簇" items={clusters} />
-      <Section title="核心概念" items={cores} />
-      <Section title="细分概念" items={details} />
+      <DirectorySection title="主题簇" items={clusters} selectedConceptId={selectedConceptId} onSelect={onSelect} />
+      <DirectorySection title="核心概念" items={cores} selectedConceptId={selectedConceptId} onSelect={onSelect} />
+      <DirectorySection title="细分概念" items={details} selectedConceptId={selectedConceptId} onSelect={onSelect} />
     </div>
   );
 }

@@ -22,9 +22,10 @@ def create_connection(
     *,
     wal: bool = True,
     busy_timeout_ms: int = DEFAULT_BUSY_TIMEOUT_MS,
+    check_same_thread: bool = True,
 ) -> sqlite3.Connection:
     """Create a configured connection. Caller owns closing it."""
-    connection = sqlite3.connect(path)
+    connection = sqlite3.connect(path, check_same_thread=check_same_thread)
     connection.row_factory = sqlite3.Row
     connection.execute(f"PRAGMA busy_timeout={int(busy_timeout_ms)}")
     if wal:

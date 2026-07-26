@@ -3,7 +3,7 @@
 from service.runtime_service import RuntimeService
 
 
-def test_runtime_context_loads_workspace_skills_and_memory(tmp_path):
+def test_runtime_context_loads_workspace_skills_and_personal_knowledge(tmp_path):
     skill_dir = tmp_path / "skills" / "study"
     skill_dir.mkdir(parents=True)
     (skill_dir / "SKILL.md").write_text(
@@ -20,26 +20,27 @@ def test_runtime_context_loads_workspace_skills_and_memory(tmp_path):
     assert context.workspace == str(tmp_path.resolve())
     assert context.skill_count == 1
     assert "Study helper" in context.skills_prompt
-    assert context.memory_manager is not None
     assert context.memory_count == 0
 
 
 def test_runtime_context_refreshes_memory_between_runs(tmp_path):
+    from service.memory_service import MemoryService
+
     context = RuntimeService.build_context(
         {"memory": {"enabled": True, "dir": ".bobodan"}},
         str(tmp_path),
     )
-    context.memory_manager.save(
-        name="profile",
-        description="Learner profile",
-        content="Prefers examples",
-        entry_type="user",
+    MemoryService(str(tmp_path)).create_knowledge(
+        scope="library",
+        kind="learning_strategy",
+        title="讲解偏好",
+        content="喜欢先看例子",
     )
 
-    prompt = context.refresh_memory()
+    result = context.refresh_memory()
 
+    assert result is None
     assert context.memory_count == 1
-    assert "Prefers examples" in prompt
 
 
 def test_runtime_create_provider_uses_requested_config(monkeypatch):

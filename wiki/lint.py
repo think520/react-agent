@@ -220,7 +220,7 @@ class WikiLinter:
         if not excerpts:
             payload = {"created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "issues": []}
         else:
-            from .compiler import _parse_llm_json
+            from .utils import parse_wiki_json
 
             started = time.perf_counter()
             response = llm_provider.complete([{
@@ -234,7 +234,7 @@ class WikiLinter:
                 operation="wiki_semantic_review",
                 duration_ms=round((time.perf_counter() - started) * 1000),
             )
-            parsed = _parse_llm_json(response.content or "")
+            parsed = parse_wiki_json(response.content or "")
             if not isinstance(parsed, dict) or not isinstance(parsed.get("issues"), list):
                 raise ValueError("The model did not return a valid semantic Wiki review")
             issues = []

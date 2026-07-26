@@ -54,6 +54,10 @@ def rag_search(
             "results": results,
             "hit_count": len(results),
             "evidence_status": "found" if results else "no_hit",
+            "retrieval_mode": result.get("retrieval_mode"),
+            "resolved_mode": result.get("resolved_mode"),
+            "semantic_available": result.get("semantic_available"),
+            "fallback_from": result.get("fallback_from"),
         }
         sources = []
         for item in results:

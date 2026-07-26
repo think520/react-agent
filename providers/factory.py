@@ -5,10 +5,53 @@ from .base import LLMProvider
 from .deepseek import DeepseekProvider
 from .minimax import MiniMaxProvider
 from .openai_compat import OpenAICompatibleProvider
+from .errors import ProviderConfigError
 
 logger = logging.getLogger(__name__)
 
 KNOWN_PROVIDER_TYPES = {"deepseek", "minimax", "openai", "openai_compatible"}
+
+
+def _common(provider_config: dict, agent_config: dict) -> dict:
+    return {
+        "api_key": os.getenv(provider_config["api_key_env"]),
+        "model": provider_config.get("model"),
+        "base_url": provider_config.get("base_url"),
+        "temperature": agent_config.get("temperature", 0.7),
+        "timeout": agent_config.get("timeout", 60),
+        "max_retries": agent_config.get("max_retries", 3),
+    }
+
+
+def _build_deepseek(provider_config: dict, agent_config: dict) -> LLMProvider:
+    values = _common(provider_config, agent_config)
+    return DeepseekProvider(
+        **{**values, "model": values["model"] or "deepseek-chat", "base_url": values["base_url"] or "https://api.deepseek.com/v1"},
+        provider_name="deepseek",
+    )
+
+
+def _build_minimax(provider_config: dict, agent_config: dict) -> LLMProvider:
+    values = _common(provider_config, agent_config)
+    return MiniMaxProvider(
+        **{**values, "model": values["model"] or "MiniMax-Text-01", "base_url": values["base_url"] or "https://api.minimaxi.com/v1"},
+    )
+
+
+def _build_openai(provider_config: dict, agent_config: dict) -> LLMProvider:
+    values = _common(provider_config, agent_config)
+    return OpenAICompatibleProvider(
+        **{**values, "model": values["model"] or "gpt-4", "base_url": values["base_url"] or "https://api.openai.com/v1"},
+        provider_name=provider_config.get("provider_name") or provider_config.get("type") or "openai",
+    )
+
+
+_PROVIDER_BUILDERS = {
+    "deepseek": _build_deepseek,
+    "minimax": _build_minimax,
+    "openai": _build_openai,
+    "openai_compatible": _build_openai,
+}
 
 
 class ProviderFactory:
@@ -18,19 +61,19 @@ class ProviderFactory:
     def _validate_provider_config(provider_type: str, provider_config: dict) -> None:
         """Validate provider config and raise clear errors."""
         if provider_type not in KNOWN_PROVIDER_TYPES:
-            raise ValueError(
+            raise ProviderConfigError(
                 f"Unknown provider type: '{provider_type}'. "
                 f"Supported: {', '.join(sorted(KNOWN_PROVIDER_TYPES))}"
             )
 
         if "api_key_env" not in provider_config:
-            raise ValueError(
+            raise ProviderConfigError(
                 f"Provider '{provider_type}' is missing required field 'api_key_env' in config.yaml"
             )
 
         api_key_env = provider_config["api_key_env"]
         if not os.getenv(api_key_env):
-            raise ValueError(
+            raise ProviderConfigError(
                 f"Environment variable {api_key_env} is not set. "
                 f"Add it to .env or export it before running."
             )
@@ -40,43 +83,7 @@ class ProviderFactory:
         provider_type = provider_config.get("type", "")
         ProviderFactory._validate_provider_config(provider_type, provider_config)
 
-        api_key_env = provider_config["api_key_env"]
-        api_key = os.getenv(api_key_env)
-
-        if provider_type == "deepseek":
-            return DeepseekProvider(
-                api_key=api_key,
-                model=provider_config.get("model", "deepseek-chat"),
-                base_url=provider_config.get("base_url", "https://api.deepseek.com/v1"),
-                temperature=agent_config.get("temperature", 0.7),
-                timeout=agent_config.get("timeout", 60),
-                max_retries=agent_config.get("max_retries", 3),
-                provider_name="deepseek",
-            )
-
-        if provider_type == "minimax":
-            return MiniMaxProvider(
-                api_key=api_key,
-                model=provider_config.get("model", "MiniMax-Text-01"),
-                base_url=provider_config.get("base_url", "https://api.minimaxi.com/v1"),
-                temperature=agent_config.get("temperature", 0.7),
-                timeout=agent_config.get("timeout", 60),
-                max_retries=agent_config.get("max_retries", 3),
-            )
-
-        if provider_type in {"openai", "openai_compatible"}:
-            return OpenAICompatibleProvider(
-                api_key=api_key,
-                model=provider_config.get("model", "gpt-4"),
-                base_url=provider_config.get("base_url", "https://api.openai.com/v1"),
-                provider_name=provider_config.get("provider_name") or provider_type,
-                temperature=agent_config.get("temperature", 0.7),
-                timeout=agent_config.get("timeout", 60),
-                max_retries=agent_config.get("max_retries", 3),
-            )
-
-        # Should never reach here due to validation, but just in case
-        raise ValueError(f"Unknown provider type: {provider_type}")
+        return _PROVIDER_BUILDERS[provider_type](provider_config, agent_config)
 
     @staticmethod
     def load_config(config_path: str = "config.yaml") -> dict:
@@ -91,13 +98,13 @@ class ProviderFactory:
         providers = llm_config.get("providers", {})
 
         if not default_provider:
-            raise ValueError(
+            raise ProviderConfigError(
                 "No 'default_provider' set under 'llm' in config.yaml. "
                 f"Available providers: {', '.join(sorted(providers.keys())) or '(none)'}"
             )
 
         if default_provider not in providers:
-            raise ValueError(
+            raise ProviderConfigError(
                 f"Default provider '{default_provider}' not found in config.yaml. "
                 f"Available: {', '.join(sorted(providers.keys()))}"
             )

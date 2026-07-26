@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { CheckCircle2, Edit3, FilePlus2, FileText, FolderOpen, Library, MessageCircle, MoreHorizontal, Quote, RefreshCw, Save, Search, Settings2, ShieldCheck, Sparkles, Trash2, Upload, Wrench, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { CheckCircle2, FilePlus2, FileText, FolderOpen, Library, MessageCircle, MoreHorizontal, Quote, RefreshCw, Save, Search, Settings2, ShieldCheck, Sparkles, Trash2, Upload, Wrench, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useNavigate, useOutletContext, useSearchParams } from "react-router-dom";
@@ -8,6 +8,7 @@ import type { AppOutletContext } from "../components/AppShell";
 import { BrandIllustration, EmptyState, ErrorNotice, IconButton, LoadingState, formatRelativeDate } from "../components/common";
 import { WikiPlanCard } from "../components/WikiPlanCard";
 import { ApiError, api } from "../lib/api";
+import { useHandoffStore } from "../stores/handoffStore";
 import type { DocumentExtractionStatus, DocumentSection, DocumentSummary, WikiEditablePage, WikiGenerationMode, WikiHealth, WikiPlan, WikiRepairPlan, WikiRunEstimate, WikiScopeMode, WikiTask } from "../types";
 
 type WikiView = "knowledge" | "sources" | "notes" | "all";
@@ -81,8 +82,14 @@ export function LibraryPage() {
   const pageRef = useRef<HTMLElement>(null);
   const readingOpenedRef = useRef(false);
   const lastProgressRef = useRef(0);
+  const selectedIdRef = useRef(selectedId);
+  const searchParamsRef = useRef(searchParams);
+  const wikiViewRef = useRef(wikiView);
+  useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
+  useEffect(() => { searchParamsRef.current = searchParams; }, [searchParams]);
+  useEffect(() => { wikiViewRef.current = wikiView; }, [wikiView]);
 
-  async function loadDocuments() {
+  const loadDocuments = useCallback(async () => {
     if (!activeLibrary) {
       setDocuments([]);
       setSelectedId(null);
@@ -94,16 +101,16 @@ export function LibraryPage() {
     try {
       const nextDocuments = await api.documents(collection);
       setDocuments(nextDocuments);
-      const requested = searchParams.get("document");
-      const requestedTitle = searchParams.get("title");
+      const requested = searchParamsRef.current.get("document");
+      const requestedTitle = searchParamsRef.current.get("title");
       const requestedDocument = nextDocuments.find((item) => item.document_id === requested)
         || nextDocuments.find((item) => item.title === requestedTitle);
       if (collection === "wiki" && requestedDocument) setWikiView(wikiViewForType(requestedDocument.wiki_type));
       const preferredDocument = collection === "wiki"
-        ? nextDocuments.find((item) => matchesWikiView(item, wikiView))
+        ? nextDocuments.find((item) => matchesWikiView(item, wikiViewRef.current))
         : nextDocuments[0];
       const nextSelected = requestedDocument?.document_id
-        || nextDocuments.find((item) => item.document_id === selectedId)?.document_id
+        || nextDocuments.find((item) => item.document_id === selectedIdRef.current)?.document_id
         || preferredDocument?.document_id
         || null;
       setSelectedId(nextSelected);
@@ -112,9 +119,9 @@ export function LibraryPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [activeLibrary, collection]);
 
-  useEffect(() => { void loadDocuments(); }, [activeLibrary?.library_id, collection, documentImportVersion]);
+  useEffect(() => { void loadDocuments(); }, [documentImportVersion, loadDocuments]);
 
   useEffect(() => {
     if (!activeLibrary || collection !== "material") {
@@ -142,29 +149,34 @@ export function LibraryPage() {
       cancelled = true;
       if (timer) window.clearTimeout(timer);
     };
-  }, [activeLibrary?.library_id, collection]);
+  }, [activeLibrary, collection]);
 
+  const planningWikiRunId = wikiPlan?.status === "planning"
+    ? wikiPlan.run_id || wikiPlan.plan_id
+    : null;
   useEffect(() => {
-    if (!wikiPlan || wikiPlan.status !== "planning") return;
+    if (!planningWikiRunId) return;
     const timer = window.setInterval(() => {
-      void api.wikiRun(wikiPlan.run_id || wikiPlan.plan_id).then(setWikiPlan).catch(() => undefined);
+      void api.wikiRun(planningWikiRunId).then(setWikiPlan).catch(() => undefined);
     }, 1200);
     return () => window.clearInterval(timer);
-  }, [wikiPlan?.plan_id, wikiPlan?.status]);
+  }, [planningWikiRunId]);
 
   useEffect(() => {
     const requestedCollection = searchParams.get("collection") === "wiki" ? "wiki" : "material";
     if (requestedCollection !== collection) setCollection(requestedCollection);
-  }, [searchParams]);
+  }, [collection, searchParams]);
 
   useEffect(() => {
     setSelectionQuote("");
     if (!selectedId) { setSections([]); return; }
+    let cancelled = false;
     setDetailLoading(true);
     void api.document(selectedId)
-      .then((result) => setSections(result.sections))
-      .catch((reason: Error) => setError(reason.message))
-      .finally(() => setDetailLoading(false));
+      .then((result) => { if (!cancelled) setSections(result.sections); })
+      .catch((reason: Error) => { if (!cancelled) setError(reason.message); })
+      .finally(() => { if (!cancelled) setDetailLoading(false); });
+    return () => { cancelled = true; };
   }, [selectedId]);
 
   useEffect(() => {
@@ -209,14 +221,6 @@ export function LibraryPage() {
     try { setWikiHealth(await api.wikiHealth()); }
     catch (reason) { setError(reason instanceof Error ? reason.message : "无法检查 Wiki。" ); }
     finally { setMaintenanceLoading(false); }
-  }
-
-  async function openWikiMaintenance() {
-    setMaintenanceOpen(true);
-    await Promise.all([
-      wikiHealth ? Promise.resolve() : checkWiki(),
-      api.wikiTasks().then((result) => setWikiTasks(result.tasks)).catch(() => setWikiTasks([])),
-    ]);
   }
 
   async function organizeWiki() {
@@ -314,10 +318,11 @@ export function LibraryPage() {
     }
     if (collection === "wiki") {
       const command = `/wiki update${wikiInstruction.trim() ? ` ${wikiInstruction.trim()}` : ""}`;
-      localStorage.setItem("bobodan:draft:new", command);
-      localStorage.setItem("bobodan:wiki-scope", JSON.stringify({
+      const handoff = useHandoffStore.getState();
+      handoff.setChatDraft(command);
+      handoff.setWikiScope({
         scopeMode: "selected_only", documentIds: [], wikiDocumentIds, course: null, topic: wikiTopic.trim(),
-      }));
+      });
       setWikiPlanOpen(false);
       navigate("/chat");
       return;
@@ -585,8 +590,7 @@ export function LibraryPage() {
 
   function askAboutSelection() {
     if (!selectionQuote || !selected) return;
-    localStorage.setItem(
-      "bobodan:draft:new",
+    useHandoffStore.getState().setChatDraft(
       `请结合资料《${selected.title || selected.source}》解释下面这段内容：\n\n> ${selectionQuote.replace(/\n/g, "\n> ")}`,
     );
     if (!selectedDocumentIds.includes(selected.document_id) && selected.collection === "material") {

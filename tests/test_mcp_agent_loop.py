@@ -18,13 +18,12 @@ class _FakeLLM:
         return LLMResponse(content="ok", tool_calls=[])
 
 
-def _make_loop(skills_prompt=None, memory_prompt=None, mcp_prompt=None):
+def _make_loop(skills_prompt=None, mcp_prompt=None):
     session = Session.new("/tmp", max_messages=10)
     return AgentLoop(
         llm_provider=_FakeLLM(),
         session=session,
         skills_prompt=skills_prompt,
-        memory_prompt=memory_prompt,
         mcp_prompt=mcp_prompt,
     )
 
@@ -61,17 +60,15 @@ def test_mcp_prompt_idempotent_across_turns():
     assert len(mcp_injections) == 1  # only injected once
 
 
-def test_mcp_prompt_coexists_with_skills_and_memory():
+def test_mcp_prompt_coexists_with_skills():
     loop = _make_loop(
         skills_prompt="SKILLS_MARKER\n<skills>...</skills>",
-        memory_prompt="MEMORY_MARKER\n<memory>...</memory>",
         mcp_prompt="## MCP Servers\n- `amap`",
     )
     list(loop.run_stream("hi"))
     sys_msgs = [m for m in loop.session.messages if m.get("role") == "system"]
     contents = "\n".join(m.get("content", "") for m in sys_msgs)
     assert "SKILLS_MARKER" in contents
-    assert "MEMORY_MARKER" in contents
     assert MCP_PROMPT_MARKER in contents
 
 

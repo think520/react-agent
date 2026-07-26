@@ -1,9 +1,10 @@
 import json
 import logging
+from collections.abc import Iterator
 from typing import List
 
 from .openai_compat import OpenAICompatibleProvider
-from .types import LLMResponse, ToolCall
+from .types import LLMResponse, LLMStreamChunk, ToolCall
 
 logger = logging.getLogger(__name__)
 
@@ -119,3 +120,21 @@ class MiniMaxProvider(OpenAICompatibleProvider):
             request_id=str(data.get("id") or ""),
             usage=self._normalize_usage(data),
         )
+
+    def complete_stream(self, messages: List[dict], tools: List[dict] = None) -> Iterator[LLMStreamChunk]:
+        """Hold tool deltas until refusal detection has seen the full response."""
+        content = ""
+        pending_tool_deltas = []
+        last_request_id = ""
+        for chunk in super().complete_stream(messages, tools):
+            content += chunk.content_delta
+            pending_tool_deltas.extend(chunk.tool_call_deltas)
+            last_request_id = chunk.request_id or last_request_id
+            yield LLMStreamChunk(
+                content_delta=chunk.content_delta,
+                usage=chunk.usage,
+                request_id=chunk.request_id,
+            )
+        refusal_indicators = ("不能", "无法", "抱歉", "对不起", "cannot", "unable", "sorry", "apolog")
+        if pending_tool_deltas and not any(item in content.casefold() for item in refusal_indicators):
+            yield LLMStreamChunk(tool_call_deltas=pending_tool_deltas, request_id=last_request_id)

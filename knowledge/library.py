@@ -1,4 +1,3 @@
-import json
 import os
 from dataclasses import dataclass
 
@@ -63,15 +62,20 @@ def build_library_summary(workspace: str) -> LibrarySummary:
             total_errors += 1
         total_chunks += doc.get("chunk_count", 0)
 
-    # If no manifest, fall back to rag_index.json for chunk count
+    # A portable database may exist before a manifest has been written.
     if total_chunks == 0:
-        rag_path = os.path.join(storage_dir, "rag_index.json")
-        if os.path.exists(rag_path):
+        db_path = os.path.join(storage_dir, "knowledge.db")
+        if os.path.exists(db_path):
             try:
-                with open(rag_path, "r", encoding="utf-8") as f:
-                    rag_data = json.load(f)
-                total_chunks = len(rag_data.get("chunks", []))
-            except (json.JSONDecodeError, OSError):
+                from rag.sqlite_store import KBSQLiteStore
+
+                store = KBSQLiteStore(workspace)
+                store.init_db()
+                try:
+                    total_chunks = store.count_chunks()
+                finally:
+                    store.close()
+            except OSError:
                 pass
 
     # Graph stats
@@ -79,27 +83,25 @@ def build_library_summary(workspace: str) -> LibrarySummary:
     graph_relationships = 0
     graph_nodes_by_type: dict[str, int] = {}
     graph_relationships_by_type: dict[str, int] = {}
-    graph_backend = "unknown"
+    graph_backend = "concept_sqlite"
 
-    graph_path = os.path.join(storage_dir, "graph_store.json")
-    if os.path.exists(graph_path):
+    concept_path = os.path.join(storage_dir, "concept_graph.db")
+    if os.path.exists(concept_path):
         try:
-            with open(graph_path, "r", encoding="utf-8") as f:
-                graph_data = json.load(f)
-            nodes = graph_data.get("nodes", {})
-            rels = graph_data.get("relationships", [])
-            graph_nodes = len(nodes)
-            graph_relationships = len(rels)
-            graph_backend = graph_data.get("backend", "local")
-            # Count by label/type
-            if isinstance(nodes, dict):
-                for node in nodes.values():
-                    label = node.get("label", "unknown")
-                    graph_nodes_by_type[label] = graph_nodes_by_type.get(label, 0) + 1
-            for rel in rels:
-                rtype = rel.get("type", "unknown")
+            from graph.concept_store import ConceptStore
+
+            store = ConceptStore(concept_path)
+            concepts = store.list_concepts(limit=10000)
+            relations = store.list_relationships()
+            graph_nodes = len(concepts)
+            graph_relationships = len(relations)
+            for concept in concepts:
+                level = concept.get("level", "core")
+                graph_nodes_by_type[level] = graph_nodes_by_type.get(level, 0) + 1
+            for rel in relations:
+                rtype = rel.get("rel_type", "unknown")
                 graph_relationships_by_type[rtype] = graph_relationships_by_type.get(rtype, 0) + 1
-        except (json.JSONDecodeError, OSError):
+        except OSError:
             pass
 
     total_files = len(documents)

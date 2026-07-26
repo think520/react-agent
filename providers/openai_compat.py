@@ -7,6 +7,8 @@ from typing import List
 import httpx
 
 from .base import LLMProvider
+from .errors import ProviderConnectionError, ProviderError, ProviderTimeout
+from .retry import is_retryable_status, retry_delay
 from .types import LLMResponse, LLMStreamChunk, ToolCall, ToolCallDelta
 
 logger = logging.getLogger(__name__)
@@ -193,24 +195,31 @@ class OpenAICompatibleProvider:
                     if response.status_code == 200:
                         return self._parse_response(response.json())
 
-                    if response.status_code == 429 or response.status_code >= 500:
+                    if is_retryable_status(response.status_code):
                         last_error = f"{self.name} API error: {response.status_code}"
                         logger.warning(f"[{self.name}] {last_error} — retry {attempt + 1}/{self.max_retries}")
-                        time.sleep(2 ** attempt)
+                        time.sleep(retry_delay(attempt))
                         continue
 
-                    raise Exception(f"{self.name} API error: {response.status_code} - {response.text}")
+                    raise ProviderError(
+                        f"{self.name} API error: {response.status_code} - {response.text}",
+                        status_code=response.status_code,
+                    )
 
             except httpx.TimeoutException:
                 last_error = f"{self.name} API timeout"
                 logger.warning(f"[{self.name}] {last_error} — retry {attempt + 1}/{self.max_retries}")
-                time.sleep(2 ** attempt)
+                time.sleep(retry_delay(attempt))
             except httpx.ConnectError:
                 last_error = f"{self.name} API connection error"
                 logger.warning(f"[{self.name}] {last_error} — retry {attempt + 1}/{self.max_retries}")
-                time.sleep(2 ** attempt)
+                time.sleep(retry_delay(attempt))
 
-        raise Exception(f"{self.name} API failed after {self.max_retries} retries: {last_error}")
+        if last_error and "timeout" in last_error:
+            raise ProviderTimeout(last_error, retryable=True)
+        if last_error and "connection" in last_error:
+            raise ProviderConnectionError(last_error, retryable=True)
+        raise ProviderError(f"{self.name} API failed after {self.max_retries} retries: {last_error}", retryable=True)
 
     def complete_stream(self, messages: List[dict], tools: List[dict] = None) -> Iterator[LLMStreamChunk]:
         payload = self._build_payload(messages, tools=tools, stream=True)
@@ -238,30 +247,37 @@ class OpenAICompatibleProvider:
                                 yield self._parse_stream_chunk(json.loads(data))
                             return
 
-                        if response.status_code == 429 or response.status_code >= 500:
+                        if is_retryable_status(response.status_code):
                             response.read()
                             last_error = f"{self.name} API error: {response.status_code}"
                             logger.warning(f"[{self.name}] {last_error} - retry {attempt + 1}/{self.max_retries}")
-                            time.sleep(2 ** attempt)
+                            time.sleep(retry_delay(attempt))
                             continue
 
                         response.read()
-                        raise Exception(f"{self.name} API error: {response.status_code} - {response.text}")
+                        raise ProviderError(
+                            f"{self.name} API error: {response.status_code} - {response.text}",
+                            status_code=response.status_code,
+                        )
 
             except httpx.TimeoutException:
                 last_error = f"{self.name} API timeout"
                 if started:
-                    raise Exception(f"{self.name} stream interrupted mid-response: {last_error}")
+                    raise ProviderTimeout(f"{self.name} stream interrupted mid-response: {last_error}")
                 logger.warning(f"[{self.name}] {last_error} - retry {attempt + 1}/{self.max_retries}")
-                time.sleep(2 ** attempt)
+                time.sleep(retry_delay(attempt))
             except httpx.ConnectError:
                 last_error = f"{self.name} API connection error"
                 if started:
-                    raise Exception(f"{self.name} stream interrupted mid-response: {last_error}")
+                    raise ProviderConnectionError(f"{self.name} stream interrupted mid-response: {last_error}")
                 logger.warning(f"[{self.name}] {last_error} - retry {attempt + 1}/{self.max_retries}")
-                time.sleep(2 ** attempt)
+                time.sleep(retry_delay(attempt))
 
-        raise Exception(f"{self.name} API failed after {self.max_retries} retries: {last_error}")
+        if last_error and "timeout" in last_error:
+            raise ProviderTimeout(last_error, retryable=True)
+        if last_error and "connection" in last_error:
+            raise ProviderConnectionError(last_error, retryable=True)
+        raise ProviderError(f"{self.name} API failed after {self.max_retries} retries: {last_error}", retryable=True)
 
     def get_name(self) -> str:
         return self.name

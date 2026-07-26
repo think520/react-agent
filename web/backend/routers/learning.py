@@ -7,9 +7,7 @@ from pydantic import BaseModel, Field
 
 from service.learning_service import LearningService
 from service.memory_service import MemoryService
-from service.preference_service import PreferenceService
-from web.backend.capabilities import WEB_SKILL_NAMES
-from web.backend.deps import get_config, get_default_provider_name, get_request_workspace
+from web.backend.deps import get_preferences, get_config, get_request_workspace
 from web.backend.errors import unwrap_service_result
 
 router = APIRouter()
@@ -67,10 +65,7 @@ def reviews(request: Request, limit: int = 20) -> dict:
 @router.get("/review-queue")
 def review_queue(request: Request, limit: int = 20) -> dict:
     result = _unwrap(_service(request).get_review_queue(limit=max(1, min(limit, 50))))
-    preferences = PreferenceService(
-        get_default_provider_name(get_config()),
-        sorted(WEB_SKILL_NAMES),
-    ).get()
+    preferences = get_preferences()
     if not preferences.get("memory", {}).get("enabled", True):
         result["personalization"] = []
         return result

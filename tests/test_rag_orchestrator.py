@@ -43,6 +43,7 @@ class TestOrchestrator:
         result = orch.search("test", mode="hybrid", top_k=5)
         assert result.mode == "hybrid"
         assert len(result.hits) == 2
+        assert result.debug["vector_available"] is False
 
     def test_directory_mode(self):
         doc_hits = [_doc_hit("d1")]

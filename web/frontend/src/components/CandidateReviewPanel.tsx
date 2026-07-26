@@ -86,7 +86,7 @@ export function CandidateReviewPanel({ onClose, onCandidatesChanged, onReturnToS
       })
       .catch((e) => setError(e.message || "加载失败"))
       .finally(() => setLoading(false));
-  }, [extractionSource?.documentId]);
+  }, [extractionSource]);
 
   useEffect(() => {
     if (extractionSource?.runId) return; // handled by polling effect

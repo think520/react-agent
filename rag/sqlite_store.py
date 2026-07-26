@@ -8,12 +8,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import sqlite3
+import unicodedata
 from dataclasses import asdict
 from pathlib import Path
 
 from rag.schema import RetrievalHit
 from knowledge.paths import knowledge_path
+from core.db import create_connection
 
 
 def _stable_hash(text: str) -> str:
@@ -24,20 +27,21 @@ def _stable_hash(text: str) -> str:
 class KBSQLiteStore:
     """SQLite + FTS5 knowledge base storage."""
 
-    def __init__(self, workspace: str):
+    def __init__(self, workspace: str, *, check_same_thread: bool = True):
         self.workspace = Path(workspace)
         self.db_path = Path(knowledge_path(str(self.workspace), "knowledge.db"))
         self._conn: sqlite3.Connection | None = None
+        self.check_same_thread = check_same_thread
 
     # ── connection ──────────────────────────────────────────────────────
 
     def _get_conn(self) -> sqlite3.Connection:
         if self._conn is None:
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
-            self._conn = sqlite3.connect(str(self.db_path))
-            self._conn.execute("PRAGMA journal_mode=WAL")
-            self._conn.execute("PRAGMA foreign_keys=ON")
-            self._conn.row_factory = sqlite3.Row
+            self._conn = create_connection(
+                str(self.db_path),
+                check_same_thread=self.check_same_thread,
+            )
         return self._conn
 
     def close(self) -> None:
@@ -51,6 +55,33 @@ class KBSQLiteStore:
         """Create tables if they don't exist."""
         conn = self._get_conn()
         conn.executescript(_SCHEMA_SQL)
+        fts_columns = {row[1] for row in conn.execute("PRAGMA table_info(chunks_fts)")}
+        needs_fts_rebuild = "search_text" not in fts_columns
+        if needs_fts_rebuild:
+            # A previous/legacy schema may have the old five-column FTS table
+            # but missing triggers. The current schema script would recreate
+            # new triggers against that old table, so disable them before the
+            # search_text backfill and rebuild the FTS table afterwards.
+            for trigger in ("chunks_ai", "chunks_ad", "chunks_au"):
+                conn.execute(f"DROP TRIGGER IF EXISTS {trigger}")
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(chunks)")}
+        if "search_text" not in columns:
+            conn.execute("ALTER TABLE chunks ADD COLUMN search_text TEXT NOT NULL DEFAULT ''")
+        rows = conn.execute(
+            "SELECT rowid, text, title, heading_text FROM chunks WHERE search_text = ''"
+        ).fetchall()
+        if rows:
+            conn.executemany(
+                "UPDATE chunks SET search_text = ? WHERE rowid = ?",
+                [
+                    (_search_text(row["text"], row["title"], row["heading_text"]), row["rowid"])
+                    for row in rows
+                ],
+            )
+        if needs_fts_rebuild:
+            self.rebuild_fts()
+        else:
+            conn.commit()
 
     # ── document CRUD ───────────────────────────────────────────────────
 
@@ -158,6 +189,7 @@ class KBSQLiteStore:
             rows.append((
                 c["id"], c["document_id"], c["source"], c["chunk_index"],
                 c["text"], title, course,
+                _search_text(c["text"], title, c.get("heading_text", "")),
                 c.get("heading_path_json", "[]"),
                 c.get("heading_text", ""), c.get("heading_level", 0),
                 c.get("section_id", ""), c.get("chunk_index_in_section", 0),
@@ -169,11 +201,11 @@ class KBSQLiteStore:
 
         conn.executemany(
             """INSERT OR REPLACE INTO chunks
-                (id, document_id, source, chunk_index, text, title, course,
+                (id, document_id, source, chunk_index, text, title, course, search_text,
                  heading_path_json, heading_text, heading_level, section_id,
                  chunk_index_in_section, page_start, page_end,
                  slide_start, slide_end, char_start, char_end, metadata_json)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             rows,
         )
         conn.commit()
@@ -192,6 +224,20 @@ class KBSQLiteStore:
         ).fetchone()
         return dict(row) if row else None
 
+    def get_chunks_by_ids(self, chunk_ids: list[str]) -> dict[str, dict]:
+        """Return chunks keyed by ID using a single query."""
+        unique_ids = list(dict.fromkeys(chunk_ids))
+        if not unique_ids:
+            return {}
+
+        conn = self._get_conn()
+        placeholders = ",".join("?" for _ in unique_ids)
+        rows = conn.execute(
+            f"SELECT * FROM chunks WHERE id IN ({placeholders})",
+            unique_ids,
+        ).fetchall()
+        return {row["id"]: dict(row) for row in rows}
+
     def get_chunks_by_document(self, document_id: str) -> list[dict]:
         conn = self._get_conn()
         rows = conn.execute(
@@ -199,6 +245,22 @@ class KBSQLiteStore:
             (document_id,),
         ).fetchall()
         return [dict(r) for r in rows]
+
+    def get_chunks_for_documents(self, document_ids: list[str]) -> dict[str, list[dict]]:
+        """Load ordered chunks for several documents with one query."""
+        unique_ids = list(dict.fromkeys(document_ids))
+        if not unique_ids:
+            return {}
+        placeholders = ",".join("?" for _ in unique_ids)
+        rows = self._get_conn().execute(
+            f"""SELECT * FROM chunks WHERE document_id IN ({placeholders})
+                ORDER BY document_id, chunk_index""",
+            unique_ids,
+        ).fetchall()
+        grouped = {document_id: [] for document_id in unique_ids}
+        for row in rows:
+            grouped[str(row["document_id"])].append(dict(row))
+        return grouped
 
     def count_chunks(self, course: str | None = None) -> int:
         conn = self._get_conn()
@@ -428,14 +490,14 @@ class KBSQLiteStore:
         conn.execute("DROP TABLE IF EXISTS chunks_fts")
         conn.execute(
             """CREATE VIRTUAL TABLE chunks_fts USING fts5(
-                text, title, heading_text, source, course,
+                text, title, heading_text, source, course, search_text,
                 content='chunks',
                 content_rowid='rowid'
             )"""
         )
         conn.execute(
-            """INSERT INTO chunks_fts(rowid, text, title, heading_text, source, course)
-               SELECT rowid, text, title, heading_text, source, course FROM chunks"""
+            """INSERT INTO chunks_fts(rowid, text, title, heading_text, source, course, search_text)
+               SELECT rowid, text, title, heading_text, source, course, search_text FROM chunks"""
         )
         # Recreate triggers
         conn.execute(_CHUNKS_AI_TRIGGER)
@@ -466,6 +528,18 @@ class KBSQLiteStore:
 
 # ── helpers ─────────────────────────────────────────────────────────────
 
+def _cjk_bigrams(text: str) -> list[str]:
+    grams: list[str] = []
+    for run in re.findall(r"[\u3400-\u9fff]+", text):
+        grams.extend(run[index:index + 2] for index in range(len(run) - 1))
+    return grams
+
+
+def _search_text(*values: str | None) -> str:
+    base = unicodedata.normalize("NFKC", " ".join(value or "" for value in values)).casefold()
+    return " ".join(dict.fromkeys([base, *_cjk_bigrams(base)]))
+
+
 def _build_fts_query(query: str) -> str:
     """Build FTS5 query from user input.
 
@@ -473,7 +547,8 @@ def _build_fts_query(query: str) -> str:
     Special FTS5 characters are escaped.
     """
     # Tokenize: split on whitespace, escape FTS5 special chars
-    tokens = query.strip().split()
+    normalized = unicodedata.normalize("NFKC", query).casefold().strip()
+    tokens = list(dict.fromkeys([*normalized.split(), *_cjk_bigrams(normalized)]))
     if not tokens:
         return ""
 
@@ -563,20 +638,20 @@ def chunk_row_to_hit(row: dict) -> RetrievalHit:
 # ── SQL schema ──────────────────────────────────────────────────────────
 
 _CHUNKS_AI_TRIGGER = """CREATE TRIGGER IF NOT EXISTS chunks_ai AFTER INSERT ON chunks BEGIN
-    INSERT INTO chunks_fts(rowid, text, title, heading_text, source, course)
-    VALUES (new.rowid, new.text, new.title, new.heading_text, new.source, new.course);
+    INSERT INTO chunks_fts(rowid, text, title, heading_text, source, course, search_text)
+    VALUES (new.rowid, new.text, new.title, new.heading_text, new.source, new.course, new.search_text);
 END;"""
 
 _CHUNKS_AD_TRIGGER = """CREATE TRIGGER IF NOT EXISTS chunks_ad AFTER DELETE ON chunks BEGIN
-    INSERT INTO chunks_fts(chunks_fts, rowid, text, title, heading_text, source, course)
-    VALUES ('delete', old.rowid, old.text, old.title, old.heading_text, old.source, old.course);
+    INSERT INTO chunks_fts(chunks_fts, rowid, text, title, heading_text, source, course, search_text)
+    VALUES ('delete', old.rowid, old.text, old.title, old.heading_text, old.source, old.course, old.search_text);
 END;"""
 
 _CHUNKS_AU_TRIGGER = """CREATE TRIGGER IF NOT EXISTS chunks_au AFTER UPDATE ON chunks BEGIN
-    INSERT INTO chunks_fts(chunks_fts, rowid, text, title, heading_text, source, course)
-    VALUES ('delete', old.rowid, old.text, old.title, old.heading_text, old.source, old.course);
-    INSERT INTO chunks_fts(rowid, text, title, heading_text, source, course)
-    VALUES (new.rowid, new.text, new.title, new.heading_text, new.source, new.course);
+    INSERT INTO chunks_fts(chunks_fts, rowid, text, title, heading_text, source, course, search_text)
+    VALUES ('delete', old.rowid, old.text, old.title, old.heading_text, old.source, old.course, old.search_text);
+    INSERT INTO chunks_fts(rowid, text, title, heading_text, source, course, search_text)
+    VALUES (new.rowid, new.text, new.title, new.heading_text, new.source, new.course, new.search_text);
 END;"""
 
 _SCHEMA_SQL = """
@@ -606,6 +681,7 @@ CREATE TABLE IF NOT EXISTS chunks (
     text TEXT NOT NULL,
     title TEXT,
     course TEXT,
+    search_text TEXT NOT NULL DEFAULT '',
     heading_path_json TEXT,
     heading_text TEXT,
     heading_level INTEGER,
@@ -622,7 +698,7 @@ CREATE TABLE IF NOT EXISTS chunks (
 
 -- FTS5 full-text index (content-synced with chunks table)
 CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
-    text, title, heading_text, source, course,
+    text, title, heading_text, source, course, search_text,
     content='chunks',
     content_rowid='rowid'
 );

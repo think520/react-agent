@@ -17,23 +17,14 @@ from rag.grep_retriever import GrepRetriever, _python_grep
 class TestFix1DocumentHitsSerialized:
     """Directory mode document_hits must appear in output."""
 
-    def test_directory_hits_in_output(self, tmp_path):
+    def test_directory_hits_in_output(self, tmp_path, monkeypatch):
         """When mode=directory, document_hits should be serialized."""
-        from rag.retriever import _search_v2
+        from rag.retriever import search_index_with_status
         from rag.sqlite_store import KBSQLiteStore
 
         # Set up SQLite with a document
         sqlite = KBSQLiteStore(str(tmp_path))
         sqlite.init_db()
-        sqlite.upsert_document(
-            document_id="d1", source="obsidian/test.md",
-            content_hash="abc", title="Test Doc", course="ml",
-        )
-        sqlite.upsert_directory_entry(
-            document_id="d1", title="Test Doc",
-            summary="Test summary", source="obsidian/test.md",
-            course="ml",
-        )
         sqlite.close()
 
         # Mock the orchestrator to return directory result
@@ -49,20 +40,26 @@ class TestFix1DocumentHitsSerialized:
             confidence="high",
         )
 
-        # The result dict should include document_hits
-        output = []
-        if result.document_hits:
-            for doc in result.document_hits:
-                output.append({
-                    "type": "document",
-                    "source": doc.source,
-                    "title": doc.title,
-                    "score": doc.score,
-                })
+        orchestrator = MagicMock()
+        orchestrator.search.return_value = result
+        monkeypatch.setattr("rag.qdrant_store.QdrantStore", MagicMock())
+        monkeypatch.setattr("rag.embedding_service.EmbeddingService", MagicMock())
+        monkeypatch.setattr("rag.hybrid.HybridRetriever", MagicMock())
+        monkeypatch.setattr("rag.directory.DirectoryRetriever", MagicMock())
+        monkeypatch.setattr("rag.grep_retriever.GrepRetriever", MagicMock())
+        monkeypatch.setattr(
+            "rag.orchestrator.RetrievalOrchestrator",
+            MagicMock(return_value=orchestrator),
+        )
+
+        output, status = search_index_with_status(
+            str(tmp_path), "test", mode="directory"
+        )
 
         assert len(output) == 1
         assert output[0]["source"] == "obsidian/test.md"
         assert output[0]["title"] == "Test Doc"
+        assert status["resolved_mode"] == "directory"
 
 
 # ── Fix 2: grep uses real file path ─────────────────────────────────────

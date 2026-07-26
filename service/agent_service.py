@@ -16,13 +16,7 @@ from __future__ import annotations
 import os
 from typing import Any, Iterator
 
-
-def _ok(**kwargs: Any) -> dict[str, Any]:
-    return {"ok": True, **kwargs}
-
-
-def _err(error: str) -> dict[str, Any]:
-    return {"ok": False, "error": error}
+from service._result import err as _err, ok as _ok
 
 
 class AgentService:
@@ -195,7 +189,6 @@ class AgentService:
         user_input: str,
         provider,
         skills_prompt: str | None = None,
-        memory_prompt: str | None = None,
         mcp_prompt: str | None = None,
         request_prompt: str | None = None,
         trace_writer=None,
@@ -216,7 +209,6 @@ class AgentService:
             provider,
             session,
             skills_prompt=skills_prompt,
-            memory_prompt=memory_prompt,
             mcp_prompt=mcp_prompt,
             request_prompt=request_prompt,
             trace_writer=trace_writer,

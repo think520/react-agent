@@ -1,29 +1,10 @@
-"""Tests for Ollama embedding client and retriever legacy fallback."""
+"""Tests for the Ollama embedding client and RAG entry point."""
 
-import json
-import os
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from rag.ollama import OllamaEmbeddingClient
-from rag.chunker import TextChunk
-
-
-# --- Helpers ---
-
-def _make_chunks(n=3):
-    return [
-        TextChunk(
-            id=f"chunk-{i}",
-            text=f"This is test chunk number {i} about algorithms.",
-            source=f"test/file.md",
-            metadata={"course": "CS101"},
-        )
-        for i in range(n)
-    ]
-
-
 def _mock_ollama_client(available=True, dim=8):
     """Create a mock OllamaEmbeddingClient that returns deterministic dense vectors."""
     client = MagicMock(spec=OllamaEmbeddingClient)
@@ -176,33 +157,31 @@ class TestOllamaEmbeddingClient:
 class TestRetrieverIntegration:
 
     def test_search_index_with_config(self, tmp_path):
-        """search_index with config falls back to the sparse JSON index."""
+        """The public entry point searches the current SQLite index."""
         from rag.retriever import search_index
+        from rag.sqlite_store import KBSQLiteStore, make_chunk_row
 
         config = {"rag": {"embedding_backend": "local"}}
-        knowledge_dir = os.path.join(str(tmp_path), ".knowledge")
-        os.makedirs(knowledge_dir, exist_ok=True)
-
-        # Write sparse index directly
-        from rag.vector_store import LocalVectorStore
-        sparse_path = os.path.join(knowledge_dir, "rag_index.json")
-        store = LocalVectorStore(sparse_path)
-        store.replace(_make_chunks(2))
+        store = KBSQLiteStore(str(tmp_path))
+        store.init_db()
+        store.upsert_document(
+            document_id="doc-1", source="test/file.md", content_hash="hash",
+            title="Algorithms", course="CS101",
+        )
+        store.insert_chunks([make_chunk_row(
+            chunk_id="chunk-1", document_id="doc-1", source="test/file.md",
+            chunk_index=0, text="This test chunk explains graph algorithms.",
+        )])
+        store.close()
 
         results = search_index(str(tmp_path), "test chunk", config=config)
         assert len(results) > 0
 
     def test_search_index_without_config(self, tmp_path):
-        """search_index without config falls back to LocalVectorStore."""
-        from rag.retriever import search_index
+        from rag.retriever import search_index_with_status
 
-        knowledge_dir = os.path.join(str(tmp_path), ".knowledge")
-        os.makedirs(knowledge_dir, exist_ok=True)
+        results, status = search_index_with_status(str(tmp_path), "test chunk")
 
-        from rag.vector_store import LocalVectorStore
-        sparse_path = os.path.join(knowledge_dir, "rag_index.json")
-        store = LocalVectorStore(sparse_path)
-        store.replace(_make_chunks(2))
-
-        results = search_index(str(tmp_path), "test chunk")
-        assert len(results) > 0
+        assert results == []
+        assert status["retrieval_mode"] == "unavailable"
+        assert status["semantic_available"] is False

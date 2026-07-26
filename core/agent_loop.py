@@ -3,7 +3,6 @@ import logging
 import os
 import time
 from collections.abc import Iterator
-from core.memory import MEMORY_MARKER
 from core.skills import SKILLS_PROMPT_MARKER
 from tools import get_tools_schema, execute_tool
 from tools.base import ToolResult
@@ -46,6 +45,9 @@ def _compute_run_metrics(tool_name: str, result: ToolResult) -> dict:
             "hit_count": int(data.get("hit_count") or len(results)),
             "document_count": len(document_ids),
             "evidence_status": data.get("evidence_status"),
+            "retrieval_mode": data.get("retrieval_mode"),
+            "semantic_available": data.get("semantic_available"),
+            "fallback_from": data.get("fallback_from"),
         }
     if tool_name == "concept_map_query":
         concepts = data.get("concepts") if isinstance(data.get("concepts"), list) else []
@@ -92,7 +94,7 @@ class AgentLoop:
     """ReAct agent loop implementation."""
 
     def __init__(self, llm_provider, session, skills_prompt: str | None = None,
-                 memory_prompt: str | None = None, mcp_prompt: str | None = None,
+                 mcp_prompt: str | None = None,
                  request_prompt: str | None = None,
                  tools_schema: list[dict] | None = None,
                  max_iterations: int | None = None,
@@ -102,7 +104,6 @@ class AgentLoop:
         self.tools_schema = tools_schema if tools_schema is not None else get_tools_schema()
         self.max_iterations = max_iterations if max_iterations is not None else 8
         self.skills_prompt = skills_prompt
-        self.memory_prompt = memory_prompt
         self.mcp_prompt = mcp_prompt
         self.request_prompt = request_prompt
         self.trace_writer = trace_writer
@@ -156,18 +157,6 @@ class AgentLoop:
                 return
         self.session.add_message("system", self.skills_prompt)
 
-    def _inject_memory_prompt(self) -> None:
-        """Inject memory system prompt if not already present.
-
-        Same idempotent marker pattern as skills prompt.
-        """
-        if not self.memory_prompt:
-            return
-        for m in self.session.messages:
-            if m.get("role") == "system" and MEMORY_MARKER in (m.get("content") or ""):
-                return
-        self.session.add_message("system", self.memory_prompt)
-
     def _inject_mcp_prompt(self) -> None:
         """Inject MCP system prompt (active server list) if not present."""
         if not self.mcp_prompt:
@@ -199,7 +188,6 @@ class AgentLoop:
             self._remove_legacy_base_prompt()
             self._inject_base_prompt()
             self._inject_skills_prompt()
-            self._inject_memory_prompt()
             self._inject_mcp_prompt()
             if self.request_prompt:
                 request_message = {"role": "system", "content": self.request_prompt}

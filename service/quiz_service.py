@@ -15,16 +15,9 @@ from quiz.store import QuizStore
 from quiz.generator import QuestionGenerator
 from quiz.evaluator import GradingError, QuizEvaluator
 from quiz.schema import Question, QuizAttempt
+from service._result import err as _err, ok as _ok
 
 logger = logging.getLogger(__name__)
-
-
-def _ok(**kwargs: Any) -> dict[str, Any]:
-    return {"ok": True, **kwargs}
-
-
-def _err(error: str, **extra: Any) -> dict[str, Any]:
-    return {"ok": False, "error": error, **extra}
 
 
 def _get_llm_provider(config: dict | None = None):
@@ -474,6 +467,55 @@ class QuizService:
         reviewer = QuizReviewer(store)
         entries = reviewer.get_wrong_answer_book(limit=limit)
         return _ok(entries=entries)
+
+    def generate_wrong_answer_variant(self, attempt_id: int) -> dict[str, Any]:
+        store = QuizStore(self.workspace)
+        entry = store.get_wrong_answer(attempt_id)
+        if not entry:
+            return _err("错题记录不存在。", code="wrong_answer_not_found")
+        original = store.get_question(entry["question_id"])
+        if not original:
+            return _err("原题不存在，无法生成变式题。", code="question_not_found")
+
+        chunk_ids = [
+            str(source.get("chunk_id"))
+            for source in original.sources
+            if source.get("chunk_id")
+        ]
+        if not chunk_ids:
+            return _err("原题缺少可定位的资料证据，无法生成可靠的变式题。", code="evidence_missing")
+
+        from rag.sqlite_store import KBSQLiteStore
+
+        kb_store = KBSQLiteStore(self.workspace)
+        try:
+            kb_store.init_db()
+            rows = kb_store.get_chunks_by_ids(chunk_ids)
+        finally:
+            kb_store.close()
+        chunks = []
+        for chunk_id in chunk_ids:
+            if chunk_id not in rows:
+                continue
+            chunk = dict(rows[chunk_id])
+            chunk["chunk_id"] = chunk["id"]
+            chunks.append(chunk)
+
+        try:
+            llm = _get_llm_provider(self.config)
+            variant = QuestionGenerator(self.workspace, llm).generate_wrong_answer_variant(
+                original,
+                entry["user_answer"],
+                chunks,
+            )
+        except Exception as exc:
+            logger.warning("Could not generate wrong-answer variant: %s", exc)
+            return _err("变式题生成失败，请稍后重试。", code="variant_generation_failed")
+        if not variant:
+            return _err("模型没有生成有效的变式题，请稍后重试。", code="variant_generation_failed")
+
+        variant.id = store.add_question(variant)
+        return _ok(question_id=variant.id, question=self._question_for_practice(variant))
 
     def get_weakness_analysis(self) -> dict[str, Any]:
         from quiz.review import QuizReviewer

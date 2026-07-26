@@ -738,6 +738,7 @@ kbd { color: var(--faint); font-family: inherit; font-size: 10px; }
 .run-summary > div { display: grid; gap: 7px; border-top: 1px solid rgba(73, 91, 74, .13); padding: 9px 10px; }
 .run-summary p { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 8px; margin: 0; }
 .run-summary p > span { color: var(--ink); font-weight: 650; }
+.run-summary p > .retrieval-degraded { grid-column: 2 / -1; color: var(--danger); font-weight: 500; white-space: normal; }
 .run-summary q { overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
 .run-summary code { border-radius: 4px; padding: 2px 5px; background: rgba(27,54,93,.07); color: var(--blue); }
 .run-summary p small { color: var(--faint); }
@@ -1240,3 +1241,17 @@ kbd { color: var(--faint); font-family: inherit; font-size: 10px; }
 .error-boundary details summary { cursor: pointer; }
 .error-boundary pre { overflow: auto; max-width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--paper-soft); text-align: left; white-space: pre-wrap; word-break: break-word; }
 
+.migration-check { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--ink-soft); }
+.migration-check input { accent-color: var(--accent); }
+.migration-preview { border: 1px solid var(--border); border-radius: 6px; background: rgba(255,255,255,.36); }
+.migration-preview summary { cursor: pointer; padding: 9px 11px; color: var(--ink-soft); font-size: 13px; font-weight: 650; }
+.migration-preview > div { display: grid; max-height: 220px; overflow: auto; border-top: 1px solid var(--border); }
+.migration-preview label { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 9px; padding: 9px 11px; border-bottom: 1px solid rgba(73,91,74,.1); }
+.migration-preview label:last-child { border-bottom: 0; }
+.migration-preview label.disabled { opacity: .58; }
+.migration-preview input { margin-top: 3px; accent-color: var(--accent); }
+.migration-preview span { display: grid; gap: 2px; min-width: 0; }
+.migration-preview strong { overflow-wrap: anywhere; color: var(--ink); font-size: 13px; }
+.migration-preview small { color: var(--muted); font-size: 11px; line-height: 1.45; }
+.migration-actions { display: flex; justify-content: flex-end; align-items: center; gap: 10px; margin-top: 4px; }
+.settings-warning { margin: 0; color: var(--warning, #9a5b18); font-size: 12px; line-height: 1.5; }

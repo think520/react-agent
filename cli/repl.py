@@ -1,4 +1,4 @@
-import copy
+from dataclasses import replace
 import json
 import logging
 import os
@@ -62,7 +62,6 @@ _B_RED = "\033[31m"
 _B_DIM = "\033[2m"
 _B_RESET = "\033[0m"
 
-ALL_COMMANDS = ["help", "status", "cwd", "tools", "skill", "kb", "quiz", "learning", "memory", "wiki", "mcp", "ui", "model", "specialists", "trace", "exit", "quit", "session"]
 
 COMMAND_HINTS = [
     ("/help", "显示命令帮助"),
@@ -92,13 +91,12 @@ COMMAND_HINTS = [
     ("/learning mark <concept> <status>", "手动设置掌握度"),
     ("/learning plans", "已保存的学习计划"),
     ("/learning today", "今日任务 + 复习"),
-    ("/memory list", "已保存的记忆"),
-    ("/memory search ", "搜索记忆"),
-    ("/memory show ", "查看记忆详情"),
-    ("/memory forget ", "删除记忆"),
-    ("/memory stats", "记忆统计"),
+    ("/memory list", "个人知识列表"),
+    ("/memory search ", "搜索个人知识"),
+    ("/memory show ", "查看个人知识"),
+    ("/memory forget ", "删除个人知识"),
+    ("/memory legacy", "检查旧版记忆"),
     ("/wiki init ", "初始化 wiki 目录"),
-    ("/wiki ingest ", "编译源文件为 wiki 页面"),
     ("/wiki lint", "wiki 健康检查"),
     ("/wiki status", "wiki 统计"),
     ("/ui", "显示 UI 设置"),
@@ -158,8 +156,6 @@ class REPL:
         self.skills_prompt = None
         self.skills_dir = "skills"
         self.skill_count = 0
-        self.memory_prompt = None
-        self.memory_manager = None
         self.memory_count = 0
         self.runtime_context = None
         self.agent_timeout = 300  # seconds, per-turn timeout
@@ -199,8 +195,6 @@ class REPL:
             self.skills_dir = self.runtime_context.skills_dir
             self.skills_prompt = self.runtime_context.skills_prompt
             self.skill_count = self.runtime_context.skill_count
-            self.memory_manager = self.runtime_context.memory_manager
-            self.memory_prompt = self.runtime_context.memory_prompt
             self.memory_count = self.runtime_context.memory_count
 
             # RAG embedding backend probe
@@ -270,7 +264,6 @@ class REPL:
                 self._make_active_provider(),
                 self.session,
                 skills_prompt=self.skills_prompt,
-                memory_prompt=self.memory_prompt,
                 mcp_prompt=self.mcp_prompt,
             )
             self.tool_count = len(get_tools_schema())
@@ -338,8 +331,6 @@ class REPL:
         cwd_name = os.path.basename(os.path.normpath(self.session.cwd)) or self.session.cwd
         return f"\033[1;37mbobodan\033[0m:\033[38;5;117m{cwd_name}\033[0m> "
 
-    def build_thinking_prompt(self) -> str:
-        return "THINK"
 
     def read_input(self) -> str:
         prompt = self.build_prompt()
@@ -450,12 +441,6 @@ class REPL:
         print(f"  \033[1;38;5;208mUnknown command: {cmd}\033[0m")
         print("  Type \033[1;38;5;210m/help\033[0m for available commands")
 
-    def complete(self, text: str, state: int):
-        """Tab completion for command input."""
-        options = [c for c in ALL_COMMANDS if c.startswith(text)]
-        if state < len(options):
-            return options[state]
-        return None
 
     def print_command_palette(self):
         print()
@@ -589,18 +574,6 @@ class REPL:
 
         return buffer, wrote
 
-    def _render_thinking_line(self, frame: str, elapsed: float = 0.0) -> str:
-        cyan = "\033[38;5;39m"
-        dim = "\033[2m"
-        reset = "\033[0m"
-        verb = think_verb_at(elapsed)
-        verb_color = think_verb_color_at(elapsed)
-        if elapsed >= 1.0:
-            timer = f" {dim}·{reset} {dim}{elapsed:.1f}s{reset}"
-        else:
-            timer = ""
-        return f"  {cyan}{frame}{reset} {verb_color}{verb}{reset}{timer}"
-
     # --- B-lite active line helpers -----------------------------------------
 
     _B_TOOL_INDENT_MAIN = "  "
@@ -690,7 +663,7 @@ class REPL:
         from core.agent_loop import AgentLoop
         from core.trace import TraceWriter
 
-        session_copy = copy.deepcopy(self.session)
+        session_copy = replace(self.session, messages=list(self.session.messages))
 
         # Per-run trace writer: each user input gets its own trace file
         run_trace = None
@@ -699,12 +672,24 @@ class REPL:
         except Exception:
             pass
 
+        request_prompt = None
+        if self.config.get("memory", {}).get("enabled", True):
+            from service.memory_service import MemoryService
+
+            context = MemoryService(self.session.workspace_root).personalization_context(user_input)
+            if context.get("content"):
+                request_prompt = (
+                    "以下是与本轮问题相关、已由用户确认的个人知识。"
+                    "只用于调整讲解方式，不要把它当作资料库原文证据：\n"
+                    f"{context['content']}"
+                )
+
         agent_copy = AgentLoop(
             self._make_active_provider(),
             session_copy,
             skills_prompt=self.skills_prompt,
-            memory_prompt=self.memory_prompt,
             mcp_prompt=self.mcp_prompt,
+            request_prompt=request_prompt,
             trace_writer=run_trace,
         )
 
@@ -1033,8 +1018,8 @@ class REPL:
         if timed_out:
             print_error(
                 f"[Timeout] Agent did not respond within {self.agent_timeout}s.\n"
-                "Session not modified. The background request may still be running;\n"
-                "consider restarting the REPL if you experience issues."
+                "本轮对话不会写回当前会话；后台请求和已经启动的工具操作可能仍在继续。\n"
+                "如果随后出现文件变化，这是超时前已启动操作的结果。"
             )
             return
 
@@ -1048,8 +1033,7 @@ class REPL:
     def run_agent(self, user_input: str) -> None:
         """Run agent with streaming-style feedback.
 
-        Uses a deep copy of the session so that on timeout the main session
-        is not polluted with partial state.
+        Uses an isolated message list so timeout output does not enter the active session.
         """
         return self.run_agent_streaming(user_input)
 
@@ -1180,8 +1164,8 @@ class REPL:
         print()
 
     def handle_memory_command(self, cmd: str):
-        if not self.memory_manager:
-            print_error("Memory system is not enabled. Set memory.enabled in config.yaml")
+        if not self.config.get("memory", {}).get("enabled", True):
+            print_error("学习记忆已关闭，请先在 config.yaml 中启用 memory.enabled。")
             return
 
         parts = cmd.strip().split()
@@ -1191,127 +1175,80 @@ class REPL:
 
         action = parts[0]
 
-        if action == "list":
-            from service.memory_service import MemoryService
-            svc = MemoryService(self.session.workspace_root)
-            result = svc.list_entries()
-            entries = result["entries"]
-            if not entries:
-                print_notice("No memories saved yet.")
-                return
-            print()
-            print("  \033[1;37mSaved memories:\033[0m")
-            for e in entries:
-                print(f"    \033[1;38;5;147m{e['name']}\033[0m [{e['type']}]  {e['description']}")
-            print()
+        from service.memory_service import MemoryService
 
+        svc = MemoryService(self.session.workspace_root)
+        if action == "list":
+            result = svc.list_knowledge(limit=100)
+            entries = result.get("items", [])
+            if not entries:
+                print_notice("还没有已确认的个人知识。")
+                return
+            print("\n  \033[1;37m个人知识:\033[0m")
+            for entry in entries:
+                print(f"    \033[1;38;5;147m{entry['id']}\033[0m [{entry['kind']}] {entry['title']}")
+            print()
         elif action == "show" and len(parts) > 1:
-            from service.memory_service import MemoryService
-            svc = MemoryService(self.session.workspace_root)
-            result = svc.get_entry(parts[1])
+            result = svc.get_knowledge(parts[1])
             if not result["ok"]:
                 print_error(result["error"])
                 return
+            entry = result["item"]
             print_kv_panel(
-                f"Memory: {result['name']}",
+                f"个人知识: {entry['title']}",
                 [
-                    ("type", result["type"]),
-                    ("description", result["description"]),
-                    ("created", result["created"]),
-                    ("updated", result["updated"]),
-                    ("file", result["file_path"]),
+                    ("ID", entry["id"]),
+                    ("范围", entry["scope"]),
+                    ("类型", entry["kind"]),
+                    ("更新时间", entry["updated_at"]),
                 ],
             )
             print()
-            print_markdown(result["content"])
+            print_markdown(entry["content"])
             print()
-
         elif action == "search" and len(parts) > 1:
-            from service.memory_service import MemoryService
-            svc = MemoryService(self.session.workspace_root)
-            result = svc.recall(query=" ".join(parts[1:]), top_k=5)
-            if not result["results"]:
-                print_notice("No matching memories found.")
+            result = svc.list_knowledge(query=" ".join(parts[1:]), limit=20)
+            entries = result.get("items", [])
+            if not entries:
+                print_notice("没有匹配的个人知识。")
                 return
-            print_search_table(result["results"])
-
+            print("\n  \033[1;37m搜索结果:\033[0m")
+            for entry in entries:
+                print(f"    \033[1;38;5;147m{entry['id']}\033[0m {entry['title']}  {entry['content'][:80]}")
+            print()
         elif action == "forget" and len(parts) > 1:
-            from service.memory_service import MemoryService
-            svc = MemoryService(self.session.workspace_root)
-            result = svc.forget(parts[1])
+            result = svc.delete_knowledge(parts[1])
             if result["ok"]:
-                print_success(f"Memory forgotten: {parts[1]}")
-                if self.memory_manager:
-                    self.memory_manager.load_entries()
-                    self.memory_count = len(self.memory_manager.list_entries())
-                    self.memory_prompt = self.memory_manager.build_memory_prompt()
+                self.runtime_context.refresh_memory()
+                self.memory_count = self.runtime_context.memory_count
+                print_success(f"已删除个人知识: {parts[1]}")
             else:
                 print_error(result["error"])
-
-        elif action == "daily":
-            self.handle_memory_daily(parts[1:])
-
         elif action == "review":
             self.handle_memory_review()
-
         elif action == "stats":
-            from service.memory_service import MemoryService
-            svc = MemoryService(self.session.workspace_root)
-            result = svc.get_stats()
-            fts_info = result.get("fts", {})
+            result = svc.overview()
             print_kv_panel(
-                "Memory Statistics",
+                "个人知识统计",
                 [
-                    ("total memories", result["total"]),
-                    ("by type", result.get("by_type", {})),
-                    ("vector chunks", result.get("vector_chunks", 0)),
-                    ("FTS5 chunks", fts_info.get("total_chunks", "N/A")),
-                    ("daily chunks", fts_info.get("daily_chunks", "N/A")),
-                    ("permanent chunks", fts_info.get("permanent_chunks", "N/A")),
-                    ("recalls", fts_info.get("total_recalls", "N/A")),
-                    ("base dir", result.get("base_dir", "")),
+                    ("已确认", result.get("knowledge_count", 0)),
+                    ("待确认", result.get("pending_candidate_count", 0)),
+                    ("学习事件", result.get("event_count", 0)),
                 ],
             )
-
+        elif action == "legacy":
+            result = svc.legacy_preview()
+            print_kv_panel(
+                "旧版记忆（只读迁移源）",
+                [
+                    ("Markdown 记忆", len(result.get("entries", []))),
+                    ("每日记录文件", len(result.get("daily_files", []))),
+                ],
+            )
+            print_notice("请在桌面端 设置 → 记忆与数据 中预览并导入，旧文件不会被自动修改。")
         else:
-            print(f"  \033[1;38;5;208mUnknown /memory command: {action}\033[0m")
+            print(f"  \033[1;38;5;208m未知 /memory 命令: {action}\033[0m")
             self.print_memory_help()
-
-    def handle_memory_daily(self, args: list[str]):
-        """Handle /memory daily [content | YYYY-MM-DD]"""
-        from service.memory_service import MemoryService
-        svc = MemoryService(self.session.workspace_root)
-
-        if not args:
-            result = svc.daily_read()
-            if not result["content"].strip():
-                print_notice("今日暂无每日记忆。使用 /memory daily <content> 写入。")
-                return
-            print()
-            print("  \033[1;37m今日记忆:\033[0m")
-            print_markdown(result["content"])
-            print()
-            return
-
-        # Check if it's a date string
-        if len(args) == 1 and len(args[0]) == 10 and args[0][4] == "-":
-            result = svc.daily_read(date=args[0])
-            if not result["content"].strip():
-                print_notice(f"{args[0]} 没有记忆记录。")
-                return
-            print()
-            print(f"  \033[1;37m{args[0]} 记忆:\033[0m")
-            print_markdown(result["content"])
-            print()
-            return
-
-        # Otherwise treat as content to save
-        text = " ".join(args)
-        result = svc.daily_save(content=text)
-        if result["ok"]:
-            print_success(f"每日记忆已保存: {result['path']}")
-        else:
-            print_error(result["error"])
 
     def handle_memory_review(self):
         """Show today's review list from learning scheduler."""
@@ -1334,13 +1271,12 @@ class REPL:
 
     def print_memory_help(self):
         print()
-        print("  \033[1;37m记忆命令:\033[0m")
-        print("  \033[1;38;5;210m  /memory list\033[0m              已保存的记忆")
-        print("  \033[1;38;5;210m  /memory show <name>\033[0m       查看记忆详情")
-        print("  \033[1;38;5;210m  /memory search <query>\033[0m    搜索记忆")
-        print("  \033[1;38;5;210m  /memory forget <name>\033[0m     删除记忆")
-        print("  \033[1;38;5;210m  /memory daily [content]\033[0m   写入/查看今日记忆")
-        print("  \033[1;38;5;210m  /memory daily YYYY-MM-DD\033[0m  查看指定日期记忆")
+        print("  \033[1;37m个人知识命令:\033[0m")
+        print("  \033[1;38;5;210m  /memory list\033[0m              已确认的个人知识")
+        print("  \033[1;38;5;210m  /memory show <id>\033[0m         查看个人知识详情")
+        print("  \033[1;38;5;210m  /memory search <query>\033[0m    搜索个人知识")
+        print("  \033[1;38;5;210m  /memory forget <id>\033[0m       删除个人知识")
+        print("  \033[1;38;5;210m  /memory legacy\033[0m            检查旧版只读数据")
         print("  \033[1;38;5;210m  /memory review\033[0m            今日复习清单")
         print("  \033[1;38;5;210m  /memory stats\033[0m             记忆统计")
         print()
@@ -1354,8 +1290,6 @@ class REPL:
         action = parts[0]
         if action == "init":
             self.handle_wiki_init(parts[1:])
-        elif action == "ingest":
-            self.handle_wiki_ingest(parts[1:])
         elif action == "lint":
             self.handle_wiki_lint(parts[1:])
         elif action == "status":
@@ -1393,85 +1327,6 @@ class REPL:
         print(f"      source_registry.json  来源注册表")
         print(f"      index.md              内容索引")
         print(f"      log.md                操作日志")
-        print()
-
-    def handle_wiki_ingest(self, args: list[str]):
-        """Compile source files into wiki pages."""
-        if not args:
-            print("  \033[1;38;5;210mUsage:\033[0m /wiki ingest <source_path> [--vault path] [--force]")
-            return
-
-        source_path = args[0]
-        force = "--force" in args
-
-        # Find vault path from args or config
-        vault_path = None
-        for i, arg in enumerate(args):
-            if arg == "--vault" and i + 1 < len(args):
-                vault_path = args[i + 1]
-        if not vault_path:
-            # Try to use the last synced vault from knowledge base
-            from knowledge.manifest import load_manifest
-            manifest = load_manifest(self.session.workspace_root)
-            vault_path = manifest.get("vault_path")
-            if not vault_path:
-                print_error("请指定 vault 路径：/wiki ingest <source> --vault <path>")
-                return
-
-        if not os.path.isabs(source_path):
-            source_path = os.path.join(self.session.workspace_root, source_path)
-        if not os.path.isabs(vault_path):
-            vault_path = os.path.join(self.session.workspace_root, vault_path)
-
-        if not os.path.exists(source_path):
-            print_error(f"Source path not found: {source_path}")
-            return
-
-        from wiki.compiler import WikiCompiler
-        compiler = WikiCompiler(self.session.workspace_root, vault_path)
-
-        # Collect files
-        source_files = []
-        if os.path.isfile(source_path):
-            source_files = [source_path]
-        elif os.path.isdir(source_path):
-            for root, dirs, files in os.walk(source_path):
-                dirs[:] = [d for d in dirs if not d.startswith('.') and d != 'wiki']
-                for f in files:
-                    if f.endswith(".md"):
-                        source_files.append(os.path.join(root, f))
-
-        if not source_files:
-            print_notice("未找到 .md 文件。")
-            return
-
-        print(f"\n  \033[1;37m编译 {len(source_files)} 个文件...\033[0m\n")
-
-        result = compiler.compile_batch(source_files, force=force)
-
-        print_kv_panel(
-            "Wiki 编译结果",
-            [
-                ("处理文件", len(source_files)),
-                ("生成实体", result.entities_count),
-                ("生成概念", result.concepts_count),
-                ("生成来源页", result.sources_count),
-                ("跳过（未变更）", len(result.skipped)),
-                ("错误", len(result.errors)),
-            ],
-        )
-
-        if result.pages:
-            print()
-            print("  \033[1;37m生成的页面:\033[0m")
-            for page in result.pages:
-                icon = {"wiki_entity": "▸", "wiki_concept": "◆", "wiki_source": "●"}.get(page.page_type, "·")
-                print(f"    {icon} {page.title} [{page.page_type}]")
-
-        if result.errors:
-            print()
-            for err in result.errors:
-                print_error(f"  {err.get('source', '?')}: {err.get('error', '?')}")
         print()
 
     def handle_wiki_lint(self, args: list[str]):
@@ -1545,7 +1400,6 @@ class REPL:
         print()
         print("  \033[1;37mWiki 命令:\033[0m")
         print("  \033[1;38;5;210m  /wiki init <vault>\033[0m              初始化 wiki 目录结构")
-        print("  \033[1;38;5;210m  /wiki ingest <source> [--vault path]\033[0m  编译源文件为 wiki 页面")
         print("  \033[1;38;5;210m  /wiki lint [vault]\033[0m              wiki 健康检查")
         print("  \033[1;38;5;210m  /wiki status [vault]\033[0m            wiki 统计")
         print()
@@ -2357,7 +2211,7 @@ class REPL:
         print_search_table(results)
 
     def handle_kb_graph(self, args: list[str]):
-        from service.kb_service import KBService
+        from service.concept_service import ConceptService
 
         concept_tokens, options = self._parse_kb_options(args, {"--intent", "--limit"})
         concept = " ".join(concept_tokens).strip()
@@ -2367,30 +2221,26 @@ class REPL:
 
         limit = self._parse_int_option(options.get("--limit"), default=20, minimum=1, maximum=50)
         intent = options.get("--intent", "related")
-        svc = KBService(self.session.workspace_root)
-        result = svc.graph_query(
-            concept=concept,
-            intent=intent,
-            limit=limit,
-        )
+        svc = ConceptService(self.session.workspace_root)
+        result = svc.neighbors(concept=concept, limit=limit)
         if not result["ok"]:
             print_error(result["error"])
             return
 
         relationships = result.get("relationships", [])
-        nodes_by_id = {node.get("id"): node for node in result.get("nodes", [])}
+        nodes_by_id = {node.get("concept_id"): node for node in result.get("concepts", [])}
         if not relationships:
-            print_notice("No graph relationships found.")
+            print_notice("知识地图中没有已审查的相关关系。")
             return
 
         print()
-        print(f"  \033[1;37mGraph Query:\033[0m {result.get('concept', concept)}  intent={result.get('intent', intent)}  source={result.get('source', 'unknown')}")
+        print(f"  \033[1;37m知识地图:\033[0m {result.get('root', {}).get('name', concept)}  intent={intent}")
         for rel in relationships:
-            start = nodes_by_id.get(rel.get("start"), {})
-            end = nodes_by_id.get(rel.get("end"), {})
-            start_name = start.get("name") or start.get("properties", {}).get("name") or rel.get("start")
-            end_name = end.get("name") or end.get("properties", {}).get("name") or rel.get("end")
-            print(f"  {start_name} -[{rel.get('type')}]-> {end_name}")
+            start = nodes_by_id.get(rel.get("from_id"), {})
+            end = nodes_by_id.get(rel.get("to_id"), {})
+            start_name = start.get("name") or rel.get("from_id")
+            end_name = end.get("name") or rel.get("to_id")
+            print(f"  {start_name} -[{rel.get('rel_type')}]-> {end_name}")
         print()
 
     def handle_kb_reset(self, args: list[str]):
@@ -2425,17 +2275,6 @@ class REPL:
             parsed = default
         return max(minimum, min(parsed, maximum))
 
-    def _read_json_file(self, path: str) -> dict:
-        if not os.path.exists(path):
-            return {}
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            return data if isinstance(data, dict) else {}
-        except (OSError, json.JSONDecodeError):
-            return {}
-
-    # --- Quiz commands ---
 
     def handle_quiz_command(self, cmd: str):
         try:

@@ -5,6 +5,9 @@ import { useNavigate, useOutletContext, useParams } from "react-router-dom";
 import type { AppOutletContext } from "../components/AppShell";
 import { AttributionBadges, BrandIllustration, EmptyState, ErrorNotice, LoadingState, formatRelativeDate } from "../components/common";
 import { api, streamChat } from "../lib/api";
+import { toErrorMessage } from "../lib/errors";
+import { useHandoffStore } from "../stores/handoffStore";
+import { useUiStore } from "../stores/uiStore";
 import type { PracticeSession } from "../types";
 
 interface AnswerResult {
@@ -43,8 +46,8 @@ export function PracticePage() {
   const id = practiceSessionId ? Number(practiceSessionId) : null;
   const [session, setSession] = useState<PracticeSession | null>(null);
   const [active, setActive] = useState<Array<{ practice_session_id: number; updated_at: string; question_count: number }>>([]);
-  const [topic, setTopic] = useState(() => localStorage.getItem("bobodan:practice-topic") || "");
-  const [webResearchId] = useState(() => localStorage.getItem("bobodan:practice-web-research") || "");
+  const [topic, setTopic] = useState(() => useHandoffStore.getState().practiceTopic || "");
+  const [webResearchId] = useState(() => useHandoffStore.getState().practiceWebResearchId || "");
   const [answer, setAnswer] = useState("");
   const [result, setResult] = useState<AnswerResult | null>(null);
   const [loading, setLoading] = useState(Boolean(id));
@@ -65,15 +68,14 @@ export function PracticePage() {
     try {
       setSession(await api.practice(sessionId));
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "无法恢复练习。" );
+      setError(toErrorMessage(reason, "无法恢复练习。"));
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    localStorage.removeItem("bobodan:practice-topic");
-    localStorage.removeItem("bobodan:practice-web-research");
+    useHandoffStore.getState().clearPracticeHandoff();
     setAnswer("");
     setResult(null);
     setAiOpen(false);
@@ -126,7 +128,7 @@ export function PracticePage() {
       }
       navigate(`/practice/${created.practice_session_id}`);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "暂时无法创建练习。请先导入相关资料。" );
+      setError(toErrorMessage(reason, "暂时无法创建练习。请先导入相关资料。"));
     } finally {
       setWorking(false);
     }
@@ -141,7 +143,7 @@ export function PracticePage() {
       const response = await api.submitAnswer(id, currentQuestion.id, answer.trim());
       setResult(response);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "答案没有提交成功。" );
+      setError(toErrorMessage(reason, "答案没有提交成功。"));
     } finally {
       setWorking(false);
     }
@@ -168,10 +170,8 @@ export function PracticePage() {
     setAiError("");
     setAiStatus("正在理解这道题");
     let nextSessionId: string | undefined;
-    let profile: { learningGoal?: string; memoryEnabled?: boolean; webEnabled?: boolean } = {};
     try {
-      try { profile = JSON.parse(localStorage.getItem("bobodan:learning-profile") || "{}"); }
-      catch { profile = {}; }
+      const profile = useUiStore.getState().learningProfile;
       const prompt = [
         `我正在做这道题：${currentQuestion.question}`,
         `我的当前答案：${answer || "还没有作答"}`,
@@ -191,7 +191,7 @@ export function PracticePage() {
       await refreshSessions();
       if (nextSessionId) void api.generateSessionTitle(nextSessionId).then(refreshSessions).catch(() => undefined);
     } catch (reason) {
-      setAiError(reason instanceof Error ? reason.message : "暂时无法获得提示，请稍后重试。");
+      setAiError(toErrorMessage(reason, "暂时无法获得提示，请稍后重试。"));
       setAiStatus("");
     } finally {
       setAiWorking(false);

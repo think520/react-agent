@@ -1,6 +1,7 @@
 """Tests for rag.sqlite_store — SQLite + FTS5 knowledge base storage."""
 
 import json
+import sqlite3
 import pytest
 from pathlib import Path
 
@@ -84,6 +85,55 @@ class TestInit:
         _add_test_document(store)
         assert store.get_document("doc1") is not None
 
+    def test_migrates_legacy_fts_even_when_triggers_are_missing(self, tmp_path):
+        knowledge_dir = tmp_path / ".knowledge"
+        knowledge_dir.mkdir()
+        db_path = knowledge_dir / "knowledge.db"
+        conn = sqlite3.connect(db_path)
+        conn.executescript("""
+            CREATE TABLE documents (
+                id TEXT PRIMARY KEY, source TEXT UNIQUE, path TEXT, kind TEXT,
+                title TEXT, course TEXT, tags_json TEXT, summary TEXT,
+                content_hash TEXT, vector_status TEXT DEFAULT 'pending',
+                vector_indexed_hash TEXT, vector_error TEXT, updated_at TEXT
+            );
+            CREATE TABLE chunks (
+                id TEXT PRIMARY KEY, document_id TEXT, source TEXT, chunk_index INTEGER,
+                text TEXT NOT NULL, title TEXT, course TEXT, heading_path_json TEXT,
+                heading_text TEXT, heading_level INTEGER, section_id TEXT,
+                chunk_index_in_section INTEGER, page_start INTEGER, page_end INTEGER,
+                slide_start INTEGER, slide_end INTEGER, char_start INTEGER, char_end INTEGER,
+                metadata_json TEXT
+            );
+            CREATE VIRTUAL TABLE chunks_fts USING fts5(
+                text, title, heading_text, source, course,
+                content='chunks', content_rowid='rowid'
+            );
+            INSERT INTO documents(id, source, title, course)
+            VALUES ('doc1', 'lesson.md', '中文课', 'test');
+            INSERT INTO chunks(
+                id, document_id, source, chunk_index, text, title, course,
+                heading_path_json, heading_text
+            ) VALUES (
+                'chunk1', 'doc1', 'lesson.md', 0, '注意力机制负责聚合上下文信息。',
+                '中文课', 'test', '[]', '注意力机制'
+            );
+            INSERT INTO chunks_fts(rowid, text, title, heading_text, source, course)
+            SELECT rowid, text, title, heading_text, source, course FROM chunks;
+        """)
+        conn.commit()
+        conn.close()
+
+        migrated = KBSQLiteStore(str(tmp_path))
+        migrated.init_db()
+        try:
+            assert any(
+                hit.chunk_id == "chunk1"
+                for hit in migrated.search_fts5("注意力如何聚合")
+            )
+        finally:
+            migrated.close()
+
 
 # ── Document CRUD ───────────────────────────────────────────────────────
 
@@ -159,6 +209,30 @@ class TestChunkCRUD:
         assert len(chunks) == 3
         assert chunks[0]["chunk_index"] == 0
 
+    def test_get_chunks_by_ids(self, store):
+        _add_test_document(store)
+        _add_test_chunks(store)
+        chunks = store.get_chunks_by_ids(["chunk2", "chunk0", "missing", "chunk2"])
+        assert set(chunks) == {"chunk0", "chunk2"}
+        assert chunks["chunk0"]["chunk_index"] == 0
+        assert chunks["chunk2"]["chunk_index"] == 2
+
+    def test_get_chunks_by_ids_empty(self, store):
+        assert store.get_chunks_by_ids([]) == {}
+
+    def test_get_chunks_for_documents_batches_and_groups(self, store):
+        _add_test_document(store, "doc1", "course/ch01.md")
+        _add_test_document(store, "doc2", "course/ch02.md")
+        _add_test_chunks(store, "doc1", "course/ch01.md")
+        store.insert_chunks([make_chunk_row(
+            chunk_id="doc2-chunk", document_id="doc2", source="course/ch02.md",
+            chunk_index=0, text="Second document",
+        )])
+        grouped = store.get_chunks_for_documents(["doc2", "doc1", "doc2"])
+        assert list(grouped) == ["doc2", "doc1"]
+        assert [item["id"] for item in grouped["doc2"]] == ["doc2-chunk"]
+        assert len(grouped["doc1"]) == 3
+
     def test_delete_chunks_by_document(self, store):
         _add_test_document(store)
         _add_test_chunks(store)
@@ -224,6 +298,15 @@ class TestFTS5Search:
         _add_test_chunks(store)
         hits = store.search_fts5("quantum computing")
         assert len(hits) == 0
+
+    def test_cjk_phrase_search_uses_bigrams(self, store):
+        _add_test_document(store)
+        store.insert_chunks([make_chunk_row(
+            chunk_id="cjk1", document_id="doc1", source="course/ch01.md",
+            chunk_index=0, text="贪心算法的正确性通常通过交换论证来证明。",
+        )])
+        hits = store.search_fts5("贪心算法为什么正确")
+        assert any(hit.chunk_id == "cjk1" for hit in hits)
 
 
 # ── Vector Status ───────────────────────────────────────────────────────
@@ -370,3 +453,8 @@ class TestHelpers:
     def test_build_fts_query_empty(self):
         assert _build_fts_query("") == ""
         assert _build_fts_query("   ") == ""
+
+    def test_build_fts_query_cjk_bigrams(self):
+        query = _build_fts_query("注意力机制")
+        assert '"注意"' in query
+        assert '"机制"' in query

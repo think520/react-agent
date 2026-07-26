@@ -13,14 +13,7 @@ from typing import Any
 
 from graph.concept_store import ConceptStore
 from knowledge.paths import knowledge_path
-
-
-def _ok(**kwargs: Any) -> dict[str, Any]:
-    return {"ok": True, **kwargs}
-
-
-def _err(error: str) -> dict[str, Any]:
-    return {"ok": False, "error": error}
+from service._result import err as _err, ok as _ok
 
 
 def _store(workspace: str) -> ConceptStore:

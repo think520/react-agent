@@ -1,9 +1,10 @@
 import json
 import os
+import sqlite3
 
 from learning.schema import Mastery, LearningPlan
 from learning.store import LearningStore
-from learning.scheduler import ReviewScheduler, INTERVALS_DAYS
+from learning.scheduler import ReviewScheduler
 from learning.progress import ProgressTracker
 from learning.path import LearningPathGenerator
 
@@ -17,6 +18,8 @@ def test_mastery_defaults():
     assert m.score == 0.0
     assert m.review_count == 0
     assert m.consecutive_correct == 0
+    assert m.ease_factor == 2.5
+    assert m.interval_days == 0
     assert m.source == "auto"
 
 
@@ -31,6 +34,31 @@ def test_learning_plan_defaults():
 def test_store_creates_tables(tmp_path):
     store = LearningStore(str(tmp_path))
     assert os.path.exists(store.db_path)
+
+
+def test_store_migrates_sm2_columns_from_legacy_mastery_table(tmp_path):
+    knowledge_dir = tmp_path / ".knowledge"
+    knowledge_dir.mkdir()
+    db_path = knowledge_dir / "bobodan.db"
+    conn = sqlite3.connect(db_path)
+    conn.execute("""CREATE TABLE mastery (
+        concept TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT 'unseen',
+        score REAL NOT NULL DEFAULT 0.0, review_count INTEGER NOT NULL DEFAULT 0,
+        consecutive_correct INTEGER NOT NULL DEFAULT 0, last_reviewed TEXT,
+        next_review TEXT, source TEXT NOT NULL DEFAULT 'auto', updated_at TEXT NOT NULL
+    )""")
+    conn.execute("""INSERT INTO mastery (
+        concept, status, score, review_count, consecutive_correct, source, updated_at
+    ) VALUES ('图', 'learning', 0.2, 1, 1, 'auto', '2026-01-01T00:00:00+00:00')""")
+    conn.commit()
+    conn.close()
+
+    store = LearningStore(str(tmp_path))
+    mastery = store.get_mastery("图")
+
+    assert mastery is not None
+    assert mastery.ease_factor == 2.5
+    assert mastery.interval_days == 0
 
 
 def test_upsert_and_get_mastery(tmp_path):
@@ -116,6 +144,7 @@ def test_scheduler_record_correct(tmp_path):
     assert m.consecutive_correct == 1
     assert m.score > 0
     assert m.next_review is not None
+    assert m.interval_days == 1
 
 
 def test_scheduler_two_correct_makes_mastered(tmp_path):
@@ -126,6 +155,7 @@ def test_scheduler_two_correct_makes_mastered(tmp_path):
     m = scheduler.record_review("堆", correct=True)
     assert m.status == "mastered"
     assert m.consecutive_correct == 2
+    assert m.interval_days == 6
     assert m.score >= 0.3
 
 
@@ -137,6 +167,8 @@ def test_scheduler_wrong_resets_consecutive(tmp_path):
     m = scheduler.record_review("图", correct=False)
     assert m.consecutive_correct == 0
     assert m.status == "needs_review"
+    assert m.interval_days == 1
+    assert m.ease_factor < 2.5
     assert m.score < 0.5
 
 
@@ -249,6 +281,46 @@ def test_path_generator_with_weakness(tmp_path):
     generator = LearningPathGenerator(store, progress, llm_provider=None)
     plan = generator.generate_path(goal="补薄弱点")
     assert len(plan.steps) >= 1
+
+
+def test_path_generator_reads_course_info_from_sqlite_index(tmp_path):
+    import json
+
+    from rag.sqlite_store import KBSQLiteStore
+
+    store = LearningStore(str(tmp_path))
+    scheduler = ReviewScheduler(store)
+    progress = ProgressTracker(store, scheduler)
+    kb = KBSQLiteStore(str(tmp_path))
+    kb.init_db()
+    kb.upsert_document(
+        "doc-a", "course/lesson-a.md", "hash-a", title="Lesson A", course="CS101",
+    )
+    kb.upsert_document(
+        "doc-b", "course/lesson-b.md", "hash-b", title="Lesson B", course="CS102",
+    )
+    kb.close()
+    (tmp_path / ".knowledge" / "rag_index.json").write_text(
+        json.dumps({"chunks": [{"source": "legacy/should-not-appear.md"}]}),
+        encoding="utf-8",
+    )
+
+    generator = LearningPathGenerator(store, progress, llm_provider=None)
+    summary = generator._get_course_info(str(tmp_path), course="CS101")
+
+    assert "course/lesson-a.md" in summary
+    assert "course/lesson-b.md" not in summary
+    assert "legacy/should-not-appear.md" not in summary
+
+
+def test_path_generator_does_not_create_empty_index(tmp_path):
+    store = LearningStore(str(tmp_path))
+    scheduler = ReviewScheduler(store)
+    progress = ProgressTracker(store, scheduler)
+    generator = LearningPathGenerator(store, progress, llm_provider=None)
+
+    assert generator._get_course_info(str(tmp_path)) == ""
+    assert not (tmp_path / ".knowledge" / "knowledge.db").exists()
 
 
 def test_parse_plan_json():

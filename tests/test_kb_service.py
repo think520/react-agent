@@ -7,6 +7,34 @@ import pytest
 from service.kb_service import KBService
 
 
+def _seed_rag(workspace, documents):
+    from rag.sqlite_store import KBSQLiteStore, make_chunk_row
+
+    store = KBSQLiteStore(workspace)
+    store.init_db()
+    chunks = []
+    for index, document in enumerate(documents):
+        store.upsert_document(
+            document_id=document["id"],
+            source=document["source"],
+            content_hash=f"hash-{index}",
+            title=document["title"],
+            course=document.get("course"),
+            kind=document.get("kind"),
+        )
+        chunks.append(make_chunk_row(
+            chunk_id=f"chunk-{index}",
+            document_id=document["id"],
+            source=document["source"],
+            chunk_index=0,
+            text=document["text"],
+            title=document["title"],
+            course=document.get("course"),
+        ))
+    store.insert_chunks(chunks)
+    store.close()
+
+
 @pytest.fixture
 def workspace(tmp_path):
     return str(tmp_path)
@@ -53,15 +81,16 @@ def test_status_with_manifest(svc, workspace):
     with open(os.path.join(knowledge_dir, "manifest.json"), "w") as f:
         json.dump(manifest, f)
 
-    # Use real LocalGraphStore to write graph data
-    from graph.local_store import LocalGraphStore
-    graph_path = os.path.join(knowledge_dir, "graph_store.json")
-    store = LocalGraphStore(graph_path)
-    store.add_node("Concept", "Python")
-    store.add_node("Concept", "Java")
-    from graph.schema import node_id
-    store.add_relationship(node_id("Concept", "Python"), "RELATED_TO", node_id("Concept", "Java"))
-    store.save()
+    from service.concept_service import ConceptService
+
+    concepts = ConceptService(workspace)
+    python = concepts.upsert_concept(name="Python", level="core")["concept"]
+    java = concepts.upsert_concept(name="Java", level="core")["concept"]
+    concepts.add_relationship(
+        from_id=python["concept_id"],
+        to_id=java["concept_id"],
+        rel_type="对比",
+    )
 
     result = svc.status()
     assert result["ok"]
@@ -69,7 +98,7 @@ def test_status_with_manifest(svc, workspace):
     assert result["total_chunks"] == 16
     assert result["graph_nodes"] == 2
     assert result["graph_relationships"] == 1
-    assert result["graph_nodes_by_type"]["Concept"] == 2
+    assert result["graph_nodes_by_type"]["core"] == 2
     assert len(result["courses"]) == 2
 
 
@@ -81,11 +110,39 @@ def test_search_no_index(svc):
     assert "RAG index" in result["error"]
 
 
-def test_search_empty_query(svc, workspace):
+def test_search_does_not_treat_retired_dense_index_as_available(svc, workspace):
     knowledge_dir = os.path.join(workspace, ".knowledge")
     os.makedirs(knowledge_dir)
-    with open(os.path.join(knowledge_dir, "rag_index.json"), "w") as f:
-        json.dump({"chunks": []}, f)
+    with open(os.path.join(knowledge_dir, "rag_index_dense.json"), "w") as handle:
+        handle.write("{}")
+
+    result = svc.search(query="test")
+
+    assert not result["ok"]
+    assert "RAG index" in result["error"]
+
+
+def test_delete_document_returns_structured_not_found_code(svc):
+    result = svc.delete_document("missing")
+
+    assert result["ok"] is False
+    assert result["code"] == "document_not_found"
+
+
+def test_delete_document_returns_structured_read_only_code(svc, workspace):
+    _seed_rag(workspace, [{
+        "id": "doc-1", "source": "external/lesson.md", "title": "Lesson",
+        "text": "Read-only source",
+    }])
+
+    result = svc.delete_document("doc-1")
+
+    assert result["ok"] is False
+    assert result["code"] == "document_read_only"
+
+
+def test_search_empty_query(svc, workspace):
+    _seed_rag(workspace, [])
 
     result = svc.search(query="")
     assert not result["ok"]
@@ -93,19 +150,10 @@ def test_search_empty_query(svc, workspace):
 
 
 def test_search_with_index(svc, workspace):
-    knowledge_dir = os.path.join(workspace, ".knowledge")
-    os.makedirs(knowledge_dir)
-
-    # Build a minimal sparse index
-    from rag.vector_store import LocalVectorStore
-    from rag.chunker import TextChunk
-
-    store = LocalVectorStore(os.path.join(knowledge_dir, "rag_index.json"))
-    chunks = [
-        TextChunk(id="c1", text="Python is a programming language", source="note1.md", metadata={"course": "CS101"}),
-        TextChunk(id="c2", text="Java is also a programming language", source="note2.md", metadata={"course": "CS101"}),
-    ]
-    store.upsert(chunks)
+    _seed_rag(workspace, [
+        {"id": "doc-1", "source": "note1.md", "title": "Python", "course": "CS101", "text": "Python is a programming language"},
+        {"id": "doc-2", "source": "note2.md", "title": "Java", "course": "CS101", "text": "Java is also a programming language"},
+    ])
 
     result = svc.search(query="Python programming", top_k=5)
     assert result["ok"]
@@ -113,15 +161,9 @@ def test_search_with_index(svc, workspace):
 
 
 def test_search_respects_selected_document_ids(svc, workspace):
-    knowledge_dir = os.path.join(workspace, ".knowledge")
-    os.makedirs(knowledge_dir)
-    from rag.vector_store import LocalVectorStore
-    from rag.chunker import TextChunk
-
-    store = LocalVectorStore(os.path.join(knowledge_dir, "rag_index.json"))
-    store.upsert([
-        TextChunk(id="c1", text="Graph shortest path algorithm", source="course/one.md", metadata={"title": "One"}),
-        TextChunk(id="c2", text="Graph shortest path algorithm", source="course/two.md", metadata={"title": "Two"}),
+    _seed_rag(workspace, [
+        {"id": "doc-1", "source": "course/one.md", "title": "One", "text": "Graph shortest path algorithm"},
+        {"id": "doc-2", "source": "course/two.md", "title": "Two", "text": "Graph shortest path algorithm"},
     ])
     documents = svc.list_documents()["documents"]
     allowed = next(item["document_id"] for item in documents if item["title"] == "One")
@@ -134,15 +176,9 @@ def test_search_respects_selected_document_ids(svc, workspace):
 
 
 def test_search_prefers_selected_documents_without_excluding_the_library(svc, workspace):
-    knowledge_dir = os.path.join(workspace, ".knowledge")
-    os.makedirs(knowledge_dir)
-    from rag.vector_store import LocalVectorStore
-    from rag.chunker import TextChunk
-
-    store = LocalVectorStore(os.path.join(knowledge_dir, "rag_index.json"))
-    store.upsert([
-        TextChunk(id="c1", text="Graph shortest path algorithm", source="course/one.md", metadata={"title": "One"}),
-        TextChunk(id="c2", text="Graph shortest path algorithm", source="course/two.md", metadata={"title": "Two"}),
+    _seed_rag(workspace, [
+        {"id": "doc-1", "source": "course/one.md", "title": "One", "text": "Graph shortest path algorithm"},
+        {"id": "doc-2", "source": "course/two.md", "title": "Two", "text": "Graph shortest path algorithm"},
     ])
     documents = svc.list_documents()["documents"]
     preferred = next(item["document_id"] for item in documents if item["title"] == "Two")
@@ -258,17 +294,14 @@ def test_smart_wiki_scope_does_not_fall_back_to_the_whole_library_when_topic_sea
 
 
 def test_search_top_k_clamped(svc, workspace):
-    knowledge_dir = os.path.join(workspace, ".knowledge")
-    os.makedirs(knowledge_dir)
-    with open(os.path.join(knowledge_dir, "rag_index.json"), "w") as f:
-        json.dump({"chunks": []}, f)
+    _seed_rag(workspace, [])
 
     result = svc.search(query="test", top_k=100)
     assert result["ok"]
     assert result["results"] == []
 
 
-def test_legacy_index_documents_are_visible_and_readable(svc, workspace):
+def test_legacy_index_is_not_used_as_live_library_data(svc, workspace):
     knowledge_dir = os.path.join(workspace, ".knowledge")
     os.makedirs(knowledge_dir)
     index_path = os.path.join(knowledge_dir, "rag_index.json")
@@ -285,28 +318,15 @@ def test_legacy_index_documents_are_visible_and_readable(svc, workspace):
             },
         }]}, handle)
 
-    listed = svc.list_documents()
-    assert listed["ok"]
-    assert len(listed["documents"]) == 1
-    document = listed["documents"][0]
-    assert document["origin"] == "legacy_index"
-    assert document["managed"] is False
-    assert document["chunk_count"] == 1
-
-    detail = svc.get_document(document["document_id"])
-    assert detail["ok"]
-    assert detail["sections"][0]["chunk_id"] == "obsidian/course/lesson.md#0"
-    assert "Legacy knowledge" in detail["sections"][0]["text"]
-
-    deleted = svc.delete_document(document["document_id"])
-    assert not deleted["ok"]
-    assert "read-only" in deleted["error"]
+    assert svc.list_documents()["documents"] == []
+    assert not svc.search("Legacy knowledge")["ok"]
+    assert os.path.exists(index_path)
 
 
 def test_document_collections_hide_metadata_and_deduplicate_wiki(svc, workspace):
     knowledge_dir = os.path.join(workspace, ".knowledge")
     os.makedirs(knowledge_dir)
-    chunks = []
+    documents = []
     for index, (source, title, kind) in enumerate([
         ("obsidian/course/lesson.md", "Lesson", "obsidian_note"),
         ("obsidian/wiki/index.md", "Wiki Index", "obsidian_note"),
@@ -314,12 +334,11 @@ def test_document_collections_hide_metadata_and_deduplicate_wiki(svc, workspace)
         ("obsidian/wiki/entities/Dijkstra 算法.md", "Dijkstra 算法", "wiki_entity"),
         ("obsidian/wiki/sources/2026-07-17_Dijkstra算法.md", "Dijkstra算法", "wiki_source"),
     ]):
-        chunks.append({
-            "id": f"chunk-{index}", "source": source, "text": title,
-            "metadata": {"title": title, "kind": kind},
+        documents.append({
+            "id": f"doc-{index}", "source": source, "title": title,
+            "text": title, "kind": kind,
         })
-    with open(os.path.join(knowledge_dir, "rag_index.json"), "w", encoding="utf-8") as handle:
-        json.dump({"chunks": chunks}, handle, ensure_ascii=False)
+    _seed_rag(workspace, documents)
 
     materials = svc.list_documents(collection="material")["documents"]
     wiki = svc.list_documents(collection="wiki")["documents"]
@@ -525,18 +544,23 @@ def test_wiki_plan_requires_confirmation_before_writing(svc, workspace, monkeypa
 def test_search_uses_wiki_for_orientation_then_material_for_evidence(svc, workspace, monkeypatch):
     knowledge_dir = os.path.join(workspace, ".knowledge")
     os.makedirs(knowledge_dir)
-    with open(os.path.join(knowledge_dir, "rag_index_dense.json"), "w", encoding="utf-8") as handle:
-        handle.write("{}")
+    _seed_rag(workspace, [])
 
     documents = [
         {"document_id": "material-1", "source": "course/rag.md", "title": "RAG Lesson", "collection": "material", "wiki_type": None},
         {"document_id": "wiki-1", "source": "obsidian/wiki/concepts/RAG.md", "title": "RAG", "collection": "wiki", "wiki_type": "concept"},
     ]
     monkeypatch.setattr(svc, "list_documents", lambda collection="all", course=None: {"ok": True, "documents": documents})
-    monkeypatch.setattr("rag.retriever.search_index", lambda *args, **kwargs: [
+    monkeypatch.setattr("rag.retriever.search_index_with_status", lambda *args, **kwargs: ([
         {"chunk_id": "material-chunk", "source": "course/rag.md", "text": "Original evidence", "metadata": {}},
         {"chunk_id": "wiki-chunk", "source": "obsidian/wiki/concepts/RAG.md", "text": "AI summary", "metadata": {}},
-    ])
+    ], {
+        "retrieval_mode": "fts_only",
+        "resolved_mode": "hybrid",
+        "semantic_available": False,
+        "fallback_from": None,
+        "confidence": "medium",
+    }))
 
     result = svc.search("RAG", top_k=2)
 
@@ -691,38 +715,6 @@ def test_delete_managed_document_removes_source_and_resyncs(svc, workspace, monk
     assert not os.path.exists(source_path)
 
 
-# --- graph_query ---
-
-def test_graph_query_no_data(svc, workspace):
-    result = svc.graph_query(concept="Python")
-    assert result["ok"]
-    # Local graph store returns empty when no data
-    assert "relationships" in result or "nodes" in result
-
-
-def test_graph_query_with_data(svc, workspace):
-    from graph.store import get_graph_store
-
-    store = get_graph_store(workspace)
-    store.add_node("Concept", "Python")
-    store.add_node("Concept", "Java")
-    from graph.schema import node_id
-    store.add_relationship(node_id("Concept", "Python"), "RELATED_TO", node_id("Concept", "Java"))
-    store.save()
-    if hasattr(store, "close"):
-        store.close()
-
-    result = svc.graph_query(concept="Python", intent="related", limit=10)
-    assert result["ok"]
-    assert len(result.get("relationships", [])) > 0
-
-
-def test_graph_query_empty_concept(svc):
-    result = svc.graph_query(concept="")
-    assert not result["ok"]
-    assert "concept" in result["error"].lower()
-
-
 # --- reset ---
 
 def test_reset_no_dir(svc, workspace):
@@ -734,12 +726,16 @@ def test_reset_no_dir(svc, workspace):
 def test_reset_with_dir(svc, workspace):
     knowledge_dir = os.path.join(workspace, ".knowledge")
     os.makedirs(knowledge_dir)
-    with open(os.path.join(knowledge_dir, "test.json"), "w") as f:
+    with open(os.path.join(knowledge_dir, "knowledge.db"), "w") as f:
         json.dump({}, f)
+    legacy_path = os.path.join(knowledge_dir, "graph_store.json")
+    with open(legacy_path, "w") as f:
+        json.dump({"nodes": {}, "relationships": []}, f)
 
     result = svc.reset()
     assert result["ok"]
-    assert not os.path.exists(knowledge_dir)
+    assert not os.path.exists(os.path.join(knowledge_dir, "knowledge.db"))
+    assert os.path.exists(legacy_path)
 
 
 # --- sync error cases ---

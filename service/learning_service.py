@@ -11,19 +11,13 @@ from typing import Any
 
 from learning.store import LearningStore
 from learning.scheduler import ReviewScheduler
+from learning.schema import MASTERY_LEARNING, MASTERY_MASTERED, MASTERY_NEEDS_REVIEW
 from learning.progress import ProgressTracker
 from learning.path import LearningPathGenerator
 from learning.workflow import PlanWorkflowTracker
+from service._result import err as _err, ok as _ok
 
 logger = logging.getLogger(__name__)
-
-
-def _ok(**kwargs: Any) -> dict[str, Any]:
-    return {"ok": True, **kwargs}
-
-
-def _err(error: str) -> dict[str, Any]:
-    return {"ok": False, "error": error}
 
 
 def _get_llm_provider(config: dict | None = None):
@@ -142,7 +136,7 @@ class LearningService:
 
     # --- Manual mastery ---
 
-    _VALID_STATUSES = {"mastered", "learning", "needs_review"}
+    _VALID_STATUSES = {MASTERY_MASTERED, MASTERY_LEARNING, MASTERY_NEEDS_REVIEW}
 
     def mark_mastery(self, concept: str, status: str) -> dict[str, Any]:
         if status not in self._VALID_STATUSES:

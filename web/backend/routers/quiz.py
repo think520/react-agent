@@ -5,10 +5,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
-from service.preference_service import PreferenceService
 from service.quiz_service import QuizService
-from web.backend.capabilities import WEB_SKILL_NAMES
-from web.backend.deps import get_config, get_default_provider_name, get_request_workspace
+from web.backend.deps import get_preferences, get_config, get_request_workspace
 from web.backend.errors import APIError, unwrap_service_result
 
 router = APIRouter()
@@ -38,6 +36,10 @@ class SubmitAnswerRequest(BaseModel):
     answer: str = Field(..., min_length=1)
 
 
+class WrongAnswerVariantRequest(BaseModel):
+    attempt_id: int = Field(..., ge=1)
+
+
 def _service(request: Request) -> QuizService:
     return QuizService(get_request_workspace(request), config=get_config())
 
@@ -45,10 +47,7 @@ def _service(request: Request) -> QuizService:
 @router.post("/questions")
 def generate_questions(body: GenerateQuestionsRequest, request: Request) -> dict:
     config = get_config()
-    preferences = PreferenceService(
-        get_default_provider_name(config),
-        sorted(WEB_SKILL_NAMES),
-    ).get()
+    preferences = get_preferences(config)
     search = preferences.get("search") or {}
     return unwrap_service_result(_service(request).generate_questions(
         query=body.query,
@@ -114,6 +113,13 @@ def submit_answer(body: SubmitAnswerRequest, request: Request) -> dict:
 @router.get("/wrong")
 def wrong(request: Request, limit: int = 20) -> dict:
     return unwrap_service_result(_service(request).get_wrong_answer_book(limit=limit))
+
+
+@router.post("/wrong/variant")
+def wrong_variant(body: WrongAnswerVariantRequest, request: Request) -> dict:
+    return unwrap_service_result(
+        _service(request).generate_wrong_answer_variant(body.attempt_id)
+    )
 
 
 @router.get("/weakness")

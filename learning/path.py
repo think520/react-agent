@@ -7,7 +7,6 @@ Priority of data sources:
 4. Course structure — chapter/section order from notes
 """
 
-import json
 import logging
 from datetime import datetime, timezone
 
@@ -133,26 +132,30 @@ class LearningPathGenerator:
         return "\n".join(lines)
 
     def _get_course_info(self, workspace: str, course: str | None = None) -> str:
-        """Get course structure from RAG index."""
+        """Get course structure from the active SQLite knowledge index."""
         try:
             import os
             from knowledge.paths import knowledge_path
-            index_path = knowledge_path(workspace, "rag_index.json")
-            if not os.path.exists(index_path):
+            from rag.sqlite_store import KBSQLiteStore
+
+            if not os.path.isfile(knowledge_path(workspace, "knowledge.db")):
                 return ""
-            with open(index_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            chunks = data.get("chunks", [])
-            sources = set()
-            for c in chunks:
-                src = c.get("source", "")
-                if course and course not in src:
-                    continue
-                sources.add(src)
+            store = KBSQLiteStore(workspace)
+            try:
+                store.init_db()
+                documents = store.list_documents(course=course)
+            finally:
+                store.close()
+            sources = {
+                str(document.get("source") or "").strip()
+                for document in documents
+                if document.get("source")
+            }
             if not sources:
                 return ""
             return f"可用资料 ({len(sources)} 个文件):\n" + "\n".join(f"- {s}" for s in sorted(sources))
-        except Exception:
+        except Exception as exc:
+            logger.warning("Course information unavailable for learning plan: %s", exc)
             return ""
 
     def _generate_simple_plan(

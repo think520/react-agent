@@ -1,7 +1,6 @@
 """KBService — business logic for knowledge base sync, search, graph, status, reset.
 
-Used by both cli/repl.py and tools/rag_search.py, tools/graph_query.py,
-tools/knowledge_status.py, tools/obsidian_tool.py.
+Used by CLI, local RAG tools, and the Web backend.
 Returns structured dicts, no ANSI/HTML formatting.
 """
 
@@ -14,25 +13,12 @@ import shutil
 import hashlib
 import re
 import unicodedata
-from functools import lru_cache
 from typing import Any
 
 from knowledge.paths import knowledge_dir, knowledge_path
+from service._result import err as _err, ok as _ok
 
 logger = logging.getLogger(__name__)
-
-
-def _ok(**kwargs: Any) -> dict[str, Any]:
-    return {"ok": True, **kwargs}
-
-
-def _err(error: str) -> dict[str, Any]:
-    return {"ok": False, "error": error}
-
-
-def _legacy_document_id(source: str) -> str:
-    digest = hashlib.sha256(source.encode("utf-8")).hexdigest()[:16]
-    return f"legacy-{digest}"
 
 
 def _canonical_wiki_key(title: str) -> str:
@@ -70,18 +56,6 @@ def _document_classification(source: str, kind: str = "", title: str = "") -> di
         "canonical_id": canonical_id,
         "content_role": content_role,
     }
-
-
-@lru_cache(maxsize=4)
-def _load_legacy_chunks(index_path: str, modified_at: float) -> tuple[dict[str, Any], ...]:
-    del modified_at
-    try:
-        with open(index_path, "r", encoding="utf-8") as handle:
-            payload = json.load(handle)
-    except (OSError, json.JSONDecodeError):
-        return ()
-    chunks = payload.get("chunks", []) if isinstance(payload, dict) else payload
-    return tuple(item for item in chunks if isinstance(item, dict))
 
 
 class KBService:
@@ -385,7 +359,7 @@ class KBService:
         related: list[str] | None = None,
         config: dict | None = None,
     ) -> dict[str, Any]:
-        from wiki.compiler import _safe_filename
+        from wiki.utils import safe_filename
         from wiki.index import WikiIndexer
         from wiki.reliability import atomic_text
         from wiki.schema import WikiConfig, WikiPage
@@ -398,7 +372,7 @@ class KBService:
         wiki_config = WikiConfig()
         directory = wiki_config.notes_path(vault)
         os.makedirs(directory, exist_ok=True)
-        target = os.path.join(directory, f"{_safe_filename(title)}.md")
+        target = os.path.join(directory, f"{safe_filename(title)}.md")
         if os.path.exists(target):
             return _err("A Wiki page with this title already exists")
         page = WikiPage(
@@ -570,12 +544,7 @@ class KBService:
             available = [item for item in available if item["document_id"] in requested_ids]
         elif wiki_document_ids:
             return []
-        documents = []
-        for summary in available:
-            detail = self.get_document(summary["document_id"])
-            if detail.get("ok"):
-                documents.append({**detail["document"], "sections": detail["sections"]})
-        return documents
+        return self._hydrate_documents(available)
 
     def create_wiki_plan(
         self,
@@ -605,12 +574,31 @@ class KBService:
         materials = self.list_documents(course=course, collection="material")
         if not materials.get("ok"):
             return []
-        documents = []
-        for summary in materials.get("documents") or []:
-            detail = self.get_document(summary["document_id"])
-            if detail.get("ok"):
-                documents.append({**detail["document"], "sections": detail["sections"]})
-        return documents
+        return self._hydrate_documents(materials.get("documents") or [])
+
+    def _hydrate_documents(self, summaries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Read document sections in one SQLite connection for Wiki planning."""
+        if not summaries:
+            return []
+        from rag.sqlite_store import KBSQLiteStore
+
+        store = KBSQLiteStore(self.workspace)
+        store.init_db()
+        try:
+            document_ids = [str(item["document_id"]) for item in summaries]
+            sections_by_document = store.get_chunks_for_documents(document_ids)
+        finally:
+            store.close()
+        return [
+            {
+                **summary,
+                "sections": [
+                    self._public_section(section)
+                    for section in sections_by_document.get(str(summary["document_id"]), [])
+                ],
+            }
+            for summary in summaries
+        ]
 
     def wiki_coverage(self) -> dict[str, Any]:
         try:
@@ -1363,8 +1351,6 @@ class KBService:
                 store.close()
 
         public = [self._public_document(item) for item in documents]
-        known_sources = {item.get("source") for item in documents}
-        public.extend(self._legacy_documents(course=course, exclude_sources=known_sources))
         public = self._visible_documents(public)
         if collection != "all":
             public = [item for item in public if item["collection"] == collection]
@@ -1388,17 +1374,12 @@ class KBService:
             finally:
                 store.close()
 
-        legacy = self._legacy_document(document_id)
-        if legacy:
-            return _ok(**legacy)
         return _err(f"Document not found: {document_id}")
 
     def delete_document(self, document_id: str, config: dict | None = None) -> dict[str, Any]:
-        if document_id.startswith("legacy-"):
-            return _err("This knowledge source is read-only and cannot be deleted here")
         db_path = knowledge_path(self.workspace, "knowledge.db")
         if not os.path.exists(db_path):
-            return _err(f"Document not found: {document_id}")
+            return _err(f"Document not found: {document_id}", code="document_not_found")
 
         from rag.sqlite_store import KBSQLiteStore
         store = KBSQLiteStore(self.workspace)
@@ -1408,7 +1389,7 @@ class KBService:
         finally:
             store.close()
         if document is None:
-            return _err(f"Document not found: {document_id}")
+            return _err(f"Document not found: {document_id}", code="document_not_found")
 
         impact = self.document_impact(document_id, document=document)
         if not impact.get("ok"):
@@ -1416,7 +1397,10 @@ class KBService:
 
         path = document.get("path")
         if not path or not self._is_within_workspace(path, self.managed_sources_dir):
-            return _err("This knowledge source is read-only and cannot be deleted here")
+            return _err(
+                "This knowledge source is read-only and cannot be deleted here",
+                code="document_read_only",
+            )
         if os.path.isfile(path):
             if self.is_portable_library:
                 from datetime import datetime, timezone
@@ -1590,80 +1574,6 @@ class KBService:
             output.append(items[0])
         return output
 
-    def _legacy_chunks(self) -> tuple[dict[str, Any], ...]:
-        path = knowledge_path(self.workspace, "rag_index.json")
-        if not os.path.exists(path):
-            return ()
-        return _load_legacy_chunks(path, os.path.getmtime(path))
-
-    def _legacy_documents(
-        self,
-        course: str | None = None,
-        exclude_sources: set[str] | None = None,
-    ) -> list[dict[str, Any]]:
-        grouped: dict[str, dict[str, Any]] = {}
-        excluded = exclude_sources or set()
-        index_path = knowledge_path(self.workspace, "rag_index.json")
-        updated_at = ""
-        if os.path.exists(index_path):
-            from datetime import datetime, timezone
-            updated_at = datetime.fromtimestamp(
-                os.path.getmtime(index_path), tz=timezone.utc
-            ).isoformat()
-
-        for chunk in self._legacy_chunks():
-            source = str(chunk.get("source") or "")
-            if not source or source in excluded:
-                continue
-            metadata = chunk.get("metadata") or {}
-            chunk_course = metadata.get("course") or chunk.get("course")
-            if course and chunk_course != course:
-                continue
-            classification = _document_classification(
-                source,
-                metadata.get("kind") or "legacy_document",
-                metadata.get("title") or os.path.splitext(os.path.basename(source))[0],
-            )
-            item = grouped.setdefault(source, {
-                "document_id": _legacy_document_id(source),
-                "source": source,
-                "kind": metadata.get("kind") or "legacy_document",
-                "title": metadata.get("title") or os.path.splitext(os.path.basename(source))[0],
-                "course": chunk_course,
-                "summary": str(chunk.get("text") or "")[:220].strip(),
-                "vector_status": "indexed",
-                "vector_error": None,
-                "updated_at": updated_at,
-                "managed": False,
-                "origin": "legacy_index",
-                "chunk_count": 0,
-                **classification,
-            })
-            item["chunk_count"] += 1
-        return list(grouped.values())
-
-    def _legacy_document(self, document_id: str) -> dict[str, Any] | None:
-        documents = {
-            item["document_id"]: item
-            for item in self._legacy_documents()
-        }
-        document = documents.get(document_id)
-        if not document:
-            return None
-        sections = []
-        for chunk in self._legacy_chunks():
-            if chunk.get("source") != document["source"]:
-                continue
-            metadata = chunk.get("metadata") or {}
-            sections.append({
-                "chunk_id": chunk.get("id"),
-                "heading": metadata.get("heading_text") or metadata.get("heading") or "",
-                "page_start": metadata.get("page_start") or metadata.get("page"),
-                "slide_start": metadata.get("slide_start") or metadata.get("slide"),
-                "text": chunk.get("text", ""),
-            })
-        return {"document": document, "sections": sections}
-
     # --- RAG Search ---
 
     def search(
@@ -1682,18 +1592,14 @@ class KBService:
 
         storage_dir = knowledge_dir(self.workspace)
         db_path = os.path.join(storage_dir, "knowledge.db")
-        sparse_path = os.path.join(storage_dir, "rag_index.json")
-        dense_path = os.path.join(storage_dir, "rag_index_dense.json")
-        if (not os.path.exists(db_path)
-                and not os.path.exists(sparse_path)
-                and not os.path.exists(dense_path)):
+        if not os.path.exists(db_path):
             return _err("RAG index not found. Run obsidian_sync first.")
 
-        from rag.retriever import search_index
+        from rag.retriever import search_index_with_status
 
         requested_top_k = max(1, min(top_k, 20))
         candidate_top_k = 20 if document_ids or preferred_document_ids else requested_top_k
-        results = search_index(
+        results, retrieval_status = search_index_with_status(
             self.workspace,
             query=query.strip(),
             course=course,
@@ -1701,20 +1607,6 @@ class KBService:
             config=config or {},
             mode=mode,
         )
-        legacy_results = []
-        if self._legacy_chunks():
-            from rag.vector_store import LocalVectorStore
-            index_path = knowledge_path(self.workspace, "rag_index.json")
-            legacy_results = LocalVectorStore(index_path).search(
-                query=query.strip(), course=course, top_k=candidate_top_k
-            )
-            for item in legacy_results:
-                source = str(item.get("source") or "")
-                metadata = item.get("metadata") or {}
-                item["document_id"] = _legacy_document_id(source)
-                item["chunk_id"] = item.get("chunk_id") or item.get("id")
-                item["title"] = item.get("title") or metadata.get("title") or os.path.basename(source)
-
         source_documents = {
             item["source"]: item
             for item in self.list_documents(collection="all").get("documents", [])
@@ -1723,27 +1615,23 @@ class KBService:
         preferred_ids = set(preferred_document_ids or [])
         merged = []
         seen = set()
-        for index in range(max(len(results), len(legacy_results))):
-            for result_list in (results, legacy_results):
-                if index >= len(result_list):
-                    continue
-                item = result_list[index]
-                visible_document = source_documents.get(str(item.get("source") or ""))
-                if not visible_document:
-                    continue
-                if collection != "all" and visible_document.get("collection") != collection:
-                    continue
-                if allowed_document_ids and visible_document["document_id"] not in allowed_document_ids:
-                    continue
-                item["document_id"] = visible_document["document_id"]
-                item["title"] = visible_document["title"]
-                item["collection"] = visible_document["collection"]
-                item["wiki_type"] = visible_document["wiki_type"]
-                key = item.get("chunk_id") or (item.get("source"), item.get("text"))
-                if key in seen:
-                    continue
-                seen.add(key)
-                merged.append(item)
+        for item in results:
+            visible_document = source_documents.get(str(item.get("source") or ""))
+            if not visible_document:
+                continue
+            if collection != "all" and visible_document.get("collection") != collection:
+                continue
+            if allowed_document_ids and visible_document["document_id"] not in allowed_document_ids:
+                continue
+            item["document_id"] = visible_document["document_id"]
+            item["title"] = visible_document["title"]
+            item["collection"] = visible_document["collection"]
+            item["wiki_type"] = visible_document["wiki_type"]
+            key = item.get("chunk_id") or (item.get("source"), item.get("text"))
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(item)
         if preferred_ids and not allowed_document_ids:
             merged.sort(key=lambda item: (
                 0 if item.get("document_id") in preferred_ids else 1,
@@ -1754,51 +1642,26 @@ class KBService:
             material_results = [item for item in merged if item.get("collection") == "material"]
             if wiki_results and material_results:
                 merged = wiki_results[:2] + material_results + wiki_results[2:]
-        return _ok(results=merged[:requested_top_k])
-
-    # --- Graph Query ---
-
-    def graph_query(
-        self,
-        concept: str,
-        intent: str = "related",
-        limit: int = 20,
-    ) -> dict[str, Any]:
-        if not concept or not concept.strip():
-            return _err("concept is required")
-
-        from graph.store import get_graph_store
-
-        store = get_graph_store(self.workspace)
-        try:
-            data = store.query(
-                concept=concept.strip(),
-                intent=intent,
-                limit=max(1, min(int(limit), 50)),
-            )
-        finally:
-            if hasattr(store, "close"):
-                store.close()
-
-        return _ok(**data)
+        return _ok(results=merged[:requested_top_k], **retrieval_status)
 
     # --- Reset ---
 
     def reset(self) -> dict[str, Any]:
+        from rag.retriever import clear_retrieval_cache
+
+        clear_retrieval_cache(self.workspace)
         storage_dir = knowledge_dir(self.workspace)
         if os.path.exists(storage_dir):
-            if self.is_portable_library:
-                for filename in (
-                    "knowledge.db", "knowledge.db-shm", "knowledge.db-wal", "bobodan.db",
-                    "bobodan.db-shm", "bobodan.db-wal", "rag_index.json", "rag_index_dense.json",
-                    "graph_store.json", "sync_state.json", "import_report.json",
-                ):
-                    path = os.path.join(storage_dir, filename)
-                    if os.path.isfile(path):
-                        os.remove(path)
-                qdrant = os.path.join(storage_dir, "qdrant")
-                if os.path.isdir(qdrant):
-                    shutil.rmtree(qdrant)
-            else:
-                shutil.rmtree(storage_dir)
+            # Preserve retired JSON indexes and graph_store.json. They are
+            # read-only migration sources and may contain the user's only copy.
+            for filename in (
+                "knowledge.db", "knowledge.db-shm", "knowledge.db-wal", "bobodan.db",
+                "bobodan.db-shm", "bobodan.db-wal", "sync_state.json", "import_report.json",
+            ):
+                path = os.path.join(storage_dir, filename)
+                if os.path.isfile(path):
+                    os.remove(path)
+            qdrant = os.path.join(storage_dir, "qdrant")
+            if os.path.isdir(qdrant):
+                shutil.rmtree(qdrant)
         return _ok(message="Knowledge base reset")

@@ -46,6 +46,18 @@ def get_default_provider_name(config: dict[str, Any] | None = None) -> str:
     return cfg.get("llm", {}).get("default_provider", "")
 
 
+def get_preferences(config: dict[str, Any] | None = None) -> dict[str, Any]:
+    """User preferences with Web defaults — the one construction site for routers."""
+    from service.preference_service import PreferenceService
+    from web.backend.capabilities import WEB_SKILL_NAMES
+
+    resolved_config = get_config() if config is None else config
+    return PreferenceService(
+        get_default_provider_name(resolved_config),
+        sorted(WEB_SKILL_NAMES),
+    ).get()
+
+
 @lru_cache(maxsize=1)
 def get_runtime_context() -> RuntimeContext:
     return RuntimeService.build_context(get_config(), get_workspace())
@@ -59,8 +71,6 @@ def get_library_runtime_context(workspace: str) -> RuntimeContext:
     context.skills_dir = global_context.skills_dir
     context.skills_prompt = global_context.skills_prompt
     context.skill_count = global_context.skill_count
-    context.memory_manager = global_context.memory_manager
-    context.memory_prompt = global_context.memory_prompt
     context.memory_count = global_context.memory_count
     return context
 

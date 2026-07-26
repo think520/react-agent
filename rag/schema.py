@@ -86,3 +86,4 @@ class HybridResult:
     all_chunk_hits: list[RetrievalHit] = field(default_factory=list)
     vector_hits: list[RetrievalHit] = field(default_factory=list)
     fts_hits: list[RetrievalHit] = field(default_factory=list)
+    vector_available: bool = False

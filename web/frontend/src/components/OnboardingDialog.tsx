@@ -37,8 +37,6 @@ export function OnboardingDialog({
     { label: "学习空间", icon: Database },
     { label: "边界", icon: ShieldCheck },
   ];
-  const StepIcon = steps[step].icon;
-
   function complete() {
     onComplete({
       displayName: displayName.trim(),

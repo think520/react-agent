@@ -40,15 +40,13 @@ class TestMasteredStillDue:
             "mastered concepts must re-enter the due queue when next_review elapses"
         )
 
-    def test_full_interval_ladder_reachable(self, tmp_path):
-        """Third and fourth correct answers must schedule 7 / 14 day intervals."""
+    def test_sm2_intervals_keep_growing(self, tmp_path):
         store = LearningStore(str(tmp_path))
         scheduler = ReviewScheduler(store)
-        for _ in range(4):
-            m = scheduler.record_review("BFS", correct=True)
-            m.next_review = "2000-01-01T00:00:00+00:00"
-            store.upsert_mastery(m)
-            assert any(item.concept == "BFS" for item in store.get_due_reviews())
+        intervals = [scheduler.record_review("BFS", correct=True).interval_days for _ in range(4)]
+        assert intervals[:2] == [1, 6]
+        assert intervals[2] > intervals[1]
+        assert intervals[3] > intervals[2]
 
 
 # ---------------------------------------------------------------------------

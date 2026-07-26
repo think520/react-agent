@@ -358,6 +358,10 @@ export const api = {
   })),
   abandonPractice: (id: number) => request(`/api/quiz/sessions/${id}`, { method: "DELETE" }),
   reviewQueue: () => request<ReviewQueue>("/api/learning/review-queue"),
+  generateWrongAnswerVariant: (attemptId: number) => request<{ question_id: number; question: Question }>(
+    "/api/quiz/wrong/variant",
+    json({ attempt_id: attemptId }),
+  ),
   memoryOverview: () => request<MemoryOverview>("/api/memory/overview"),
   memoryKnowledge: (scope = "all", query = "") => request<{ items: PersonalKnowledgeItem[] }>(
     `/api/memory/knowledge?scope=${encodeURIComponent(scope)}&query=${encodeURIComponent(query)}`,
@@ -409,6 +413,12 @@ export const api = {
     const qs = params.toString();
     return request<import("../types").GraphState>(`/api/graph/state${qs ? `?${qs}` : ""}`);
   },
+  legacyGraphPreview: () => request<import("../types").LegacyGraphPreview>("/api/graph/legacy/preview"),
+  importLegacyGraph: (conceptIds: string[], memoryIds: string[]) => request<{
+    concept_candidates: import("../types").ConceptCandidate[];
+    memory_candidates: import("../types").KnowledgeCandidate[];
+    archived: boolean;
+  }>("/api/graph/legacy/import", json({ concept_ids: conceptIds, memory_ids: memoryIds, archive: true })),
   graphSubgraph: (conceptId: string, viewId?: string) =>
     request<import("../types").GraphSubgraph>(
       `/api/graph/subgraph/${encodeURIComponent(conceptId)}${viewId ? `?view_id=${encodeURIComponent(viewId)}` : ""}`,

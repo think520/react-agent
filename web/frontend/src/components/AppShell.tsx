@@ -133,7 +133,7 @@ function LearningContext({
                 <div>{group.sources.map((source, index) => <section key={source.source_id || index}>
                   <small>{source.heading || (source.page ? `第 ${source.page} 页` : source.slide ? `第 ${source.slide} 页` : "原文片段")}</small>
                   {source.excerpt && <p>{source.excerpt}</p>}
-                  {source.document_id && <NavLink className="text-link" to={`/library?collection=material&document=${encodeURIComponent(source.document_id)}${source.chunk_id ? `&chunk=${encodeURIComponent(source.chunk_id)}` : ""}`}>打开原文</NavLink>}
+                  {source.document_id && <NavLink className="text-link" to={`/library?collection=${source.collection === "wiki" ? "wiki" : "material"}&document=${encodeURIComponent(source.document_id)}${source.chunk_id ? `&chunk=${encodeURIComponent(source.chunk_id)}` : ""}`}>打开原文</NavLink>}
                 </section>)}</div>
               </details>;
             })}
@@ -183,25 +183,16 @@ export function AppShell() {
   const [sessions, setSessions] = useState<ChatSessionSummary[]>([]);
   const [settings, setSettings] = useState<SettingsSummary | null>(null);
   const [documents, setDocuments] = useState<DocumentSummary[]>([]);
-  const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [initialDataLoaded, setInitialDataLoaded] = useState(false);
   const [review, setReview] = useState<ReviewQueue | null>(null);
-  const [conceptDetailId, setConceptDetailId] = useState<string | null>(null);
-  const [knowledgeContext, setKnowledgeContext] = useState<KnowledgeContext | null>(null);
-  const [sourceContext, setSourceContext] = useState<Attribution | null>(null);
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
   const previewTimer = useRef<number | null>(null);
   const [loadingSessions, setLoadingSessions] = useState(true);
   const [libraries, setLibraries] = useState<LibrarySummary[]>([]);
   const [activeLibrary, setActiveLibrary] = useState<LibrarySummary | null>(null);
-  const [librarySetupOpen, setLibrarySetupOpen] = useState(false);
-  const [librarySetupOptions, setLibrarySetupOptions] = useState<LibrarySetupOptions>({});
   const documentImportInput = useRef<HTMLInputElement>(null);
   const pendingDocumentFiles = useRef<File[]>([]);
-  const [documentImporting, setDocumentImporting] = useState(false);
-  const [documentImportNotice, setDocumentImportNotice] = useState("");
-  const [documentImportError, setDocumentImportError] = useState("");
-  const [documentImportVersion, setDocumentImportVersion] = useState(0);
+  const [documentImport, setDocumentImport] = useState({ importing: false, notice: "", error: "", version: 0 });
   const [backendState, setBackendState] = useState<"connected" | "disconnected" | "reconnecting">("connected");
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
@@ -224,13 +215,24 @@ export function AppShell() {
   const setPreview = useUiStore((state) => state.setPreview);
   const togglePreview = useUiStore((state) => state.togglePreview);
   const setLearningProfile = useUiStore((state) => state.setLearningProfile);
+  const onboardingOpen = useUiStore((state) => state.onboardingOpen);
+  const setOnboardingOpen = useUiStore((state) => state.setOnboardingOpen);
+  const librarySetup = useUiStore((state) => state.librarySetup);
+  const openLibrarySetup = useUiStore((state) => state.openLibrarySetup);
+  const closeLibrarySetup = useUiStore((state) => state.closeLibrarySetup);
+  const conceptDetailId = useUiStore((state) => state.conceptDetailId);
+  const setConceptDetailId = useUiStore((state) => state.setConceptDetailId);
+  const knowledgeContext = useUiStore((state) => state.knowledgeContext);
+  const setKnowledgeContext = useUiStore((state) => state.setKnowledgeContext);
+  const sourceContext = useUiStore((state) => state.sourceContext);
+  const setSourceContext = useUiStore((state) => state.setSourceContext);
 
   const settingsSection = searchParams.get("settings");
   const activeLibraryId = activeLibrary?.library_id || null;
 
   useEffect(() => {
     if (section !== "knowledge-map") setConceptDetailId(null);
-  }, [section]);
+  }, [section, setConceptDetailId]);
 
   const refreshSettings = useCallback(async () => {
     try {
@@ -271,42 +273,31 @@ export function AppShell() {
   }, [refreshSessions]);
 
   const uploadDocuments = useCallback(async (files: File[]) => {
-    setDocumentImporting(true);
-    setDocumentImportNotice("");
-    setDocumentImportError("");
+    setDocumentImport((current) => ({ ...current, importing: true, notice: "", error: "" }));
     try {
       const result = await api.importDocuments(files);
       const rejected = result.rejected.length ? `，${result.rejected.length} 份未能导入` : "";
-      setDocumentImportNotice(`已导入 ${result.imported.length} 份资料并建立索引${rejected}。`);
-      setDocumentImportVersion((current) => current + 1);
+      setDocumentImport((current) => ({
+        ...current,
+        notice: `已导入 ${result.imported.length} 份资料并建立索引${rejected}。`,
+        version: current.version + 1,
+      }));
       await loadScopedData();
     } catch (reason) {
-      setDocumentImportError(toErrorMessage(reason, "资料导入失败。"));
+      setDocumentImport((current) => ({ ...current, error: toErrorMessage(reason, "资料导入失败。") }));
     } finally {
-      setDocumentImporting(false);
+      setDocumentImport((current) => ({ ...current, importing: false }));
       navigate("/library");
     }
   }, [loadScopedData, navigate]);
 
-  function openLibrarySetup(options: LibrarySetupOptions = {}) {
-    setLibrarySetupOptions(options);
-    setLibrarySetupOpen(true);
-  }
-
   function cancelLibrarySetup() {
-    if (librarySetupOptions.importCount) pendingDocumentFiles.current = [];
-    setLibrarySetupOpen(false);
-    setLibrarySetupOptions({});
-  }
-
-  function completeLibrarySetup() {
-    setLibrarySetupOpen(false);
-    setLibrarySetupOptions({});
+    if (librarySetup?.importCount) pendingDocumentFiles.current = [];
+    closeLibrarySetup();
   }
 
   function startDocumentImport() {
-    setDocumentImportNotice("");
-    setDocumentImportError("");
+    setDocumentImport((current) => ({ ...current, notice: "", error: "" }));
     documentImportInput.current?.click();
   }
 
@@ -437,7 +428,7 @@ export function AppShell() {
       return;
     }
     setOnboardingOpen(true);
-  }, [activeLibrary, documents.length, initialDataLoaded, sessions.length]);
+  }, [activeLibrary, documents.length, initialDataLoaded, sessions.length, setOnboardingOpen]);
 
   async function createLibrary(name: string, parentPath: string) {
     const library = await api.createLibrary(name, parentPath);
@@ -475,8 +466,10 @@ export function AppShell() {
 
   async function switchLibrary(libraryId: string) {
     if (libraryId === activeLibrary?.library_id) return;
-    setDocumentImportNotice("");
-    setDocumentImportError("");
+    setDocumentImport((current) => ({ ...current, notice: "", error: "" }));
+    setConceptDetailId(null);
+    setKnowledgeContext(null);
+    setSourceContext(null);
     const library = await api.activateLibrary(libraryId);
     setActiveLibraryId(library.library_id);
     setActiveLibrary(library);
@@ -524,9 +517,9 @@ export function AppShell() {
     setKnowledgeContext(context);
     if (desktop) setPanelOpen("right", true);
     else setContextOpen(true);
-  }, [desktop, setContextOpen, setPanelOpen]);
+  }, [desktop, setContextOpen, setKnowledgeContext, setPanelOpen]);
 
-  const clearKnowledgeContext = useCallback(() => setKnowledgeContext(null), []);
+  const clearKnowledgeContext = useCallback(() => setKnowledgeContext(null), [setKnowledgeContext]);
 
   function showSourceContext(attribution: Attribution) {
     setSourceContext(attribution);
@@ -622,10 +615,10 @@ export function AppShell() {
           createLibrary,
           switchLibrary,
           startDocumentImport,
-          documentImporting,
-          documentImportNotice,
-          documentImportError,
-          documentImportVersion,
+          documentImporting: documentImport.importing,
+          documentImportNotice: documentImport.notice,
+          documentImportError: documentImport.error,
+          documentImportVersion: documentImport.version,
           libraryReady: initialDataLoaded,
         } satisfies AppOutletContext} />
       </main>
@@ -684,15 +677,15 @@ export function AppShell() {
           setOnboardingOpen(false);
         }}
       />}
-      {librarySetupOpen && <LibrarySetupDialog
+      {librarySetup && <LibrarySetupDialog
         onClose={cancelLibrarySetup}
-        onComplete={completeLibrarySetup}
+        onComplete={closeLibrarySetup}
         onCreate={async (name, parentPath) => { await createLibrary(name, parentPath); }}
         onOpen={openExistingLibrary}
         onPreviewMigration={previewLibraryMigration}
         onMigrate={migrateLibrary}
-        initialMode={librarySetupOptions.initialMode}
-        importCount={librarySetupOptions.importCount}
+        initialMode={librarySetup.initialMode}
+        importCount={librarySetup.importCount}
       />}
       <input ref={documentImportInput} className="visually-hidden" type="file" multiple accept=".md,.pdf,.docx,.pptx" onChange={(event) => void selectDocumentsForImport(event)} />
       {backendState !== "connected" && <div className={`connection-bar ${backendState}`} role="status">

@@ -1,9 +1,9 @@
 import json
 import os
-import sqlite3
 from knowledge.paths import knowledge_path
-from contextlib import contextmanager
 from datetime import datetime, timezone
+
+from core.db import ensure_columns, open_connection
 
 from .schema import Mastery, LearningPlan
 
@@ -16,6 +16,8 @@ CREATE TABLE IF NOT EXISTS mastery (
     score REAL NOT NULL DEFAULT 0.0,
     review_count INTEGER NOT NULL DEFAULT 0,
     consecutive_correct INTEGER NOT NULL DEFAULT 0,
+    ease_factor REAL NOT NULL DEFAULT 2.5,
+    interval_days INTEGER NOT NULL DEFAULT 0,
     last_reviewed TEXT,
     next_review TEXT,
     source TEXT NOT NULL DEFAULT 'auto' CHECK(source IN ('auto', 'manual')),
@@ -61,31 +63,20 @@ class LearningStore:
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         self._init_schema()
 
-    @contextmanager
     def _conn(self):
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        try:
-            yield conn
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            conn.close()
+        return open_connection(self.db_path)
 
     def _init_schema(self):
         with self._conn() as conn:
             conn.executescript(_LEARNING_SCHEMA_SQL)
-            # Migrate: add status and current_day columns to existing learning_plans
-            try:
-                conn.execute("ALTER TABLE learning_plans ADD COLUMN status TEXT NOT NULL DEFAULT 'active'")
-            except sqlite3.OperationalError:
-                pass  # column already exists
-            try:
-                conn.execute("ALTER TABLE learning_plans ADD COLUMN current_day INTEGER")
-            except sqlite3.OperationalError:
-                pass
+            ensure_columns(conn, "learning_plans", {
+                "status": "TEXT NOT NULL DEFAULT 'active'",
+                "current_day": "INTEGER",
+            })
+            ensure_columns(conn, "mastery", {
+                "ease_factor": "REAL NOT NULL DEFAULT 2.5",
+                "interval_days": "INTEGER NOT NULL DEFAULT 0",
+            })
 
     # --- Mastery ---
 
@@ -102,6 +93,8 @@ class LearningStore:
             score=row["score"],
             review_count=row["review_count"],
             consecutive_correct=row["consecutive_correct"],
+            ease_factor=row["ease_factor"],
+            interval_days=row["interval_days"],
             last_reviewed=row["last_reviewed"],
             next_review=row["next_review"],
             source=row["source"],
@@ -113,17 +106,21 @@ class LearningStore:
         with self._conn() as conn:
             conn.execute(
                 """INSERT INTO mastery (concept, status, score, review_count,
-                   consecutive_correct, last_reviewed, next_review, source, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   consecutive_correct, ease_factor, interval_days,
+                   last_reviewed, next_review, source, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(concept) DO UPDATE SET
                    status=excluded.status, score=excluded.score,
                    review_count=excluded.review_count,
                    consecutive_correct=excluded.consecutive_correct,
+                   ease_factor=excluded.ease_factor,
+                   interval_days=excluded.interval_days,
                    last_reviewed=excluded.last_reviewed,
                    next_review=excluded.next_review,
                    source=excluded.source, updated_at=excluded.updated_at""",
                 (m.concept, m.status, m.score, m.review_count,
-                 m.consecutive_correct, m.last_reviewed, m.next_review,
+                 m.consecutive_correct, m.ease_factor, m.interval_days,
+                 m.last_reviewed, m.next_review,
                  m.source, m.updated_at),
             )
 
@@ -144,6 +141,7 @@ class LearningStore:
                 concept=r["concept"], status=r["status"], score=r["score"],
                 review_count=r["review_count"],
                 consecutive_correct=r["consecutive_correct"],
+                ease_factor=r["ease_factor"], interval_days=r["interval_days"],
                 last_reviewed=r["last_reviewed"], next_review=r["next_review"],
                 source=r["source"], updated_at=r["updated_at"],
             )
@@ -166,6 +164,7 @@ class LearningStore:
                 concept=r["concept"], status=r["status"], score=r["score"],
                 review_count=r["review_count"],
                 consecutive_correct=r["consecutive_correct"],
+                ease_factor=r["ease_factor"], interval_days=r["interval_days"],
                 last_reviewed=r["last_reviewed"], next_review=r["next_review"],
                 source=r["source"], updated_at=r["updated_at"],
             )

@@ -15,7 +15,7 @@ from datetime import datetime
 from typing import Any
 from types import SimpleNamespace
 
-from .compiler import _parse_llm_json, _safe_filename
+from .utils import parse_wiki_json, safe_filename
 from .reliability import PROCESS_RUNNER_ID, atomic_json
 from .schema import GENERATED_BY
 from .workflow import WikiWorkflow, _canonical_title, _read_frontmatter, _now
@@ -462,7 +462,7 @@ class WikiOrchestrator:
             model=model,
         )
         output_exceeded = self.usage["output_tokens"] > self.budget["max_output_tokens"]
-        parsed = _parse_llm_json(str(getattr(response, "content", "") or ""))
+        parsed = parse_wiki_json(str(getattr(response, "content", "") or ""))
         if not isinstance(parsed, dict) or not isinstance(parsed.get("pages"), list):
             raise ValueError("The model did not return a valid Wiki plan")
         pages = [item for item in parsed["pages"] if isinstance(item, dict)]
@@ -747,13 +747,13 @@ class WikiOrchestrator:
         if matches:
             target = matches[0]["relative_path"]
         elif page_type == "wiki_source":
-            target = f"{directory}/{datetime.now().strftime('%Y-%m-%d')}_{_safe_filename(title)}.md"
+            target = f"{directory}/{datetime.now().strftime('%Y-%m-%d')}_{safe_filename(title)}.md"
         elif page_type == "wiki_analysis" and not title.startswith("分析_"):
-            target = f"{directory}/分析_{_safe_filename(title)}.md"
+            target = f"{directory}/分析_{safe_filename(title)}.md"
         elif page_type == "wiki_question" and not title.startswith(("问题_", "发现_")):
-            target = f"{directory}/问题_{_safe_filename(title)}.md"
+            target = f"{directory}/问题_{safe_filename(title)}.md"
         else:
-            target = f"{directory}/{_safe_filename(title)}.md"
+            target = f"{directory}/{safe_filename(title)}.md"
         source_hash = (
             document_fingerprint({
                 "document_id": candidate.get("document_id"),

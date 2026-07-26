@@ -256,3 +256,88 @@ PROJECT_GUIDE 定的 P5G.0（提取完整性）→ P5G.1（单进程）→ P5G.2
 - 前端 SSE 分帧（残帧回填 + 跨 chunk 测试）是前端质量最高的一段。
 - 出题的 attribution 确定性保留（不让 LLM 编 source 字段）、`local_extension` 诚实标注——正是 PROJECT_GUIDE"不把 AI 常识伪装成用户资料"的正确落地。
 - Playwright 75 case 认真覆盖了桌面/窄屏/移动端。
+
+---
+
+## 10. 2026-07-27 整改完成附录
+
+本节记录本报告提出的问题在 `refactor/review-optimizations` 分支上的处理结果。它不改写 2026-07-26 当时的审查事实，而是给后续维护者提供“问题 → 当前实现”的可追溯映射。提交前实际验证结果见 10.5。
+
+### 10.1 正确性 Bug
+
+| 编号 | 状态 | 当前实现 |
+|---|---|---|
+| B1 复习循环 | 完成 | `mastered` 到期后仍进入复习；调度进一步升级为带 `ease_factor` / `interval_days` 的保守 SM-2 |
+| B2 批改解析失败判错 | 完成 | 解析失败重试，仍失败时返回不可判定，不污染掌握度和错题本 |
+| B3 SSE 断线丢会话 | 完成 | 流结束 / 中断保存进入可靠收尾路径，已完成内容不依赖正常消费到最后一个 frame |
+| B4 Wiki run 永久 planning | 完成 | worker 异常写入 failed 状态并记录异常，不再静默吞掉 |
+| B5 CLI logger 未定义 | 完成 | 降级路径使用已定义 logger，并有回归覆盖 |
+| B6 流式重试重复输出 | 完成 | 首个内容 chunk 产出后不再从头重试；中途失败抛出类型化 Provider 错误 |
+| B7 弱点分析死链路 | 完成 | workspace、调用参数和字段口径修正，弱点分析恢复可用 |
+| B8 空图 `IN ()` | 完成 | 空 concept 集合提前返回，不再生成非法 SQL |
+| B9 SQLite 连接泄漏 | 完成 | 相关 store / service 使用可关闭连接上下文；共享连接模板补齐一致 PRAGMA |
+
+报告中列出的相邻小问题也已纳入整改：工具参数 JSON 失败会返回可纠正错误；HTTP 状态摘要使用正确字段；判断题答案归一化；memory promote 尊重 `dry_run`；前端 SSE 坏帧不会中断整条流。
+
+### 10.2 并行系统退役
+
+| 审查项 | 状态 | 退役边界 |
+|---|---|---|
+| 旧 Memory runtime | 完成 | 删除旧 store / search / daily / `core.memory` 运行链路和旧 Agent 工具；正常个性化只从 personal knowledge 按请求生成有限长度上下文 |
+| 旧 Memory 数据 | 保留只读迁移 | `.bobodan/memory/*.md` 和 daily 文件不会被静默删除，只由 legacy reader 做预览 / 导入 |
+| JSON RAG | 完成 | `rag_index*.json` 不读取、不更新、不作为 fallback；缺少 `knowledge.db` 时检索明确返回 unavailable |
+| 旧 JSON / Neo4j 图谱 runtime | 完成 | Obsidian sync、Library 状态、CLI 和 Agent 不再构建或查询旧图谱；旧 graph 模块和 `graph_query` 工具退役 |
+| 旧图谱数据迁移 | 完成 | 设置页惰性检测；Concept / 语义关系进入候选，Memory 排除出概念图谱并可作为个人知识候选；重复只提示；校验成功后才归档并写 SHA-256 / 时间元数据 |
+| Wiki compiler | 完成 | 删除旧 `WikiCompiler`、`wiki_ingest` 和 CLI ingest；共享 JSON / 文件名工具集中到 `wiki/utils.py` |
+| Wiki workflow / orchestration | 有意保留 | 作为高级维护、历史整理、lint 和状态查看，不作为 Library / Chat 的必经整理层，也不代替原始资料证据 |
+
+### 10.3 横切能力与质量改进
+
+| 审查项 | 状态 | 当前实现 |
+|---|---|---|
+| Provider 契约 | 完成 | Protocol 覆盖同步 / 流式能力；factory 使用 builder registry；新增 `ProviderError`、`ProviderTimeout`、`ProviderConnectionError`、`ProviderConfigError` |
+| MiniMax 流式拒答 | 完成 | tool-call delta 先缓冲，完整响应确认非拒答后才发出，避免拒答文本与工具副作用同时出现 |
+| 服务返回信封 | 完成 | `service/_result.py` 统一 `ok/error/code`；Web 错误适配优先使用结构化 code |
+| LLM JSON 解析 | 完成 | 公共解析与修复逻辑集中到 `core/llm_json.py`，调用方不再各自维护近似实现 |
+| RAG 中文检索 | 完成 | 索引增加规范化 `search_text`，中文写入 CJK 2-gram；查询同样规范化并生成 2-gram，同时保留英文 token 检索 |
+| RAG 创建开销 | 完成 | RetrievalOrchestrator / SQLite store 按 workspace + RAG config 做有界缓存；重建索引时显式失效缓存 |
+| RAG 降级可见性 | 完成 | 检索结果携带 retrieval mode、semantic availability、fallback 和 confidence；缺少索引不再伪装成普通空结果 |
+| Wiki 文档读取 N+1 | 完成 | scope / 全库的学习资料正文通过单连接批量 hydrate，避免对每份材料重复初始化数据库 |
+| SM-2 | 完成 | schema 迁移加入 ease / interval；答对按 1 天、6 天、后续乘 ease 递增，答错重置并降低 ease，最低 1.3 |
+| 错题变式 | 完成 | 原题、正确答案与用户错误答案一起传给生成器，生成考察同一误区的不同问法；Review 直接创建该变式练习 |
+| 掌握度口径 | 完成 | 状态常量和调度判定集中在 learning domain，due queue 与 scheduler 使用同一状态集合 |
+| 前端路由加载 | 完成 | 主页面使用 `React.lazy` + `Suspense`，应用路由外层使用 ErrorBoundary 隔离渲染故障 |
+| 前端可测逻辑 | 完成 | Chat stream、命令路由、错误格式化和部分 store 行为从大组件中提取并增加单测 |
+
+### 10.4 巨型文件处理结论
+
+本轮没有把“达到某个行数”当作完成条件，也没有为了数字强行引入新的层。处理原则是只抽离已经形成独立职责、能降低当前风险的部分：
+
+- `cli/repl.py` 删除旧 memory / graph / wiki ingest 分支和相关重复路径，保留 CLI 编排职责。
+- `service/kb_service.py` 移除 legacy RAG / graph / compiler 兼容层，批量化 Wiki 文档读取并统一 service result。
+- `web/backend/routers/chat.py` 保留 HTTP / SSE 编排，但依赖请求级个人知识和统一错误边界，不再承载旧 memory prompt。
+- `ChatPage.tsx` 把流处理、命令路由和错误处理提取为独立模块；页面路由懒加载，降低首屏 bundle 与组件责任密度。
+
+继续拆分这些文件属于后续功能修改时的增量重构，不是 P5G 发布前的独立“重写任务”。这避免为了达成 800 / 300 行等任意目标而制造新的抽象层。
+
+### 10.5 最终验证清单
+
+2026-07-27 提交前实际执行结果：
+
+```powershell
+.venv\Scripts\python.exe -m pytest -q
+Set-Location web/frontend
+npm run lint
+npm run build
+npm test -- --run
+Set-Location ../..
+git diff --check
+```
+
+- Python：`1160 passed`，另有 2 条既有警告（Starlette `httpx` 适配弃用提示、MCP event-loop 测试的未 await RuntimeWarning）。
+- 前端 lint：通过。
+- TypeScript + Vite production build：通过。
+- Vitest：`4 files / 19 tests passed`。
+- `git diff --check`：通过；仅显示工作区既有的 LF → CRLF 提示，无空白错误。
+
+通过标准是命令退出码为 0；依赖弃用或 bundle size 警告如实记录，失败测试不得写成“非阻塞”。本轮没有执行移动端测试，桌面发布仍是当前目标。

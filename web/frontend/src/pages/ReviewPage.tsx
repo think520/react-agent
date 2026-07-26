@@ -12,6 +12,7 @@ interface ReviewItem {
   title: string;
   meta: string;
   questionIds: number[];
+  attemptId?: number;
 }
 
 function questionIds(record: Record<string, unknown>): number[] {
@@ -32,7 +33,7 @@ export function ReviewPage() {
     setLoading(true);
     setError("");
     try { setQueue(await api.reviewQueue()); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : "无法读取复习队列。" ); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "无法读取复习队列。"); }
     finally { setLoading(false); }
   }
 
@@ -42,7 +43,7 @@ export function ReviewPage() {
     if (!queue) return [];
     return [
       ...queue.due_concepts.map((record, index) => ({ id: `due-${index}`, kind: "到期" as const, title: textValue(record, ["concept", "title", "name"], "待复习知识点"), meta: textValue(record, ["status"], "按照学习计划到期"), questionIds: questionIds(record) })),
-      ...queue.wrong_answers.map((record, index) => ({ id: `wrong-${index}`, kind: "错题" as const, title: textValue(record, ["question", "concept", "title"], "需要回看的错题"), meta: textValue(record, ["feedback", "course"], "最近一次回答不正确"), questionIds: questionIds(record) })),
+      ...queue.wrong_answers.map((record, index) => ({ id: `wrong-${index}`, kind: "错题" as const, title: textValue(record, ["question", "concept", "title"], "需要回看的错题"), meta: textValue(record, ["feedback", "course"], "将生成考察同一误区的变式题"), questionIds: questionIds(record), attemptId: typeof record.attempt_id === "number" ? record.attempt_id : undefined })),
       ...queue.weaknesses.map((record, index) => ({ id: `weak-${index}`, kind: "薄弱点" as const, title: textValue(record, ["concept", "name", "title"], "尚未掌握的知识点"), meta: textValue(record, ["reason", "status"], "建议进行针对性练习"), questionIds: questionIds(record) })),
     ];
   }, [queue]);
@@ -51,13 +52,16 @@ export function ReviewPage() {
     setWorkingId(item.id);
     setError("");
     try {
-      const ids = item.questionIds.length
-        ? item.questionIds
-        : (await api.generateQuestions(item.title)).question_ids;
+      let ids: number[];
+      if (item.kind === "错题" && item.attemptId) {
+        ids = [(await api.generateWrongAnswerVariant(item.attemptId)).question_id];
+      } else {
+        ids = item.questionIds.length ? item.questionIds : (await api.generateQuestions(item.title)).question_ids || [];
+      }
       const practice = await api.startPractice(undefined, ids, "review");
       navigate(`/practice/${practice.practice_session_id}`);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "无法准备复习题。" );
+      setError(reason instanceof Error ? reason.message : "无法准备复习题。");
       setWorkingId("");
     }
   }
@@ -79,7 +83,7 @@ export function ReviewPage() {
               <span className="review-index">{String(index + 1).padStart(2, "0")}</span>
               <span className={`review-kind ${item.kind}`}>{item.kind}</span>
               <div><h3>{item.title}</h3><p>{item.meta}</p></div>
-              <button className="quiet-button" disabled={Boolean(workingId)} onClick={() => void startReview(item)}>{workingId === item.id ? "正在准备" : "开始复习"}<ArrowRight size={15} /></button>
+              <button className="quiet-button" disabled={Boolean(workingId)} onClick={() => void startReview(item)}>{workingId === item.id ? "正在准备" : item.kind === "错题" ? "生成变式题" : "开始复习"}<ArrowRight size={15} /></button>
             </article>
           ))}</div>
         </> : <EmptyState state="resting" title="今天没有到期内容" description="可以开始一轮新练习，或回到资料库继续阅读。" action={<button className="primary-button" onClick={() => navigate("/practice")}><BookOpenCheck size={17} />开始练习</button>} />}

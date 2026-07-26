@@ -8,10 +8,9 @@ from fastapi import APIRouter, File, Request, UploadFile
 from pydantic import BaseModel, Field
 
 from service.kb_service import KBService
-from service.preference_service import PreferenceService
-from web.backend.capabilities import WEB_SKILL_NAMES
 from web.backend.deps import (
-    get_config, get_default_provider_name, get_library_runtime_context, get_request_workspace,
+    get_preferences,
+    get_config, get_library_runtime_context, get_request_workspace,
     get_runtime_context, get_workspace,
 )
 from web.backend.errors import APIError, unwrap_service_result
@@ -32,12 +31,6 @@ class KBSearchRequest(BaseModel):
     course: str | None = None
     top_k: int = Field(default=5, ge=1, le=20)
     mode: str = "auto"
-
-
-class GraphQueryRequest(BaseModel):
-    concept: str = Field(..., min_length=1)
-    intent: str = "related"
-    limit: int = Field(default=20, ge=1, le=50)
 
 
 class WikiMaintenanceRequest(BaseModel):
@@ -113,10 +106,7 @@ def _preferred_provider(requested: str | None, task: str | None = None) -> str |
     if requested:
         return requested
     config = get_config()
-    preferences = PreferenceService(
-        get_default_provider_name(config),
-        sorted(WEB_SKILL_NAMES),
-    ).get()
+    preferences = get_preferences(config)
     if task:
         selected = preferences.get("ai", {}).get("task_providers", {}).get(task, "default")
         if selected and selected != "default":
@@ -515,11 +505,10 @@ def document_impact(document_id: str, request: Request) -> dict:
 
 @router.delete("/documents/{document_id}")
 def delete_document(document_id: str, request: Request) -> dict:
-    result = _service(request).delete_document(document_id, config=get_config())
-    if not result.get("ok"):
-        message = result["error"]
-        status_code = 409 if "read-only" in message else 404
-        raise APIError(status_code, "document_not_deletable", message)
+    result = unwrap_service_result(
+        _service(request).delete_document(document_id, config=get_config()),
+        code="document_not_deletable",
+    )
     result["sync"] = _public_sync(result["sync"])
     return result
 
@@ -532,13 +521,4 @@ def search(body: KBSearchRequest, request: Request) -> dict:
         top_k=body.top_k,
         mode=body.mode,
         config=get_config(),
-    ))
-
-
-@router.post("/graph")
-def graph_query(body: GraphQueryRequest, request: Request) -> dict:
-    return unwrap_service_result(_service(request).graph_query(
-        concept=body.concept,
-        intent=body.intent,
-        limit=body.limit,
     ))
