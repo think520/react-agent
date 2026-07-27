@@ -1,270 +1,151 @@
-# 波波蛋 (Bobodan)
+# 波波蛋（Bobodan）
 
-Bobodan 是一个本地优先的 Python AI 学习助手。它把 ReAct Agent、本地知识库、RAG 检索、题库练习、学习路线、复习计划、长期记忆、Obsidian 写回、MCP 客户端和多 agent 编排放在同一个工作流里。
+Bobodan 是一个本地优先的 AI 学习工作区。它以 React + FastAPI 提供面向桌面浏览器的学习界面，把资料阅读、基于原文的对话、练习、复习、个人知识和知识地图放在同一条学习流程中。
 
-你可以用它同步自己的学习资料、基于资料提问、生成练习题、自动批改、追踪掌握度、安排复习，并把学习计划或做题总结导出到 Obsidian。
+当前主流程是：
 
-## 主要功能
+```text
+Library 导入与阅读资料
+  → Chat 基于原文检索与提问
+  → Practice 生成和完成练习
+  → Review 按掌握度安排复习
+```
 
-- 多 LLM Provider：DeepSeek、MiniMax、OpenAI 兼容接口。
-- ReAct Agent：工具调用、Session 持久化、Skills 注入。
-- 本地知识库：SQLite / FTS5 / Qdrant / hybrid retrieval。
-- 学习闭环：学习计划、题库练习、自动批改、掌握度追踪、间隔复习。
-- 记忆系统：每日记忆、永久记忆、FTS5 检索和记忆晋升。
-- Obsidian 集成：导入资料，导出学习计划和做题总结。
-- MCP 客户端：支持 stdio / SSE / streamable_http。
-- 多 agent 编排：`doc_reader`、`triage`、`planner` specialist。
-- API skeleton：FastAPI 路由和 SSE 事件流，用于 Web / API 集成。
+## 当前能力
+
+- **资料库**：管理多个本地资料库，导入 Markdown、TXT、PDF、DOCX、PPTX 等学习资料，并在 Library 中阅读和定位原文。
+- **可信对话**：ReAct Agent 调用资料检索、知识地图和个人知识工具；知识型回答以原始资料证据为骨架，明确区分本地资料、联网来源与通用知识。
+- **本地 RAG**：使用 SQLite `knowledge.db` 保存文档与 chunk 元数据，采用 heading-aware 切分、中文友好的 CJK 2-gram FTS5，并可结合 Qdrant 做混合检索。
+- **知识地图**：使用 `concept_graph.db` 保存用户已经审查确认的概念、关系与证据。候选概念不会直接参与回答。
+- **个人知识**：使用结构化 SQLite 保存已确认的偏好、目标、学习策略和课程洞见；旧 Markdown 记忆只用于显式迁移，不再由正常运行时读写。
+- **学习闭环**：支持题目生成、自动批改、错题变体、掌握度追踪和保守的 SM-2 间隔复习。
+- **可信联网**：本地资料不足时，可在用户授权边界内搜索、选择并保存网页证据快照。
+- **高级维护**：历史 Wiki 整理能力保留为只读历史与高级维护入口，不是资料导入或 Chat RAG 的必经层。
+- **扩展能力**：支持 DeepSeek、MiniMax、OpenAI 及其他 OpenAI-compatible Provider，另有 Skills、MCP 和 specialist 编排能力。
+
+> 当前发布形态仍是 Vite + FastAPI 两个开发进程；Windows 桌面安装包尚未完成。
 
 ## 快速开始
 
+最近一次验证环境为 Python 3.13 和 Node.js 24。
+
+### 1. 安装后端
+
 ```powershell
-# 1. 创建并激活虚拟环境
 python -m venv .venv
 .\.venv\Scripts\activate
-
-# 2. 安装依赖
 python -m pip install -r requirements.txt
-
-# 3. 复制并填写环境变量
 Copy-Item .env.example .env
-notepad .env
+```
 
-# 4. 启动
+在 `.env` 中填写至少一个 Provider 的 API key，例如：
+
+```env
+DEEPSEEK_API_KEY=your_deepseek_api_key_here
+```
+
+启动 FastAPI：
+
+```powershell
+python -m uvicorn web.backend.app:app --host 127.0.0.1 --port 8000 --reload
+```
+
+### 2. 安装并启动前端
+
+```powershell
+Set-Location web\frontend
+npm install
+npm run dev
+```
+
+浏览器打开 `http://127.0.0.1:5173`。前端开发服务器会把 `/api` 代理到 `http://127.0.0.1:8000`。
+
+### 3. 可选：使用 CLI
+
+```powershell
 python agent.py
-python agent.py --session-id my-session  # 恢复 session
-python agent.py -v                       # 调试模式
+python agent.py --session-id my-session
+python agent.py -v
 ```
 
-Linux / macOS 激活虚拟环境使用：
+资料库也可以通过 CLI 初始化和同步：
 
-```bash
-source .venv/bin/activate
+```powershell
+python agent.py library init <path> --name <name>
+python agent.py library sync <path>
+python agent.py library list
 ```
 
-## 配置说明
+## 配置
 
-Bobodan 的配置分两层：
+- `.env`：只保存 API key，不提交到 Git。
+- `config.yaml`：配置 Provider、模型、RAG、MCP 和 specialist。
+- 默认 Provider 是 DeepSeek；也可使用 MiniMax、OpenAI、通义、硅基流动、OpenRouter 等 OpenAI-compatible 接口。
+- Qdrant 默认使用本地模式；未配置可用向量模型时，FTS5 检索仍可独立工作。
 
-- `.env`：只放 API key，不提交到 Git。
-- `config.yaml`：选择 provider、模型、RAG、MCP、specialist 等行为。
+## 数据与迁移边界
 
-### 1. 配置 LLM Provider
+Bobodan 只保留一个正常运行的真相源，旧数据不会被静默删除：
 
-默认 provider 在 `config.yaml` 中配置：
+| 数据 | 当前真相源 | 旧数据处理 |
+|---|---|---|
+| 原始资料与 RAG | 资料库文件 + `.bobodan/knowledge.db`，可选 Qdrant | 旧工作区使用 `.knowledge/`；旧 JSON / sparse RAG 不参与正常检索 |
+| 知识地图 | `.bobodan/concept_graph.db` | 旧工作区使用 `.knowledge/`；`graph_store.json` 仅在“设置 → 数据迁移”中检测、预览和确认迁移 |
+| 个人知识 | 全局 `personal-knowledge.db` + 资料库 `.bobodan/bobodan.db` | `.bobodan/memory/*.md` 与 daily 文件只读预览、显式导入 |
+| Wiki | 高级维护 / 历史整理 | 不作为默认 RAG 证据，不自动生成或强制维护 |
 
-```yaml
-llm:
-  default_provider: "deepseek"
-```
-
-默认使用 DeepSeek，因此 `.env` 至少需要填写：
-
-```env
-DEEPSEEK_API_KEY=your_deepseek_api_key_here
-```
-
-也可以切换到 MiniMax 或 OpenAI：
-
-```yaml
-llm:
-  default_provider: "openai"   # deepseek | minimax | openai
-```
-
-对应 `.env`：
-
-```env
-MINIMAX_API_KEY=your_minimax_api_key_here
-DEEPSEEK_API_KEY=your_deepseek_api_key_here
-OPENAI_API_KEY=your_openai_api_key_here
-```
-
-REPL 启动后也可以临时切换：
-
-```text
-/model list
-/model use openai
-```
-
-### 2. 配置本地知识库 / RAG
-
-默认 RAG embedding 后端是 `auto`：
-
-```yaml
-rag:
-  embedding_backend: auto      # auto | local | ollama
-  ollama_url: "http://localhost:11434"
-  ollama_model: "qwen3-embedding:0.6b"
-```
-
-- 不装 Ollama 也能用：会走本地 sparse/local 检索。
-- 想用 Ollama dense embedding：先启动 Ollama，并准备 `qwen3-embedding:0.6b`。
-- 想强制不用 Ollama：把 `embedding_backend` 改成 `local`。
-
-同步资料到知识库：
-
-```text
-/kb sync <你的 Obsidian vault 路径>
-/kb status
-/kb search <问题>
-```
-
-### 3. 配置 MCP（可选）
-
-MCP 默认关闭：
-
-```yaml
-mcp:
-  enabled: false
-  servers: {}
-```
-
-需要接入外部 MCP server 时再打开，例如：
-
-```yaml
-mcp:
-  enabled: true
-  servers:
-    context7:
-      command: uvx
-      args: ["context7-mcp"]
-```
-
-启动后可用：
-
-```text
-/mcp status
-/mcp tools
-/mcp reload
-```
-
-### 4. Specialist 配置（通常不用改）
-
-Bobodan 默认启用 3 个 specialist：
-
-- `doc_reader`：读文档和总结。
-- `triage`：任务分流。
-- `planner`：学习计划。
-
-配置在 `config.yaml` 的 `specialists:` 下。v1 只允许覆盖 Python 已定义 specialist 的行为，不支持只靠 YAML 新增 specialist。
-
-### 5. 运行时数据
-
-运行后会产生这些本地目录，已被 `.gitignore` 排除：
-
-- `.session/`：会话存档。
-- `.bobodan/`：记忆、每日记忆、trace。
-- `.knowledge/`：RAG 索引、图谱、题库 SQLite。
+旧图谱迁移会先生成预览；Concept 与语义关系进入候选审查，Memory 不会混入概念图谱。只有迁移写入、数量与校验值验证成功后，旧 JSON 才会被归档。
 
 ## 项目结构
 
-```
-agent.py / config.yaml / .env.example    # 入口 + 配置
-core/          # AgentLoop、Session、Skills、Memory 核心
-cli/           # REPL 交互界面
-providers/     # LLM Provider（Deepseek / MiniMax / OpenAI 兼容）
-tools/         # Agent 工具注册（文件、目录、RAG、图谱、记忆、题库、MCP、specialist）
-agents/        # 多 agent 编排（doc_reader / triage / planner）
-mcp_client/    # MCP 客户端（stdio / SSE / streamable_http）
-knowledge/     # 知识库管理（文档追踪、清单、报告）
-quiz/          # 题库系统（生成/练习/批改/错题分析）
-learning/      # 学习路线与掌握度追踪
-memory/        # 每日记忆 + FTS5 检索 + 晋升机制
-obsidian/      # Obsidian vault 扫描与解析
-rag/           # 文档导入、切块、向量索引、检索路由
-graph/         # 知识图谱（本地 JSON + 可选 Neo4j）
-wiki/          # LLM Wiki 编译层
-skills/        # Skills 定义目录
-tests/         # 单元测试
-web/backend/   # FastAPI skeleton（Web API / SSE / service 协议转换）
+```text
+agent.py             CLI 入口
+core/                AgentLoop、Session、数据库与通用运行时
+providers/           LLM Provider 与统一错误契约
+rag/                 SQLite / Qdrant 检索、切分与引用
+graph/               已审查概念图谱 SQLite
+memory/              个人知识存储与旧记忆只读适配
+quiz/ learning/      练习、批改、掌握度与复习
+service/             Web 与 CLI 共用的业务服务
+web/backend/         FastAPI API 与 SSE 适配
+web/frontend/        React + TypeScript + Vite 界面
+wiki/                高级维护与历史整理工作流
+tests/               Python 测试
+docs/                项目指南、设计规范与审查记录
 ```
 
-## 核心功能
-
-### 学习闭环
-
-```
-/kb sync <vault>     → 同步学习资料到知识库
-/quiz start          → 从知识库出题练习
-quiz_submit          → 自动批改 + 写记忆 + 更新掌握度
-/learning progress   → 查看掌握度概览
-/learning review     → 今日复习清单
-```
-
-掌握度规则：连续答对 2 次 → mastered，答错 → needs_review。间隔复习 1/3/7/14 天。
-
-### Obsidian 写回
-
-学习计划和做题总结可导出为 Obsidian Markdown：
-
-- `obsidian_export_plan` — 学习计划导出为 checkbox 任务 + `[[双链]]` 知识点引用
-- `obsidian_export_quiz_summary` — 做题总结导出为错题本 + 薄弱点分析 + 掌握度概览
-
-对话中直接说"把学习计划导出到 Obsidian"即可触发。
-
-### 知识库
-
-- **RAG 检索**：回答"是什么、在哪出现过"。支持 sparse（本地）和 dense（Ollama）两种向量后端。
-- **知识图谱**：回答"和谁有关、属于哪门课"。本地 JSON 存储，可选 Neo4j。
-- **Wiki 编译**：LLM 读资料 → 生成结构化 wiki 页面，`/wiki ingest`。
-
-### 记忆系统
-
-- **永久记忆**（`.bobodan/memory/`）：跨 session 持久化，FTS5 全文检索。
-- **每日记忆**（`.bobodan/daily/`）：做题结果自动写入，启动时注入 system prompt。
-- **晋升**：每日记忆通过评分公式（频率 0.4 + 做题 0.4 + 时间 0.2）升级为永久记忆。
-
-### MCP 客户端
-
-接入外部 MCP server，工具自动注入 agent loop。三种传输：stdio / streamable_http / SSE。
-
-```yaml
-# config.yaml
-mcp:
-  enabled: true
-  servers:
-    context7:
-      command: uvx
-      args: ["context7-mcp"]
-```
-
-### 多 Agent 编排
-
-主 agent 将任务委派给 specialist（`doc_reader` / `triage` / `planner`），隔离上下文和工具权限。
-
-## REPL 命令速查
+## 常用 CLI 命令
 
 | 命令 | 用途 |
-|------|------|
-| `/kb sync/status/search/graph/reset` | 知识库操作 |
-| `/quiz generate/start/wrong/weak/stats` | 题库操作 |
-| `/learning plan/progress/review/mark/plans` | 学习路线 |
-| `/memory list/show/search/forget/daily/promote/stats` | 记忆管理 |
-| `/skill list/<name>/run` | Skills |
-| `/wiki init/ingest/lint/status` | Wiki 编译 |
-| `/mcp/status/restart/tools/reload` | MCP 管理 |
-| `/specialists/status/tools` | 多 agent |
-| `/model/list/use` | Provider 切换 |
-| `/session/list/save/resume/load` | Session 管理 |
-| `/ui tools on\|off` | 工具显示开关 |
-| `/status` | 运行时状态 |
+|---|---|
+| `/kb sync/status/search/graph/reset` | 同步、检索与维护知识库 |
+| `/quiz generate/start/wrong/weak/stats` | 生成练习、答题和查看错题 |
+| `/learning plan/progress/review/mark/plans/today` | 学习计划、掌握度和复习 |
+| `/memory list/show/search/forget/legacy/review/stats` | 管理个人知识与检查旧记忆 |
+| `/wiki init/lint/status` | 高级 Wiki 维护；已无 ingest 命令 |
+| `/model list/use` | 查看或切换 Provider |
+| `/session list/save/resume/load` | 会话管理 |
+| `/mcp status/restart/tools/reload` | MCP 管理 |
+| `/specialists status/tools` | specialist 状态与工具 |
 
-## Provider
+## 验证
 
-| 类型 | 说明 |
-|------|------|
-| `minimax` | 原始 httpx，refusal 检测 |
-| `deepseek` | OpenAI 兼容 |
-| `openai` | OpenAI 兼容 API |
-
-所有 provider 返回统一 `LLMResponse(content, tool_calls)`。
-
-## 测试
-
-```bash
+```powershell
+# Python
 python -m pytest
+
+# Frontend
+Set-Location web\frontend
+npm run lint
+npm run build
+npm test
 ```
+
+最近一次全量整改验证：Python `1160 passed`，前端 lint 与生产构建通过，Vitest `19 passed`。
 
 ## 文档
 
-更多文档见 [`docs/README.md`](docs/README.md)。
+- [项目文档索引](docs/README.md)
+- [项目主指南](docs/PROJECT_GUIDE.md)
+- [2026-07-26 项目审查与整改记录](docs/project_review_2026-07-26.md)
+- [更新日志](CHANGELOG.md)
