@@ -12,6 +12,7 @@
 | [`tools/skills.md`](tools/skills.md) | Skills 系统说明 |
 | [`project_review_2026-07-26.md`](project_review_2026-07-26.md) | 2026-07-26 项目审查、问题证据与整改追踪 |
 | [`knowledge_map_reliability_editing_design_2026-07-27.md`](knowledge_map_reliability_editing_design_2026-07-27.md) | 知识地图提取可靠性、布局、用户 CRUD 与跨文档联动增量设计 |
+| [`experience_review_2026-08-01.md`](experience_review_2026-08-01.md) | 2026-08-01 用户体验深度审查：真实旅程、问题分级、修复清单与计划书缺口 |
 | [`../CHANGELOG.md`](../CHANGELOG.md) | 版本与未发布变更记录 |
 
 使用规则：

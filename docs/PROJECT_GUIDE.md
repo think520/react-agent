@@ -1023,10 +1023,10 @@ P5E.6 不在本阶段做：复杂全图一次性可视化、导入即自动概�
 
 已实施内容（P5E.6 完成）：
 
-1. **`graph/concept_store.py`** — SQLite 概念图谱后端（5 张表：`concepts`、`relationships`、`evidence`、`concept_candidates`、`concept_positions`），支持 CRUD、候选审查、位置持久化和图状态快照。
+1. **`graph/concept_store.py`** — SQLite 概念图谱后端（6 张表：`concepts`、`relationships`、`evidence`、`concept_candidates`、`concept_extraction_runs`、`concept_positions`），支持 CRUD、候选审查、位置持久化和图状态快照。
 2. **`wiki/extractor.py`** — `ConceptExtractor`：LLM 从资料内容提取 3–8 个核心概念 + ≤12 个细节概念，输出候选及关系，有效关系类型受约束。
 3. **`service/concept_service.py`** — `ConceptService`：封装所有概念图谱业务逻辑，确认候选自动创建概念和关系，reject 支持按天压制。
-4. **`web/backend/routers/graph.py`** — 12 个 REST 端点，覆盖图状态、子图、概念 CRUD、关系 CRUD、候选操作、提取触发和位置保存；`/api/graph` 纳入 library-scoped 中间件。
+4. **`web/backend/routers/graph.py`** — 19 个 REST 端点，覆盖图状态、子图、概念 CRUD、关系 CRUD、候选操作、提取触发与恢复、位置保存和旧图谱迁移；`/api/graph` 纳入 library-scoped 中间件。
 5. **前端** — Sigma.js v3 + Graphology WebGL 渲染；`KnowledgeMapPage`（三视图：地图 / 目录 / 来源）、`GraphCanvas`、`ConceptSidebar`（180ms 滑入侧栏）、`CandidateReviewPanel`（底部 sheet + 键盘快捷键）；导航新增"知识地图"入口。
 6. **`tests/test_concept_store.py`** + **`tests/test_concept_service.py`** — 覆盖 DDL、CRUD、候选压制、图状态、子图邻居、服务层验证和 LLM 提取 mock。
 7. **旧图谱迁移** — “设置 → 记忆与数据”惰性检测 `graph_store.json`，展示 Concept / Memory / 关系与风险预览；用户选择后导入候选，校验完成才归档源文件。旧 JSON / Neo4j 图不再参与同步、Agent 工具或 Library 状态统计。
@@ -1132,6 +1132,16 @@ P5G 总体验收：
 - Electron 覆盖端口冲突、sidecar 失败或崩溃、重复启动、正常退出和用户数据目录隔离。
 - API Key 不写入资料库、日志、URL、HTTP 响应或安装目录。
 - CI 通过 Python、Vitest、TypeScript、生产构建、Playwright、PyInstaller、Electron smoke test、许可证审计、SBOM 和 SHA256 检查。
+
+### P5G 补充规划（2026-08-01 体验审查补充）
+
+以下五项在 2026-08-01 体验审查（`docs/experience_review_2026-08-01.md`）中被确认为计划缺口：P5G 章节原有条目停留在功能名级别，缺少桌面本地产品发布所需的落地细节；均不属于"本轮明确不做"范围，进入 P5G 执行时一并落地。
+
+1. **数据备份 / 恢复专项**：明确备份对象清单（资料库、`personal-knowledge.db`、`usage.db`、`research.db`、`preferences.json`）、备份格式与 SQLite WAL 一致性方法、手动 / 自动触发、校验与恢复 UI、失败恢复验证。这是本地优先产品用户信任的根基。
+2. **复习提醒交付机制**：指定 Windows 系统通知或托盘常驻方案；Electron 不常驻时提醒无法送达，Review 闭环缺最后一环。
+3. **应用升级路径**：定义安装器覆盖安装行为、数据目录版本检测、升级前备份提示；自动更新可继续延后，但升级动作本身必须规划。
+4. **卸载清理与数据保留策略**：NSIS 卸载器的行为契约（保留用户资料库 vs 清理应用数据 vs 完整清除），写入 P5G.2 验收。
+5. **桌面环境适配与性能预算**：DPI / 高分屏 / 多显示器验收项（纳入 P5G 总体验收），以及首启时间、安装包体积目标值。
 
 ### 本轮明确不做
 
@@ -1690,7 +1700,7 @@ P5C 产品化基础（完成）
 → P5F.1 个人学习知识库（完成）
 → P5E.4 全库 Wiki 编排与覆盖系统（完成）
 → P5E.5 Wiki 易用性、手写编辑与 AI 成本控制（完成）
-→ P5E.6 知识地图产品重置
+→ P5E.6 知识地图产品重置（完成）
 → P5G.0 文档提取完整性与发布合规
 → P5G.1 单进程本地 Web
 → P5G.2 Windows Electron 桌面版
