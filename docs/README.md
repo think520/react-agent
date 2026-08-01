@@ -11,6 +11,7 @@
 | [`MCP.md`](MCP.md) | MCP 客户端使用说明 |
 | [`tools/skills.md`](tools/skills.md) | Skills 系统说明 |
 | [`project_review_2026-07-26.md`](project_review_2026-07-26.md) | 2026-07-26 项目审查、问题证据与整改追踪 |
+| [`knowledge_map_reliability_editing_design_2026-07-27.md`](knowledge_map_reliability_editing_design_2026-07-27.md) | 知识地图提取可靠性、布局、用户 CRUD 与跨文档联动增量设计 |
 | [`../CHANGELOG.md`](../CHANGELOG.md) | 版本与未发布变更记录 |
 
 使用规则：
