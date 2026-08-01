@@ -366,6 +366,12 @@ class ConceptService:
                 note=note,
             )
             return _ok(concept=c)
+        except ValueError as exc:
+            message = str(exc)
+            if message.startswith("concept_name_conflict:"):
+                name = message.split(":", 1)[1] if ":" in message else message
+                return _err(f"已存在同名概念：{name}", code="conflict")
+            return _err(message)
         except Exception as exc:
             return _err(str(exc))
 

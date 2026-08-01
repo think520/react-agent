@@ -86,6 +86,7 @@ memory/
   legacy.py           旧 Markdown 记忆只读解析
 
 wiki/
+  extractor.py        概念提取器：LLM 从资料提取概念候选与关系
   workflow.py         维护计划和用户确认工作流
   orchestration.py    大型任务、预算、恢复和检查点
   lint.py             只读健康检查

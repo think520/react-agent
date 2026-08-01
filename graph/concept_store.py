@@ -175,6 +175,16 @@ class ConceptStore:
         now = time.time()
         cid = concept_id or f"c-{uuid.uuid4().hex[:12]}"
         with self._connect() as con:
+            clash = con.execute(
+                "SELECT concept_id FROM concepts "
+                "WHERE name = ? COLLATE NOCASE AND concept_id != ?",
+                (name, cid),
+            ).fetchone()
+            if clash:
+                # A rename onto an existing concept's name would violate the
+                # unique ix_concepts_name index mid-UPDATE and surface as an
+                # opaque IntegrityError; pre-check so the service can answer 409.
+                raise ValueError(f"concept_name_conflict:{name}")
             con.execute(
                 """
                 INSERT INTO concepts (concept_id, name, level, definition,
@@ -228,16 +238,21 @@ class ConceptStore:
         if level:
             clauses.append("level = ?")
             params.append(level)
+        if topic_id:
+            # Filter in SQL so the LIMIT applies to the topic-filtered set,
+            # not the whole table (concepts beyond the limit used to be
+            # silently dropped by the old Python-side filter).
+            clauses.append(
+                "EXISTS (SELECT 1 FROM json_each(concepts.topic_ids) je WHERE je.value = ?)"
+            )
+            params.append(topic_id)
         where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
         with self._connect() as con:
             rows = con.execute(
                 f"SELECT * FROM concepts {where} ORDER BY level, name LIMIT ?",
                 params + [limit],
             ).fetchall()
-        result = [_row_to_concept(r) for r in rows]
-        if topic_id:
-            result = [c for c in result if topic_id in c.get("topic_ids", [])]
-        return result
+        return [_row_to_concept(r) for r in rows]
 
     def delete_concept(self, concept_id: str) -> bool:
         with self._connect() as con:

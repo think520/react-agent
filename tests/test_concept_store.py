@@ -18,7 +18,7 @@ def store(tmp_path):
 
 
 def test_schema_created(tmp_path):
-    """ConceptStore creates all 5 tables without error."""
+    """ConceptStore creates all 6 tables without error."""
     s = ConceptStore(str(tmp_path / "schema_test.db"))
     # If DDL ran without raising, the store is functional
     assert s.pending_candidates_count() == 0
@@ -43,6 +43,22 @@ def test_upsert_concept_idempotent(store):
     assert c2["concept_id"] == c1["concept_id"]
     assert c2["level"] == "core"
     assert c2["definition"] == "自适应矩估计"
+
+
+def test_upsert_concept_name_conflict(store):
+    store.upsert_concept(name="机器学习", level="core")
+    with pytest.raises(ValueError, match="concept_name_conflict"):
+        # A second concept with the same name (different id) is a conflict,
+        # not an idempotent update — otherwise the rename path would surface
+        # as an opaque IntegrityError instead of a clean conflict.
+        store.upsert_concept(name="机器学习", level="core")
+
+
+def test_upsert_concept_rename_to_existing_name_conflict(store):
+    c = store.upsert_concept(name="ML", level="core")
+    store.upsert_concept(name="机器学习", level="core")
+    with pytest.raises(ValueError, match="concept_name_conflict"):
+        store.upsert_concept(concept_id=c["concept_id"], name="机器学习", level="core")
 
 
 def test_upsert_concept_aliases_and_topic_ids(store):
@@ -88,6 +104,19 @@ def test_list_concepts_filter_by_topic_id(store):
     assert "CNN" in names
     assert "RNN" in names
     assert "决策树" not in names
+
+
+def test_list_concepts_topic_filter_applies_before_limit(store):
+    # Regression: the topic filter used to run in Python *after* the SQL
+    # LIMIT, so a topic-matching concept that sorted past the boundary was
+    # silently dropped from topic-filtered views.
+    cluster = store.upsert_concept(name="主题", level="cluster")
+    for i in range(250):
+        store.upsert_concept(name=f"concept{i:03d}", level="detail")
+    store.upsert_concept(name="zzz", level="detail", topic_ids=[cluster["concept_id"]])
+
+    names = {c["name"] for c in store.list_concepts(topic_id=cluster["concept_id"], limit=200)}
+    assert names == {"zzz"}
 
 
 def test_delete_concept(store):

@@ -13,7 +13,12 @@ from rag.grep_retriever import (
     GrepRetriever, GrepMatch, _is_evidence_thin, _assess_confidence,
     _python_grep, _matches_to_hits,
 )
-from rag.retriever import _retrieval_pipeline, clear_retrieval_cache
+from rag.retriever import (
+    _acquire_retrieval_pipeline,
+    _release_retrieval_pipeline,
+    _retrieval_pipeline,
+    clear_retrieval_cache,
+)
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────
@@ -191,6 +196,56 @@ def test_retrieval_pipeline_is_cached_per_workspace(tmp_path, monkeypatch):
     assert created[0][1]["check_same_thread"] is False
     clear_retrieval_cache()
     assert closed == ["sqlite", "qdrant"]
+
+
+def test_acquire_release_refcount_and_deferred_close(tmp_path, monkeypatch):
+    """A cache reset during an in-flight search must not close the live pipeline."""
+    closed = []
+
+    class SQLite:
+        def __init__(self, _workspace, **kwargs):
+            pass
+
+        def init_db(self):
+            pass
+
+        def close(self):
+            closed.append("sqlite")
+
+        def log_retrieval(self, *_args):
+            pass
+
+    class Qdrant:
+        def close(self):
+            closed.append("qdrant")
+
+    class Embedding:
+        def __init__(self, _config):
+            self.client = object()
+
+    monkeypatch.setattr("rag.sqlite_store.KBSQLiteStore", SQLite)
+    monkeypatch.setattr("rag.qdrant_store.QdrantStore", lambda *_args: Qdrant())
+    monkeypatch.setattr("rag.embedding_service.EmbeddingService", Embedding)
+    monkeypatch.setattr("rag.hybrid.HybridRetriever", lambda *_args: object())
+    monkeypatch.setattr("rag.directory.DirectoryRetriever", lambda *_args: object())
+    monkeypatch.setattr("rag.grep_retriever.GrepRetriever", lambda *_args: object())
+    monkeypatch.setattr("rag.orchestrator.RetrievalOrchestrator", lambda *_args: object())
+
+    config = {"rag": {"retrieval": {"default_mode": "hybrid"}}}
+    clear_retrieval_cache()
+    pipeline = _acquire_retrieval_pipeline(str(tmp_path), config)
+    assert pipeline.refcount == 1
+
+    # Reset while pinned: evicted from cache but physically kept alive.
+    clear_retrieval_cache()
+    assert pipeline.refcount == 1
+    assert "sqlite" not in closed
+    assert "qdrant" not in closed
+
+    _release_retrieval_pipeline(pipeline)
+    assert pipeline.refcount == 0
+    assert "sqlite" in closed
+    assert "qdrant" in closed
 
 
 def test_vector_store_failure_marks_semantic_search_unavailable():

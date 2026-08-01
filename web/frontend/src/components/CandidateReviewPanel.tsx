@@ -10,7 +10,7 @@
  *    completed/failed state before reviewing that document's candidates.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { CheckCircle, ChevronDown, ChevronUp, Tag, X } from "lucide-react";
 import { api } from "../lib/api";
 import type { ConceptCandidate } from "../types";
@@ -152,6 +152,18 @@ export function CandidateReviewPanel({ onClose, onCandidatesChanged, onReturnToS
   }, [candidates.length, hasReviewed, loading, onClose, phase]);
 
   // ── Keyboard shortcuts ───────────────────────────────────────────────
+  // `act` reads the live `relationEdits` state to decide which relations to
+  // submit. The keyboard effect below intentionally does not depend on `act`
+  // (its identity changes every render), so we always invoke the latest one
+  // through a ref — otherwise the keyboard handler would submit stale
+  // relationEdits captured when the effect last ran. The ref is refreshed in
+  // an effect because refs may not be written during render.
+  const actRef = useRef(act);
+  // `act` intentionally changes identity every render; run on every commit so
+  // the ref stays fresh. The keyboard effect reads actRef, not `act`.
+  useEffect(() => {
+    actRef.current = act;
+  });
   useEffect(() => {
     if (phase !== "ready") return;
     const focused = () => candidates.find((c) => c.candidate_id === expandedId) ?? candidates[0];
@@ -159,9 +171,9 @@ export function CandidateReviewPanel({ onClose, onCandidatesChanged, onReturnToS
       if (document.activeElement?.tagName === "INPUT" || document.activeElement?.tagName === "TEXTAREA") return;
       const cand = focused();
       if (!cand) return;
-      if (e.key === "Enter") { void act(cand.candidate_id, "confirm"); }
-      else if (e.key === "l" || e.key === "L") { void act(cand.candidate_id, "label"); }
-      else if (e.key === "x" || e.key === "X") { void act(cand.candidate_id, "reject"); }
+      if (e.key === "Enter") { void actRef.current(cand.candidate_id, "confirm"); }
+      else if (e.key === "l" || e.key === "L") { void actRef.current(cand.candidate_id, "label"); }
+      else if (e.key === "x" || e.key === "X") { void actRef.current(cand.candidate_id, "reject"); }
       else if (e.key === " ") {
         e.preventDefault();
         setExpandedId((id) => id === cand.candidate_id ? null : cand.candidate_id);
@@ -169,7 +181,6 @@ export function CandidateReviewPanel({ onClose, onCandidatesChanged, onReturnToS
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [candidates, expandedId, phase]);
 
   async function act(candidateId: string, action: "confirm" | "reject" | "label") {

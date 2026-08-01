@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import re
+import string
 from typing import Any, Callable
 
 from core.llm_json import parse_llm_object
@@ -101,6 +102,30 @@ rel_type 只能是：属于 | 前置知识 | 组成部分 | 对比 | 应用于 |
 _VALID_REL_TYPES = {"属于", "前置知识", "组成部分", "对比", "应用于", "来源于", "影响", "优化", "示例"}
 
 
+def _format_prompt(template: str, **values: str) -> str:
+    """Format a prompt template without parsing braces inside content values.
+
+    Document text, section titles and LLM-generated concept names may contain
+    curly braces (``{key}``), which ``str.format`` would treat as replacement
+    fields — raising ``KeyError`` on unknown names, or silently substituting on
+    names that collide with template keywords. This variant resolves only the
+    template's own ``{field}`` placeholders and leaves braces inside the
+    *values* untouched (single braces, no escaping, no crash).
+    """
+
+    class _Safe(string.Formatter):
+        def get_field(self, field_name, args, kwargs):
+            try:
+                return super().get_field(field_name, args, kwargs)
+            except (KeyError, IndexError):
+                return "", field_name
+
+        def format_field(self, value, format_spec):
+            return str(value)
+
+    return _Safe().vformat(template, (), values)
+
+
 # ------------------------------------------------------------------
 # Public API
 # ------------------------------------------------------------------
@@ -142,7 +167,8 @@ class ConceptExtractor:
         failed_sections: list[dict[str, Any]] = []
         tags: list[str] = []
         for index, section in enumerate(section_items):
-            prompt = _CONCEPT_PROMPT.format(
+            prompt = _format_prompt(
+                _CONCEPT_PROMPT,
                 title=document_title,
                 section_title=section["title"],
                 content=section["text"],
@@ -181,7 +207,8 @@ class ConceptExtractor:
             local_concepts = [*result["core_concepts"], *result["detail_concepts"]]
             if len(local_concepts) < 2:
                 continue
-            parsed, _ = self._call_json(_RELATION_PROMPT.format(
+            parsed, _ = self._call_json(_format_prompt(
+                _RELATION_PROMPT,
                 title=document_title,
                 section_title=result["section"]["title"],
                 concepts="、".join(item["name"] for item in local_concepts),
@@ -193,7 +220,8 @@ class ConceptExtractor:
         _notify(progress, "analyzing_cross_section_relationships", section_count=len(section_items))
         if len(section_results) > 1 and len(core) >= 2:
             evidence_text = "\n".join(f"- {item['name']}：{item['excerpt']}" for item in core)
-            parsed, _ = self._call_json(_RELATION_PROMPT.format(
+            parsed, _ = self._call_json(_format_prompt(
+                _RELATION_PROMPT,
                 title=document_title,
                 section_title="跨章节核心概念",
                 concepts="、".join(item["name"] for item in core),
@@ -219,7 +247,8 @@ class ConceptExtractor:
                 supplement_content = "\n\n".join(
                     f"## {item['section']['title']}\n{item['section']['text']}" for item in weakest
                 )
-                parsed, _ = self._call_json(_SUPPLEMENT_CONCEPT_PROMPT.format(
+                parsed, _ = self._call_json(_format_prompt(
+                    _SUPPLEMENT_CONCEPT_PROMPT,
                     concepts="、".join(item["name"] for item in [*core, *detail]),
                     content=supplement_content,
                 ))
@@ -232,7 +261,7 @@ class ConceptExtractor:
                 evidence_text = "\n".join(
                     f"- {item['name']}：{item['excerpt']}" for item in [*core, *detail] if item.get("excerpt")
                 )
-                parsed, _ = self._call_json(_SUPPLEMENT_RELATION_PROMPT.format(content=evidence_text))
+                parsed, _ = self._call_json(_format_prompt(_SUPPLEMENT_RELATION_PROMPT, content=evidence_text))
                 if parsed:
                     all_names = {item["name"] for item in [*core, *detail]}
                     relationships = _dedupe_relationships([

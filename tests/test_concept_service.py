@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from service.concept_service import ConceptService
+from wiki.extractor import _format_prompt
 
 
 @pytest.fixture
@@ -33,6 +34,21 @@ def test_upsert_concept_invalid_level(svc):
     result = svc.upsert_concept(name="Valid", level="unknown")
     assert result["ok"] is False
     assert result["error"] == "invalid_level"
+
+
+def test_upsert_concept_name_conflict(svc):
+    svc.upsert_concept(name="机器学习", level="core")
+    result = svc.upsert_concept(name="机器学习", level="core")
+    assert result["ok"] is False
+    assert result["code"] == "conflict"
+
+
+def test_rename_concept_to_existing_name_conflict(svc):
+    c = svc.upsert_concept(name="ML", level="core")["concept"]
+    svc.upsert_concept(name="机器学习", level="core")
+    result = svc.upsert_concept(concept_id=c["concept_id"], name="机器学习", level="core")
+    assert result["ok"] is False
+    assert result["code"] == "conflict"
 
 
 def test_get_concept_not_found(svc):
@@ -567,6 +583,32 @@ def test_save_positions_ok(svc):
 
 
 # ------------------------------------------------------------------
+# Prompt formatting safety (curly braces in untrusted content)
+# ------------------------------------------------------------------
+
+
+def test_format_prompt_escapes_content_braces():
+    prompt = _format_prompt(
+        "标题：{title}\n正文：{content}",
+        title="文档",
+        content="The {useState} hook manages state",
+    )
+    assert prompt.startswith("标题：文档")
+    assert "The {useState} hook manages state" in prompt
+    # Template placeholders were all substituted, nothing left dangling.
+    assert "{content}" not in prompt
+    assert "{title}" not in prompt
+
+
+def test_format_prompt_silent_substitution_prevented():
+    # A content that happens to name a template keyword must stay literal
+    # instead of being silently replaced with the keyword's value.
+    prompt = _format_prompt("标题：{title}\n正文：{content}", title="真实标题", content="{title} 是字面文本")
+    assert "{title} 是字面文本" in prompt
+    assert "真实标题 是字面文本" not in prompt
+
+
+# ------------------------------------------------------------------
 # extract_from_document (mocked LLM)
 # ------------------------------------------------------------------
 
@@ -598,6 +640,25 @@ def test_extract_from_document_ok(svc):
     assert result["ok"] is True
     assert result["stored"] == 1
     assert "CNN" in result["tags"]
+
+
+def test_extract_document_with_curly_braces_content(svc):
+    # Regression: prompt templates used str.format() directly on document
+    # content, so braces like "{useState}" crashed the whole extraction run.
+    mock_llm = MagicMock()
+    mock_llm.complete.return_value = MagicMock(
+        content='{"core_concepts":[{"name":"Hook","definition":"状态管理","confidence":"high","excerpt":"hook 管理状态"}],"detail_concepts":[],"relationships":[],"tags":["useState"]}',
+        tool_calls=[],
+    )
+    result = svc.extract_from_document(
+        document_id="doc-braces",
+        document_title="React教材",
+        content="The {useState} hook manages state in {title} components.",
+        llm_provider=mock_llm,
+    )
+    assert result["ok"] is True
+    assert result["stored"] == 1
+    assert "useState" in result["tags"]
 
 
 def test_extraction_run_exposes_completed_status(svc):

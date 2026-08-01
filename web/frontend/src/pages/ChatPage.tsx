@@ -143,6 +143,17 @@ export function ChatPage() {
     documentImporting,
     libraryReady,
   } = useOutletContext<AppOutletContext>();
+  // showKnowledgeContext changes identity when the viewport crosses the 768px
+  // breakpoint (it closes over `desktop`). Keep the latest references in refs
+  // (refreshed in an effect, since refs may not be written during render) so
+  // the session-loading effect below does not re-run on window resize and
+  // clobber an in-flight streaming response with a stale session snapshot.
+  const showKnowledgeContextRef = useRef(showKnowledgeContext);
+  const clearKnowledgeContextRef = useRef(clearKnowledgeContext);
+  useEffect(() => {
+    showKnowledgeContextRef.current = showKnowledgeContext;
+    clearKnowledgeContextRef.current = clearKnowledgeContext;
+  }, [showKnowledgeContext, clearKnowledgeContext]);
   const {
     messages,
     setMessages,
@@ -185,7 +196,7 @@ export function ChatPage() {
     if (!sessionId) {
       setMessages([]);
       setReferences([]);
-      clearKnowledgeContext();
+      clearKnowledgeContextRef.current();
       setSelectedProvider(useUiStore.getState().newSessionProvider || settings?.default_provider || "");
       setLoading(false);
       return;
@@ -201,13 +212,13 @@ export function ChatPage() {
           .flatMap((message) => message.artifacts || [])
           .filter((artifact): artifact is KnowledgeContextArtifact => artifact.type === "knowledge_context")
           .at(-1);
-        if (latestKnowledgeContext) showKnowledgeContext(latestKnowledgeContext.context);
-        else clearKnowledgeContext();
+        if (latestKnowledgeContext) showKnowledgeContextRef.current(latestKnowledgeContext.context);
+        else clearKnowledgeContextRef.current();
       })
       .catch((reason: Error) => { if (!cancelled) setError(reason.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [sessionId, settings?.default_provider, showKnowledgeContext, clearKnowledgeContext, setMessages]);
+  }, [sessionId, settings?.default_provider, setMessages]);
 
   useEffect(() => {
     if (!selectedProvider && settings?.default_provider) setSelectedProvider(settings.default_provider);

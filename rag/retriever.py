@@ -17,6 +17,12 @@ class _CachedPipeline:
     sqlite: Any
     qdrant: Any
     lock: threading.RLock
+    #: Number of searches currently pinning this pipeline. A pipeline with a
+    #: non-zero count must not be closed under it even if cache reset runs.
+    refcount: int = 0
+    #: Set by clear_retrieval_cache when the pipeline should be evicted as soon
+    #: as the last pinned search releases it (deferred close).
+    _closed: bool = False
 
 
 _PIPELINE_CACHE: OrderedDict[tuple[str, str], _CachedPipeline] = OrderedDict()
@@ -31,7 +37,12 @@ def _close_pipeline(pipeline: _CachedPipeline) -> None:
 
 
 def clear_retrieval_cache(workspace: str | None = None) -> None:
-    """Close cached SQLite connections, optionally for one workspace."""
+    """Close cached SQLite connections, optionally for one workspace.
+
+    A pipeline that is currently pinned by an in-flight search is evicted from
+    the cache but only physically closed once the last search releases it, so a
+    mid-search reset (e.g. ``/kb reset``) never tears down a live connection.
+    """
     target = os.path.normcase(os.path.abspath(workspace)) if workspace else None
     with _PIPELINE_CACHE_LOCK:
         keys = [
@@ -40,7 +51,9 @@ def clear_retrieval_cache(workspace: str | None = None) -> None:
         ]
         for key in keys:
             pipeline = _PIPELINE_CACHE.pop(key)
-            _close_pipeline(pipeline)
+            pipeline._closed = True
+            if pipeline.refcount <= 0:
+                _close_pipeline(pipeline)
 
 
 def _retrieval_pipeline_unlocked(workspace: str, config: dict) -> _CachedPipeline:
@@ -85,11 +98,31 @@ def _retrieval_pipeline(workspace: str, config: dict) -> _CachedPipeline:
 
 
 def _acquire_retrieval_pipeline(workspace: str, config: dict) -> _CachedPipeline:
-    """Pin a cached pipeline until the caller releases ``pipeline.lock``."""
+    """Pin a cached pipeline until the caller calls ``_release_retrieval_pipeline``.
+
+    The global cache lock is held only to look up or create the pipeline and
+    bump its reference count; it is released *before* blocking on the
+    per-pipeline lock, so a slow search in one workspace does not serialize
+    every other RAG operation (other workspaces, ``/kb reset``, new pipelines).
+    """
     with _PIPELINE_CACHE_LOCK:
         pipeline = _retrieval_pipeline_unlocked(workspace, config)
-        pipeline.lock.acquire()
-        return pipeline
+        pipeline.refcount += 1
+    pipeline.lock.acquire()
+    return pipeline
+
+
+def _release_retrieval_pipeline(pipeline: _CachedPipeline) -> None:
+    """Release a pipeline pinned by ``_acquire_retrieval_pipeline``."""
+    pipeline.lock.release()
+    with _PIPELINE_CACHE_LOCK:
+        pipeline.refcount -= 1
+        if pipeline.refcount <= 0 and pipeline._closed:
+            for key, cached in list(_PIPELINE_CACHE.items()):
+                if cached is pipeline:
+                    del _PIPELINE_CACHE[key]
+                    break
+            _close_pipeline(pipeline)
 
 
 def search_index(
@@ -165,7 +198,7 @@ def _search_v2_with_status(
         result_count = len(result.hits) + len(result.document_hits or [])
         pipeline.sqlite.log_retrieval(query, result.mode, result_count)
     finally:
-        pipeline.lock.release()
+        _release_retrieval_pipeline(pipeline)
 
     output = []
     for hit in result.hits:
