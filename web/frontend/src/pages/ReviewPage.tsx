@@ -41,8 +41,14 @@ export function ReviewPage() {
 
   const items = useMemo<ReviewItem[]>(() => {
     if (!queue) return [];
+    const dueMeta = (status: unknown) => {
+      if (status === "mastered") return "已掌握，按计划到期复习";
+      if (status === "learning") return "学习中，按计划到期复习";
+      if (status === "needs_review") return "需要复习，今天到期";
+      return "按照学习计划到期";
+    };
     return [
-      ...queue.due_concepts.map((record, index) => ({ id: `due-${index}`, kind: "到期" as const, title: textValue(record, ["concept", "title", "name"], "待复习知识点"), meta: textValue(record, ["status"], "按照学习计划到期"), questionIds: questionIds(record) })),
+      ...queue.due_concepts.map((record, index) => ({ id: `due-${index}`, kind: "到期" as const, title: textValue(record, ["concept", "title", "name"], "待复习知识点"), meta: dueMeta(textValue(record, ["status"], "按照学习计划到期")), questionIds: questionIds(record) })),
       ...queue.wrong_answers.map((record, index) => ({ id: `wrong-${index}`, kind: "错题" as const, title: textValue(record, ["question", "concept", "title"], "需要回看的错题"), meta: textValue(record, ["feedback", "course"], "将生成考察同一误区的变式题"), questionIds: questionIds(record), attemptId: typeof record.attempt_id === "number" ? record.attempt_id : undefined })),
       ...queue.weaknesses.map((record, index) => ({ id: `weak-${index}`, kind: "薄弱点" as const, title: textValue(record, ["concept", "name", "title"], "尚未掌握的知识点"), meta: textValue(record, ["reason", "status"], "建议进行针对性练习"), questionIds: questionIds(record) })),
     ];

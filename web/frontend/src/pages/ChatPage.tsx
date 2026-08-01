@@ -382,7 +382,7 @@ export function ChatPage() {
     } catch (reason) {
       if (reason instanceof DOMException && reason.name === "AbortError") {
         setStatus("");
-        settleLastMessage();
+        settleLastMessage(false, true);
         return;
       }
       setError(toErrorMessage(reason, "本轮回答失败，请重新发送。"));
@@ -777,6 +777,10 @@ export function ChatPage() {
       setError("每条消息最多引用 3 个历史会话。" );
       return;
     }
+    if (item.type === "document" && references.filter((reference) => reference.type === "document").length >= 8) {
+      setError("每条消息最多引用 8 份资料。" );
+      return;
+    }
     setReferences((current) => current.some((reference) => reference.type === item.type && reference.id === item.id)
       ? current
       : [...current, { type: item.type, id: item.id, title: item.title, ...(item.type === "document" ? { collection: item.collection } : {}) }].slice(0, 8));
@@ -968,6 +972,7 @@ export function ChatPage() {
                 <PersonalizationChip references={message.personalization} />
                 {!message.pending && !message.failed && message.content && !message.artifacts?.some((artifact) => artifact.type === "practice_ready") && <div className="answer-actions"><button className="quiet-button" onClick={() => preparePractice(index)}><BookOpen size={15} />生成 5 道练习</button></div>}
                 {message.failed && <div className="answer-failure"><span>{error || "AI 连接暂时不可用，请稍后重试。"}</span><button className="quiet-button" disabled={sending} onClick={() => retryMessage(index)}><RotateCcw size={15} />重新发送本轮</button></div>}
+                {message.stopped && <div className="answer-failure"><span>回答已停止，只生成了部分内容。</span><button className="quiet-button" disabled={sending} onClick={() => retryMessage(index)}><RotateCcw size={15} />重新发送本轮</button></div>}
               </article>
             ))}
             {status && !messages.at(-1)?.pending && <BobodanProcess state={brandState} detail={status} />}
@@ -994,6 +999,7 @@ export function ChatPage() {
           </div>
         )}
       </div>
+      {messages.length > 0 && error && <ErrorNotice message={error} />}
       {messages.length > 0 && composer}
     </section>
   );

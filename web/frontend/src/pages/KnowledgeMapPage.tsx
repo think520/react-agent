@@ -10,7 +10,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
+import { Link, useLocation, useNavigate, useOutletContext } from "react-router-dom";
 import { List, Map as MapIcon, Maximize2, Network, Search, Sparkles, Table } from "lucide-react";
 import { api } from "../lib/api";
 import type {
@@ -240,9 +240,9 @@ export function KnowledgeMapPage() {
               在资料库导入资料后，点击资料卡上的"提取概念"按钮，
               AI 会识别核心概念和关系候选，由你确认后加入图谱。
             </p>
-            <a href="/library" className="btn-sm">
+            <Link to="/library" className="btn-sm">
               去资料库
-            </a>
+            </Link>
           </div>
         )}
 

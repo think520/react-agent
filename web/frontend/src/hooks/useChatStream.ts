@@ -72,9 +72,13 @@ export function useChatStream() {
     }
   }
 
-  /** Marks the trailing pending assistant message as settled (optionally failed). */
-  function settleLastMessage(failed = false) {
-    updateLastMessage((item) => failed ? { ...item, pending: false, failed: true } : { ...item, pending: false });
+  /** Marks the trailing pending assistant message as settled (optionally failed or user-stopped). */
+  function settleLastMessage(failed = false, stopped = false) {
+    updateLastMessage((item) => {
+      if (failed) return { ...item, pending: false, failed: true };
+      if (stopped) return { ...item, pending: false, stopped: true };
+      return { ...item, pending: false };
+    });
   }
 
   return {

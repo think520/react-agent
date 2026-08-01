@@ -623,8 +623,13 @@ class ConceptService:
         except Exception as exc:
             return _err(str(exc))
 
+    def recover_stale_runs(self, timeout_seconds: int = 600) -> int:
+        """Mark extraction runs orphaned by a backend restart as interrupted."""
+        return self._store.recover_stale_runs(timeout_seconds=timeout_seconds)
+
     def list_extraction_statuses(self) -> dict[str, Any]:
         try:
+            self._store.recover_stale_runs()
             pending_counts = self._store.pending_candidates_count_by_document()
             documents: dict[str, dict[str, Any]] = {}
             for run in self._store.list_latest_extraction_runs():
@@ -647,6 +652,7 @@ class ConceptService:
             return _err(str(exc))
 
     def get_extraction_run(self, run_id: str) -> dict[str, Any]:
+        self._store.recover_stale_runs()
         run = self._store.get_extraction_run(run_id)
         if run is None:
             return _err("extraction_run_not_found")

@@ -278,7 +278,7 @@ class QuizService:
             evaluator = QuizEvaluator()
 
         try:
-            is_correct, feedback = evaluator.evaluate(question, answer)
+            is_correct, feedback, verdict = evaluator.evaluate_with_verdict(question, answer)
         except GradingError as exc:
             logger.warning("Grading unavailable for question %s: %s", question_id, exc)
             return _err(
@@ -377,6 +377,7 @@ class QuizService:
 
         return _ok(
             is_correct=is_correct,
+            verdict=verdict,
             feedback=feedback,
             correct_answer=question.answer,
             explanation=question.explanation,
@@ -482,40 +483,62 @@ class QuizService:
             for source in original.sources
             if source.get("chunk_id")
         ]
-        if not chunk_ids:
-            return _err("原题缺少可定位的资料证据，无法生成可靠的变式题。", code="evidence_missing")
 
         from rag.sqlite_store import KBSQLiteStore
 
-        kb_store = KBSQLiteStore(self.workspace)
-        try:
-            kb_store.init_db()
-            rows = kb_store.get_chunks_by_ids(chunk_ids)
-        finally:
-            kb_store.close()
-        chunks = []
-        for chunk_id in chunk_ids:
-            if chunk_id not in rows:
-                continue
-            chunk = dict(rows[chunk_id])
-            chunk["chunk_id"] = chunk["id"]
-            chunks.append(chunk)
+        chunks: list[dict] = []
+        if chunk_ids:
+            kb_store = KBSQLiteStore(self.workspace)
+            try:
+                kb_store.init_db()
+                rows = kb_store.get_chunks_by_ids(chunk_ids)
+            finally:
+                kb_store.close()
+            for chunk_id in chunk_ids:
+                if chunk_id not in rows:
+                    continue
+                chunk = dict(rows[chunk_id])
+                chunk["chunk_id"] = chunk["id"]
+                chunks.append(chunk)
 
         try:
             llm = _get_llm_provider(self.config)
-            variant = QuestionGenerator(self.workspace, llm).generate_wrong_answer_variant(
-                original,
-                entry["user_answer"],
-                chunks,
-            )
         except Exception as exc:
-            logger.warning("Could not generate wrong-answer variant: %s", exc)
-            return _err("变式题生成失败，请稍后重试。", code="variant_generation_failed")
-        if not variant:
-            return _err("模型没有生成有效的变式题，请稍后重试。", code="variant_generation_failed")
+            logger.warning("No LLM provider for wrong-answer variant: %s", exc)
+            return _err("AI 模型未配置，无法生成变式题，请在设置中完成配置。", code="provider_unconfigured")
 
-        variant.id = store.add_question(variant)
-        return _ok(question_id=variant.id, question=self._question_for_practice(variant))
+        # 回退链：优先用原文 chunk 生成变式；证据缺失（联网题、旧题、重同步后
+        # chunk 失效）时按原题概念重新出题；仍失败则原题重练，避免错题永远
+        # 无法进入复习。
+        if chunks:
+            try:
+                variant = QuestionGenerator(self.workspace, llm).generate_wrong_answer_variant(
+                    original,
+                    entry["user_answer"],
+                    chunks,
+                )
+                if variant:
+                    variant.id = store.add_question(variant)
+                    return _ok(question_id=variant.id, question=self._question_for_practice(variant), mode="variant")
+            except Exception as exc:
+                logger.warning("Could not generate wrong-answer variant: %s", exc)
+
+        concepts = [name for name in (original.concepts or []) if name]
+        if concepts:
+            try:
+                fallback = QuestionGenerator(self.workspace, llm).generate_from_query(
+                    query="、".join(concepts),
+                    count=1,
+                )
+                if fallback:
+                    question = fallback[0]
+                    question.id = store.add_question(question)
+                    return _ok(question_id=question.id, question=self._question_for_practice(question), mode="concept_fallback")
+            except Exception as exc:
+                logger.warning("Could not generate concept fallback question: %s", exc)
+
+        # 最后回退：原题重练（前端可据此标注"复习原题"）。
+        return _ok(question_id=entry["question_id"], question=self._question_for_practice(original), mode="replay")
 
     def get_weakness_analysis(self) -> dict[str, Any]:
         from quiz.review import QuizReviewer

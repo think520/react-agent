@@ -23,6 +23,8 @@ def create_app() -> FastAPI:
                     record = get_library_service().resolve(library["library_id"])
                     if record:
                         chat.migrate_unnamed_sessions(get_session_save_dir(get_config(), record["path"]))
+                        from service.concept_service import ConceptService
+                        ConceptService(record["path"]).recover_stale_runs()
                         from service.memory_consolidation import MemoryConsolidationService
                         MemoryConsolidationService(
                             record["path"],

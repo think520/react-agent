@@ -3,7 +3,7 @@ import { ArrowRight, BookOpen, Brain, CheckCircle2, CircleHelp, Globe2, LogOut, 
 import { useNavigate, useOutletContext, useParams } from "react-router-dom";
 
 import type { AppOutletContext } from "../components/AppShell";
-import { AttributionBadges, BrandIllustration, EmptyState, ErrorNotice, LoadingState, formatRelativeDate } from "../components/common";
+import { AttributionBadges, BrandIllustration, ErrorNotice, LoadingState, formatRelativeDate } from "../components/common";
 import { api, streamChat } from "../lib/api";
 import { toErrorMessage } from "../lib/errors";
 import { useHandoffStore } from "../stores/handoffStore";
@@ -12,11 +12,27 @@ import type { PracticeSession } from "../types";
 
 interface AnswerResult {
   is_correct: boolean;
+  /** "correct" | "partial" | "incorrect" — three-state grading for short answers. */
+  verdict?: string;
   feedback: string;
   correct_answer: string;
   explanation: string;
   attribution?: PracticeSession["questions"][number]["attribution"];
   session_completed: boolean;
+  mastery_changes?: Array<{ concept?: string; status?: string; score?: number }>;
+  progress: PracticeSession["progress"];
+}
+
+function masteryStatusText(status?: string) {
+  if (status === "mastered") return "已掌握";
+  if (status === "learning") return "学习中";
+  if (status === "needs_review") return "需要复习";
+  return status || "";
+}
+
+function verdictLabel(result: AnswerResult) {
+  if (result.verdict === "partial") return "基本正确";
+  return result.is_correct ? "答对了" : "需要再复习一下";
 }
 
 interface WebPracticeConsent {
@@ -228,9 +244,28 @@ export function PracticePage() {
 
   if (error && !session) return <section className="page-scroll"><div className="page-container"><ErrorNotice message={error} action={<button className="quiet-button" onClick={() => id && void loadSession(id)}><RotateCcw size={15} />重试</button>} /></div></section>;
 
-  if (!session || !currentQuestion || session.progress.completed) return (
-    <section className="page-scroll"><div className="page-container"><EmptyState state="resting" title="这一轮练习已完成" description={`答对 ${session?.progress.correct || 0} / ${session?.progress.total || 0} 题。错题和薄弱点已经加入复习队列。`} action={<button className="primary-button" onClick={() => navigate("/review")}><CheckCircle2 size={17} />查看复习建议</button>} /></div></section>
-  );
+  if (session && session.progress.completed) {
+    const allCorrect = session.progress.correct === session.progress.total;
+    return (
+      <section className="page-scroll"><div className="page-container">
+        <div className="practice-summary">
+          <header><span>练习小结</span><h2>这一轮练习已完成</h2><p>答对 {session.progress.correct} / {session.progress.total} 题。{allCorrect ? "全部答对，复习队列没有新增错题。" : "错题和薄弱点已经加入复习队列。"}</p></header>
+          {session.attempts.length > 0 && <section className="summary-recap"><h3>逐题回顾</h3>{session.questions.map((question) => {
+            const attempt = session.attempts.find((item) => item.question_id === question.id);
+            return <article key={question.id} className={`recap-item ${attempt?.is_correct ? "correct" : ""}`}>
+              <div className="recap-head"><span>{attempt ? (attempt.is_correct ? "答对" : "答错") : "未作答"}</span><p>{question.question}</p></div>
+              {attempt && <small>你的答案：{attempt.user_answer}</small>}
+            </article>;
+          })}</section>}
+          <footer className="practice-summary-actions"><button className="primary-button" onClick={() => navigate("/review")}><CheckCircle2 size={17} />查看复习建议</button><button className="quiet-button" onClick={() => navigate("/practice")}>再练一轮</button></footer>
+        </div>
+      </div></section>
+    );
+  }
+
+  if (!session || !currentQuestion) {
+    return <section className="page-scroll"><div className="page-container illustrated-loading"><BrandIllustration state="reading" size={76} /><LoadingState label="正在恢复练习进度…" /></div></section>;
+  }
 
   const progress = Math.max(4, ((session.progress.current_index + (result ? 1 : 0)) / session.progress.total) * 100);
   const answerChoices = currentQuestion.type === "true_false"
@@ -256,7 +291,7 @@ export function PracticePage() {
           ))}</div> : <textarea className="short-answer" rows={6} value={answer} disabled={Boolean(result)} onChange={(event) => setAnswer(event.target.value)} placeholder="用自己的话写下答案。可以不完整，Bobodan 会指出缺少的部分。" />}
           <AttributionBadges attribution={currentQuestion.attribution} />
           {error && <ErrorNotice message={error} />}
-          {result && <div className={`answer-feedback ${result.is_correct ? "correct" : "review"}`}><div>{result.is_correct ? <img className="brand-expression" src="/assets/brand/expressions/bobodan-expression-content.webp" width="42" height="42" alt="" /> : <CheckCircle2 size={19} />}<strong>{result.is_correct ? "答对了" : "需要再复习一下"}</strong></div><p>{result.feedback}</p>{result.explanation && <p>{result.explanation}</p>}{!result.is_correct && result.correct_answer && <small>参考答案：{result.correct_answer}</small>}</div>}
+          {result && <div className={`answer-feedback ${result.verdict === "partial" ? "partial" : result.is_correct ? "correct" : "review"}`}><div>{result.verdict === "partial" || result.is_correct ? <img className="brand-expression" src="/assets/brand/expressions/bobodan-expression-content.webp" width="42" height="42" alt="" /> : <CheckCircle2 size={19} />}<strong>{verdictLabel(result)}</strong></div><p>{result.feedback}</p>{result.explanation && <p>{result.explanation}</p>}{result.verdict !== "correct" && result.correct_answer && <small>参考答案：{result.correct_answer}</small>}{result.mastery_changes?.length ? <div className="mastery-changes">{result.mastery_changes.map((change, index) => change.concept ? <small key={index}>知识点「{change.concept}」：{masteryStatusText(change.status)}</small> : null)}</div> : null}</div>}
           <footer className="practice-actions">
             <button type="button" className="quiet-button" onClick={() => setAiOpen(true)}><CircleHelp size={16} />问 AI</button>
             {result ? <button type="button" className="primary-button" onClick={() => void nextQuestion()}>{result.session_completed ? "查看小结" : "下一题"}<ArrowRight size={16} /></button>
