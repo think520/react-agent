@@ -26,6 +26,10 @@ logger = logging.getLogger(__name__)
 
 _COURSE_SKIP_DIRS = {".git", "__pycache__", ".venv", "venv", ".knowledge", ".bobodan", "templates"}
 
+# Library-internal structure that must never be indexed as user material.
+# (wiki pages are surfaced through the vault scan / wiki classification.)
+_LIBRARY_INTERNAL_DIRS = _COURSE_SKIP_DIRS | {"wiki"}
+
 
 @dataclass
 class SyncSummary:
@@ -38,6 +42,7 @@ class SyncSummary:
     graph_store_path: str | None = None
     error_files: int = 0
     errors: list = field(default_factory=list)
+    extraction_counts: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -50,6 +55,7 @@ class SyncSummary:
             "graph_store_path": self.graph_store_path,
             "error_files": self.error_files,
             "errors": self.errors,
+            "extraction_counts": dict(self.extraction_counts),
         }
 
 
@@ -108,6 +114,49 @@ def _course_prefix(root_dir: str, default: str) -> str:
     return "managed" if os.path.basename(os.path.normpath(root_dir)) == "sources" else default
 
 
+def _scan_library_root(root_dir: str) -> list[tuple[str, str, str]]:
+    """Scan a portable library root for materials of every supported format.
+
+    The whole folder is the user-facing "throw files in here" directory
+    (2026-08-12 design): files at the root and in any non-internal subfolder
+    are indexed. Rules that keep sources stable and non-duplicated:
+
+    - internal structure (`wiki/`, `.bobodan/`, `templates/`, dot-dirs) is
+      never indexed as material;
+    - markdown outside `raw/` is handled by the vault scan, so this pass
+      skips it (avoids duplicate obsidian/course sources);
+    - files under `raw/` keep their legacy relative path (no `raw/` prefix),
+      so existing `course/inbox/...` sources and document ids stay stable.
+    """
+    root_dir = os.path.abspath(root_dir)
+    files: list[tuple[str, str, str]] = []
+    for root, dirs, filenames in os.walk(root_dir):
+        dirs[:] = [
+            name for name in dirs
+            if name not in _LIBRARY_INTERNAL_DIRS and not name.startswith(".")
+        ]
+        for filename in filenames:
+            ext = os.path.splitext(filename)[1].lower()
+            if ext not in SUPPORTED_EXTENSIONS:
+                continue
+            path = os.path.join(root, filename)
+            relative = os.path.relpath(path, root_dir).replace(os.sep, "/")
+            from_raw = relative.startswith("raw/")
+            if from_raw:
+                # Keep legacy course/inbox/... sources (and thus stable
+                # document ids) for everything under raw/.
+                relative = relative[len("raw/"):]
+            if ext == ".md" and not from_raw:
+                # Root-level markdown is indexed by the vault scan.
+                continue
+            if relative == "README.md":
+                continue
+            with open(path, "rb") as handle:
+                content_hash = hashlib.sha256(handle.read()).hexdigest()
+            files.append((relative, path, content_hash))
+    return sorted(files, key=lambda item: item[0].casefold())
+
+
 def sync_sources(
     workspace: str,
     vault_path: str,
@@ -147,7 +196,12 @@ def sync_sources(
         course_roots.append((prefix, extra_dir))
 
     for prefix, root_dir in course_roots:
-        for relative_source, path, content_hash in _scan_course_files(root_dir):
+        # A portable library root scans the whole user-facing folder
+        # (root-level PDF/DOCX included); plain course dirs keep the
+        # markdown-inclusive course scan.
+        portable_root = os.path.isfile(os.path.join(root_dir, "BOBODAN_LIBRARY.yaml"))
+        scanner = _scan_library_root if portable_root else _scan_course_files
+        for relative_source, path, content_hash in scanner(root_dir):
             source = f"{prefix}/{relative_source}"
             new_state[source] = content_hash
             if mode == "full" or old_state.get(source) != content_hash:
@@ -190,14 +244,31 @@ def sync_sources(
     # ── Step 4: Process changed files ───────────────────────────────────
     total_chunks = 0
     doc_records: list[DocumentRecord] = []
+    extraction_counts: dict[str, int] = {"complete": 0, "partial": 0, "empty": 0, "error": 0}
 
     for source, abs_path, content_hash, kind in changed_sources:
         try:
-            # Parse document into sections
-            sections = parse_document(abs_path, workspace)
+            # Parse document into sections + extraction report
+            sections, extraction_report_obj = parse_document(abs_path, workspace)
+            extraction_report = extraction_report_obj.to_dict()
             if not sections:
                 # Fallback: use legacy chunker for simple text
                 sections = _fallback_parse(source, abs_path, kind)
+                if sections and not extraction_report.get("total_units"):
+                    # Text fallback succeeded where the typed parser found
+                    # nothing (e.g. scanned PDF with an embedded text layer
+                    # the parser refused); keep the typed report otherwise.
+                    extraction_report = {
+                        "file_type": "txt",
+                        "parser": "fallback",
+                        "status": "complete",
+                        "total_units": len(sections),
+                        "extracted_units": len(sections),
+                        "empty_units": 0,
+                        "extracted_characters": sum(len(s.text) for s in sections),
+                        "image_count": 0,
+                        "warnings": [],
+                    }
 
             # Override source path to use our canonical source prefix
             for section in sections:
@@ -205,8 +276,6 @@ def sync_sources(
 
             # Chunk sections
             chunks = chunk_sections(sections, chunk_cfg)
-            if not chunks:
-                continue
 
             # Derive document metadata
             document_id = _stable_hash(source)
@@ -217,7 +286,9 @@ def sync_sources(
             # Build summary (first 500 chars of clean text)
             summary_text = " ".join(c["text"] for c in chunks[:3])[:500]
 
-            # SQLite: upsert document + chunks
+            # SQLite: upsert document (registered even when zero chunks —
+            # scanned PDFs must show up in the Library as not retrievable),
+            # then chunks
             sqlite.upsert_document(
                 document_id=document_id,
                 source=source,
@@ -229,8 +300,22 @@ def sync_sources(
                 tags=tags,
                 summary=summary_text,
                 vector_status="pending",
+                extraction=extraction_report,
             )
             sqlite.delete_chunks_by_document(document_id)
+            status_key = extraction_report.get("status") or "error"
+            extraction_counts[status_key] = extraction_counts.get(status_key, 0) + 1
+            if not chunks:
+                doc_records.append(DocumentRecord(
+                    source=source,
+                    kind=kind,
+                    title=title,
+                    course=course,
+                    status="ok",
+                    chunk_count=0,
+                    content_hash=content_hash,
+                ))
+                continue
 
             # Enrich chunks with document metadata
             for i, chunk in enumerate(chunks):
@@ -396,6 +481,7 @@ def sync_sources(
         relationship_count=relationship_count,
         graph_backend=graph_backend,
         errors=errors,
+        extraction_counts=dict(extraction_counts),
     ))
 
     sqlite.close()
@@ -411,6 +497,7 @@ def sync_sources(
         graph_store_path=graph_store_path,
         error_files=len(errors),
         errors=errors,
+        extraction_counts=dict(extraction_counts),
     )
 
 

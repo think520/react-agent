@@ -191,9 +191,14 @@ def _hard_split(chunk: dict, cfg: ChunkingConfig) -> list[dict]:
             if para_break > start + cfg.min_chars:
                 end = para_break
             else:
-                # Look for sentence break
-                for sep in ("。", ".", "！", "!", "？", "?", "\n"):
-                    sent_break = text.rfind(sep, start + cfg.min_chars, end)
+                # Sentence-boundary fallback chain: strong punctuation first
+                # (。.!！?？), then weak (；;), then comma (，,). Only when
+                # none exists in range do we hard-cut (code/formulas/raw text).
+                for seps in (("。", ".", "！", "!", "？", "?", "\n"), ("；", ";"), ("，", ",")):
+                    sent_break = max(
+                        (text.rfind(sep, start + cfg.min_chars, end) for sep in seps),
+                        default=-1,
+                    )
                     if sent_break > start:
                         end = sent_break + 1
                         break

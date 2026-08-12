@@ -80,8 +80,13 @@ class KBSQLiteStore:
             )
         if needs_fts_rebuild:
             self.rebuild_fts()
-        else:
-            conn.commit()
+
+        # P5G.0: extraction status columns on documents (added for old DBs).
+        doc_columns = {row[1] for row in conn.execute("PRAGMA table_info(documents)")}
+        for col, ddl in _EXTRACTION_COLUMNS.items():
+            if col not in doc_columns:
+                conn.execute(f"ALTER TABLE documents ADD COLUMN {col} {ddl}")
+        conn.commit()
 
     # ── document CRUD ───────────────────────────────────────────────────
 
@@ -98,26 +103,75 @@ class KBSQLiteStore:
         tags: list[str] | None = None,
         summary: str | None = None,
         vector_status: str = "pending",
+        extraction: dict | None = None,
     ) -> None:
+        extraction = extraction or {}
+        warnings_json = json.dumps(extraction.get("warnings", []), ensure_ascii=False)
         conn = self._get_conn()
         conn.execute(
             """INSERT INTO documents
                 (id, source, path, kind, title, course, tags_json, summary,
-                 content_hash, vector_status, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                 content_hash, vector_status,
+                 extraction_status, extraction_parser,
+                 extraction_total_units, extraction_extracted_units,
+                 extraction_empty_units, extraction_characters,
+                 extraction_image_count, extraction_warnings_json,
+                 updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                 ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
                ON CONFLICT(id) DO UPDATE SET
                  source=excluded.source, path=excluded.path, kind=excluded.kind,
                  title=excluded.title, course=excluded.course,
                  tags_json=excluded.tags_json, summary=excluded.summary,
                  content_hash=excluded.content_hash,
                  vector_status=excluded.vector_status,
+                 extraction_status=excluded.extraction_status,
+                 extraction_parser=excluded.extraction_parser,
+                 extraction_total_units=excluded.extraction_total_units,
+                 extraction_extracted_units=excluded.extraction_extracted_units,
+                 extraction_empty_units=excluded.extraction_empty_units,
+                 extraction_characters=excluded.extraction_characters,
+                 extraction_image_count=excluded.extraction_image_count,
+                 extraction_warnings_json=excluded.extraction_warnings_json,
                  updated_at=datetime('now')""",
             (
                 document_id, source, path, kind, title, course,
                 json.dumps(tags or []), summary, content_hash, vector_status,
+                extraction.get("status", "complete"),
+                extraction.get("parser"),
+                extraction.get("total_units", 0),
+                extraction.get("extracted_units", 0),
+                extraction.get("empty_units", 0),
+                extraction.get("extracted_characters", 0),
+                extraction.get("image_count", 0),
+                warnings_json,
             ),
         )
         conn.commit()
+
+    def get_extraction_report(self, document_id: str) -> dict | None:
+        """Return the stored extraction report for a document, or None."""
+        conn = self._get_conn()
+        row = conn.execute(
+            """SELECT extraction_status, extraction_parser,
+                      extraction_total_units, extraction_extracted_units,
+                      extraction_empty_units, extraction_characters,
+                      extraction_image_count, extraction_warnings_json
+               FROM documents WHERE id = ?""",
+            (document_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "status": row["extraction_status"],
+            "parser": row["extraction_parser"],
+            "total_units": row["extraction_total_units"],
+            "extracted_units": row["extraction_extracted_units"],
+            "empty_units": row["extraction_empty_units"],
+            "extracted_characters": row["extraction_characters"],
+            "image_count": row["extraction_image_count"],
+            "warnings": json.loads(row["extraction_warnings_json"] or "[]"),
+        }
 
     def delete_document(self, document_id: str) -> None:
         """Delete document and cascade to chunks, fts, directory entries."""
@@ -669,6 +723,14 @@ CREATE TABLE IF NOT EXISTS documents (
     vector_status TEXT DEFAULT 'pending',
     vector_indexed_hash TEXT,
     vector_error TEXT,
+    extraction_status TEXT DEFAULT 'complete',
+    extraction_parser TEXT,
+    extraction_total_units INTEGER DEFAULT 0,
+    extraction_extracted_units INTEGER DEFAULT 0,
+    extraction_empty_units INTEGER DEFAULT 0,
+    extraction_characters INTEGER DEFAULT 0,
+    extraction_image_count INTEGER DEFAULT 0,
+    extraction_warnings_json TEXT,
     updated_at TEXT
 );
 
@@ -761,3 +823,17 @@ CREATE TRIGGER IF NOT EXISTS dir_au AFTER UPDATE ON directory_entries BEGIN
     VALUES (new.rowid, new.title, new.summary, new.keywords_json, new.source);
 END;
 """
+
+# P5G.0: extraction-report columns added at runtime for databases created
+# before extraction reports existed. Keep in sync with the CREATE TABLE
+# documents definition above.
+_EXTRACTION_COLUMNS = {
+    "extraction_status": "TEXT DEFAULT 'complete'",
+    "extraction_parser": "TEXT",
+    "extraction_total_units": "INTEGER DEFAULT 0",
+    "extraction_extracted_units": "INTEGER DEFAULT 0",
+    "extraction_empty_units": "INTEGER DEFAULT 0",
+    "extraction_characters": "INTEGER DEFAULT 0",
+    "extraction_image_count": "INTEGER DEFAULT 0",
+    "extraction_warnings_json": "TEXT",
+}

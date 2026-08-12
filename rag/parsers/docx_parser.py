@@ -39,11 +39,12 @@ def parse(path: str | Path, base_dir: str | Path = ".") -> list[SourceSection]:
     heading_stack: list[tuple[int, str]] = []  # (level, title)
     current_text: list[str] = []
     current_heading_path: list[str] = []
+    current_image_count = 0
 
     def _flush():
-        nonlocal current_text
+        nonlocal current_text, current_image_count
         text = "\n".join(current_text).strip()
-        if text:
+        if text or current_image_count:
             sections.append(SourceSection(
                 source=source,
                 doc_title=doc_title,
@@ -54,9 +55,11 @@ def parse(path: str | Path, base_dir: str | Path = ".") -> list[SourceSection]:
                 metadata={
                     "file_type": "docx",
                     "heading_level": heading_stack[-1][0] if heading_stack else 0,
+                    "image_count": current_image_count,
                 },
             ))
         current_text = []
+        current_image_count = 0
 
     for para in doc.paragraphs:
         style_name = para.style.name if para.style else ""
@@ -76,12 +79,27 @@ def parse(path: str | Path, base_dir: str | Path = ".") -> list[SourceSection]:
             heading_stack.append((heading_level, title))
             current_heading_path = [h[1] for h in heading_stack]
         else:
+            # Count embedded pictures in this paragraph (P5G.0: an
+            # image-heavy DOCX must be reported, not silently flattened).
+            current_image_count += _para_image_count(para)
             text = para.text.strip()
             if text:
                 current_text.append(text)
 
     _flush()
     return sections
+
+
+def _para_image_count(paragraph) -> int:
+    """Count images inside one paragraph (inline drawings / legacy pict)."""
+    try:
+        from docx.oxml.ns import qn
+        element = paragraph._element
+        drawings = element.findall(".//" + qn("w:drawing"))
+        picts = element.findall(".//" + qn("w:pict"))
+        return len(drawings) + len(picts)
+    except Exception:
+        return 0
 
 
 def _get_heading_level(style_name: str) -> int:

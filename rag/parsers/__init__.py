@@ -20,25 +20,37 @@ _PARSERS = {
 }
 
 
-def parse_document(path: str | Path, base_dir: str | Path = ".") -> list[SourceSection]:
-    """Parse a document into SourceSection objects.
+def parse_document(
+    path: str | Path, base_dir: str | Path = "."
+) -> tuple[list[SourceSection], "ExtractionReport"]:
+    """Parse a document into SourceSection objects plus an extraction report.
 
-    Dispatches to the appropriate parser based on file extension.
-    Returns empty list if the file type is unsupported or parsing fails.
+    Dispatches to the appropriate parser based on file extension. The report
+    records what the parser actually produced (P5G.0 extraction status), so
+    the caller can distinguish "empty PDF" from "unsupported file" from
+    "parser crashed".
     """
+    from rag.parsers.report import ExtractionReport, build_report, error_report
+
     path = Path(path)
     ext = path.suffix.lower()
+    file_type = ext.lstrip(".") or "unknown"
+    parser_name = _PARSERS.get(ext, "unknown")
 
     if ext not in _PARSERS:
-        return []
+        return [], ExtractionReport(
+            file_type=file_type, parser=parser_name, status="error",
+            warnings=["parser_error"],
+        )
 
     try:
         import importlib
         mod = importlib.import_module(_PARSERS[ext])
-        return mod.parse(path, base_dir)
+        sections = mod.parse(path, base_dir)
+        return sections, build_report(file_type, parser_name, sections)
     except Exception:
-        # Parsing failure → empty sections (caller should log)
-        return []
+        # Parsing failure → empty sections + error report (caller should log)
+        return [], error_report(file_type, parser_name)
 
 
 SUPPORTED_EXTENSIONS = set(_PARSERS.keys())

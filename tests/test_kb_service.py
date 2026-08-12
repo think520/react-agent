@@ -891,3 +891,76 @@ def test_managed_source_root_uses_stable_managed_prefix(tmp_path):
 
     assert _course_prefix(str(tmp_path / ".bobodan" / "sources"), "course") == "managed"
     assert _course_prefix(str(tmp_path / "course"), "course") == "course"
+
+
+# ── P5G.0: extraction reports ───────────────────────────────────────────
+
+def test_get_document_extraction_missing_document(svc):
+    result = svc.get_document_extraction("missing")
+    assert result["ok"] is False
+    assert result["code"] == "document_not_found"
+
+
+def test_get_document_extraction_returns_stored_report(svc, workspace):
+    from rag.sqlite_store import KBSQLiteStore
+
+    store = KBSQLiteStore(workspace)
+    store.init_db()
+    try:
+        store.upsert_document(
+            document_id="doc-scanned",
+            source="course/scanned.pdf",
+            content_hash="h1",
+            title="Scanned",
+            extraction={
+                "status": "empty",
+                "parser": "rag.parsers.pdf_parser",
+                "total_units": 2,
+                "extracted_units": 0,
+                "empty_units": 2,
+                "extracted_characters": 0,
+                "image_count": 2,
+                "warnings": ["scanned_or_empty_pages", "no_searchable_text"],
+            },
+        )
+    finally:
+        store.close()
+
+    result = svc.get_document_extraction("doc-scanned")
+    assert result["ok"]
+    assert result["report"]["status"] == "empty"
+    assert result["report"]["total_units"] == 2
+    assert "scanned_or_empty_pages" in result["report"]["warnings"]
+
+
+def test_public_document_includes_extraction_status(svc, workspace):
+    from rag.sqlite_store import KBSQLiteStore
+
+    store = KBSQLiteStore(workspace)
+    store.init_db()
+    try:
+        store.upsert_document(
+            document_id="doc-partial",
+            source="course/mixed.pdf",
+            content_hash="h2",
+            title="Mixed",
+            extraction={
+                "status": "partial",
+                "parser": "rag.parsers.pdf_parser",
+                "total_units": 4,
+                "extracted_units": 3,
+                "empty_units": 1,
+                "extracted_characters": 500,
+                "image_count": 0,
+                "warnings": ["scanned_or_empty_pages"],
+            },
+        )
+    finally:
+        store.close()
+
+    result = svc.list_documents()
+    assert result["ok"]
+    doc = next(item for item in result["documents"] if item["document_id"] == "doc-partial")
+    assert doc["extraction_status"] == "partial"
+    assert doc["extraction_total_units"] == 4
+    assert doc["extraction_empty_units"] == 1

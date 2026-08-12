@@ -194,3 +194,40 @@ class TestSectionId:
         sections = [_make_section("X", source="test.md")]
         chunks = chunk_sections(sections)
         assert "test" in chunks[0]["section_id"]
+
+
+# ── 2026-08-12: sentence-boundary soft cut ──────────────────────────────
+
+class TestSentenceSoftCut:
+    def _chunk(self, text, heading=None):
+        from rag.source_section import SourceSection
+        sec = SourceSection(
+            source="t.md", doc_title="t", unit_type="paragraph", unit_range="",
+            heading_path=[heading] if heading else [],
+            text=text, metadata={"file_type": "md"},
+        )
+        cfg = ChunkingConfig(target_chars=1800, max_chars=2600, overlap_chars=350, min_chars=400)
+        return chunk_sections([sec], cfg)
+
+    def test_comma_heavy_chinese_cuts_at_punctuation(self):
+        # 逗号密集、无句号的长段落：切点必须落在标点后，不能腰斩句子。
+        long_text = "，".join(["这是一个非常长的中文句子用来测试切片边界" * 40] * 8)
+        chunks = self._chunk(long_text)
+        assert len(chunks) >= 2
+        boundary_chars = "。，；!！?？."
+        for chunk in chunks[:-1]:  # 最后一个 chunk 到文末，允许任意结尾
+            assert chunk["text"][-1] in boundary_chars, chunk["text"][-6:]
+
+    def test_strong_punctuation_preferred_over_comma(self):
+        # 总长超过 max_chars 触发 hard split；2600 前存在可选句号
+        # （"结尾。"）时，切点必须是句号而不是更近的逗号。
+        text = ("第一段内容，用逗号连接。" + "第二句很长" * 400 + "，结尾。" + "第三段" * 500)
+        chunks = self._chunk(text)
+        first = chunks[0]["text"]
+        assert first[-1] in "。.!！?？"
+
+    def test_no_punctuation_still_hard_cuts_with_progress(self):
+        text = "x" * 3000  # 代码/公式类无标点文本
+        chunks = self._chunk(text)
+        assert len(chunks) >= 2
+        assert sum(len(c["text"]) for c in chunks) >= 3000

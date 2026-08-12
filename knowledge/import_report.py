@@ -18,10 +18,13 @@ class ImportReport:
     relationship_count: int = 0
     graph_backend: str = "local"
     errors: list = None  # list of {"source": str, "error": str}
+    extraction_counts: dict = None  # complete / partial / empty / error counts
 
     def __post_init__(self):
         if self.errors is None:
             self.errors = []
+        if self.extraction_counts is None:
+            self.extraction_counts = {}
         if not self.timestamp:
             self.timestamp = datetime.now(timezone.utc).isoformat()
 

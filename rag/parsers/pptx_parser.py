@@ -52,8 +52,19 @@ def _extract_slide(slide, slide_num: int) -> dict:
     title = ""
     body_parts = []
     notes = ""
+    image_count = 0
 
     for shape in slide.shapes:
+        # Count embedded pictures (P5G.0: image-only slides are reported,
+        # not silently dropped).
+        try:
+            if shape.shape_type is not None and str(shape.shape_type) == "PICTURE (13)":
+                image_count += 1
+            elif getattr(shape, "image", None) is not None:
+                image_count += 1
+        except Exception:
+            pass
+
         if shape.has_text_frame:
             for para in shape.text_frame.paragraphs:
                 text = para.text.strip()
@@ -97,6 +108,8 @@ def _extract_slide(slide, slide_num: int) -> dict:
         "slide_num": slide_num,
         "title": title,
         "text": body,
+        "image_count": image_count,
+        "has_text": bool(title or body_parts or notes),
     }
 
 
@@ -144,5 +157,7 @@ def _make_section(slides: list[dict], source: str, doc_title: str) -> SourceSect
             "file_type": "pptx",
             "slide_start": first["slide_num"],
             "slide_end": last["slide_num"],
+            "image_count": sum(s["image_count"] for s in slides),
+            "empty_slides": sum(0 if s["has_text"] else 1 for s in slides),
         },
     )

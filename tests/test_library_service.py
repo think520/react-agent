@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 from pathlib import Path
 
@@ -123,7 +124,9 @@ def test_moved_library_rewrites_legacy_absolute_source_roots(tmp_path):
     assert roots["version"] == 2
     assert roots["course_dirs"] == ["course-materials"]
     assert vault == str(moved.resolve())
-    assert course_dirs == [str((moved / "raw").resolve()), str((moved / "course-materials").resolve())]
+    # 2026-08-12: the library root itself is the scan root; raw/ is covered
+    # as its subdirectory, so the registered roots are [root, course-materials].
+    assert course_dirs == [str(moved.resolve()), str((moved / "course-materials").resolve())]
 
 
 def test_migration_failure_restores_registry_and_active_library(tmp_path, monkeypatch):
@@ -169,3 +172,25 @@ def test_migration_activates_library_only_after_sync(tmp_path, monkeypatch):
     assert observed_active_ids == [active["library_id"]]
     assert result["library"]["active"] is True
     assert service.list_libraries()["active_library_id"] == result["library"]["library_id"]
+
+
+# ── 2026-08-12: default library folder ─────────────────────────────────
+
+def test_default_library_path_windows_documents(monkeypatch):
+    from service.library_service import LibraryService
+
+    monkeypatch.setattr("os.name", "nt")
+    monkeypatch.setenv("USERPROFILE", "C:/users/test")
+    path = LibraryService().default_library_path()
+    assert path.replace("\\", "/") == "C:/users/test/Documents/Bobodan 资料库"
+
+
+def test_default_library_path_appends_number_when_exists(tmp_path, monkeypatch):
+    from service.library_service import LibraryService
+
+    monkeypatch.setattr("os.name", "nt")
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    first = LibraryService().default_library_path()
+    os.makedirs(first)
+    second = LibraryService().default_library_path()
+    assert second.endswith("Bobodan 资料库 2")

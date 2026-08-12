@@ -138,6 +138,45 @@ class TestInit:
 # ── Document CRUD ───────────────────────────────────────────────────────
 
 class TestDocumentCRUD:
+    def test_upsert_with_extraction_report(self, store):
+        store.upsert_document(
+            document_id="doc1",
+            source="course/scanned.pdf",
+            content_hash="abc123",
+            title="Scanned PDF",
+            extraction={
+                "status": "empty",
+                "parser": "rag.parsers.pdf_parser",
+                "total_units": 3,
+                "extracted_units": 0,
+                "empty_units": 3,
+                "extracted_characters": 0,
+                "image_count": 3,
+                "warnings": ["scanned_or_empty_pages", "no_searchable_text"],
+            },
+        )
+        doc = store.get_document("doc1")
+        assert doc["extraction_status"] == "empty"
+        assert doc["extraction_parser"] == "rag.parsers.pdf_parser"
+        assert doc["extraction_total_units"] == 3
+        assert doc["extraction_empty_units"] == 3
+        assert doc["extraction_image_count"] == 3
+
+        report = store.get_extraction_report("doc1")
+        assert report is not None
+        assert report["status"] == "empty"
+        assert report["total_units"] == 3
+        assert report["warnings"] == ["scanned_or_empty_pages", "no_searchable_text"]
+
+    def test_get_extraction_report_missing_document(self, store):
+        assert store.get_extraction_report("nope") is None
+
+    def test_legacy_document_defaults_to_complete(self, store):
+        _add_test_document(store)
+        doc = store.get_document("doc1")
+        # Databases created before extraction reports default to complete.
+        assert doc["extraction_status"] == "complete"
+
     def test_upsert_and_get(self, store):
         _add_test_document(store)
         doc = store.get_document("doc1")
