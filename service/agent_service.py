@@ -25,10 +25,11 @@ class AgentService:
     # --- Provider management ---
 
     @staticmethod
-    def create_provider(config: dict, provider_name: str) -> dict[str, Any]:
+    def create_provider(config: dict, provider_name: str, model: str | None = None) -> dict[str, Any]:
         """Create an LLM provider instance from config.
 
-        Returns _ok(provider=<LLMProvider>) on success.
+        `model` overrides the provider's default model (P5G.4 model-level
+        selection). Returns _ok(provider=<LLMProvider>) on success.
         """
         from providers.factory import ProviderFactory
 
@@ -43,7 +44,7 @@ class AgentService:
 
         agent_config = config.get("agent", {})
         try:
-            provider = ProviderFactory.create(provider_config, agent_config)
+            provider = ProviderFactory.create(provider_config, agent_config, model=model)
         except Exception as e:
             return _err(f"Failed to create provider: {e}")
 
@@ -53,22 +54,30 @@ class AgentService:
     def list_providers(config: dict) -> dict[str, Any]:
         """List all configured providers with availability status.
 
-        Returns _ok(providers=[{name, type, model, api_key_env, configured}, ...]).
+        Returns _ok(providers=[{name, type, model, models, api_key_env,
+        configured, is_default, ...}, ...]). `model` is the default model
+        (back-compat); `models` is the selectable list (P5G.4).
         """
+        from providers.catalog import resolve_api_key
+
         providers_cfg = config.get("llm", {}).get("providers") or {}
         default_provider = config.get("llm", {}).get("default_provider", "")
 
         providers = []
         for name, cfg in providers_cfg.items():
             api_key_env = cfg.get("api_key_env", "")
+            models = cfg.get("models") or []
+            model_default = cfg.get("model_default") or cfg.get("model") or ""
             providers.append({
                 "name": name,
                 "type": cfg.get("type", "unknown"),
-                "model": cfg.get("model", "?"),
+                "model": model_default,
+                "models": models,
                 "api_key_env": api_key_env,
                 "base_url": cfg.get("base_url", ""),
                 "preset": cfg.get("preset") or name,
-                "configured": bool(os.getenv(api_key_env)) if api_key_env else False,
+                # 有 key 或免 key 的本地服务（如 Ollama）视为已配置
+                "configured": bool(resolve_api_key(cfg)) or bool(cfg.get("keyless")),
                 "is_default": name == default_provider,
             })
 

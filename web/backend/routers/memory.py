@@ -23,6 +23,7 @@ class KnowledgeCreateRequest(BaseModel):
     content: str = Field(..., min_length=1, max_length=5000)
     pinned: bool = False
     evidence: list[dict] = Field(default_factory=list, max_length=50)
+    references: list[dict] = Field(default_factory=list, max_length=50)
 
 
 class KnowledgeUpdateRequest(BaseModel):
@@ -73,6 +74,11 @@ def overview(request: Request) -> dict:
 @router.get("/knowledge")
 def list_knowledge(request: Request, scope: str = "all", query: str = "", kind: str | None = None, limit: int = 100) -> dict:
     return _unwrap(_service(request).list_knowledge(scope=scope, query=query, kind=kind, limit=limit))
+
+
+@router.get("/knowledge/by-document/{document_id}")
+def list_knowledge_by_document(document_id: str, request: Request, limit: int = 50) -> dict:
+    return _unwrap(_service(request).list_knowledge_by_document(document_id, limit=limit))
 
 
 @router.post("/knowledge")

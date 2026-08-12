@@ -83,6 +83,7 @@ CREATE TABLE IF NOT EXISTS personal_knowledge (
     pinned INTEGER NOT NULL DEFAULT 0,
     confidence REAL NOT NULL DEFAULT 1.0,
     evidence TEXT NOT NULL DEFAULT '[]',
+    "references" TEXT NOT NULL DEFAULT '[]',
     source_candidate_id TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
@@ -169,6 +170,10 @@ class PersonalKnowledgeStore:
         conn = create_connection(str(path))
         try:
             conn.executescript(_SCHEMA)
+            # 迁移：旧库补 references 列（笔记 ↔ 资料库关联，P5G 体验整改）
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(personal_knowledge)").fetchall()}
+            if "references" not in columns:
+                conn.execute('ALTER TABLE personal_knowledge ADD COLUMN "references" TEXT NOT NULL DEFAULT \'[]\'')
             try:
                 conn.execute(
                     """CREATE VIRTUAL TABLE IF NOT EXISTS personal_knowledge_fts
@@ -206,6 +211,7 @@ class PersonalKnowledgeStore:
             "id": row["id"], "scope": row["scope"], "kind": row["kind"],
             "title": row["title"], "content": row["content"], "pinned": bool(row["pinned"]),
             "confidence": row["confidence"], "evidence": _loads(row["evidence"], []),
+            "references": _loads(row["references"], []),
             "source_candidate_id": row["source_candidate_id"], "created_at": row["created_at"],
             "updated_at": row["updated_at"], "revision": row["revision"],
         }
@@ -225,7 +231,8 @@ class PersonalKnowledgeStore:
 
     def create_item(self, *, scope: str, kind: str, title: str, content: str,
                     pinned: bool = False, confidence: float = 1.0,
-                    evidence: list[dict] | None = None, source_candidate_id: str | None = None) -> dict:
+                    evidence: list[dict] | None = None, references: list[dict] | None = None,
+                    source_candidate_id: str | None = None) -> dict:
         if scope not in KNOWLEDGE_SCOPES or kind not in KNOWLEDGE_KINDS:
             raise ValueError("Unsupported personal knowledge scope or kind")
         if not title.strip() or not content.strip():
@@ -236,10 +243,11 @@ class PersonalKnowledgeStore:
             conn.execute(
                 """INSERT INTO personal_knowledge
                    (id, scope, kind, title, content, search_text, pinned, confidence, evidence,
-                    source_candidate_id, created_at, updated_at, revision)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)""",
+                    "references", source_candidate_id, created_at, updated_at, revision)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)""",
                 (item_id, scope, kind, title.strip(), content.strip(), _search_text(title, content, kind),
                  1 if pinned else 0, max(0.0, min(float(confidence), 1.0)), _json(evidence or []),
+                 _json(references or []),
                  source_candidate_id, timestamp, timestamp),
             )
             row = conn.execute("SELECT * FROM personal_knowledge WHERE id = ?", (item_id,)).fetchone()
@@ -303,17 +311,18 @@ class PersonalKnowledgeStore:
             raise FileNotFoundError("Personal knowledge item not found")
         if revision != item["revision"]:
             raise RuntimeError("knowledge_revision_conflict")
-        allowed = {"title", "content", "pinned", "kind"}
+        allowed = {"title", "content", "pinned", "kind", "references"}
         updated = {**item, **{key: value for key, value in patch.items() if key in allowed}}
         if updated["kind"] not in KNOWLEDGE_KINDS or not str(updated["title"]).strip() or not str(updated["content"]).strip():
             raise ValueError("Invalid personal knowledge update")
         with self._conn(item["scope"]) as conn:
             cursor = conn.execute(
                 """UPDATE personal_knowledge SET kind=?, title=?, content=?, search_text=?, pinned=?,
-                   updated_at=?, revision=revision+1 WHERE id=? AND revision=?""",
+                   "references"=?, updated_at=?, revision=revision+1 WHERE id=? AND revision=?""",
                 (updated["kind"], str(updated["title"]).strip(), str(updated["content"]).strip(),
                  _search_text(str(updated["title"]), str(updated["content"]), updated["kind"]),
-                 1 if updated["pinned"] else 0, _now(), item_id, revision),
+                 1 if updated["pinned"] else 0, _json(updated.get("references") or []),
+                 _now(), item_id, revision),
             )
             if cursor.rowcount != 1:
                 raise RuntimeError("knowledge_revision_conflict")
@@ -327,6 +336,14 @@ class PersonalKnowledgeStore:
         with self._conn(item["scope"]) as conn:
             conn.execute("DELETE FROM personal_knowledge WHERE id = ?", (item_id,))
         return True
+
+    def list_by_reference(self, document_id: str, limit: int = 50) -> list[dict]:
+        """返回 references 中含指定 document_id 的笔记（笔记 ↔ 资料库联动）。"""
+        result = []
+        for item in self.list_items(scope="all", limit=500):
+            if any(ref.get("document_id") == document_id for ref in (item.get("references") or [])):
+                result.append(item)
+        return result[:limit]
 
     def add_candidate(self, *, scope: str, kind: str, operation: str, title: str,
                       content: str, confidence: float, reason: str,

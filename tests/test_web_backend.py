@@ -84,7 +84,7 @@ def test_graph_extraction_job_reports_completion_and_scopes_candidates(
     )
     captured_config = {}
 
-    def create_provider(provider_config, agent_config):
+    def create_provider(provider_config, agent_config, model=None):
         captured_config["provider"] = provider_config
         captured_config["agent"] = agent_config
         return mock_llm
@@ -482,7 +482,7 @@ def test_wiki_semantic_review_and_task_contracts(backend_client, monkeypatch):
     provider = object()
     monkeypatch.setattr(
         "web.backend.routers.kb.get_runtime_context",
-        lambda: SimpleNamespace(create_provider=lambda _name: provider),
+        lambda: SimpleNamespace(create_provider=lambda _name, model=None: provider),
     )
     monkeypatch.setattr(
         "web.backend.routers.kb.KBService.review_wiki_semantics",
@@ -544,7 +544,7 @@ def test_user_confirmed_wiki_plan_contract(backend_client, monkeypatch):
     captured = {}
     monkeypatch.setattr(
         "web.backend.routers.kb.get_runtime_context",
-        lambda: SimpleNamespace(create_provider=lambda _name: provider),
+        lambda: SimpleNamespace(create_provider=lambda _name, model=None: provider),
     )
 
     def create_plan(self, llm_provider, **kwargs):
@@ -625,7 +625,7 @@ def test_wiki_focus_command_and_artifact_persist_in_chat_session(backend_client,
     provider = SimpleNamespace(complete=lambda _messages: SimpleNamespace(content="重点：检索、证据与生成边界。"))
     monkeypatch.setattr(
         "web.backend.routers.chat.get_runtime_context",
-        lambda: SimpleNamespace(create_provider=lambda _name: provider),
+        lambda: SimpleNamespace(create_provider=lambda _name, model=None: provider),
     )
 
     focused = backend_client.post("/api/chat/wiki/focus", json={
@@ -658,7 +658,7 @@ def test_wiki_focus_confirm_plan_apply_and_restore_persist(backend_client, monke
     provider = SimpleNamespace(complete=lambda _messages: SimpleNamespace(content="确认 RAG 重点。"))
     monkeypatch.setattr(
         "web.backend.routers.chat.get_runtime_context",
-        lambda: SimpleNamespace(create_provider=lambda _name: provider),
+        lambda: SimpleNamespace(create_provider=lambda _name, model=None: provider),
     )
     monkeypatch.setattr(
         "web.backend.routers.chat.KBService.create_wiki_plan",
@@ -735,7 +735,7 @@ def test_chat_wiki_recovery_keeps_existing_page_and_persists_result(backend_clie
     provider = SimpleNamespace(complete=lambda _messages: SimpleNamespace(content="确认大模型整理重点。"))
     monkeypatch.setattr(
         "web.backend.routers.chat.get_runtime_context",
-        lambda: SimpleNamespace(create_provider=lambda _name: provider),
+        lambda: SimpleNamespace(create_provider=lambda _name, model=None: provider),
     )
     staged_plan = {
         "ok": True, "plan_id": "e" * 32, "status": "planned", "action": "generate",
@@ -805,7 +805,7 @@ def test_wiki_coverage_and_orchestrated_run_routes(backend_client, monkeypatch):
     monkeypatch.setattr("web.backend.routers.kb.KBService.start_wiki_run", lambda self, provider, **kwargs: plan)
     monkeypatch.setattr(
         "web.backend.routers.kb.get_runtime_context",
-        lambda: SimpleNamespace(create_provider=lambda _name: object()),
+        lambda: SimpleNamespace(create_provider=lambda _name, model=None: object()),
     )
 
     coverage_response = backend_client.get("/api/kb/wiki/coverage")
@@ -825,7 +825,7 @@ def test_chat_wiki_focus_uses_orchestrated_run_when_scope_mode_is_explicit(backe
     provider = SimpleNamespace(complete=lambda _messages: SimpleNamespace(content="围绕核心概念整理。"))
     monkeypatch.setattr(
         "web.backend.routers.chat.get_runtime_context",
-        lambda: SimpleNamespace(create_provider=lambda _name: provider),
+        lambda: SimpleNamespace(create_provider=lambda _name, model=None: provider),
     )
     monkeypatch.setattr(
         "web.backend.routers.chat.KBService._wiki_run_documents",
@@ -872,7 +872,7 @@ def test_chat_wiki_apply_failure_persists_recovery_state(backend_client, monkeyp
     provider = SimpleNamespace(complete=lambda _messages: SimpleNamespace(content="确认大模型整理重点。"))
     monkeypatch.setattr(
         "web.backend.routers.chat.get_runtime_context",
-        lambda: SimpleNamespace(create_provider=lambda _name: provider),
+        lambda: SimpleNamespace(create_provider=lambda _name, model=None: provider),
     )
     plan_id = "d" * 32
     planned = {
@@ -1025,7 +1025,7 @@ def test_chat_run_maps_safe_events_and_injects_runtime(backend_client, monkeypat
         workspace=str(backend_client.workspace),
         skills_prompt="skills prompt",
         memory_prompt="memory prompt",
-        create_provider=lambda _name: DummyProvider(),
+        create_provider=lambda _name, model=None: DummyProvider(),
         refresh_memory=lambda: "memory prompt",
         create_trace=lambda _session_id: object(),
     )
@@ -1097,7 +1097,7 @@ def test_chat_stream_finalizer_retries_failed_session_save(backend_client, monke
     runtime = SimpleNamespace(
         workspace=str(backend_client.workspace),
         skills_prompt=None,
-        create_provider=lambda _name: object(),
+        create_provider=lambda _name, model=None: object(),
         create_trace=lambda _session_id: object(),
     )
     save_results = iter([
@@ -1133,7 +1133,7 @@ def test_chat_stream_finalizer_retries_failed_session_save(backend_client, monke
 def test_chat_persists_web_consent_artifact_without_network_access(backend_client, monkeypatch):
     runtime = SimpleNamespace(
         workspace=str(backend_client.workspace), skills_prompt=None, memory_prompt=None,
-        create_provider=lambda _name: object(), refresh_memory=lambda: None,
+        create_provider=lambda _name, model=None: object(), refresh_memory=lambda: None,
         create_trace=lambda _session_id: object(),
     )
 
@@ -1160,7 +1160,7 @@ def test_chat_persists_web_consent_artifact_without_network_access(backend_clien
 def test_confirmed_web_evidence_is_injected_and_persisted_as_attribution(backend_client, monkeypatch):
     runtime = SimpleNamespace(
         workspace=str(backend_client.workspace), skills_prompt=None, memory_prompt=None,
-        create_provider=lambda _name: object(), refresh_memory=lambda: None,
+        create_provider=lambda _name, model=None: object(), refresh_memory=lambda: None,
         create_trace=lambda _session_id: object(),
     )
     captured = {}
@@ -1198,7 +1198,7 @@ def test_confirmed_web_evidence_is_injected_and_persisted_as_attribution(backend
 def test_chat_web_tool_changes_with_search_permission(backend_client, monkeypatch):
     runtime = SimpleNamespace(
         workspace=str(backend_client.workspace), skills_prompt=None, memory_prompt=None,
-        create_provider=lambda _name: object(), refresh_memory=lambda: None,
+        create_provider=lambda _name, model=None: object(), refresh_memory=lambda: None,
         create_trace=lambda _session_id: object(),
     )
     captured = []
@@ -1234,7 +1234,7 @@ def test_chat_web_tool_changes_with_search_permission(backend_client, monkeypatc
 def test_practice_ready_artifact_starts_once_and_persists(backend_client, monkeypatch):
     runtime = SimpleNamespace(
         workspace=str(backend_client.workspace), skills_prompt=None, memory_prompt=None,
-        create_provider=lambda _name: object(), refresh_memory=lambda: None,
+        create_provider=lambda _name, model=None: object(), refresh_memory=lambda: None,
         create_trace=lambda _session_id: object(),
     )
     artifact = {
@@ -1276,7 +1276,7 @@ def test_chat_stream_error_does_not_leak_internal_details(backend_client, monkey
         workspace=str(backend_client.workspace),
         skills_prompt=None,
         memory_prompt=None,
-        create_provider=lambda _name: object(),
+        create_provider=lambda _name, model=None: object(),
         refresh_memory=lambda: None,
         create_trace=lambda _session_id: object(),
     )
@@ -1298,7 +1298,7 @@ def test_chat_stream_error_does_not_leak_internal_details(backend_client, monkey
 def test_chat_provider_error_is_generic(backend_client, monkeypatch):
     runtime = SimpleNamespace(
         workspace=str(backend_client.workspace),
-        create_provider=lambda _name: (_ for _ in ()).throw(
+        create_provider=lambda _name, model=None: (_ for _ in ()).throw(
             RuntimeError("DUMMY_API_KEY missing at C:\\private\\config.yaml")
         ),
     )
@@ -1373,7 +1373,7 @@ def test_session_title_generation_and_manual_name_protection(backend_client, mon
     session.save_to_file(str(save_dir / f"{session.session_id}.json"))
 
     provider = SimpleNamespace(complete=lambda _messages: SimpleNamespace(content="Dijkstra 的贪心正确性"))
-    runtime = SimpleNamespace(create_provider=lambda _name: provider)
+    runtime = SimpleNamespace(create_provider=lambda _name, model=None: provider)
     monkeypatch.setattr("web.backend.routers.chat.get_runtime_context", lambda: runtime)
 
     titled = backend_client.post(f"/api/chat/sessions/{session.session_id}/title")
@@ -1428,7 +1428,7 @@ def test_session_title_timeout_uses_fallback(backend_client, monkeypatch):
         def shutdown(self, **_kwargs):
             return None
 
-    runtime = SimpleNamespace(create_provider=lambda _name: object())
+    runtime = SimpleNamespace(create_provider=lambda _name, model=None: object())
     monkeypatch.setattr("web.backend.routers.chat.get_runtime_context", lambda: runtime)
     monkeypatch.setattr("web.backend.routers.chat.ThreadPoolExecutor", TimeoutExecutor)
 
@@ -1629,7 +1629,7 @@ def test_candidate_confirmation_and_legacy_preview(backend_client, tmp_path):
 def test_chat_memory_confirmation_requires_user_action(backend_client, monkeypatch):
     runtime = SimpleNamespace(
         workspace=str(backend_client.workspace), skills_prompt=None,
-        create_provider=lambda _name: object(), refresh_memory=lambda: None,
+        create_provider=lambda _name, model=None: object(), refresh_memory=lambda: None,
         create_trace=lambda _session_id: object(),
     )
     artifact = {

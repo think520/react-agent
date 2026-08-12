@@ -171,10 +171,35 @@ export interface ReviewQueue {
   personalization?: PersonalizationRef[];
 }
 
+export interface ProviderModel {
+  id: string;
+  name: string;
+}
+
+export interface ProviderSummary {
+  name: string;
+  configured: boolean;
+  type?: string;
+  model?: string;
+  models?: ProviderModel[];
+  is_default?: boolean;
+  api_key_env?: string;
+  preset?: string;
+  base_url?: string;
+}
+
+export interface ProviderPreset {
+  name: string;
+  type: string;
+  provider_name: string;
+  base_url: string;
+  api_key_env: string;
+}
+
 export interface SettingsSummary {
   workspace_name: string;
   default_provider: string;
-  providers: Array<{ name: string; configured: boolean; type?: string; model?: string; is_default?: boolean; api_key_env?: string; preset?: string; base_url?: string }>;
+  providers: ProviderSummary[];
   search_providers: Array<{ name: "auto" | "tavily" | "exa"; configured: boolean }>;
   mcp_enabled: boolean;
   skills: Array<{
@@ -234,6 +259,7 @@ export interface PersonalKnowledgeItem {
   pinned: boolean;
   confidence: number;
   evidence: Array<Record<string, unknown>>;
+  references: Array<{ document_id: string; chunk_id?: string; title: string; page?: number }>;
   created_at: string;
   updated_at: string;
   revision: number;

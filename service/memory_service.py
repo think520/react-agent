@@ -29,14 +29,18 @@ class MemoryService:
                        limit: int = 100) -> dict[str, Any]:
         return _ok(items=self._personal_store().list_items(scope=scope, query=query, kind=kind, limit=limit))
 
+    def list_knowledge_by_document(self, document_id: str, limit: int = 50) -> dict[str, Any]:
+        return _ok(items=self._personal_store().list_by_reference(document_id, limit=limit))
+
     def create_knowledge(self, *, scope: str, kind: str, title: str, content: str,
-                         pinned: bool = False, evidence: list[dict] | None = None) -> dict[str, Any]:
+                         pinned: bool = False, evidence: list[dict] | None = None,
+                         references: list[dict] | None = None) -> dict[str, Any]:
         if self.contains_secret(f"{title}\n{content}"):
             return _err("Passwords, API keys, tokens, and other secrets cannot be saved as personal knowledge.")
         try:
             item = self._personal_store().create_item(
                 scope=scope, kind=kind, title=title, content=content,
-                pinned=pinned, evidence=evidence,
+                pinned=pinned, evidence=evidence, references=references,
             )
         except ValueError as exc:
             return _err(str(exc))

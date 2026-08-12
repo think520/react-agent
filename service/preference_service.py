@@ -180,10 +180,12 @@ class PreferenceService:
         for path, value in flattened:
             if not self._valid(path, value):
                 raise ValueError(f"Unsupported preference value: {path}")
-            if path == "ai.default_provider" and value not in available_providers:
-                raise ValueError("The selected provider is not available")
-            if path.startswith("ai.task_providers.") and value != "default" and value not in available_providers:
-                raise ValueError("The selected task provider is not available")
+            if path in ("ai.default_provider",) or path.startswith("ai.task_providers."):
+                # P5G.4：值可为 `provider::model`，供应商部分必须可用
+                provider_ref = value if path == "ai.default_provider" else (None if value == "default" else value)
+                if provider_ref and provider_ref.split("::", 1)[0] not in available_providers:
+                    label = "provider" if path == "ai.default_provider" else "task provider"
+                    raise ValueError(f"The selected {label} is not available")
             if path == "skills.enabled_names":
                 value = sorted({str(item) for item in value if str(item) in available_skills})
             _set_path(updated, path, value)

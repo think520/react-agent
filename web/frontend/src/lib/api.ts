@@ -24,6 +24,8 @@ import type {
   MemoryOverview,
   PersonalKnowledgeItem,
   PersonalizationRef,
+  ProviderModel,
+  ProviderPreset,
   WikiArtifact,
   WikiHealth,
   WikiDocumentCoverage,
@@ -127,6 +129,19 @@ export const api = {
     `/api/settings/providers/${encodeURIComponent(provider)}/test`,
     { method: "POST" },
   ),
+  providerPresets: () => request<{ presets: ProviderPreset[] }>("/api/settings/providers/presets"),
+  saveProvider: (body: Record<string, unknown>) => request<{ ok: boolean; name: string }>(
+    "/api/settings/providers",
+    { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+  ),
+  deleteProvider: (name: string) => request<{ ok: boolean; name: string }>(
+    `/api/settings/providers/${encodeURIComponent(name)}`,
+    { method: "DELETE" },
+  ),
+  fetchProviderModels: (baseUrl: string, apiKey?: string) => request<{ ok: boolean; models: ProviderModel[] }>(
+    "/api/settings/providers/fetch-models",
+    json({ base_url: baseUrl, api_key: apiKey || null }),
+  ),
   searchProviderTest: (provider: "auto" | "tavily" | "exa") => request<{ provider: string; latency_ms: number; result_count: number }>(
     `/api/settings/search/${encodeURIComponent(provider)}/test`,
     { method: "POST" },
@@ -170,9 +185,9 @@ export const api = {
     `/api/kb/documents/${encodeURIComponent(id)}`,
     { method: "DELETE" },
   ),
-  updateSessionProvider: (id: string, provider: string) => request<{ provider_name: string }>(
+  updateSessionProvider: (id: string, provider: string, model?: string) => request<{ provider_name: string; model_name: string | null }>(
     `/api/chat/sessions/${encodeURIComponent(id)}/provider`,
-    { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ provider }) },
+    { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ provider, model: model || null }) },
   ),
   health: () => request<{ ok: boolean }>("/api/health"),
   documentImpact: (id: string) => request<DocumentImpact>(
@@ -366,7 +381,10 @@ export const api = {
   memoryKnowledge: (scope = "all", query = "") => request<{ items: PersonalKnowledgeItem[] }>(
     `/api/memory/knowledge?scope=${encodeURIComponent(scope)}&query=${encodeURIComponent(query)}`,
   ),
-  createMemoryKnowledge: (body: Pick<PersonalKnowledgeItem, "scope" | "kind" | "title" | "content"> & { pinned?: boolean }) => request<{ item: PersonalKnowledgeItem }>(
+  knowledgeByDocument: (documentId: string) => request<{ items: PersonalKnowledgeItem[] }>(
+    `/api/memory/knowledge/by-document/${encodeURIComponent(documentId)}`,
+  ),
+  createMemoryKnowledge: (body: Pick<PersonalKnowledgeItem, "scope" | "kind" | "title" | "content"> & { pinned?: boolean; references?: PersonalKnowledgeItem["references"] }) => request<{ item: PersonalKnowledgeItem }>(
     "/api/memory/knowledge", json(body),
   ),
   updateMemoryKnowledge: (id: string, revision: number, patch: Record<string, unknown>) => request<{ item: PersonalKnowledgeItem }>(
@@ -518,6 +536,7 @@ export async function streamChat(
     webEnabled?: boolean;
     webResearchId?: string;
     provider?: string;
+    model?: string;
     references?: ChatReference[];
     strictDocumentScope?: boolean;
   },
@@ -535,6 +554,7 @@ export async function streamChat(
       web_enabled: preferences.webEnabled ?? false,
       web_research_id: preferences.webResearchId || null,
       provider: preferences.provider || null,
+      model: preferences.model || null,
       references: preferences.references || [],
       save: true,
     }),

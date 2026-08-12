@@ -101,7 +101,7 @@ flowchart LR
 | 有证据边界的对话 | 调用资料检索、知识地图、个人知识、练习和学习工具 | 区分本地资料、网页来源、AI 补充和待核实内容 |
 | 本地 RAG | SQLite FTS5 中文检索，可选 Qdrant 向量索引和 RRF 混合检索 | 没有可用 embedding 时自动降级为 FTS-only，并把状态交给界面 |
 | 练习与复习 | 单选、判断、简答、自动批改、错题变式、掌握度和间隔复习 | 题目来源确定性保存，模型不能自行伪造来源 |
-| 知识地图与个人知识 | 管理已确认概念、关系、证据，以及全局/资料库级个人知识 | 候选概念和记忆写入都经过明确的用户边界 |
+| 知识地图与个人知识 | 管理已确认概念、关系、证据；「笔记」一级入口记录个人思考，可关联资料并双向回溯 | 候选概念和记忆写入都经过明确的用户边界；个人笔记永不进入概念图谱 |
 | 扩展能力 | 支持 Skills、MCP、Wiki 整理和多个 LLM Provider | MCP 默认关闭，联网研究需要用户授权 |
 
 <details>
@@ -121,6 +121,7 @@ flowchart LR
 - 知识地图使用 SQLite 保存已确认概念、关系、证据、候选和节点位置。
 - 候选概念必须经过用户确认、拒绝或标记后，才会进入正式图谱。
 - 个人知识使用结构化 SQLite，支持全局知识和资料库知识、候选确认、编辑、删除、导出和旧记忆迁移。
+- 个人笔记（`/notes`）是一级入口；笔记可关联资料（`references`），阅读原文时能看到相关笔记，笔记永不进入概念图谱。
 
 ### 对话与扩展
 
@@ -173,13 +174,13 @@ python -m pip install -r requirements.txt
 Copy-Item .env.example .env
 ```
 
-在 `.env` 中至少配置一个 Provider 的 API key。下面只是占位示例，不是真实凭据：
+启动后在设置 →「AI 与模型」→「管理供应商」里填写 Provider 的 API key 即可使用（密钥保存在本地 `~/.bobodan/provider.json`）。也可以继续沿用 `.env` 环境变量方式（key 留空时自动回退），两者互不冲突：
 
 ```env
 DEEPSEEK_API_KEY=your_api_key_here
 ```
 
-真实 API key 只应保存在本机 `.env` 中，不要写入 README、截图或提交到 Git。
+真实 API key 只应保存在本机，不要写入 README、截图或提交到 Git。
 
 ### 2. 启动 FastAPI
 
@@ -230,13 +231,14 @@ python agent.py library list
 
 | 配置 | 用途 |
 | --- | --- |
-| `.env` | 保存本机 Provider API key，不提交到 Git |
-| `config.yaml` | 配置 Provider、模型、Agent、RAG、Skills、MCP 和 specialist |
+| `~/.bobodan/provider.json` | Provider 与模型配置真相源（设置 →「AI 与模型」管理），API key 在此保存 |
+| `.env` | 可选：API key 走环境变量（provider.json 中 key 留空时回退） |
+| `config.yaml` | 配置 Agent、RAG、Skills、MCP 和 specialist；`llm.providers` 仅首次启动迁移用 |
 | `rag.embedding_backend` | 默认为 `auto`；没有本地 embedding 服务时，FTS5 仍可单独工作 |
 | Qdrant | 默认使用本地模式；远程 Qdrant、Ollama 和 MCP 都是可选项 |
 | `BOBODAN_CONFIG` / `BOBODAN_WORKSPACE` | 指定配置文件和后端工作区 |
 
-默认 Provider 是 `deepseek`，也可以切换 `minimax`、`openai`、`dashscope`、`siliconflow` 或 `openrouter` 等配置。
+默认 Provider 是 `deepseek`，也可以在设置页添加任意 OpenAI 兼容供应商（含免 key 的本地 Ollama）、切换 `minimax`、`openai`、`dashscope`、`siliconflow` 或 `openrouter` 等模板，并为每个供应商配置多个模型。
 
 <a id="data-boundaries"></a>
 

@@ -27,8 +27,8 @@ class RuntimeContext:
         result = MemoryService(self.workspace).overview()
         self.memory_count = int(result.get("knowledge_count") or 0) if result.get("ok") else 0
 
-    def create_provider(self, provider_name: str | None = None):
-        return RuntimeService.create_provider(self.config, provider_name)
+    def create_provider(self, provider_name: str | None = None, model: str | None = None):
+        return RuntimeService.create_provider(self.config, provider_name, model=model)
 
     def create_trace(self, session_id: str) -> TraceWriter:
         return TraceWriter(session_id, self.workspace)
@@ -36,7 +36,7 @@ class RuntimeContext:
 
 class RuntimeService:
     @staticmethod
-    def create_provider(config: dict[str, Any], provider_name: str | None = None):
+    def create_provider(config: dict[str, Any], provider_name: str | None = None, model: str | None = None):
         llm_config = config.get("llm", {})
         name = provider_name or llm_config.get("default_provider", "")
         providers = llm_config.get("providers") or {}
@@ -44,7 +44,7 @@ class RuntimeService:
         if not provider_config:
             available = ", ".join(sorted(providers)) or "(none)"
             raise ValueError(f"Unknown provider '{name}'. Available: {available}")
-        return ProviderFactory.create(provider_config, config.get("agent", {}))
+        return ProviderFactory.create(provider_config, config.get("agent", {}), model=model)
 
     @staticmethod
     def build_context(config: dict[str, Any], workspace: str) -> RuntimeContext:
