@@ -1044,6 +1044,8 @@ P5E.5 Wiki 易用性、手写编辑与 AI 成本控制（完成）
 → P5G.3 支撑页面与体验收尾
 ```
 
+与 P5G 并行存在一条整机优化工作流（Agent 运行时、前端体验、资料协作），详见 `docs/AGENT_OPTIMIZATION_PLAN.md`：其中 AG-0 / FE-1 / LB-1.1 为纯增量改动，可与 P5G 并行；会话格式变更（AG-1）等 P5G 验收后才启动。该工作流不改变本节 P5G 的执行顺序与验收条件。
+
 首发版本不集成 OCR。Bobodan 只处理文档已有文本层，并明确告诉用户哪些页面、幻灯片或图片没有形成可检索文字。OCR 不是技术上永久禁止，而是保留为未来可选组件；当前不加入引擎、模型、下载入口或安装包依赖。
 
 #### P5G.0：文档提取完整性与发布合规
@@ -1930,7 +1932,9 @@ Obsidian vault：
 日常只需要读本文。需要深入时再看：
 
 - `docs/DESIGN.md`：Web / TUI / 官网视觉硬约束。任何界面设计开工前必须先读。
+- `docs/AGENT_OPTIMIZATION_PLAN.md`：整机优化计划书（Agent 运行时 / 前端体验 / 资料协作），与 P5G 并行的工作流，排期与验收门禁以该文档为准。
 - `docs/rag_design.md`：RAG v2 详细设计。
+- `docs/knowledge_map_design.md` 与 `docs/knowledge_map_reliability_editing_design_2026-07-27.md`：知识地图产品与可靠性设计。
 - `docs/MCP.md`：MCP 客户端使用。
 - `docs/tools/skills.md`：Skills 系统说明。
 
