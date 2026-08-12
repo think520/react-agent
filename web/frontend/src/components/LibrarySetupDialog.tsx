@@ -1,4 +1,4 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { FolderOpen, Library, X } from "lucide-react";
 
 import { ErrorNotice, IconButton } from "./common";
@@ -31,6 +31,12 @@ export function LibrarySetupDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [preview, setPreview] = useState<LibraryMigrationPreview | null>(null);
+
+  // Web 端受浏览器限制无法弹系统目录选择器；新建时预填一个合理默认路径，
+  // 用户可以直接使用或修改，避免第一次就被要求手打完整绝对路径。
+  useEffect(() => {
+    if (mode === "create" && !path.trim()) setPath("~/Documents/Bobodan");
+  }, [mode, path]);
 
   function selectMode(next: LibrarySetupMode) {
     setMode(next);
@@ -78,7 +84,7 @@ export function LibrarySetupDialog({
         <button type="button" role="tab" aria-selected={mode === "migrate"} className={mode === "migrate" ? "active" : ""} onClick={() => selectMode("migrate")}>接入旧文件夹</button>
       </div>
       {mode !== "open" && <label><span>资料库名称</span><input value={name} maxLength={120} onChange={(event) => setName(event.target.value)} /></label>}
-      <label><span>{mode === "create" ? "保存到这个目录" : mode === "open" ? "Bobodan 资料库路径" : "需要原地接入的资料文件夹"}</span><div className="path-input"><FolderOpen size={17} /><input value={path} placeholder="例如 D:\\Learning" onChange={(event) => { setPath(event.target.value); setPreview(null); }} /></div></label>
+      <label><span>{mode === "create" ? "保存到这个目录" : mode === "open" ? "Bobodan 资料库路径" : "需要原地接入的资料文件夹"}</span><div className="path-input"><FolderOpen size={17} /><input value={path} placeholder="例如 D:\\Learning" onChange={(event) => { setPath(event.target.value); setPreview(null); }} /></div>{mode === "create" && <p className="library-path-hint">Bobodan 会把你的资料和本地索引保存在这个文件夹，建议放在文档目录；文件夹不存在时会自动创建。</p>}</label>
       {preview && <section className="library-migration-preview" aria-label="接入扫描结果">
         <header><strong>{preview.already_initialized ? "这是一个 Bobodan 资料库" : "可以原地接入"}</strong><span>{preview.folder_name}</span></header>
         <div><span><strong>{preview.material_count}</strong> 份可索引资料</span><span><strong>{(preview.size_bytes / 1024 / 1024).toFixed(1)} MB</strong> 文件夹体积</span><span><strong>{preview.wiki_pages}</strong> 个现有 Wiki 页面</span><span><strong>{preview.legacy_source_count}</strong> 个旧资料子目录</span></div>

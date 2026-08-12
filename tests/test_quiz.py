@@ -366,6 +366,52 @@ def test_evaluator_short_answer_with_mock_llm():
     assert "Correct" in feedback
 
 
+def test_evaluator_three_state_verdict_partial():
+    """Partial short answers get verdict=partial while is_correct stays False."""
+    class MockProvider:
+        class Response:
+            content = '{"verdict": "partial", "feedback": "提到要点但缺少推导"}'
+        def complete(self, messages):
+            return self.Response()
+
+    q = Question(type="short_answer", question="Q?", answer="A")
+    ev = QuizEvaluator(llm_provider=MockProvider())
+    correct, feedback, verdict = ev.evaluate_with_verdict(q, "基本答对但漏了")
+    assert correct is False
+    assert verdict == "partial"
+    assert "缺少推导" in feedback
+
+    # evaluate() keeps the two-value contract for existing callers.
+    correct, feedback = ev.evaluate(q, "基本答对但漏了")
+    assert correct is False
+
+
+def test_evaluator_verdict_backward_compatible_old_format():
+    """Old two-state grading output (is_correct only) still parses."""
+    class MockProvider:
+        class Response:
+            content = '{"is_correct": false, "feedback": "错误"}'
+        def complete(self, messages):
+            return self.Response()
+
+    q = Question(type="short_answer", question="Q?", answer="A")
+    ev = QuizEvaluator(llm_provider=MockProvider())
+    correct, _feedback, verdict = ev.evaluate_with_verdict(q, "B")
+    assert correct is False
+    assert verdict == "incorrect"
+
+
+def test_evaluator_choice_verdict_derived():
+    q = Question(type="single_choice", question="Q", answer="B", options=["A", "B"])
+    ev = QuizEvaluator(llm_provider=None)
+    correct, _feedback, verdict = ev.evaluate_with_verdict(q, "A")
+    assert correct is False
+    assert verdict == "incorrect"
+    correct, _feedback, verdict = ev.evaluate_with_verdict(q, "B")
+    assert correct is True
+    assert verdict == "correct"
+
+
 # --- Review tests ---
 
 def test_wrong_answer_book_empty(tmp_path):

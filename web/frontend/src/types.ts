@@ -31,6 +31,8 @@ export interface ChatMessage {
   attribution?: Attribution;
   pending?: boolean;
   failed?: boolean;
+  /** Set when the user stopped an in-flight run; the content is a partial answer. */
+  stopped?: boolean;
   process?: Array<{ phase: string; message: string; toolName?: string; elapsed?: number }>;
   artifacts?: ChatArtifact[];
   references?: ChatReference[];
@@ -716,7 +718,7 @@ export interface GraphExtractionRun {
   document_id: string;
   chunk_id?: string | null;
   document_title: string;
-  status: "queued" | "running" | "completed" | "completed_with_warnings" | "failed";
+  status: "queued" | "running" | "completed" | "completed_with_warnings" | "failed" | "interrupted";
   stage?: "scanning_sections" | "merging_concepts" | "analyzing_local_relationships" | "analyzing_cross_section_relationships" | "quality_check" | "supplementing" | "ready_for_review" | string;
   stored_count: number;
   warnings?: string[];
@@ -724,6 +726,8 @@ export interface GraphExtractionRun {
   error: string;
   created_at: number;
   updated_at: number;
+  /** Server-side start time (epoch seconds) of the first running transition. */
+  started_at?: number | null;
   content_version?: string;
 }
 

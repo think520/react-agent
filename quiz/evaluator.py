@@ -12,9 +12,13 @@ GRADING_PROMPT = """你是一个批改老师。学生回答了一道简答题。
 参考答案：{expected_answer}
 学生答案：{student_answer}
 
-请评判答案是否正确。考虑语义等价性，不要求完全一致。
+请评判答案（考虑语义等价性，不要求完全一致）：
+- 完全正确用 "correct"。
+- 要点基本正确、但有遗漏或表述不完整用 "partial"。
+- 错误或严重偏离用 "incorrect"。
+
 严格按以下 JSON 格式输出，不要添加其他文字：
-{{"is_correct": true, "feedback": "解释为什么正确或错误，并在错误时给出正确答案。"}}"""
+{{"verdict": "correct|partial|incorrect", "feedback": "解释判断依据；不完整时指出缺少什么，错误时给出正确答案。"}}"""
 
 GRADING_RETRY_SUFFIX = """
 
@@ -39,16 +43,26 @@ def _normalize_bool_answer(raw: str) -> str:
     return value
 
 
-def _parse_grading_response(text: str) -> tuple[bool, str]:
-    """Parse LLM grading response. Raises GradingError when no verdict exists."""
+def _parse_grading_response(text: str) -> tuple[bool, str, str]:
+    """Parse LLM grading response. Raises GradingError when no verdict exists.
+
+    Returns ``(is_correct, feedback, verdict)`` where verdict is one of
+    ``correct`` / ``partial`` / ``incorrect``. Old two-state outputs (only
+    ``is_correct``) are still accepted for backward compatibility.
+    """
     data = parse_llm_object(text)
     if data is None:
         raise GradingError("no JSON object found in grading response")
-    if "is_correct" not in data:
-        raise GradingError("grading JSON missing is_correct")
-    is_correct = bool(data.get("is_correct"))
+    verdict = str(data.get("verdict") or "").strip().lower()
+    if verdict in {"correct", "partial", "incorrect"}:
+        is_correct = verdict == "correct"
+    elif "is_correct" in data:
+        is_correct = bool(data.get("is_correct"))
+        verdict = "correct" if is_correct else "incorrect"
+    else:
+        raise GradingError("grading JSON missing verdict")
     feedback = data.get("feedback", "")
-    return is_correct, feedback
+    return is_correct, feedback, verdict
 
 
 class QuizEvaluator:
@@ -61,14 +75,26 @@ class QuizEvaluator:
         Raises GradingError when a short answer cannot be judged; callers
         should surface a retryable error instead of recording a wrong answer.
         """
+        is_correct, feedback, _verdict = self.evaluate_with_verdict(question, user_answer)
+        return is_correct, feedback
+
+    def evaluate_with_verdict(
+        self, question: Question, user_answer: str
+    ) -> tuple[bool, str, str]:
+        """Like evaluate() but also returns a three-state verdict for short
+        answers: ``correct`` / ``partial`` / ``incorrect``. Choice and
+        true/false questions derive the verdict from the boolean result.
+        """
         if question.type == "single_choice":
-            return self._evaluate_choice(question, user_answer)
+            is_correct, feedback = self._evaluate_choice(question, user_answer)
+            return is_correct, feedback, "correct" if is_correct else "incorrect"
         elif question.type == "true_false":
-            return self._evaluate_true_false(question, user_answer)
+            is_correct, feedback = self._evaluate_true_false(question, user_answer)
+            return is_correct, feedback, "correct" if is_correct else "incorrect"
         elif question.type == "short_answer":
             return self._evaluate_short_answer(question, user_answer)
         else:
-            return False, f"未知题型: {question.type}"
+            return False, f"未知题型: {question.type}", "incorrect"
 
     def _evaluate_choice(self, question: Question, user_answer: str) -> tuple[bool, str]:
         """Auto-grade single_choice: normalize answer letter and compare."""
@@ -100,17 +126,24 @@ class QuizEvaluator:
                 feedback += f" {question.explanation}"
         return correct, feedback
 
-    def _evaluate_short_answer(self, question: Question, user_answer: str) -> tuple[bool, str]:
-        """LLM-grade short_answer with one retry on unparseable output."""
+    def _evaluate_short_answer(
+        self, question: Question, user_answer: str
+    ) -> tuple[bool, str, str]:
+        """LLM-grade short_answer with one retry on unparseable output.
+
+        Returns ``(is_correct, feedback, verdict)``; ``is_correct`` stays
+        boolean (``partial`` counts as not correct) so mastery/wrong-answer
+        bookkeeping keeps working, while the verdict drives honest UI labels.
+        """
         if not self.llm:
             # Fallback: simple string matching
             expected = question.answer.strip().lower()
             actual = user_answer.strip().lower()
             if expected == actual:
-                return True, "正确！"
+                return True, "正确！", "correct"
             if expected in actual or actual in expected:
-                return True, "基本正确。"
-            return False, f"参考答案：{question.answer}"
+                return True, "基本正确。", "correct"
+            return False, f"参考答案：{question.answer}", "incorrect"
 
         prompt = GRADING_PROMPT.format(
             question=question.question,

@@ -106,6 +106,11 @@ export function CandidateReviewPanel({ onClose, onCandidatesChanged, onReturnToS
         const { run } = await api.graphExtraction(runId);
         if (cancelled) return;
         setRunStage(run.stage || "");
+        // Anchor the elapsed timer to the server-side start time so closing
+        // and reopening the panel does not reset it to zero (task is not rerun).
+        if (typeof run.started_at === "number") {
+          setElapsedSeconds(Math.max(0, Math.floor(Date.now() / 1000 - run.started_at)));
+        }
         if (run.status === "completed" || run.status === "completed_with_warnings") {
           const result = await api.graphCandidates("pending", source.documentId);
           if (cancelled) return;
@@ -118,8 +123,10 @@ export function CandidateReviewPanel({ onClose, onCandidatesChanged, onReturnToS
           onCandidatesChanged();
           return;
         }
-        if (run.status === "failed") {
-          setError(run.error || "概念提取失败，请返回资料后重试。");
+        if (run.status === "failed" || run.status === "interrupted") {
+          setError(run.error || (run.status === "interrupted"
+            ? "提取任务在应用重启时中断，请返回资料后重新提取。"
+            : "概念提取失败，请返回资料后重试。"));
           setLoading(false);
           setPhase("failed");
           return;

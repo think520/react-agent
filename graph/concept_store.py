@@ -150,6 +150,11 @@ class ConceptStore:
                     "ALTER TABLE concept_extraction_runs "
                     "ADD COLUMN failed_sections TEXT DEFAULT '[]'"
                 )
+            if "started_at" not in run_columns:
+                con.execute(
+                    "ALTER TABLE concept_extraction_runs "
+                    "ADD COLUMN started_at REAL"
+                )
             evidence_columns = {
                 row["name"]
                 for row in con.execute("PRAGMA table_info(evidence)")
@@ -563,6 +568,24 @@ class ConceptStore:
             )
         return self.get_extraction_run(run_id)  # type: ignore[return-value]
 
+    def recover_stale_runs(self, timeout_seconds: int = 600) -> int:
+        """Mark queued/running runs without recent activity as interrupted.
+
+        Extraction tasks run inside the process; a backend restart leaves
+        their rows stuck in ``running`` forever, so the UI shows an eternal
+        spinner. Called lazily on extraction status reads (and at startup)
+        so stale runs surface as recoverable ``interrupted`` instead.
+        """
+        cutoff = time.time() - timeout_seconds
+        with self._connect() as con:
+            cur = con.execute(
+                "UPDATE concept_extraction_runs SET status = 'interrupted', "
+                "updated_at = ? "
+                "WHERE status IN ('queued', 'running') AND updated_at < ?",
+                (time.time(), cutoff),
+            )
+            return cur.rowcount
+
     def get_extraction_run(self, run_id: str) -> dict[str, Any] | None:
         with self._connect() as con:
             row = con.execute(
@@ -622,12 +645,21 @@ class ConceptStore:
     ) -> bool:
         warnings_json = json.dumps(warnings or [], ensure_ascii=False)
         failed_sections_json = json.dumps(failed_sections or [], ensure_ascii=False)
+        now = time.time()
         with self._connect() as con:
+            # First transition into running records the real start time so the
+            # frontend can show honest elapsed time across panel close/reopen.
+            if status == "running":
+                con.execute(
+                    "UPDATE concept_extraction_runs SET started_at = ? "
+                    "WHERE run_id = ? AND started_at IS NULL",
+                    (now, run_id),
+                )
             cur = con.execute(
                 """UPDATE concept_extraction_runs
                    SET status = ?, stage = ?, stored_count = ?, warnings = ?, failed_sections = ?, error = ?, updated_at = ?
                    WHERE run_id = ?""",
-                (status, stage, stored_count, warnings_json, failed_sections_json, error, time.time(), run_id),
+                (status, stage, stored_count, warnings_json, failed_sections_json, error, now, run_id),
             )
         return cur.rowcount > 0
 

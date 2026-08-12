@@ -293,6 +293,84 @@ def test_wrong_answer_variant_uses_original_question_and_user_answer(store, svc,
     assert saved.sources[0]["chunk_id"] == "chunk1"
 
 
+def test_wrong_answer_variant_falls_back_to_concept_regen_without_chunks(store, svc, workspace, monkeypatch):
+    """Wrong-answer variant without chunk evidence must not dead-end: fall back
+    to a concept-based question instead of returning evidence_missing."""
+    # 库里有可检索资料（供按概念重新出题检索），但原题来源是网页快照（无 chunk_id）
+    kb = KBSQLiteStore(workspace)
+    kb.init_db()
+    kb.upsert_document("doc-lib", "lesson.md", "hash", title="算法课")
+    kb.insert_chunks([make_chunk_row(
+        "lib-chunk-1", "doc-lib", "lesson.md", 0,
+        "Dijkstra 算法用于求解非负权图中的单源最短路径问题，属于贪心策略。",
+    )])
+    kb.close()
+
+    question = Question(
+        type="single_choice",
+        question="Dijkstra 使用哪种策略？",
+        options=["A. 分治", "B. 贪心"],
+        answer="B",
+        explanation="每次选择当前距离最小的节点。",
+        concepts=["Dijkstra", "贪心算法"],
+        sources=[{  # web-style source: no chunk_id
+            "source_type": "web", "source_id": "snap-1", "title": "网页证据",
+            "url": "https://example.com", "snapshot_id": "snap-1",
+        }],
+    )
+    question.id = store.add_question(question)
+    session = store.create_session([question.id])
+    attempt_id = store.record_attempt(QuizAttempt(
+        session_id=session.id,
+        question_id=question.id,
+        user_answer="A",
+        is_correct=False,
+    ))
+
+    class LLM:
+        def complete(self, messages):
+            return type("Response", (), {"content": '[{"type":"true_false","question":"Dijkstra 适合负权图吗？","options":[],"answer":"错误","explanation":"贪心失效","concepts":["Dijkstra"],"difficulty":"easy","source_ids":[]}]' })()
+
+    monkeypatch.setattr("service.quiz_service._get_llm_provider", lambda config=None: LLM())
+    result = svc.generate_wrong_answer_variant(attempt_id)
+
+    assert result["ok"] is True
+    assert result["mode"] == "concept_fallback"
+    assert result["question"]["question"] != question.question
+
+
+def test_wrong_answer_variant_replays_original_as_last_resort(store, svc, workspace, monkeypatch):
+    """When neither chunks nor a concept-based regen produce a question, the
+    original question is replayed so the review item is never a dead end."""
+    question = Question(
+        type="short_answer",
+        question="为什么负权边会破坏 Dijkstra？",
+        answer="贪心选择失效",
+        concepts=["Dijkstra"],
+        sources=[],
+    )
+    question.id = store.add_question(question)
+    session = store.create_session([question.id])
+    attempt_id = store.record_attempt(QuizAttempt(
+        session_id=session.id,
+        question_id=question.id,
+        user_answer="不知道",
+        is_correct=False,
+    ))
+
+    class LLM:
+        def complete(self, messages):
+            # No valid question JSON → both fallback paths fail.
+            return type("Response", (), {"content": "not json" })()
+
+    monkeypatch.setattr("service.quiz_service._get_llm_provider", lambda config=None: LLM())
+    result = svc.generate_wrong_answer_variant(attempt_id)
+
+    assert result["ok"] is True
+    assert result["mode"] == "replay"
+    assert result["question_id"] == question.id
+
+
 # --- get_weakness_analysis ---
 
 def test_get_weakness_analysis_empty(svc):

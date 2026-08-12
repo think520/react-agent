@@ -356,3 +356,39 @@ def test_get_subgraph_returns_neighbours(store):
     assert "无关节点" not in names
     assert len(sub["relationships"]) == 2
     assert len(sub["evidence"]) == 1
+
+
+# ------------------------------------------------------------------
+# Extraction runs: started_at + stale recovery
+# ------------------------------------------------------------------
+
+
+def test_extraction_run_records_started_at_once(store):
+    run = store.create_extraction_run(document_id="doc1", document_title="标题")
+    assert run["started_at"] is None
+    store.update_extraction_run(run["run_id"], status="running", stage="scanning_sections")
+    run = store.get_extraction_run(run["run_id"])
+    assert run["started_at"] is not None
+    first = run["started_at"]
+    store.update_extraction_run(run["run_id"], status="running", stage="merging_concepts")
+    run = store.get_extraction_run(run["run_id"])
+    assert run["started_at"] == first  # 不覆盖首次开始时间
+
+
+def test_recover_stale_runs_marks_orphaned(store):
+    run = store.create_extraction_run(document_id="doc1", document_title="标题")
+    store.update_extraction_run(run["run_id"], status="running", stage="scanning_sections")
+    # 模拟后端重启：把 updated_at 推到一小时前
+    with store._connect() as con:
+        con.execute(
+            "UPDATE concept_extraction_runs SET updated_at = ? WHERE run_id = ?",
+            (time.time() - 3600, run["run_id"]),
+        )
+    assert store.recover_stale_runs(timeout_seconds=300) == 1
+    state = store.get_extraction_run(run["run_id"])
+    assert state["status"] == "interrupted"
+
+    # 新产生的 running 任务不受影响
+    fresh = store.create_extraction_run(document_id="doc2", document_title="标题2")
+    store.update_extraction_run(fresh["run_id"], status="running", stage="scanning_sections")
+    assert store.recover_stale_runs(timeout_seconds=300) == 0
