@@ -1038,8 +1038,8 @@ P5G 不先堆叠新页面。执行顺序固定为：
 ```text
 P5E.5 Wiki 易用性、手写编辑与 AI 成本控制（完成）
 → P5E.6 知识地图产品重置（完成）
-→ P5G.0 文档提取完整性与发布合规
-→ P5G.1 单进程本地 Web
+→ P5G.0 文档提取完整性与发布合规（完成）
+→ P5G.1 单进程本地 Web（完成）
 → P5G.2 Windows Electron 桌面版
 → P5G.3 支撑页面与体验收尾
 ```
@@ -1097,6 +1097,8 @@ interface DocumentExtractionReport {
 5. 首个 GitHub Prerelease 允许暂不签名，但必须说明 Windows SmartScreen 的“未知发布者”提示；取得代码签名证书前不启用自动更新。
 
 #### P5G.1：单进程本地 Web
+
+**状态：已完成（2026-08-12）。** `python agent.py web` 单进程启动完整产品；验证：Python 1212 passed / Vitest 19 passed / 生产构建通过，真实启动冒烟覆盖健康检查、SPA 深链接与静态资源。
 
 1. FastAPI 在生产模式托管 React `dist`，并为 `/chat/*`、`/library`、`/practice/*` 等 SPA 深链接回退到 `index.html`。
 2. 增加 `bobodan web`，默认绑定 `127.0.0.1`、选择可用端口并自动打开浏览器；开发模式继续使用 Vite + FastAPI。
@@ -1703,8 +1705,8 @@ P5C 产品化基础（完成）
 → P5E.4 全库 Wiki 编排与覆盖系统（完成）
 → P5E.5 Wiki 易用性、手写编辑与 AI 成本控制（完成）
 → P5E.6 知识地图产品重置（完成）
-→ P5G.0 文档提取完整性与发布合规
-→ P5G.1 单进程本地 Web
+→ P5G.0 文档提取完整性与发布合规（完成）
+→ P5G.1 单进程本地 Web（完成）
 → P5G.2 Windows Electron 桌面版
 → P5G.3 支撑页面与体验收尾
 ```

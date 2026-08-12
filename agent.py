@@ -43,9 +43,21 @@ def main():
     library_sync = library_commands.add_parser("sync", help="Index changed original materials")
     library_sync.add_argument("path", nargs="?")
     library_commands.add_parser("list", help="List registered libraries")
+    web_parser = subparsers.add_parser("web", help="Start the single-process local Web server (P5G.1)")
+    from cli.web_serve import build_parser
+    build_parser(web_parser)
     args = parser.parse_args()
 
     setup_logging(verbose=args.verbose)
+
+    if args.command == "web":
+        from cli.web_serve import run_web
+        raise SystemExit(run_web(
+            host=args.host,
+            port=args.port,
+            no_browser=args.no_browser,
+            dev=args.dev,
+        ))
 
     if args.command == "library":
         from providers.factory import ProviderFactory

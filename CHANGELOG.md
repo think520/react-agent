@@ -7,6 +7,7 @@
 ## [未发布]
 
 ### 变更
+- **完成 P5G.1 单进程本地 Web**：新增 `python agent.py web`，一条命令启动完整产品（FastAPI 托管 React 生产构建 + SPA 深链接回退 + `/api/*` 不被拦截）；默认 `127.0.0.1`、端口被占用自动向后查找、启动后自动打开浏览器；生产模式用户数据目录切换为 `%APPDATA%\Bobodan`、日志写入 `%LOCALAPPDATA%\Bobodan\logs\web.log`（`--dev` 保持开发行为）；启动失败给出端口/配置/构建三类可操作提示。验证：Python `1212 passed`、Vitest `19 passed`、生产构建与真实启动冒烟通过。
 - **完成 2026-07-26 项目审查整改**：修复审查报告中的 B1–B9 正确性问题，并继续沿“单一正常运行真相源、旧数据只做显式迁移”的原则收敛后端与前端。
 - 正常运行时退役旧 Markdown Memory、JSON sparse/local RAG、JSON / Neo4j 图谱和 `WikiCompiler`；Wiki 保留为高级维护与历史整理，不再作为默认 RAG 证据。
 - 本地资料检索统一到 SQLite `knowledge.db`、中文 CJK 2-gram FTS5 与可选 Qdrant；修正混合检索排序，增加有界缓存并收紧并发数据库访问。
