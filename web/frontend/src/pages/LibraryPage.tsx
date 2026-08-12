@@ -3,6 +3,7 @@ import { CheckCircle2, FilePlus2, FileText, FolderOpen, Library, MessageCircle, 
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useNavigate, useOutletContext, useSearchParams } from "react-router-dom";
+import { DropdownSelect } from "../components/DropdownSelect";
 
 import type { AppOutletContext } from "../components/AppShell";
 import { BrandIllustration, EmptyState, ErrorNotice, IconButton, LoadingState, formatRelativeDate } from "../components/common";
@@ -793,9 +794,7 @@ export function LibraryPage() {
             <div>
               <span>{collection === "wiki" ? "历史整理" : "资料库"}</span>
               {collection === "material" && libraries.filter((item) => item.available).length > 0 ? (
-                <select aria-label="切换资料库" value={activeLibrary?.library_id || ""} onChange={(event) => void switchLibrary(event.target.value)}>
-                  {libraries.filter((item) => item.available).map((library) => <option value={library.library_id} key={library.library_id}>{library.name}</option>)}
-                </select>
+                <DropdownSelect ariaLabel="切换资料库" value={activeLibrary?.library_id || ""} onChange={(value) => void switchLibrary(value)} options={libraries.filter((item) => item.available).map((library) => ({ value: library.library_id, label: library.name }))} />
               ) : <strong>{collection === "wiki" ? activeLibrary?.name || "资料库" : "尚未创建资料库"}</strong>}
             </div>
           </div>
@@ -833,20 +832,11 @@ export function LibraryPage() {
           </div>
           {collection === "material" && <label className="wiki-scope-field">
             <span>整理范围</span>
-            <select value={wikiScopeMode} onChange={(event) => setWikiScopeMode(event.target.value as WikiScopeMode)}>
-              <option value="uncovered">所有未覆盖或已变化资料</option>
-              <option value="smart_library">智能全库（选择项作为重点）</option>
-              {selectedDocumentIds.length > 0 && <option value="selected_only">严格仅选中（{selectedDocumentIds.length} 份）</option>}
-              {selected?.course && <option value="course">课程：{selected.course}</option>}
-            </select>
+            <DropdownSelect ariaLabel="整理范围" value={wikiScopeMode} onChange={(value) => setWikiScopeMode(value as WikiScopeMode)} options={[{ value: "uncovered", label: "所有未覆盖或已变化资料" }, { value: "smart_library", label: "智能全库（选择项作为重点）" }, ...(selectedDocumentIds.length > 0 ? [{ value: "selected_only", label: `严格仅选中（${selectedDocumentIds.length} 份）` }] : []), ...(selected?.course ? [{ value: "course", label: `课程：${selected.course}` }] : [])]} />
           </label>}
           {collection === "material" && <label className="wiki-scope-field">
             <span>整理深度</span>
-            <select value={wikiGenerationMode} onChange={(event) => { setWikiGenerationMode(event.target.value as WikiGenerationMode); setWikiEstimate(null); }}>
-              <option value="catalog">快速建档（不调用模型）</option>
-              <option value="standard">标准整理（下一批 5 份）</option>
-              <option value="deep">深度整理（完整范围）</option>
-            </select>
+            <DropdownSelect ariaLabel="整理深度" value={wikiGenerationMode} onChange={(value) => { setWikiGenerationMode(value as WikiGenerationMode); setWikiEstimate(null); }} options={[{ value: "catalog", label: "快速建档（不调用模型）" }, { value: "standard", label: "标准整理（下一批 5 份）" }, { value: "deep", label: "深度整理（完整范围）" }]} />
           </label>}
           {collection === "material" && wikiScopeMode === "smart_library" && <label>
             <span>主题或目标</span>

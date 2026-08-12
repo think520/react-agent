@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { BookOpen, Check, Pencil, Pin, Plus, Search, Trash2, X } from "lucide-react";
+import { BookOpen, Check, Eye, Pencil, PenLine, Pin, Plus, Search, Trash2, X } from "lucide-react";
 import { useOutletContext } from "react-router-dom";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 import { api } from "../lib/api";
 import type { AppOutletContext } from "../components/AppShell";
@@ -12,20 +14,35 @@ interface NoteDraft {
   id: string;
   revision: number;
   scope: "global" | "library";
-  title: string;
-  content: string;
+  markdown: string;
   pinned: boolean;
   references: Array<{ document_id: string; chunk_id?: string; title: string; page?: number }>;
 }
 
-const emptyDraft: NoteDraft = { id: "", revision: 0, scope: "library", title: "", content: "", pinned: false, references: [] };
+const emptyDraft: NoteDraft = { id: "", revision: 0, scope: "library", markdown: "", pinned: false, references: [] };
 
-/** P5G 体验整改：个人笔记一级入口。笔记 = 个人知识条目（kind=course_insight）。 */
+/** 笔记以 Markdown 正文为主角；第一行 `# 标题` 自动提取为标题。 */
+function toMarkdown(item: PersonalKnowledgeItem): string {
+  return `# ${item.title}\n\n${item.content}`;
+}
+
+function parseMarkdown(markdown: string): { title: string; content: string } {
+  const lines = markdown.split("\n");
+  const first = (lines[0] || "").trim();
+  if (first.startsWith("# ")) {
+    const title = first.slice(2).trim();
+    return { title: title || "无标题笔记", content: lines.slice(1).join("\n").trim() };
+  }
+  return { title: first.slice(0, 30) || "无标题笔记", content: markdown.trim() };
+}
+
+/** P5G.5 体验整改：个人笔记一级入口，沉浸式 Markdown 编辑（非填表）。 */
 export function NotesPage() {
   const { documents, activeLibrary, settings } = useOutletContext<AppOutletContext>();
   const [notes, setNotes] = useState<PersonalKnowledgeItem[]>([]);
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState<NoteDraft | null>(null);
+  const [preview, setPreview] = useState(false);
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState("");
@@ -52,8 +69,11 @@ export function NotesPage() {
     return needle ? notes.filter((item) => `${item.title} ${item.content}`.toLocaleLowerCase().includes(needle)) : notes;
   }, [notes, query]);
 
+  const draftTitle = useMemo(() => (draft ? parseMarkdown(draft.markdown).title : ""), [draft]);
+
   function startNew() {
     setDraft({ ...emptyDraft, scope: activeLibrary ? "library" : "global" });
+    setPreview(false);
     setError("");
     setNotice("");
   }
@@ -63,13 +83,19 @@ export function NotesPage() {
       id: item.id,
       revision: item.revision,
       scope: item.scope,
-      title: item.title,
-      content: item.content,
+      markdown: toMarkdown(item),
       pinned: item.pinned,
       references: item.references || [],
     });
+    setPreview(false);
     setError("");
     setNotice("");
+  }
+
+  function closeEditor() {
+    setDraft(null);
+    setPreview(false);
+    setError("");
   }
 
   function toggleReference(documentId: string, title: string) {
@@ -83,17 +109,23 @@ export function NotesPage() {
     });
   }
 
+  function handleEditorKeyDown(event: React.KeyboardEvent) {
+    if (event.key === "Escape") { event.preventDefault(); closeEditor(); }
+    else if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); void saveNote(); }
+  }
+
   async function saveNote() {
     if (!draft) return;
-    if (!draft.title.trim() || !draft.content.trim()) { setError("请填写标题和内容。"); return; }
+    const { title, content } = parseMarkdown(draft.markdown);
+    if (!title.trim() || !content.trim()) { setError("先写下笔记正文，再保存。"); return; }
     setWorking(true);
     setError("");
     setNotice("");
     try {
       if (draft.id) {
         await api.updateMemoryKnowledge(draft.id, draft.revision, {
-          title: draft.title.trim(),
-          content: draft.content.trim(),
+          title: title.trim(),
+          content: content.trim(),
           pinned: draft.pinned,
           references: draft.references,
         });
@@ -101,13 +133,14 @@ export function NotesPage() {
         await api.createMemoryKnowledge({
           scope: draft.scope,
           kind: "course_insight",
-          title: draft.title.trim(),
-          content: draft.content.trim(),
+          title: title.trim(),
+          content: content.trim(),
           pinned: draft.pinned,
           references: draft.references,
         });
       }
       setDraft(null);
+      setPreview(false);
       setNotice("笔记已保存。");
       await loadNotes();
     } catch (reason) {
@@ -157,22 +190,34 @@ export function NotesPage() {
 
       {draft && (
         <section className="note-editor">
-          <header><h3>{draft.id ? "编辑笔记" : "写笔记"}</h3><IconButton label="关闭编辑器" onClick={() => setDraft(null)}><X /></IconButton></header>
-          <label className="wide"><span>标题</span><input value={draft.title} maxLength={120} disabled={working} onChange={(event) => setDraft({ ...draft, title: event.target.value })} placeholder="一句话概括这条笔记" /></label>
-          <label className="wide"><span>内容</span><textarea rows={6} value={draft.content} maxLength={5000} disabled={working} onChange={(event) => setDraft({ ...draft, content: event.target.value })} placeholder="写下你的想法、结论或摘录…" /></label>
-          {documents.length > 0 && (
-            <div className="wide note-references">
-              <span>关联资料（可选）</span>
-              <div className="note-reference-list">
-                {documents.slice(0, 100).map((doc) => (
-                  <label key={doc.document_id}><input type="checkbox" checked={draft.references.some((ref) => ref.document_id === doc.document_id)} disabled={working} onChange={() => toggleReference(doc.document_id, doc.title)} /><span>{doc.title}</span></label>
-                ))}
-              </div>
+          <header className="note-editor-toolbar">
+            <div className="note-editor-heading">
+              <span>{draft.id ? "编辑笔记" : "写笔记"}</span>
+              <h3>{draftTitle || "无标题笔记"}</h3>
             </div>
+            <div className="note-editor-toolbar-actions">
+              <button className="quiet-button" type="button" onClick={() => setPreview((value) => !value)}><Eye size={14} />{preview ? "编辑" : "预览"}</button>
+              <IconButton label="关闭编辑器" onClick={closeEditor}><X /></IconButton>
+            </div>
+          </header>
+          {preview ? (
+            <article className="note-preview reader-prose"><ReactMarkdown remarkPlugins={[remarkGfm]}>{draft.markdown || "*还没有内容。*"}</ReactMarkdown></article>
+          ) : (
+            <textarea className="note-body" autoFocus value={draft.markdown} disabled={working} onKeyDown={handleEditorKeyDown} placeholder={"# 标题\n\n写下你的想法、结论或摘录…（支持 Markdown）"} onChange={(event) => setDraft({ ...draft, markdown: event.target.value })} />
           )}
-          <footer>
-            <button className="quiet-button" disabled={working} onClick={() => setDraft(null)}>取消</button>
-            <button className="primary-button" disabled={working || !draft.title.trim() || !draft.content.trim()} onClick={() => void saveNote()}><Check size={15} />保存笔记</button>
+          <footer className="note-editor-footer">
+            {documents.length > 0 && (
+              <details className="note-references">
+                <summary><BookOpen size={13} />关联资料{draft.references.length ? `（${draft.references.length}）` : ""}</summary>
+                <div className="note-reference-list">
+                  {documents.slice(0, 100).map((doc) => (
+                    <label key={doc.document_id}><input type="checkbox" checked={draft.references.some((ref) => ref.document_id === doc.document_id)} disabled={working} onChange={() => toggleReference(doc.document_id, doc.title)} /><span>{doc.title}</span></label>
+                  ))}
+                </div>
+              </details>
+            )}
+            <span className="note-editor-hint">Ctrl+Enter 保存 · Esc 关闭</span>
+            <button className="primary-button" disabled={working} onClick={() => void saveNote()}><Check size={15} />保存笔记</button>
           </footer>
         </section>
       )}
@@ -202,7 +247,9 @@ export function NotesPage() {
               </div>
             </article>
           ))}
-          {!filtered.length && <p className="settings-empty">{query ? "没有匹配的笔记。" : "还没有笔记。点「写笔记」开始记录你的第一条思考。"}</p>}
+          {!filtered.length && (query
+            ? <p className="settings-empty">没有匹配的笔记。</p>
+            : <div className="notes-empty"><PenLine size={28} /><h3>还没有笔记</h3><p>记录你的思考、结论和摘录。笔记可关联资料，阅读原文时也能看到。</p><button className="primary-button" onClick={startNew}><Plus size={15} />写第一条笔记</button></div>)}
         </div>
       )}
 

@@ -1173,6 +1173,21 @@ P5G 总体验收：
 
 验证：Python `1233 passed`（新增 references 往返 + 反向查询回归）、Vitest `19 passed`、前端 lint 与生产构建通过。
 
+### P5G.6：前端视觉统一与沉浸式笔记编辑器（2026-08-13 完成）
+
+用户实际使用后反馈两个 UI 问题（笔记是"填表"、模型下拉未适配主题），并授权做一轮"总体不变、全面视觉优化"（grill 确认范围 = 所有页面视觉细节统一，布局和配色主基调不动）：
+
+1. **主题化下拉组件**：原生 `<select>` 的下拉面板是浏览器系统样式，无法跟随暖纸色主题。新建 `DropdownSelect` 组件（portal 定位、键盘导航、点击外部/滚动关闭），模型下拉做成「供应商分组 → 模型」两级、回答深度做成简单单选；全面替换 composer、设置页、Library、知识地图、记忆管理、供应商管理、候选审查的所有原生 `<select>`。
+2. **沉浸式 Markdown 笔记编辑器**：`/notes` 写笔记从"标题框 + 正文框 + 复选框堆叠"的表单，改为沉浸式 Markdown 编辑——正文为主角、第一行 `# 标题` 自动提取为标题、编辑/预览切换、`Ctrl+Enter` 保存 `Esc` 关闭、关联资料折叠到底部。笔记列表卡片加 hover 态、内容三行截断、空状态加引导按钮。
+3. **视觉细节统一**（保持布局和配色主基调不变）：
+   - 补缺失设计 token：`--sage-deep`（成功绿）、`--ink-soft`（柔和墨色）、`--accent`（复选框）、`--shadow-dialog`（弹窗阴影）；替换散落的硬编码绿色 `#4f6e4c`/`#486545`（13 处）为 `--sage-deep`，hover 深蓝 `#142a4a` → `--blue-soft`，hover 浅蓝 `#dde5ee` → `--blue-wash`。
+   - 统一弹窗阴影为一个 token（6 处冷蓝/墨色混用 → `--shadow-dialog`）。
+   - 统一圆角：composer 10→8px、run-summary 10→8px、candidate-panel 12→8px、session-row 输入框 5→7px。
+   - 补缺失 hover 态：send-button、wiki-editor-toolbar、5 个 tab 组（memory/wiki-view/library/mention/library-mode）。
+   - 复选框主题化（accent-color），修 `--ink-soft`/`--accent` 未定义导致的无效值。
+
+验证：Vitest `19 passed`、前端 lint 与生产构建通过（纯前端改动，Python 未变）。
+
 ### P5G.4：模型供应商管理（Provider Catalog，2026-08-12 完成）
 
 对标 OpenHanako（Electron 桌面 agent：38 个 provider 插件 + `~/.hanako/provider-catalog.json` 用户配置目录）对现有多供应商能力做差距分析。会话级切换、默认模型、任务路由、测试连接已存在，本次补的是**配置管理产品化**：用户不再需要碰 `config.yaml` 和 `.env`。与桌面版无关，Web 端（`python agent.py web`）即可完整使用；Electron 只是入口不同，共享同一后端与 `~/.bobodan`。
