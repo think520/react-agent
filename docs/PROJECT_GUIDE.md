@@ -1054,6 +1054,7 @@ P5E.5 Wiki 易用性、手写编辑与 AI 成本控制（完成）
 → P5E.6 知识地图产品重置（完成）
 → P5G.0 文档提取完整性与发布合规（完成）
 → P5G.1 单进程本地 Web（完成）
+→ P5G.4 模型供应商管理（Provider Catalog，2026-08-12 确认，等待实现）
 → P5G.2 Windows Electron 桌面版
 → P5G.3 支撑页面与体验收尾
 ```
@@ -1126,7 +1127,7 @@ interface DocumentExtractionReport {
 2. PyInstaller 使用 `onedir` 构建 `bobodan-server.exe`；Electron 负责单实例、窗口、文件夹选择、外部链接、sidecar 生命周期和崩溃提示。
 3. Electron 等待 `/api/health` 成功后进入主界面，退出应用时终止 sidecar；端口冲突和启动失败必须有可操作恢复入口。
 4. 启用 `contextIsolation`，禁用 renderer Node.js 权限，只通过白名单 preload IPC 暴露桌面能力。
-5. Provider 密钥由 Electron `safeStorage` 保存，启动 sidecar 时作为进程环境注入；密钥不得出现在 HTTP 响应、URL、日志、资料库或安装目录。
+5. Provider 密钥真相源是 `~/.bobodan/provider.json`（P5G.4 建立，web / CLI / Electron 共享）；Electron 可选用 `safeStorage` 把密钥升级为系统加密后作为进程环境注入 sidecar，不强制。密钥不得出现在 HTTP 响应、URL、日志、资料库或安装目录。
 6. electron-builder 生成 Windows x64 NSIS 安装包 `Bobodan-Setup-x64.exe`，同时发布 `SHA256SUMS.txt`、SBOM 和第三方许可清单。
 7. GitHub Actions 在干净 Windows runner 上构建并执行安装包启动测试。首版不内置 OCR、Embedding、本地大模型、离线模型包或自动更新。
 
@@ -1160,6 +1161,37 @@ P5G 总体验收：
 3. **应用升级路径**：定义安装器覆盖安装行为、数据目录版本检测、升级前备份提示；自动更新可继续延后，但升级动作本身必须规划。
 4. **卸载清理与数据保留策略**：NSIS 卸载器的行为契约（保留用户资料库 vs 清理应用数据 vs 完整清除），写入 P5G.2 验收。
 5. **桌面环境适配与性能预算**：DPI / 高分屏 / 多显示器验收项（纳入 P5G 总体验收），以及首启时间、安装包体积目标值。
+
+### P5G.4：模型供应商管理（Provider Catalog，2026-08-12 确认，等待实现）
+
+对标 OpenHanako（Electron 桌面 agent：38 个 provider 插件 + `~/.hanako/provider-catalog.json` 用户配置目录）对现有多供应商能力做差距分析。会话级切换、默认模型、任务路由、测试连接已存在，本次补的是**配置管理产品化**：用户不再需要碰 `config.yaml` 和 `.env`。与桌面版无关，Web 端（`python agent.py web`）即可完整使用；Electron 只是入口不同，共享同一后端与 `~/.bobodan`。
+
+**8 项决策（grill 确认，2026-08-12）：**
+
+1. **API key 设置页 UI 输入，明文存 `~/.bobodan/provider.json`**。本地单机明文风险可接受（OpenHanako 同款模式）；加密升级留给 P5G.2 safeStorage。
+2. **供应商下挂多模型**：聊天框下拉改为「供应商分组 → 选模型」两级选择；会话级切换保留。
+3. **完全开放自定义供应商**：名称 + base_url + api_key + 模型列表，保存即用（OpenAI 兼容协议）；现有 6 个预设（deepseek / minimax / openai / dashscope / siliconflow / openrouter）变成可复制的模板。
+4. **本期只做 OpenAI 兼容协议**（`/chat/completions`，含 streaming 与工具调用）；协议层留可扩展抽象，Anthropic / Gemini 原生协议后续按同一接口加入。
+5. **模型列表远程自动拉取**：`GET {base}/models`（OpenAI 兼容端点普遍支持）拉回模型名自动填入；不支持该端点的服务手输兜底。
+6. **旧配置零断供迁移**：首次启动把 `config.yaml` 的 `llm.providers` 自动迁入 `provider.json`；`api_key` 为空时回退读 `api_key_env` 环境变量，用户在 UI 补填后自然覆盖。
+7. **任务级路由升级到模型级**：主题发现 / 页面撰写等任务选择器与主聊天共用同一两级选择器（供应商 → 模型）。
+8. **Ollama 作为内置模板**：免 key（authType none）、`base_url=http://localhost:11434/v1`、自动拉取本地已下载模型。仅连接用户已安装的 Ollama，不属于「本地大模型安装包」范围（见下方本轮明确不做）。
+
+**技术要点：**
+
+- 新增 `providers/catalog.py`：读写 `~/.bobodan/provider.json`（schema：`{version, providers: {name: {type, provider_name, base_url, api_key, api_key_env, model_default, models: [{id, name}], preset}}}`）。配置解析优先级：`provider.json` → `config.yaml` `llm.providers` → 内建模板。
+- 后端 API：`GET /api/providers`（key 脱敏 + 配置状态）、`POST /api/providers/test`（已有测试连接升级为按 key 字段）、`POST /api/providers/fetch-models`、`PUT /api/providers`（新增 / 编辑）、`DELETE /api/providers/{name}`。
+- `deps.get_default_provider_name` 升级为「默认供应商 + 其默认模型」解析；`LLMProvider` 契约不变。
+- 前端：「AI 与模型」tab 从只读升级为完整管理（供应商列表、添加 / 编辑表单、key 输入、测试连接、拉取模型）；新增两级模型选择器组件，ChatPage 与任务路由共用。
+- 与 P5G.2 的协调：P5G.2 第 5 条的 safeStorage 成为**可选项**——Electron 层可把 `provider.json` 密钥升级为系统加密（进程环境注入），`provider.json` 本身保持为可迁移的普通配置；「API key 不写入资料库、日志、URL、HTTP 响应或安装目录」验收不变（`~/.bobodan` 是应用数据目录，不是资料库 / 安装目录）。
+
+**验收：**
+
+- 旧环境（仅 `.env` 有 key）：启动后 6 个模板可用且环境变量 key 生效；UI 补填 key 后不再依赖环境变量。
+- UI 添加自定义 OpenAI 兼容供应商（如 Kimi）→ 保存 → 拉取模型列表 → 聊天切换成功。
+- Ollama 模板免 key 可用，拉取本地模型列表成功。
+- 密钥在 API 响应中脱敏；`provider.json` 不进入资料库、日志或安装目录。
+- Python 单测 / Vitest / 生产构建通过。
 
 ### 本轮明确不做
 
