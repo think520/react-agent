@@ -169,3 +169,22 @@ def test_memory_consolidation_uses_all_three_retry_delays(tmp_path, monkeypatch)
     final = service.store.list_jobs()[0]
     assert final["attempts"] == 4
     assert final["status"] == "failed"
+
+
+def test_note_references_roundtrip_and_lookup(tmp_path):
+    store = PersonalKnowledgeStore(str(tmp_path / "library"), home=str(tmp_path / "home"))
+    item = store.create_item(
+        scope="library", kind="course_insight", title="RAG 笔记", content="RAG 需要检索证据",
+        references=[{"document_id": "doc-rag", "chunk_id": "c1", "title": "RAG 资料"}],
+    )
+    assert item["references"] == [{"document_id": "doc-rag", "chunk_id": "c1", "title": "RAG 资料"}]
+
+    # 反向查询：按 document_id 找到关联笔记
+    found = store.list_by_reference("doc-rag")
+    assert [note["title"] for note in found] == ["RAG 笔记"]
+    assert store.list_by_reference("doc-other") == []
+
+    # 更新 references
+    updated = store.update_item(item["id"], item["revision"], {"references": []})
+    assert updated["references"] == []
+    assert store.list_by_reference("doc-rag") == []

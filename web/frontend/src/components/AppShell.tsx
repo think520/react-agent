@@ -7,6 +7,7 @@ import {
   Map,
   Menu,
   MessageCircle,
+  NotebookPen,
   PanelLeft,
   PanelRight,
   PenLine,
@@ -43,6 +44,7 @@ export interface AppOutletContext {
   openConceptDetail: (conceptId: string) => void;
   closeConceptDetail: () => void;
   showKnowledgeContext: (context: KnowledgeContext) => void;
+  receiveKnowledgeContext: (context: KnowledgeContext) => void;
   clearKnowledgeContext: () => void;
   showSourceContext: (attribution: Attribution) => void;
   documents: DocumentSummary[];
@@ -69,6 +71,7 @@ const navItems = [
   { to: "/practice", label: "练习", icon: PenLine },
   { to: "/review", label: "复习", icon: BookOpen },
   { to: "/knowledge-map", label: "知识地图", icon: Map },
+  { to: "/notes", label: "笔记", icon: NotebookPen },
   { to: "/library", label: "资料库", icon: Library },
 ];
 
@@ -519,6 +522,11 @@ export function AppShell() {
     else setContextOpen(true);
   }, [desktop, setContextOpen, setKnowledgeContext, setPanelOpen]);
 
+  // 流式/恢复时只记录上下文，不自动打开面板（P5G 体验整改：卡片不自动弹面板）
+  const receiveKnowledgeContext = useCallback((context: KnowledgeContext) => {
+    setKnowledgeContext(context);
+  }, [setKnowledgeContext]);
+
   const clearKnowledgeContext = useCallback(() => setKnowledgeContext(null), [setKnowledgeContext]);
 
   function showSourceContext(attribution: Attribution) {
@@ -601,6 +609,7 @@ export function AppShell() {
           openConceptDetail,
           closeConceptDetail: () => setConceptDetailId(null),
           showKnowledgeContext,
+          receiveKnowledgeContext,
           clearKnowledgeContext,
           showSourceContext,
           documents,

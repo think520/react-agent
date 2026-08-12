@@ -65,15 +65,20 @@ def concept_map_query(
                 data=data,
             )
         data = {key: value for key, value in result.items() if key != "ok"}
+        # 空结果（如概念图里没有匹配概念）不输出「概念关系」卡片，
+        # 避免渲染只有标题的空卡片。
+        artifacts = []
+        if data.get("concepts"):
+            artifacts.append({
+                "artifact_id": f"knowledge-{uuid.uuid4().hex[:12]}",
+                "type": "knowledge_context",
+                "context": data,
+            })
         return ToolResult(
             ok=True,
             content=json.dumps(data, ensure_ascii=False, indent=2),
             data=data,
-            artifacts=[{
-                "artifact_id": f"knowledge-{uuid.uuid4().hex[:12]}",
-                "type": "knowledge_context",
-                "context": data,
-            }],
+            artifacts=artifacts,
         )
     except Exception as exc:
         return ToolResult(ok=False, content=f"Error querying concept map: {exc}")

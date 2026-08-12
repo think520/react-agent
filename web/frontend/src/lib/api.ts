@@ -381,7 +381,10 @@ export const api = {
   memoryKnowledge: (scope = "all", query = "") => request<{ items: PersonalKnowledgeItem[] }>(
     `/api/memory/knowledge?scope=${encodeURIComponent(scope)}&query=${encodeURIComponent(query)}`,
   ),
-  createMemoryKnowledge: (body: Pick<PersonalKnowledgeItem, "scope" | "kind" | "title" | "content"> & { pinned?: boolean }) => request<{ item: PersonalKnowledgeItem }>(
+  knowledgeByDocument: (documentId: string) => request<{ items: PersonalKnowledgeItem[] }>(
+    `/api/memory/knowledge/by-document/${encodeURIComponent(documentId)}`,
+  ),
+  createMemoryKnowledge: (body: Pick<PersonalKnowledgeItem, "scope" | "kind" | "title" | "content"> & { pinned?: boolean; references?: PersonalKnowledgeItem["references"] }) => request<{ item: PersonalKnowledgeItem }>(
     "/api/memory/knowledge", json(body),
   ),
   updateMemoryKnowledge: (id: string, revision: number, patch: Record<string, unknown>) => request<{ item: PersonalKnowledgeItem }>(

@@ -259,6 +259,7 @@ export interface PersonalKnowledgeItem {
   pinned: boolean;
   confidence: number;
   evidence: Array<Record<string, unknown>>;
+  references: Array<{ document_id: string; chunk_id?: string; title: string; page?: number }>;
   created_at: string;
   updated_at: string;
   revision: number;

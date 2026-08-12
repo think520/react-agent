@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CheckCircle2, FilePlus2, FileText, FolderOpen, Library, MessageCircle, MoreHorizontal, Quote, RefreshCw, Save, Search, Settings2, ShieldCheck, Sparkles, Trash2, Upload, Wrench, X } from "lucide-react";
+import { CheckCircle2, FilePlus2, FileText, FolderOpen, Library, MessageCircle, MoreHorizontal, NotebookPen, Quote, RefreshCw, Save, Search, Settings2, ShieldCheck, Sparkles, Trash2, Upload, Wrench, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useNavigate, useOutletContext, useSearchParams } from "react-router-dom";
@@ -9,7 +9,7 @@ import { BrandIllustration, EmptyState, ErrorNotice, IconButton, LoadingState, f
 import { WikiPlanCard } from "../components/WikiPlanCard";
 import { ApiError, api } from "../lib/api";
 import { useHandoffStore } from "../stores/handoffStore";
-import type { DocumentExtractionStatus, DocumentSection, DocumentSummary, WikiEditablePage, WikiGenerationMode, WikiHealth, WikiPlan, WikiRepairPlan, WikiRunEstimate, WikiScopeMode, WikiTask } from "../types";
+import type { DocumentExtractionStatus, DocumentSection, DocumentSummary, PersonalKnowledgeItem, WikiEditablePage, WikiGenerationMode, WikiHealth, WikiPlan, WikiRepairPlan, WikiRunEstimate, WikiScopeMode, WikiTask } from "../types";
 
 type WikiView = "knowledge" | "sources" | "notes" | "all";
 
@@ -52,6 +52,7 @@ export function LibraryPage() {
   });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [sections, setSections] = useState<DocumentSection[]>([]);
+  const [relatedNotes, setRelatedNotes] = useState<PersonalKnowledgeItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState("");
@@ -169,6 +170,7 @@ export function LibraryPage() {
 
   useEffect(() => {
     setSelectionQuote("");
+    setRelatedNotes([]);
     if (!selectedId) { setSections([]); return; }
     let cancelled = false;
     setDetailLoading(true);
@@ -176,8 +178,14 @@ export function LibraryPage() {
       .then((result) => { if (!cancelled) setSections(result.sections); })
       .catch((reason: Error) => { if (!cancelled) setError(reason.message); })
       .finally(() => { if (!cancelled) setDetailLoading(false); });
+    // 资料 → 笔记联动：加载关联到这份资料的个人笔记
+    if (collection === "material") {
+      void api.knowledgeByDocument(selectedId)
+        .then((result) => { if (!cancelled) setRelatedNotes(result.items); })
+        .catch(() => { if (!cancelled) setRelatedNotes([]); });
+    }
     return () => { cancelled = true; };
-  }, [selectedId]);
+  }, [selectedId, collection]);
 
   useEffect(() => {
     readingOpenedRef.current = false;
@@ -807,7 +815,6 @@ export function LibraryPage() {
         {collection === "wiki" && <div className="wiki-view-tabs" role="tablist" aria-label="Wiki 页面类型">
           <button role="tab" aria-selected={wikiView === "knowledge"} className={wikiView === "knowledge" ? "active" : ""} onClick={() => selectWikiView("knowledge")}>知识页</button>
           <button role="tab" aria-selected={wikiView === "sources"} className={wikiView === "sources" ? "active" : ""} onClick={() => selectWikiView("sources")}>资料索引</button>
-          <button role="tab" aria-selected={wikiView === "notes"} className={wikiView === "notes" ? "active" : ""} onClick={() => selectWikiView("notes")}>个人笔记</button>
           <button role="tab" aria-selected={wikiView === "all"} className={wikiView === "all" ? "active" : ""} onClick={() => selectWikiView("all")}>全部</button>
         </div>}
         {wikiPlanOpen && !wikiPlan && <section className="wiki-plan-compose" aria-label="创建 Wiki 整理计划">
@@ -967,6 +974,18 @@ export function LibraryPage() {
                   )}
                 </div>}
                 {selected.summary && <p>{selected.summary}</p>}
+                {selected.collection === "material" && relatedNotes.length > 0 && (
+                  <div className="reader-related-notes">
+                    <span><NotebookPen size={14} />相关笔记</span>
+                    {relatedNotes.map((note) => (
+                      <div key={note.id}>
+                        <strong>{note.title}</strong>
+                        <p>{note.content}</p>
+                        <small>更新于 {new Date(note.updated_at).toLocaleString("zh-CN")}</small>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </header>}
               {selectionQuote && <div className="selection-toolbar"><Quote size={15} /><span>已选择 {selectionQuote.length} 个字符</span><button className="quiet-button" onClick={askAboutSelection}>带到对话</button></div>}
               {detailLoading ? <LoadingState label="正在打开资料…" /> : sections.length ? <div className="reader-prose" onMouseUp={captureSelection}>{sections.map((section, index) => {

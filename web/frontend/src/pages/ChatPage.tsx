@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUp, BookOpen, Brain, Check, Command, FilePlus2, FileText, FolderOpen, Globe2, Library, MessageCircle, Paperclip, RotateCcw, Square, Sparkles, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -135,6 +135,7 @@ export function ChatPage() {
     openContext,
     openConceptDetail,
     showKnowledgeContext,
+    receiveKnowledgeContext,
     clearKnowledgeContext,
     showSourceContext,
     clearDocumentScope,
@@ -150,11 +151,13 @@ export function ChatPage() {
   // the session-loading effect below does not re-run on window resize and
   // clobber an in-flight streaming response with a stale session snapshot.
   const showKnowledgeContextRef = useRef(showKnowledgeContext);
+  const receiveKnowledgeContextRef = useRef(receiveKnowledgeContext);
   const clearKnowledgeContextRef = useRef(clearKnowledgeContext);
   useEffect(() => {
     showKnowledgeContextRef.current = showKnowledgeContext;
+    receiveKnowledgeContextRef.current = receiveKnowledgeContext;
     clearKnowledgeContextRef.current = clearKnowledgeContext;
-  }, [showKnowledgeContext, clearKnowledgeContext]);
+  }, [showKnowledgeContext, receiveKnowledgeContext, clearKnowledgeContext]);
   const {
     messages,
     setMessages,
@@ -177,13 +180,13 @@ export function ChatPage() {
   const [selectedProvider, setSelectedProvider] = useState(() => useUiStore.getState().newSessionProvider || "");
 
   /** 把 provider 名（或 `provider::model`）补齐为完整引用。 */
-  function resolveModelRef(ref: string): string {
+  const resolveModelRef = useCallback((ref: string): string => {
     if (!ref) return "";
     const [provider, model] = ref.split("::");
     if (model) return ref;
     const found = settings?.providers.find((item) => item.name === provider);
     return found?.model ? `${provider}::${found.model}` : ref;
-  }
+  }, [settings?.providers]);
 
   function sessionRef(session: { provider_name?: string | null; model_name?: string | null }): string {
     if (!session.provider_name) return "";
@@ -228,17 +231,17 @@ export function ChatPage() {
           .flatMap((message) => message.artifacts || [])
           .filter((artifact): artifact is KnowledgeContextArtifact => artifact.type === "knowledge_context")
           .at(-1);
-        if (latestKnowledgeContext) showKnowledgeContextRef.current(latestKnowledgeContext.context);
+        if (latestKnowledgeContext) receiveKnowledgeContextRef.current(latestKnowledgeContext.context);
         else clearKnowledgeContextRef.current();
       })
       .catch((reason: Error) => { if (!cancelled) setError(reason.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [sessionId, settings?.default_provider, setMessages]);
+  }, [sessionId, settings?.default_provider, setMessages, resolveModelRef]);
 
   useEffect(() => {
     if (!selectedProvider && settings?.default_provider) setSelectedProvider(resolveModelRef(settings.default_provider));
-  }, [selectedProvider, settings?.default_provider]);
+  }, [selectedProvider, settings?.default_provider, resolveModelRef]);
 
   useEffect(() => {
     if (!activeLibrary) {
@@ -387,7 +390,7 @@ export function ChatPage() {
           sessionIdRef.current = chatSessionId;
         },
         getSessionId: () => nextSessionId,
-        onKnowledgeContext: showKnowledgeContext,
+        onKnowledgeContext: receiveKnowledgeContext,
       }), controller.signal);
       settleLastMessage();
       await new Promise((resolve) => window.setTimeout(resolve, 600));
