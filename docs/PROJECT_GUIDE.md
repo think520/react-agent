@@ -1171,7 +1171,7 @@ P5G 总体验收：
 3. **笔记 ↔ 资料库双向轻联动**：个人知识条目新增 `references` 字段（`[{document_id, chunk_id, title}]`）；写笔记时可勾选关联资料，笔记卡片显示引用并可跳转原文；资料阅读器显示「相关笔记」。笔记 ↔ 知识地图的关联**暂缓**（第二步，待笔记量上来后再做概念级关联）。**架构边界**：个人笔记永不进入概念图谱，只做关联展示，不污染证据链。
 4. **流式观感**：后端为证据门禁先完整生成再回放 token（`emit_content=False`），前端收到的是瞬时连续到达的 token、经 React 批处理呈现为"整段弹出"。修复：前端 `useChatStream` 加渐进显示缓冲（匀速 flush 模拟打字机），不改变后端证据门禁安全契约。
 
-验证：Python `1232 passed`（新增 references 往返 + 反向查询回归）、Vitest `19 passed`、前端 lint 与生产构建通过。
+验证：Python `1233 passed`（新增 references 往返 + 反向查询回归）、Vitest `19 passed`、前端 lint 与生产构建通过。
 
 ### P5G.4：模型供应商管理（Provider Catalog，2026-08-12 完成）
 

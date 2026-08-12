@@ -1,4 +1,4 @@
-from tools.concept_map import concept_map_status
+from tools.concept_map import concept_map_query, concept_map_status
 from tools.obsidian_tool import obsidian_sync
 from tools.rag_search import rag_search
 
@@ -32,6 +32,13 @@ Dijkstra solves shortest path problems with [[图]] and [[优先队列]]. #algor
     assert search_result.data["semantic_available"] is False
     assert graph_result.ok
     assert graph_result.data["has_reviewed_graph"] is False
+
+
+def test_concept_map_query_empty_result_omits_artifact(tmp_path):
+    """图谱里没有匹配概念时，不输出 knowledge_context 卡片（P5G.5）。"""
+    result = concept_map_query(operation="search", query="不存在的概念", workspace=str(tmp_path))
+    assert result.ok
+    assert result.artifacts == []
 
 
 def test_obsidian_sync_denies_outside_workspace(tmp_path):
