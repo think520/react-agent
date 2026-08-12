@@ -751,6 +751,14 @@ export function LibraryPage() {
       default: return "尚未提取";
     }
   }
+  function textExtractionLabel(document: DocumentSummary) {
+    switch (document.extraction_status) {
+      case "empty": return "无可检索文本";
+      case "partial": return `部分可检索（${document.extraction_extracted_units ?? 0}/${document.extraction_total_units ?? 0}）`;
+      case "error": return "提取失败";
+      default: return null;
+    }
+  }
   const filteredDocuments = documents.filter((document) => {
     if (collection === "wiki" && !matchesWikiView(document, wikiView)) return false;
     const query = documentQuery.trim().toLocaleLowerCase();
@@ -905,12 +913,19 @@ export function LibraryPage() {
                     <span className="document-kind"><FileText size={17} /></span>
                     <span><strong>{document.title || document.source}</strong><small>{collection === "wiki" ? (document.wiki_type ? wikiTypeLabels[document.wiki_type] : "历史整理") : document.course || (document.origin === "legacy_index" ? "已有知识库" : document.kind || "资料")} · {document.chunk_count ? `${document.chunk_count} 个片段` : formatRelativeDate(document.updated_at)}</small></span>
                     {collection === "material" ? (
-                      <span
-                        className={`document-extraction-state ${effectiveExtractionStatus(document)}`}
-                        title={extractionStatusLabel(document)}
-                      >
-                        {extractionStatusLabel(document)}
-                      </span>
+                      <>
+                        <span
+                          className={`document-extraction-state ${effectiveExtractionStatus(document)}`}
+                          title={extractionStatusLabel(document)}
+                        >
+                          {extractionStatusLabel(document)}
+                        </span>
+                        {textExtractionLabel(document) && (
+                          <span className={`document-text-extraction ${document.extraction_status}`} title={`文本提取：${textExtractionLabel(document)}`}>
+                            {textExtractionLabel(document)}
+                          </span>
+                        )}
+                      </>
                     ) : (
                       <i className={document.vector_status === "error" ? "error" : "ready"} title={document.vector_status || "已建立索引"} />
                     )}

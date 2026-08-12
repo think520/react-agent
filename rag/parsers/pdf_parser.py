@@ -1,7 +1,7 @@
 """PDF parser — page-aware section splitting.
 
-Uses PyMuPDF (fitz) for text extraction.
-Detects scanned PDFs (empty text) and marks needs_ocr.
+Uses pypdf (MIT/BSD licensed) for text extraction.
+Detects scanned pages (empty text) and marks them needs_ocr.
 """
 
 from __future__ import annotations
@@ -25,36 +25,47 @@ def parse(path: str | Path, base_dir: str | Path = ".") -> list[SourceSection]:
     doc_title = path.stem
 
     try:
-        import fitz  # PyMuPDF
+        from pypdf import PdfReader
     except ImportError:
-        # Fall back to pypdf
-        return _parse_with_pypdf(path, source, doc_title)
+        return []
+
+    # pypdf logs and returns an empty reader instead of raising on garbage
+    # input; treat files that are not actually PDFs as parse failures.
+    try:
+        with open(path, "rb") as handle:
+            header = handle.read(5)
+    except OSError:
+        return []
+    if header != b"%PDF-":
+        raise ValueError(f"not a PDF file: {path.name}")
 
     try:
-        doc = fitz.open(str(path))
+        reader = PdfReader(str(path))
     except Exception:
         return []
 
     sections: list[SourceSection] = []
-    total_pages = len(doc)
-
-    for page_num in range(total_pages):
-        page = doc[page_num]
-        text = page.get_text("text").strip()
+    for i, page in enumerate(reader.pages):
+        text = ""
+        try:
+            text = page.extract_text() or ""
+        except Exception:
+            text = ""
+        text = text.strip()
 
         if not text:
-            # Scanned page — mark for OCR
+            # Scanned or image-only page — mark for OCR
             sections.append(SourceSection(
                 source=source,
                 doc_title=doc_title,
                 unit_type="page",
-                unit_range=f"p{page_num + 1}",
+                unit_range=f"p{i + 1}",
                 heading_path=[],
                 text="",
                 metadata={
                     "file_type": "pdf",
-                    "page_start": page_num + 1,
-                    "page_end": page_num + 1,
+                    "page_start": i + 1,
+                    "page_end": i + 1,
                     "needs_ocr": True,
                 },
             ))
@@ -76,17 +87,15 @@ def parse(path: str | Path, base_dir: str | Path = ".") -> list[SourceSection]:
             source=source,
             doc_title=doc_title,
             unit_type="page",
-            unit_range=f"p{page_num + 1}",
+            unit_range=f"p{i + 1}",
             heading_path=heading_path,
             text=text,
             metadata={
                 "file_type": "pdf",
-                "page_start": page_num + 1,
-                "page_end": page_num + 1,
+                "page_start": i + 1,
+                "page_end": i + 1,
             },
         ))
-
-    doc.close()
 
     # Merge consecutive pages with the same heading into larger sections
     return _merge_pages(sections)
@@ -140,52 +149,3 @@ def _combine_pages(pages: list[SourceSection]) -> SourceSection:
             "page_end": last.metadata.get("page_end"),
         },
     )
-
-
-def _parse_with_pypdf(path: Path, source: str, doc_title: str) -> list[SourceSection]:
-    """Fallback parser using pypdf."""
-    try:
-        from pypdf import PdfReader
-    except ImportError:
-        return []
-
-    try:
-        reader = PdfReader(str(path))
-    except Exception:
-        return []
-
-    sections: list[SourceSection] = []
-    for i, page in enumerate(reader.pages):
-        text = page.extract_text()
-        if not text or not text.strip():
-            sections.append(SourceSection(
-                source=source,
-                doc_title=doc_title,
-                unit_type="page",
-                unit_range=f"p{i + 1}",
-                heading_path=[],
-                text="",
-                metadata={
-                    "file_type": "pdf",
-                    "page_start": i + 1,
-                    "page_end": i + 1,
-                    "needs_ocr": True,
-                },
-            ))
-            continue
-
-        sections.append(SourceSection(
-            source=source,
-            doc_title=doc_title,
-            unit_type="page",
-            unit_range=f"p{i + 1}",
-            heading_path=[],
-            text=text.strip(),
-            metadata={
-                "file_type": "pdf",
-                "page_start": i + 1,
-                "page_end": i + 1,
-            },
-        ))
-
-    return sections

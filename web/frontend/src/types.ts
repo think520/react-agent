@@ -97,6 +97,10 @@ export interface DocumentSummary {
   summary?: string;
   vector_status?: string;
   vector_error?: string | null;
+  extraction_status?: "complete" | "partial" | "empty" | "error";
+  extraction_total_units?: number;
+  extraction_extracted_units?: number;
+  extraction_empty_units?: number;
   updated_at?: string;
   content_hash?: string;
   managed?: boolean;
@@ -107,6 +111,17 @@ export interface DocumentSummary {
   canonical_id?: string | null;
   content_role: "content" | "metadata";
   wiki_coverage?: WikiDocumentCoverage;
+}
+
+export interface DocumentExtractionReport {
+  status: "complete" | "partial" | "empty" | "error";
+  parser?: string | null;
+  total_units: number;
+  extracted_units: number;
+  empty_units: number;
+  extracted_characters: number;
+  image_count: number;
+  warnings: string[];
 }
 
 export interface DocumentSection {

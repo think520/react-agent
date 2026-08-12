@@ -1376,6 +1376,21 @@ class KBService:
 
         return _err(f"Document not found: {document_id}")
 
+    def get_document_extraction(self, document_id: str) -> dict[str, Any]:
+        """Return the stored extraction report for one document (P5G.0)."""
+        db_path = knowledge_path(self.workspace, "knowledge.db")
+        if os.path.exists(db_path):
+            from rag.sqlite_store import KBSQLiteStore
+            store = KBSQLiteStore(self.workspace)
+            store.init_db()
+            try:
+                report = store.get_extraction_report(document_id)
+            finally:
+                store.close()
+            if report is not None:
+                return _ok(report=report)
+        return _err(f"Document not found: {document_id}", code="document_not_found")
+
     def delete_document(self, document_id: str, config: dict | None = None) -> dict[str, Any]:
         db_path = knowledge_path(self.workspace, "knowledge.db")
         if not os.path.exists(db_path):
@@ -1544,6 +1559,10 @@ class KBService:
             "summary": document.get("summary", ""),
             "vector_status": document.get("vector_status", ""),
             "vector_error": document.get("vector_error"),
+            "extraction_status": document.get("extraction_status", "complete"),
+            "extraction_total_units": document.get("extraction_total_units", 0),
+            "extraction_extracted_units": document.get("extraction_extracted_units", 0),
+            "extraction_empty_units": document.get("extraction_empty_units", 0),
             "updated_at": document.get("updated_at", ""),
             "content_hash": document.get("content_hash", ""),
             "managed": managed,

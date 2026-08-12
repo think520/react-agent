@@ -1130,6 +1130,10 @@ kbd { color: var(--faint); font-family: inherit; font-size: 10px; }
 .document-extraction-state.completed { background: var(--sage-wash); color: #4f6e4c; }
 .document-extraction-state.failed { background: rgba(147,77,67,.1); color: var(--danger); }
 .document-extraction-state.stale { background: rgba(200,184,122,.18); color: #7b661e; }
+.document-text-extraction { max-width: 90px; overflow: hidden; border-radius: 999px; padding: 2px 6px; background: rgba(122,112,96,.08); color: var(--faint); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.document-text-extraction.empty { background: rgba(147,77,67,.1); color: var(--danger); }
+.document-text-extraction.partial { background: rgba(200,184,122,.18); color: #7b661e; }
+.document-text-extraction.error { background: rgba(147,77,67,.1); color: var(--danger); }
 .document-delete { position: absolute; right: 3px; width: 29px; height: 29px; opacity: 0; color: var(--danger); }
 .document-scope { position: absolute; right: 3px; width: 29px; height: 29px; opacity: 0; color: var(--blue); }
 .document-row-wrap:has(.document-delete) .document-scope { right: 33px; }

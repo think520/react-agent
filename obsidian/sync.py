@@ -193,11 +193,27 @@ def sync_sources(
 
     for source, abs_path, content_hash, kind in changed_sources:
         try:
-            # Parse document into sections
-            sections = parse_document(abs_path, workspace)
+            # Parse document into sections + extraction report
+            sections, extraction_report_obj = parse_document(abs_path, workspace)
+            extraction_report = extraction_report_obj.to_dict()
             if not sections:
                 # Fallback: use legacy chunker for simple text
                 sections = _fallback_parse(source, abs_path, kind)
+                if sections and not extraction_report.get("total_units"):
+                    # Text fallback succeeded where the typed parser found
+                    # nothing (e.g. scanned PDF with an embedded text layer
+                    # the parser refused); keep the typed report otherwise.
+                    extraction_report = {
+                        "file_type": "txt",
+                        "parser": "fallback",
+                        "status": "complete",
+                        "total_units": len(sections),
+                        "extracted_units": len(sections),
+                        "empty_units": 0,
+                        "extracted_characters": sum(len(s.text) for s in sections),
+                        "image_count": 0,
+                        "warnings": [],
+                    }
 
             # Override source path to use our canonical source prefix
             for section in sections:
@@ -205,8 +221,6 @@ def sync_sources(
 
             # Chunk sections
             chunks = chunk_sections(sections, chunk_cfg)
-            if not chunks:
-                continue
 
             # Derive document metadata
             document_id = _stable_hash(source)
@@ -217,7 +231,9 @@ def sync_sources(
             # Build summary (first 500 chars of clean text)
             summary_text = " ".join(c["text"] for c in chunks[:3])[:500]
 
-            # SQLite: upsert document + chunks
+            # SQLite: upsert document (registered even when zero chunks —
+            # scanned PDFs must show up in the Library as not retrievable),
+            # then chunks
             sqlite.upsert_document(
                 document_id=document_id,
                 source=source,
@@ -229,8 +245,20 @@ def sync_sources(
                 tags=tags,
                 summary=summary_text,
                 vector_status="pending",
+                extraction=extraction_report,
             )
             sqlite.delete_chunks_by_document(document_id)
+            if not chunks:
+                doc_records.append(DocumentRecord(
+                    source=source,
+                    kind=kind,
+                    title=title,
+                    course=course,
+                    status="ok",
+                    chunk_count=0,
+                    content_hash=content_hash,
+                ))
+                continue
 
             # Enrich chunks with document metadata
             for i, chunk in enumerate(chunks):

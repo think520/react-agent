@@ -494,6 +494,14 @@ def document_detail(document_id: str, request: Request) -> dict:
     return result
 
 
+@router.get("/documents/{document_id}/extraction")
+def document_extraction(document_id: str, request: Request) -> dict:
+    result = _service(request).get_document_extraction(document_id)
+    if not result.get("ok"):
+        raise APIError(404, "document_not_found", result["error"])
+    return result
+
+
 @router.get("/documents/{document_id}/impact")
 def document_impact(document_id: str, request: Request) -> dict:
     return unwrap_service_result(
