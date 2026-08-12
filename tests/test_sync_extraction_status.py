@@ -41,12 +41,16 @@ def test_scanned_pdf_is_registered_as_empty(portable_library, monkeypatch):
     scanned = portable_library / "raw" / "inbox" / "scanned.pdf"
     _write_blank_pdf(scanned)
 
-    sync_sources(
+    summary = sync_sources(
         workspace=str(portable_library),
         vault_path=str(portable_library),
         course_dir=str(portable_library / "raw"),
         mode="full",
     )
+
+    # The scanned PDF is counted as empty in the sync summary.
+    assert summary.extraction_counts.get("empty", 0) == 1
+    assert summary.extraction_counts.get("error", 0) == 0
 
     store = KBSQLiteStore(str(portable_library))
     store.init_db()

@@ -38,6 +38,7 @@ class SyncSummary:
     graph_store_path: str | None = None
     error_files: int = 0
     errors: list = field(default_factory=list)
+    extraction_counts: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -50,6 +51,7 @@ class SyncSummary:
             "graph_store_path": self.graph_store_path,
             "error_files": self.error_files,
             "errors": self.errors,
+            "extraction_counts": dict(self.extraction_counts),
         }
 
 
@@ -190,6 +192,7 @@ def sync_sources(
     # ── Step 4: Process changed files ───────────────────────────────────
     total_chunks = 0
     doc_records: list[DocumentRecord] = []
+    extraction_counts: dict[str, int] = {"complete": 0, "partial": 0, "empty": 0, "error": 0}
 
     for source, abs_path, content_hash, kind in changed_sources:
         try:
@@ -248,6 +251,8 @@ def sync_sources(
                 extraction=extraction_report,
             )
             sqlite.delete_chunks_by_document(document_id)
+            status_key = extraction_report.get("status") or "error"
+            extraction_counts[status_key] = extraction_counts.get(status_key, 0) + 1
             if not chunks:
                 doc_records.append(DocumentRecord(
                     source=source,
@@ -424,6 +429,7 @@ def sync_sources(
         relationship_count=relationship_count,
         graph_backend=graph_backend,
         errors=errors,
+        extraction_counts=dict(extraction_counts),
     ))
 
     sqlite.close()
@@ -439,6 +445,7 @@ def sync_sources(
         graph_store_path=graph_store_path,
         error_files=len(errors),
         errors=errors,
+        extraction_counts=dict(extraction_counts),
     )
 
 

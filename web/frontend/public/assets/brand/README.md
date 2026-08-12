@@ -10,6 +10,7 @@
 | `expressions/` | 4 个 `768 × 768` 透明表情 | 低频情绪反馈，不连续动画播放 |
 | `states/` | 6 个 `768 × 768` 透明学习状态 | Chat、Practice、Review、空状态 |
 | `hero/` | `1536 × 960` 与 `960 × 600` WebP | Chat / Today 起始页插图 |
+| `bobodan.ico` | 多尺寸应用图标（16–256） | 浏览器 favicon、Windows 桌面安装包图标（P5G.2） |
 
 ## 主头像
 

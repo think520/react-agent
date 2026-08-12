@@ -1,2 +1,3 @@
 -r requirements.txt
 pytest>=8.0
+pillow>=10.0  # scripts/make_icon.py 图标生成（开发工具依赖）

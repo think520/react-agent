@@ -85,6 +85,7 @@ def build_report(
     total_units = 0
     extracted_units = 0
     chars = 0
+    reported_images = 0
     warnings: list[str] = []
     scanned_pages = 0
     slides_without_text = 0
@@ -95,10 +96,18 @@ def build_report(
         if text.strip():
             extracted_units += 1
             chars += len(text)
+        reported_images += int(section.metadata.get("image_count") or 0)
         if unit_key == "page" and section.metadata.get("needs_ocr"):
             scanned_pages += 1
-        if unit_key == "slide" and not text.strip():
-            slides_without_text += 1
+        if unit_key == "slide":
+            # Slide-level emptiness, not merged-section emptiness: a picture
+            # slide grouped with text slides must still warn. Real pptx
+            # sections carry empty_slides; synthetic sections fall back to
+            # whole-section text.
+            slides_without_text += int(
+                section.metadata.get("empty_slides")
+                or (0 if text.strip() else 1)
+            )
 
     if scanned_pages:
         warnings.append("scanned_or_empty_pages")
@@ -126,7 +135,7 @@ def build_report(
         extracted_units=extracted_units,
         empty_units=total_units - extracted_units,
         extracted_characters=chars,
-        image_count=image_count,
+        image_count=reported_images if sections else image_count,
         warnings=sorted(set(warnings)),
     )
 

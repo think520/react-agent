@@ -163,3 +163,69 @@ class TestPdfParserPypdfOnly:
         assert sections[0].metadata.get("needs_ocr") is True
         assert report.status == "empty"
         assert "scanned_or_empty_pages" in report.warnings
+
+
+# ── DOCX / PPTX image statistics (P5G.0) ───────────────────────────────
+
+_1PX_PNG = (
+    b"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+)
+
+
+def _png_bytes() -> bytes:
+    import base64
+    return base64.b64decode(_1PX_PNG)
+
+
+class TestDocxImageStats:
+    def test_docx_with_inline_image_reports_image_count(self, tmp_path):
+        from docx import Document
+
+        img = tmp_path / "pixel.png"
+        img.write_bytes(_png_bytes())
+        doc = Document()
+        doc.add_heading("Title", level=1)
+        doc.add_paragraph("Body text with an image below.")
+        doc.add_picture(str(img))
+        doc.save(str(tmp_path / "with-img.docx"))
+
+        sections, report = parse_document(tmp_path / "with-img.docx", tmp_path)
+        assert report.status == "complete"
+        assert report.image_count == 1
+        assert sum(s.metadata.get("image_count") or 0 for s in sections) == 1
+
+    def test_image_only_docx_paragraph_still_counts(self, tmp_path):
+        from docx import Document
+
+        img = tmp_path / "pixel.png"
+        img.write_bytes(_png_bytes())
+        doc = Document()
+        doc.add_heading("Figures", level=1)
+        doc.add_picture(str(img))
+        doc.add_picture(str(img))
+        doc.save(str(tmp_path / "figures.docx"))
+
+        sections, report = parse_document(tmp_path / "figures.docx", tmp_path)
+        assert report.image_count == 2
+        assert "images_not_recognized" not in report.warnings  # has some text? no —
+        # image-only section text is empty, so expect no_searchable_text warning
+        assert report.status in {"empty", "partial"}
+
+
+class TestPptxImageStats:
+    def test_pptx_picture_slide_reports_image_and_warning(self, tmp_path):
+        from pptx import Presentation
+        from pptx.util import Inches
+
+        img = tmp_path / "pixel.png"
+        img.write_bytes(_png_bytes())
+        prs = Presentation()
+        slide1 = prs.slides.add_slide(prs.slide_layouts[5])
+        slide1.shapes.title.text = "Slide One"
+        slide2 = prs.slides.add_slide(prs.slide_layouts[6])
+        slide2.shapes.add_picture(str(img), Inches(1), Inches(1))
+        prs.save(str(tmp_path / "mixed.pptx"))
+
+        sections, report = parse_document(tmp_path / "mixed.pptx", tmp_path)
+        assert report.image_count == 1
+        assert "slides_without_text" in report.warnings

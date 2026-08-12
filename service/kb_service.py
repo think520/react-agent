@@ -1327,6 +1327,7 @@ class KBService:
                 "timestamp": report.timestamp,
                 "mode": report.mode,
                 "error_files": report.error_files,
+                "extraction_counts": report.extraction_counts or {},
                 "errors": report.errors[:10],
             }
 
