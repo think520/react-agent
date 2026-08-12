@@ -34,20 +34,18 @@ def test_resolve_home_uses_configured_env(monkeypatch):
     assert resolve_home().replace("\\", "/") == "C:/tmp/custom-home"
 
 
-def test_resolve_home_windows_appdata(monkeypatch):
+def test_resolve_home_defaults_to_dot_directory(monkeypatch):
+    """~/.bobodan dot-directory is the production default on every OS
+    (2026-08-12 decision, Codex/OpenHanako style)."""
     monkeypatch.delenv("BOBODAN_HOME", raising=False)
-    monkeypatch.setenv("APPDATA", "C:/Users/test/AppData/Roaming")
-    monkeypatch.setattr("os.name", "nt")
-    assert resolve_home().replace("\\", "/") == "C:/Users/test/AppData/Roaming/Bobodan"
-
-
-def test_resolve_home_non_windows_falls_back_to_home(monkeypatch):
-    monkeypatch.delenv("BOBODAN_HOME", raising=False)
-    monkeypatch.setattr("os.name", "posix")
-    monkeypatch.setenv("USERPROFILE", "C:/users/posix")
+    monkeypatch.setenv("USERPROFILE", "C:/users/test")
     monkeypatch.delenv("HOMEDRIVE", raising=False)
     monkeypatch.delenv("HOMEPATH", raising=False)
-    assert resolve_home().replace("\\", "/") == "C:/users/posix/.bobodan"
+    monkeypatch.setattr("os.name", "nt")
+    assert resolve_home().replace("\\", "/") == "C:/users/test/.bobodan"
+
+    monkeypatch.setattr("os.name", "posix")
+    assert resolve_home().replace("\\", "/") == "C:/users/test/.bobodan"
 
 
 def test_resolve_log_dir_windows_localappdata(monkeypatch):

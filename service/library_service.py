@@ -221,6 +221,24 @@ class LibraryService:
             "legacy_source_count": len(legacy_directories),
         }
 
+    def default_library_path(self) -> str:
+        """The default "throw files in here" folder (2026-08-12 design):
+        `Documents/Bobodan 资料库` on Windows, `~/Documents/Bobodan 资料库`
+        elsewhere. Appends a number if the folder already exists.
+        """
+        if os.name == "nt":
+            documents = os.path.join(os.path.expanduser("~"), "Documents")
+        else:
+            documents = os.path.expanduser("~/Documents")
+        base = os.path.join(documents, "Bobodan 资料库")
+        if not os.path.exists(base):
+            return base
+        for index in range(2, 100):
+            candidate = f"{base} {index}"
+            if not os.path.exists(candidate):
+                return candidate
+        return base
+
     def resolve(self, library_id: str | None = None) -> dict[str, Any] | None:
         registry = self._load()
         selected_id = library_id or registry.get("active_library_id")

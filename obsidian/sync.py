@@ -26,6 +26,10 @@ logger = logging.getLogger(__name__)
 
 _COURSE_SKIP_DIRS = {".git", "__pycache__", ".venv", "venv", ".knowledge", ".bobodan", "templates"}
 
+# Library-internal structure that must never be indexed as user material.
+# (wiki pages are surfaced through the vault scan / wiki classification.)
+_LIBRARY_INTERNAL_DIRS = _COURSE_SKIP_DIRS | {"wiki"}
+
 
 @dataclass
 class SyncSummary:
@@ -110,6 +114,49 @@ def _course_prefix(root_dir: str, default: str) -> str:
     return "managed" if os.path.basename(os.path.normpath(root_dir)) == "sources" else default
 
 
+def _scan_library_root(root_dir: str) -> list[tuple[str, str, str]]:
+    """Scan a portable library root for materials of every supported format.
+
+    The whole folder is the user-facing "throw files in here" directory
+    (2026-08-12 design): files at the root and in any non-internal subfolder
+    are indexed. Rules that keep sources stable and non-duplicated:
+
+    - internal structure (`wiki/`, `.bobodan/`, `templates/`, dot-dirs) is
+      never indexed as material;
+    - markdown outside `raw/` is handled by the vault scan, so this pass
+      skips it (avoids duplicate obsidian/course sources);
+    - files under `raw/` keep their legacy relative path (no `raw/` prefix),
+      so existing `course/inbox/...` sources and document ids stay stable.
+    """
+    root_dir = os.path.abspath(root_dir)
+    files: list[tuple[str, str, str]] = []
+    for root, dirs, filenames in os.walk(root_dir):
+        dirs[:] = [
+            name for name in dirs
+            if name not in _LIBRARY_INTERNAL_DIRS and not name.startswith(".")
+        ]
+        for filename in filenames:
+            ext = os.path.splitext(filename)[1].lower()
+            if ext not in SUPPORTED_EXTENSIONS:
+                continue
+            path = os.path.join(root, filename)
+            relative = os.path.relpath(path, root_dir).replace(os.sep, "/")
+            from_raw = relative.startswith("raw/")
+            if from_raw:
+                # Keep legacy course/inbox/... sources (and thus stable
+                # document ids) for everything under raw/.
+                relative = relative[len("raw/"):]
+            if ext == ".md" and not from_raw:
+                # Root-level markdown is indexed by the vault scan.
+                continue
+            if relative == "README.md":
+                continue
+            with open(path, "rb") as handle:
+                content_hash = hashlib.sha256(handle.read()).hexdigest()
+            files.append((relative, path, content_hash))
+    return sorted(files, key=lambda item: item[0].casefold())
+
+
 def sync_sources(
     workspace: str,
     vault_path: str,
@@ -149,7 +196,12 @@ def sync_sources(
         course_roots.append((prefix, extra_dir))
 
     for prefix, root_dir in course_roots:
-        for relative_source, path, content_hash in _scan_course_files(root_dir):
+        # A portable library root scans the whole user-facing folder
+        # (root-level PDF/DOCX included); plain course dirs keep the
+        # markdown-inclusive course scan.
+        portable_root = os.path.isfile(os.path.join(root_dir, "BOBODAN_LIBRARY.yaml"))
+        scanner = _scan_library_root if portable_root else _scan_course_files
+        for relative_source, path, content_hash in scanner(root_dir):
             source = f"{prefix}/{relative_source}"
             new_state[source] = content_hash
             if mode == "full" or old_state.get(source) != content_hash:

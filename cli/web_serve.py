@@ -6,7 +6,7 @@ sidecar; running it directly is the developer / no-install path.
 
 Production conventions (Windows):
 
-- user config & registry:  %APPDATA%\\Bobodan   (BOBODAN_HOME)
+- user config & registry:  ~/.bobodan   (BOBODAN_HOME, dot-directory)
 - logs & cache:            %LOCALAPPDATA%\\Bobodan\\logs
 - user libraries stay in the folder the user chose; never moved here.
 """
@@ -32,12 +32,11 @@ def _windows_appdata(env_name: str) -> str:
 
 
 def resolve_home() -> str:
-    """BOBODAN_HOME for production: %APPDATA%\\Bobodan on Windows."""
+    """BOBODAN_HOME: the `~/.bobodan` dot-directory (2026-08-12 decision,
+    matching Codex `.codex` / OpenHanako `.hanako`; BOBODAN_HOME overrides)."""
     configured = os.getenv("BOBODAN_HOME")
     if configured:
         return os.path.abspath(configured)
-    if os.name == "nt":
-        return os.path.join(_windows_appdata("APPDATA"), "Bobodan")
     return os.path.expanduser("~/.bobodan")
 
 
@@ -126,7 +125,7 @@ def run_web(
     from web.backend.app import create_app
     from web.backend.static import mount_frontend
 
-    # Production home: user-level config belongs in %APPDATA%, not the CWD.
+    # Production home: the ~/.bobodan dot-directory, not the CWD.
     # (Development keeps whatever BOBODAN_HOME / BOBODAN_WORKSPACE say.)
     if not dev and not os.getenv("BOBODAN_HOME"):
         production_home = resolve_home()

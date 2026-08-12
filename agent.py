@@ -38,8 +38,10 @@ def main():
     library_parser = subparsers.add_parser("library", help="Manage portable Bobodan libraries")
     library_commands = library_parser.add_subparsers(dest="library_command", required=True)
     library_init = library_commands.add_parser("init", help="Initialize or register a library folder")
-    library_init.add_argument("path")
+    library_init.add_argument("path", nargs="?", help="Library folder (omit with --default)")
     library_init.add_argument("--name")
+    library_init.add_argument("--default", action="store_true",
+                              help="Use the default folder (Documents/Bobodan 资料库)")
     library_sync = library_commands.add_parser("sync", help="Index changed original materials")
     library_sync.add_argument("path", nargs="?")
     library_commands.add_parser("list", help="List registered libraries")
@@ -66,7 +68,14 @@ def main():
         service = LibraryService()
         try:
             if args.library_command == "init":
-                result = service.initialize(args.path, name=args.name)
+                if args.default:
+                    if args.path:
+                        parser.error("--default 与 path 不能同时使用")
+                    result = service.initialize(service.default_library_path(), name=args.name)
+                else:
+                    if not args.path:
+                        parser.error("需要提供资料库路径，或用 --default 使用默认文件夹")
+                    result = service.initialize(args.path, name=args.name)
             elif args.library_command == "sync":
                 if args.path:
                     record = service.register(args.path, activate=True)

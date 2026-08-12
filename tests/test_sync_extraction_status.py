@@ -130,3 +130,39 @@ def test_text_pdf_is_registered_as_complete(portable_library, monkeypatch):
         store.close()
 
     assert len(chunks) > 0
+
+
+def test_library_root_scans_all_formats(portable_library, monkeypatch):
+    """2026-08-12 design: the library root is the user-facing folder —
+    PDF/DOCX at the root and in any non-internal subfolder get indexed;
+    raw/ files keep their legacy course/inbox/... sources."""
+    from unittest.mock import MagicMock
+
+    monkeypatch.setattr("rag.qdrant_store.QdrantStore", MagicMock())
+    monkeypatch.setattr("rag.embedding_service.EmbeddingService", lambda *a, **k: type(
+        "Embedding", (), {"is_available": lambda self: False}
+    )())
+
+    (portable_library / "root-file.pdf").write_bytes(b"%PDF-1.4 fake")
+    (portable_library / "subdir").mkdir()
+    (portable_library / "subdir" / "deep.docx").write_bytes(b"PK fake docx")
+    (portable_library / "raw" / "inbox" / "raw-file.pdf").write_bytes(b"%PDF-1.4 fake")
+
+    sync_sources(
+        workspace=str(portable_library),
+        vault_path=str(portable_library),
+        course_dir=str(portable_library),
+        mode="full",
+    )
+
+    store = KBSQLiteStore(str(portable_library))
+    store.init_db()
+    try:
+        sources = [d["source"] for d in store.list_documents()]
+    finally:
+        store.close()
+
+    assert "course/root-file.pdf" in sources, "root PDF must be indexed (was blind spot)"
+    assert "course/subdir/deep.docx" in sources, "nested material must be indexed"
+    assert "course/inbox/raw-file.pdf" in sources, "raw file keeps legacy source"
+    assert not any(s.startswith("course/raw") for s in sources), "raw/ prefix must not leak"

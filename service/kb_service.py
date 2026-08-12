@@ -112,9 +112,12 @@ class KBService:
                     candidate = os.path.join(self.workspace, os.path.basename(os.path.normpath(path)))
                 if os.path.isdir(candidate) and self._is_within_workspace(candidate, self.workspace):
                     course_dirs.append(candidate)
-            raw_dir = os.path.join(self.workspace, "raw")
-            if os.path.isdir(raw_dir):
-                course_dirs.insert(0, raw_dir)
+            # 2026-08-12 design: the library root itself is the user-facing
+            # "throw files in here" folder. Registering it (instead of raw/)
+            # lets root-level PDF/DOCX be indexed; raw/ is covered as its
+            # subdirectory, internal structure is excluded by the scanner.
+            if not any(os.path.abspath(d) == os.path.abspath(self.workspace) for d in course_dirs):
+                course_dirs.insert(0, self.workspace)
             return self.workspace, list(dict.fromkeys(os.path.abspath(path) for path in course_dirs))
         roots = self._load_source_roots()
         vault_path = roots.get("vault_path")
