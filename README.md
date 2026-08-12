@@ -207,17 +207,22 @@ npm run dev
 
 浏览器打开 <http://127.0.0.1:5173>。Vite 会把 `/api` 请求代理到 `http://127.0.0.1:8000`。
 
+> **单进程方式（P5G.1）**：先 `cd web\frontend && npm run build` 构建前端，
+> 然后 `python agent.py web` 一条命令启动完整产品（自动开浏览器、端口被占用
+> 自动换、`--no-browser` 关闭自动打开）。生产模式下应用数据位于 `~/.bobodan`。
+
 ### 4. 使用独立资料库
 
 不传资料库时，项目根目录会使用兼容旧工作区的 `.knowledge/`。要建立可移动的独立资料库：
 
 ```powershell
-python agent.py library init ..\my-bobodan-library --name "我的学习库"
+python agent.py library init ..\my-bobodan-library --name "我的学习库"   # 指定路径
+python agent.py library init --default                                    # 或用默认文件夹（Documents\Bobodan 资料库）
 python agent.py library sync ..\my-bobodan-library
 python agent.py library list
 ```
 
-独立资料库使用 `BOBODAN_LIBRARY.yaml` 标识，运行时索引、图谱和迁移数据放在该资料库的 `.bobodan/` 下。首次导入也可以直接在 Web 的“资料库 → 导入资料”完成。
+独立资料库使用 `BOBODAN_LIBRARY.yaml` 标识，运行时索引、图谱和迁移数据放在该资料库的 `.bobodan/` 下。**资料库文件夹就是"往里丢文件"的文件夹**：把 Markdown / PDF / DOCX / PPTX 放进根目录或任意子目录，再执行一次 `library sync`（或 Web 端重新扫描），文件就会被索引；`raw/`、`wiki/`、`.bobodan/` 是内部结构，不需要理解。首次导入也可以直接在 Web 的"资料库 → 导入资料"完成。
 
 <a id="configuration"></a>
 
@@ -244,6 +249,7 @@ python agent.py library list
 | 个人知识 | 全局 personal-knowledge SQLite + 资料库 SQLite | 按全局/资料库隔离，写入需要确认边界 |
 | 练习与掌握度 | quiz / learning SQLite | 错题、掌握度和复习不依赖自然语言 memory |
 | Wiki | 资料库 `wiki/` 和 `.bobodan/` 检查点 | 高级维护能力，不作为默认回答证据 |
+| 应用数据 | `~/.bobodan`（`BOBODAN_HOME` 可覆盖） | 个人知识库、资料库注册表、用量账本；日志在 `%LOCALAPPDATA%\Bobodan\logs` |
 
 - `.env`、数据库、会话和资料文件属于本地运行数据，不应提交到 Git。
 - 旧工作区可能同时存在 `.knowledge/`、旧 JSON 索引或 Markdown memory。迁移流程会先预览、确认、校验，再归档旧数据，不会静默删除历史资料。
