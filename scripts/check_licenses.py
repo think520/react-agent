@@ -15,6 +15,11 @@ import sys
 
 from importlib import metadata
 
+# Windows 控制台默认 GBK 编码，打印中文检查结果会 UnicodeEncodeError
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 # 精确匹配或子串命中都算违规（如 "GPL-3.0-or-later"、"AGPL-3.0"）
 _FORBIDDEN = ("gpl", "agpl")
 # 这些包由我们自己的依赖引入且已知许可宽松，元数据缺失时不误报
