@@ -102,16 +102,19 @@ def _runtime_for(workspace: str):
     return get_library_runtime_context(workspace)
 
 
-def _preferred_provider(requested: str | None, task: str | None = None) -> str | None:
+def _preferred_provider(requested: str | None, task: str | None = None) -> tuple[str | None, str | None]:
+    """返回 (provider_name, model)。preference 存 `provider::model`（P5G.4）。"""
+    from web.backend.deps import parse_provider_ref
+
     if requested:
-        return requested
+        return parse_provider_ref(requested)
     config = get_config()
     preferences = get_preferences(config)
     if task:
         selected = preferences.get("ai", {}).get("task_providers", {}).get(task, "default")
         if selected and selected != "default":
-            return selected
-    return preferences.get("ai", {}).get("default_provider")
+            return parse_provider_ref(selected)
+    return parse_provider_ref(preferences.get("ai", {}).get("default_provider"))
 
 
 def _configure_wiki_provider(provider):
@@ -215,7 +218,7 @@ def get_wiki_repair_plan(plan_id: str, request: Request) -> dict:
 def draft_wiki_repair_plan(plan_id: str, body: WikiRepairDraftRequest, request: Request) -> dict:
     workspace = get_request_workspace(request)
     try:
-        provider = _configure_wiki_provider(_runtime_for(workspace).create_provider(_preferred_provider(body.provider)))
+        provider = _configure_wiki_provider(_runtime_for(workspace).create_provider(*_preferred_provider(body.provider)))
     except ValueError as exc:
         raise APIError(409, "provider_unavailable", str(exc)) from exc
     return unwrap_service_result(
@@ -284,7 +287,7 @@ def restore_wiki_page(document_id: str, request: Request) -> dict:
 def semantic_wiki_review(body: WikiSemanticReviewRequest, request: Request) -> dict:
     workspace = get_request_workspace(request)
     try:
-        provider = _runtime_for(workspace).create_provider(_preferred_provider(body.provider))
+        provider = _runtime_for(workspace).create_provider(*_preferred_provider(body.provider))
     except ValueError as exc:
         raise APIError(409, "provider_unavailable", str(exc)) from exc
     return unwrap_service_result(
@@ -297,7 +300,7 @@ def semantic_wiki_review(body: WikiSemanticReviewRequest, request: Request) -> d
 def create_wiki_plan(body: WikiPlanRequest, request: Request) -> dict:
     workspace = get_request_workspace(request)
     try:
-        provider = _runtime_for(workspace).create_provider(_preferred_provider(body.provider))
+        provider = _runtime_for(workspace).create_provider(*_preferred_provider(body.provider))
     except ValueError as exc:
         raise APIError(409, "provider_unavailable", str(exc)) from exc
     return unwrap_service_result(
@@ -345,7 +348,7 @@ def recover_wiki_plan(plan_id: str, body: WikiPlanRecoveryRequest, request: Requ
     provider = None
     if body.strategy == "regenerate":
         try:
-            provider = _runtime_for(workspace).create_provider(_preferred_provider(body.provider))
+            provider = _runtime_for(workspace).create_provider(*_preferred_provider(body.provider))
         except ValueError as exc:
             raise APIError(409, "provider_unavailable", str(exc)) from exc
     return unwrap_service_result(
@@ -367,8 +370,8 @@ def create_wiki_run(body: WikiRunRequest, request: Request) -> dict:
     discovery_provider = None
     try:
         if body.generation_mode != "catalog":
-            provider = _configure_wiki_provider(_runtime_for(workspace).create_provider(_preferred_provider(body.provider, "wiki_drafting")))
-            discovery_provider = _configure_wiki_provider(_runtime_for(workspace).create_provider(_preferred_provider(body.provider, "wiki_discovery")))
+            provider = _configure_wiki_provider(_runtime_for(workspace).create_provider(*_preferred_provider(body.provider, "wiki_drafting")))
+            discovery_provider = _configure_wiki_provider(_runtime_for(workspace).create_provider(*_preferred_provider(body.provider, "wiki_discovery")))
     except ValueError as exc:
         raise APIError(409, "provider_unavailable", str(exc)) from exc
     return unwrap_service_result(
@@ -394,7 +397,8 @@ def create_wiki_run(body: WikiRunRequest, request: Request) -> dict:
 @router.post("/wiki/runs/estimate")
 def estimate_wiki_run(body: WikiRunRequest, request: Request) -> dict:
     config = get_config()
-    provider_name = _preferred_provider(body.provider, "wiki_drafting") or ""
+    provider_name, _provider_model = _preferred_provider(body.provider, "wiki_drafting") or (None, None)
+    provider_name = provider_name or ""
     provider_config = (config.get("llm", {}).get("providers") or {}).get(provider_name, {})
     return unwrap_service_result(_service(request).estimate_wiki_run(
         scope_mode=body.scope_mode,
@@ -422,8 +426,8 @@ def get_wiki_run(run_id: str, request: Request) -> dict:
 def resume_wiki_run(run_id: str, body: WikiRunResumeRequest, request: Request) -> dict:
     workspace = get_request_workspace(request)
     try:
-        provider = _configure_wiki_provider(_runtime_for(workspace).create_provider(_preferred_provider(body.provider, "wiki_drafting")))
-        discovery_provider = _configure_wiki_provider(_runtime_for(workspace).create_provider(_preferred_provider(body.provider, "wiki_discovery")))
+        provider = _configure_wiki_provider(_runtime_for(workspace).create_provider(*_preferred_provider(body.provider, "wiki_drafting")))
+        discovery_provider = _configure_wiki_provider(_runtime_for(workspace).create_provider(*_preferred_provider(body.provider, "wiki_discovery")))
     except ValueError as exc:
         raise APIError(409, "provider_unavailable", str(exc)) from exc
     return unwrap_service_result(
@@ -476,7 +480,7 @@ def retry_wiki_task(task_id: str, body: WikiTaskRetryRequest, request: Request) 
     provider = None
     if task and task.get("operation") in {"plan", "orchestrate"}:
         try:
-            provider = _runtime_for(workspace).create_provider(_preferred_provider(body.provider))
+            provider = _runtime_for(workspace).create_provider(*_preferred_provider(body.provider))
         except ValueError as exc:
             raise APIError(409, "provider_unavailable", str(exc)) from exc
     return unwrap_service_result(

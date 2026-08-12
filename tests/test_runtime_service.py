@@ -46,7 +46,7 @@ def test_runtime_context_refreshes_memory_between_runs(tmp_path):
 def test_runtime_create_provider_uses_requested_config(monkeypatch):
     captured = {}
 
-    def fake_create(provider_config, agent_config):
+    def fake_create(provider_config, agent_config, model=None):
         captured["provider"] = provider_config
         captured["agent"] = agent_config
         return object()

@@ -1054,7 +1054,7 @@ P5E.5 Wiki 易用性、手写编辑与 AI 成本控制（完成）
 → P5E.6 知识地图产品重置（完成）
 → P5G.0 文档提取完整性与发布合规（完成）
 → P5G.1 单进程本地 Web（完成）
-→ P5G.4 模型供应商管理（Provider Catalog，2026-08-12 确认，等待实现）
+→ P5G.4 模型供应商管理（Provider Catalog，完成）
 → P5G.2 Windows Electron 桌面版
 → P5G.3 支撑页面与体验收尾
 ```
@@ -1162,7 +1162,7 @@ P5G 总体验收：
 4. **卸载清理与数据保留策略**：NSIS 卸载器的行为契约（保留用户资料库 vs 清理应用数据 vs 完整清除），写入 P5G.2 验收。
 5. **桌面环境适配与性能预算**：DPI / 高分屏 / 多显示器验收项（纳入 P5G 总体验收），以及首启时间、安装包体积目标值。
 
-### P5G.4：模型供应商管理（Provider Catalog，2026-08-12 确认，等待实现）
+### P5G.4：模型供应商管理（Provider Catalog，2026-08-12 完成）
 
 对标 OpenHanako（Electron 桌面 agent：38 个 provider 插件 + `~/.hanako/provider-catalog.json` 用户配置目录）对现有多供应商能力做差距分析。会话级切换、默认模型、任务路由、测试连接已存在，本次补的是**配置管理产品化**：用户不再需要碰 `config.yaml` 和 `.env`。与桌面版无关，Web 端（`python agent.py web`）即可完整使用；Electron 只是入口不同，共享同一后端与 `~/.bobodan`。
 
@@ -1192,6 +1192,8 @@ P5G 总体验收：
 - Ollama 模板免 key 可用，拉取本地模型列表成功。
 - 密钥在 API 响应中脱敏；`provider.json` 不进入资料库、日志或安装目录。
 - Python 单测 / Vitest / 生产构建通过。
+
+**完成验证（2026-08-12）**：Python `1231 passed`、Vitest `19 passed`、前端 lint 与生产构建通过；真实启动冒烟覆盖 settings 列表（迁移 6 供应商 + ollama 模板）、PUT / DELETE 供应商、密钥脱敏、fetch-models 失败兜底、DeepSeek 测试连接（853ms 真实响应）与 `provider::model` chat 引用。
 
 ### 本轮明确不做
 

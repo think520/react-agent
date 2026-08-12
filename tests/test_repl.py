@@ -94,7 +94,7 @@ def test_repl_initialize_renders_rich_startup(monkeypatch, capsys):
     }
 
     monkeypatch.setattr("cli.repl.ProviderFactory.load_config", lambda path: config)
-    monkeypatch.setattr("cli.repl.ProviderFactory.create", lambda provider_config, agent_config: DummyProvider())
+    monkeypatch.setattr("cli.repl.ProviderFactory.create", lambda provider_config, agent_config, model=None: DummyProvider())
     monkeypatch.setattr("cli.repl.get_tools_schema", lambda: [{"function": {"name": "read_file"}}])
 
     repl = REPL(config_path="config.yaml")
@@ -131,7 +131,7 @@ def test_repl_load_session_updates_agent_session(tmp_path, monkeypatch):
     }
 
     monkeypatch.setattr("cli.repl.ProviderFactory.load_config", lambda path: config)
-    monkeypatch.setattr("cli.repl.ProviderFactory.create", lambda provider_config, agent_config: DummyProvider())
+    monkeypatch.setattr("cli.repl.ProviderFactory.create", lambda provider_config, agent_config, model=None: DummyProvider())
     monkeypatch.setattr("cli.repl.get_tools_schema", lambda: [{"function": {"name": "read_file"}}])
 
     repl = REPL(config_path="config.yaml")
@@ -165,7 +165,7 @@ def test_repl_status_output(monkeypatch, capsys):
     }
 
     monkeypatch.setattr("cli.repl.ProviderFactory.load_config", lambda path: config)
-    monkeypatch.setattr("cli.repl.ProviderFactory.create", lambda provider_config, agent_config: DummyProvider())
+    monkeypatch.setattr("cli.repl.ProviderFactory.create", lambda provider_config, agent_config, model=None: DummyProvider())
     monkeypatch.setattr("cli.repl.get_tools_schema", lambda: [{"function": {"name": "read_file"}}])
 
     repl = REPL(config_path="config.yaml")
@@ -198,7 +198,7 @@ def test_repl_timeout_does_not_modify_session(monkeypatch, capsys):
     }
 
     monkeypatch.setattr("cli.repl.ProviderFactory.load_config", lambda path: config)
-    monkeypatch.setattr("cli.repl.ProviderFactory.create", lambda provider_config, agent_config: SlowProvider(delay=10))
+    monkeypatch.setattr("cli.repl.ProviderFactory.create", lambda provider_config, agent_config, model=None: SlowProvider(delay=10))
     monkeypatch.setattr("cli.repl.get_tools_schema", lambda: [{"function": {"name": "read_file"}}])
 
     repl = REPL(config_path="config.yaml")
@@ -231,7 +231,7 @@ def test_repl_success_commits_session(monkeypatch, capsys):
     }
 
     monkeypatch.setattr("cli.repl.ProviderFactory.load_config", lambda path: config)
-    monkeypatch.setattr("cli.repl.ProviderFactory.create", lambda provider_config, agent_config: DummyProvider())
+    monkeypatch.setattr("cli.repl.ProviderFactory.create", lambda provider_config, agent_config, model=None: DummyProvider())
     monkeypatch.setattr("cli.repl.get_tools_schema", lambda: [{"function": {"name": "read_file"}}])
 
     repl = REPL(config_path="config.yaml")
@@ -269,7 +269,7 @@ def test_repl_streaming_strips_markdown_and_ends_with_newline(monkeypatch, capsy
     ])
 
     monkeypatch.setattr("cli.repl.ProviderFactory.load_config", lambda path: config)
-    monkeypatch.setattr("cli.repl.ProviderFactory.create", lambda provider_config, agent_config: provider)
+    monkeypatch.setattr("cli.repl.ProviderFactory.create", lambda provider_config, agent_config, model=None: provider)
     monkeypatch.setattr("cli.repl.get_tools_schema", lambda: [{"function": {"name": "read_file"}}])
 
     repl = REPL(config_path="config.yaml")
@@ -314,7 +314,7 @@ def test_repl_streaming_shows_tool_calls_by_default(monkeypatch, capsys):
     ])
 
     monkeypatch.setattr("cli.repl.ProviderFactory.load_config", lambda path: config)
-    monkeypatch.setattr("cli.repl.ProviderFactory.create", lambda provider_config, agent_config: provider)
+    monkeypatch.setattr("cli.repl.ProviderFactory.create", lambda provider_config, agent_config, model=None: provider)
     monkeypatch.setattr("cli.repl.get_tools_schema", lambda: [{"function": {"name": "list_dir"}}])
 
     repl = REPL(config_path="config.yaml")
@@ -349,7 +349,7 @@ def test_repl_streaming_renders_user_message_panel(monkeypatch, capsys):
     ])
 
     monkeypatch.setattr("cli.repl.ProviderFactory.load_config", lambda path: config)
-    monkeypatch.setattr("cli.repl.ProviderFactory.create", lambda provider_config, agent_config: provider)
+    monkeypatch.setattr("cli.repl.ProviderFactory.create", lambda provider_config, agent_config, model=None: provider)
     monkeypatch.setattr("cli.repl.get_tools_schema", lambda: [{"function": {"name": "read_file"}}])
 
     repl = REPL(config_path="config.yaml")
@@ -384,7 +384,7 @@ def test_repl_streaming_does_not_leak_prompt_into_body(monkeypatch, capsys):
     ])
 
     monkeypatch.setattr("cli.repl.ProviderFactory.load_config", lambda path: config)
-    monkeypatch.setattr("cli.repl.ProviderFactory.create", lambda provider_config, agent_config: provider)
+    monkeypatch.setattr("cli.repl.ProviderFactory.create", lambda provider_config, agent_config, model=None: provider)
     monkeypatch.setattr("cli.repl.get_tools_schema", lambda: [{"function": {"name": "read_file"}}])
 
     repl = REPL(config_path="config.yaml")
@@ -423,7 +423,7 @@ def test_repl_streaming_does_not_restart_thinking_after_text_starts(monkeypatch,
     ], delay=1.3)
 
     monkeypatch.setattr("cli.repl.ProviderFactory.load_config", lambda path: config)
-    monkeypatch.setattr("cli.repl.ProviderFactory.create", lambda provider_config, agent_config: provider)
+    monkeypatch.setattr("cli.repl.ProviderFactory.create", lambda provider_config, agent_config, model=None: provider)
     monkeypatch.setattr("cli.repl.get_tools_schema", lambda: [{"function": {"name": "read_file"}}])
 
     repl = REPL(config_path="config.yaml")
@@ -463,7 +463,7 @@ def test_repl_streaming_small_chunks_do_not_rewrite_partial_preview(monkeypatch,
     ], delay=0.01)
 
     monkeypatch.setattr("cli.repl.ProviderFactory.load_config", lambda path: config)
-    monkeypatch.setattr("cli.repl.ProviderFactory.create", lambda provider_config, agent_config: provider)
+    monkeypatch.setattr("cli.repl.ProviderFactory.create", lambda provider_config, agent_config, model=None: provider)
     monkeypatch.setattr("cli.repl.get_tools_schema", lambda: [{"function": {"name": "read_file"}}])
 
     repl = REPL(config_path="config.yaml")
@@ -501,7 +501,7 @@ def test_repl_streaming_preserves_lines_split_across_chunks(monkeypatch, capsys)
     ])
 
     monkeypatch.setattr("cli.repl.ProviderFactory.load_config", lambda path: config)
-    monkeypatch.setattr("cli.repl.ProviderFactory.create", lambda provider_config, agent_config: provider)
+    monkeypatch.setattr("cli.repl.ProviderFactory.create", lambda provider_config, agent_config, model=None: provider)
     monkeypatch.setattr("cli.repl.get_tools_schema", lambda: [{"function": {"name": "read_file"}}])
 
     repl = REPL(config_path="config.yaml")
@@ -536,7 +536,7 @@ def test_repl_streaming_hides_think_content_from_body(monkeypatch, capsys):
     ])
 
     monkeypatch.setattr("cli.repl.ProviderFactory.load_config", lambda path: config)
-    monkeypatch.setattr("cli.repl.ProviderFactory.create", lambda provider_config, agent_config: provider)
+    monkeypatch.setattr("cli.repl.ProviderFactory.create", lambda provider_config, agent_config, model=None: provider)
     monkeypatch.setattr("cli.repl.get_tools_schema", lambda: [{"function": {"name": "read_file"}}])
 
     repl = REPL(config_path="config.yaml")
@@ -568,7 +568,7 @@ def test_repl_streaming_preserves_mcp_prompt(monkeypatch, capsys):
     provider = StreamingProvider([[LLMStreamChunk(content_delta="ok")]])
 
     monkeypatch.setattr("cli.repl.ProviderFactory.load_config", lambda path: config)
-    monkeypatch.setattr("cli.repl.ProviderFactory.create", lambda provider_config, agent_config: provider)
+    monkeypatch.setattr("cli.repl.ProviderFactory.create", lambda provider_config, agent_config, model=None: provider)
     monkeypatch.setattr("cli.repl.get_tools_schema", lambda: [{"function": {"name": "read_file"}}])
 
     repl = REPL(config_path="config.yaml")
@@ -753,7 +753,7 @@ def _make_repl_for_tool_event(monkeypatch, provider):
         "agent": {"timeout": 30},
     }
     monkeypatch.setattr("cli.repl.ProviderFactory.load_config", lambda path: config)
-    monkeypatch.setattr("cli.repl.ProviderFactory.create", lambda provider_config, agent_config: provider)
+    monkeypatch.setattr("cli.repl.ProviderFactory.create", lambda provider_config, agent_config, model=None: provider)
     monkeypatch.setattr("cli.repl.get_tools_schema", lambda: [{"function": {"name": "read_file"}}])
     repl = REPL(config_path="config.yaml")
     repl.initialize()

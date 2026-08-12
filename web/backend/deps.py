@@ -46,6 +46,19 @@ def get_default_provider_name(config: dict[str, Any] | None = None) -> str:
     return cfg.get("llm", {}).get("default_provider", "")
 
 
+def parse_provider_ref(ref: str | None) -> tuple[str | None, str | None]:
+    """模型级引用解析（P5G.4）：`provider::model` → (provider, model)。
+
+    兼容旧格式：只有 provider 名 → (provider, None)。
+    """
+    if not ref:
+        return None, None
+    name, separator, model = ref.partition("::")
+    if not separator:
+        return name or None, None
+    return (name or None), (model or None)
+
+
 def get_preferences(config: dict[str, Any] | None = None) -> dict[str, Any]:
     """User preferences with Web defaults — the one construction site for routers."""
     from service.preference_service import PreferenceService

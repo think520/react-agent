@@ -1,5 +1,4 @@
 import logging
-import os
 import yaml
 from .base import LLMProvider
 from .deepseek import DeepseekProvider
@@ -13,8 +12,10 @@ KNOWN_PROVIDER_TYPES = {"deepseek", "minimax", "openai", "openai_compatible"}
 
 
 def _common(provider_config: dict, agent_config: dict) -> dict:
+    from providers.catalog import resolve_api_key
+
     return {
-        "api_key": os.getenv(provider_config["api_key_env"]),
+        "api_key": resolve_api_key(provider_config),
         "model": provider_config.get("model"),
         "base_url": provider_config.get("base_url"),
         "temperature": agent_config.get("temperature", 0.7),
@@ -66,29 +67,43 @@ class ProviderFactory:
                 f"Supported: {', '.join(sorted(KNOWN_PROVIDER_TYPES))}"
             )
 
-        if "api_key_env" not in provider_config:
-            raise ProviderConfigError(
-                f"Provider '{provider_type}' is missing required field 'api_key_env' in config.yaml"
-            )
+        from providers.catalog import resolve_api_key
 
-        api_key_env = provider_config["api_key_env"]
-        if not os.getenv(api_key_env):
+        if not resolve_api_key(provider_config):
+            api_key_env = provider_config.get("api_key_env", "")
+            hint = (
+                f"Environment variable {api_key_env} is not set."
+                if api_key_env
+                else "No API key configured."
+            )
             raise ProviderConfigError(
-                f"Environment variable {api_key_env} is not set. "
-                f"Add it to .env or export it before running."
+                f"Provider '{provider_type}' has no API key. "
+                f"{hint} Set it in Settings → AI & Models."
             )
 
     @staticmethod
-    def create(provider_config: dict, agent_config: dict) -> LLMProvider:
+    def create(provider_config: dict, agent_config: dict, model: str | None = None) -> LLMProvider:
         provider_type = provider_config.get("type", "")
         ProviderFactory._validate_provider_config(provider_type, provider_config)
 
-        return _PROVIDER_BUILDERS[provider_type](provider_config, agent_config)
+        builder_config = dict(provider_config)
+        if model:
+            builder_config["model"] = model
+        return _PROVIDER_BUILDERS[provider_type](builder_config, agent_config)
 
     @staticmethod
     def load_config(config_path: str = "config.yaml") -> dict:
+        """Load config.yaml and merge the provider catalog (P5G.4).
+
+        `~/.bobodan/provider.json` overrides `llm.providers`; built-in
+        presets fill gaps; first run migrates legacy providers. Side
+        effect: migration may write the catalog file once.
+        """
+        from providers.catalog import apply_to_config
+
         with open(config_path, "r", encoding="utf-8") as f:
-            return yaml.safe_load(f)
+            config = yaml.safe_load(f) or {}
+        return apply_to_config(config)
 
     @staticmethod
     def create_from_config(config_path: str = "config.yaml") -> LLMProvider:

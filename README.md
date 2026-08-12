@@ -173,13 +173,13 @@ python -m pip install -r requirements.txt
 Copy-Item .env.example .env
 ```
 
-在 `.env` 中至少配置一个 Provider 的 API key。下面只是占位示例，不是真实凭据：
+启动后在设置 →「AI 与模型」→「管理供应商」里填写 Provider 的 API key 即可使用（密钥保存在本地 `~/.bobodan/provider.json`）。也可以继续沿用 `.env` 环境变量方式（key 留空时自动回退），两者互不冲突：
 
 ```env
 DEEPSEEK_API_KEY=your_api_key_here
 ```
 
-真实 API key 只应保存在本机 `.env` 中，不要写入 README、截图或提交到 Git。
+真实 API key 只应保存在本机，不要写入 README、截图或提交到 Git。
 
 ### 2. 启动 FastAPI
 
@@ -230,13 +230,14 @@ python agent.py library list
 
 | 配置 | 用途 |
 | --- | --- |
-| `.env` | 保存本机 Provider API key，不提交到 Git |
-| `config.yaml` | 配置 Provider、模型、Agent、RAG、Skills、MCP 和 specialist |
+| `~/.bobodan/provider.json` | Provider 与模型配置真相源（设置 →「AI 与模型」管理），API key 在此保存 |
+| `.env` | 可选：API key 走环境变量（provider.json 中 key 留空时回退） |
+| `config.yaml` | 配置 Agent、RAG、Skills、MCP 和 specialist；`llm.providers` 仅首次启动迁移用 |
 | `rag.embedding_backend` | 默认为 `auto`；没有本地 embedding 服务时，FTS5 仍可单独工作 |
 | Qdrant | 默认使用本地模式；远程 Qdrant、Ollama 和 MCP 都是可选项 |
 | `BOBODAN_CONFIG` / `BOBODAN_WORKSPACE` | 指定配置文件和后端工作区 |
 
-默认 Provider 是 `deepseek`，也可以切换 `minimax`、`openai`、`dashscope`、`siliconflow` 或 `openrouter` 等配置。
+默认 Provider 是 `deepseek`，也可以在设置页添加任意 OpenAI 兼容供应商（含免 key 的本地 Ollama）、切换 `minimax`、`openai`、`dashscope`、`siliconflow` 或 `openrouter` 等模板，并为每个供应商配置多个模型。
 
 <a id="data-boundaries"></a>
 

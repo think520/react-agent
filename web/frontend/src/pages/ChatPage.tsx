@@ -7,6 +7,7 @@ import { useNavigate, useOutletContext, useParams } from "react-router-dom";
 import type { AppOutletContext } from "../components/AppShell";
 import { AttributionBadges, BrandIllustration, ErrorNotice, IconButton, LoadingState } from "../components/common";
 import { WikiPlanCard } from "../components/WikiPlanCard";
+import { ModelSelect } from "../components/ModelSelect";
 import { KnowledgeContextCard } from "../components/artifacts/KnowledgeContextCard";
 import { MemoryConfirmationCard } from "../components/artifacts/MemoryConfirmationCard";
 import { PracticeReadyCard } from "../components/artifacts/PracticeReadyCard";
@@ -172,7 +173,22 @@ export function ChatPage() {
   const [paletteIndex, setPaletteIndex] = useState(0);
   const [paletteDismissed, setPaletteDismissed] = useState(false);
   const [wikiPlanLoading, setWikiPlanLoading] = useState(false);
+  // P5G.4：`provider::model` 完整引用（模型级选择）
   const [selectedProvider, setSelectedProvider] = useState(() => useUiStore.getState().newSessionProvider || "");
+
+  /** 把 provider 名（或 `provider::model`）补齐为完整引用。 */
+  function resolveModelRef(ref: string): string {
+    if (!ref) return "";
+    const [provider, model] = ref.split("::");
+    if (model) return ref;
+    const found = settings?.providers.find((item) => item.name === provider);
+    return found?.model ? `${provider}::${found.model}` : ref;
+  }
+
+  function sessionRef(session: { provider_name?: string | null; model_name?: string | null }): string {
+    if (!session.provider_name) return "";
+    return session.model_name ? `${session.provider_name}::${session.model_name}` : session.provider_name;
+  }
   const [references, setReferences] = useState<ChatReference[]>([]);
   const [webOnce, setWebOnce] = useState(false);
   const strictDocumentScope = useUiStore((state) => state.strictDocumentScope);
@@ -197,7 +213,7 @@ export function ChatPage() {
       setMessages([]);
       setReferences([]);
       clearKnowledgeContextRef.current();
-      setSelectedProvider(useUiStore.getState().newSessionProvider || settings?.default_provider || "");
+      setSelectedProvider(resolveModelRef(useUiStore.getState().newSessionProvider || settings?.default_provider || ""));
       setLoading(false);
       return;
     }
@@ -207,7 +223,7 @@ export function ChatPage() {
         if (cancelled) return;
         setMessages(session.messages);
         setReferences([]);
-        setSelectedProvider(session.provider_name || settings?.default_provider || "");
+        setSelectedProvider(resolveModelRef(sessionRef(session) || settings?.default_provider || ""));
         const latestKnowledgeContext = session.messages
           .flatMap((message) => message.artifacts || [])
           .filter((artifact): artifact is KnowledgeContextArtifact => artifact.type === "knowledge_context")
@@ -221,7 +237,7 @@ export function ChatPage() {
   }, [sessionId, settings?.default_provider, setMessages]);
 
   useEffect(() => {
-    if (!selectedProvider && settings?.default_provider) setSelectedProvider(settings.default_provider);
+    if (!selectedProvider && settings?.default_provider) setSelectedProvider(resolveModelRef(settings.default_provider));
   }, [selectedProvider, settings?.default_provider]);
 
   useEffect(() => {
@@ -356,10 +372,12 @@ export function ChatPage() {
     abortRef.current = controller;
     try {
       const profile = useUiStore.getState().learningProfile;
+      const [sendProvider, sendModel] = (selectedProvider || settings?.default_provider || "").split("::");
       await streamChat(message, sessionId, selectedDocumentIds, {
         ...profile,
         memoryEnabled: settings?.preferences.memory.enabled ?? true,
-        provider: selectedProvider || settings?.default_provider,
+        provider: sendProvider || undefined,
+        model: sendModel || undefined,
         references: outgoingReferences,
         webResearchId,
         strictDocumentScope,
@@ -401,7 +419,7 @@ export function ChatPage() {
   async function refreshChatSession(id: string) {
     const detail = await api.session(id);
     setMessages(detail.messages);
-    setSelectedProvider(detail.provider_name || settings?.default_provider || "");
+    setSelectedProvider(resolveModelRef(sessionRef(detail) || settings?.default_provider || ""));
     await refreshSessions();
   }
 
@@ -667,16 +685,17 @@ export function ChatPage() {
     if (previous?.role === "user") void send(undefined, previous.content);
   }
 
-  async function changeProvider(provider: string) {
+  async function changeProvider(modelRef: string) {
     if (sending) return;
     const previous = selectedProvider;
-    setSelectedProvider(provider);
+    setSelectedProvider(modelRef);
     try {
+      const [provider, model] = modelRef.split("::");
       if (sessionId) {
-        await api.updateSessionProvider(sessionId, provider);
+        await api.updateSessionProvider(sessionId, provider, model);
         await refreshSessions();
       } else {
-        useUiStore.getState().setNewSessionProvider(provider);
+        useUiStore.getState().setNewSessionProvider(modelRef);
       }
     } catch (reason) {
       setSelectedProvider(previous);
@@ -736,7 +755,7 @@ export function ChatPage() {
     else navigate(`/library?collection=${reference.collection || "material"}&document=${encodeURIComponent(reference.id)}`);
   }
 
-  const activeProvider = settings?.providers.find((provider) => provider.name === selectedProvider);
+  const activeProvider = settings?.providers.find((provider) => provider.name === (selectedProvider.split("::")[0] || selectedProvider));
   const slashItems = useMemo<SlashItem[]>(() => [
     ...WEB_COMMANDS,
     ...(settings?.skills || []).filter((skill) => skill.enabled).map((skill) => ({
@@ -942,7 +961,7 @@ export function ChatPage() {
           <IconButton label={webOnce ? "取消本轮联网搜索" : "本轮搜索网页候选"} className={webOnce ? "web-on" : ""} type="button" disabled={sending} onClick={() => setWebOnce((value) => !value)}><Globe2 /></IconButton>
           {selectedDocuments.length > 0 && <span className="composer-scope"><Library size={13} />{selectedDocuments.length} 份优先资料<button className="scope-mode-toggle" type="button" title={strictDocumentScope ? "当前只检索选中资料，点击恢复全库检索" : "当前检索全库并优先这些资料，点击限制为仅选中"} onClick={toggleStrictDocumentScope}>{strictDocumentScope ? "仅这些" : "全库优先"}</button><button type="button" aria-label="清空优先资料" title="清空优先资料" onClick={clearDocumentScope}><X size={12} /></button></span>}
           {webOnce && <span className="composer-web-scope"><Globe2 size={13} />本轮联网</span>}
-          <label className={`composer-select model ${activeProvider?.configured ? "connected" : "offline"}`} title="本会话使用的模型"><i /><select aria-label="当前模型" value={selectedProvider} disabled={sending} onChange={(event) => void changeProvider(event.target.value)}>{settings?.providers.map((provider) => <option key={provider.name} value={provider.name} disabled={!provider.configured}>{provider.name}{provider.configured ? "" : "（不可用）"}</option>)}</select></label>
+          <label className={`composer-select model ${activeProvider?.configured ? "connected" : "offline"}`} title="本会话使用的模型"><i /><ModelSelect providers={settings?.providers || []} label="当前模型" value={selectedProvider} onChange={(value) => void changeProvider(value)} className="composer-model-select" /></label>
           <label className="composer-select depth" title="回答深度"><select aria-label="回答深度" value={settings?.preferences.assistant.answer_depth || "standard"} disabled={sending || !settings} onChange={(event) => void changeAnswerDepth(event.target.value as "concise" | "standard" | "deep")}><option value="concise">简洁</option><option value="standard">标准</option><option value="deep">深入</option></select></label>
           <span className="composer-hint">Enter 发送 · Shift Enter 换行</span>
           {sending ? <button className="send-button stop" type="button" aria-label="停止生成" onClick={() => abortRef.current?.abort()}><Square /></button> : <button className="send-button" type="submit" disabled={!draft.trim() || !libraryReady} aria-label="发送"><ArrowUp /></button>}

@@ -7,6 +7,7 @@
 ## [未发布]
 
 ### 变更
+- **完成 P5G.4 模型供应商管理（Provider Catalog）**：新增 `providers/catalog.py`，供应商配置迁移到 `~/.bobodan/provider.json`（API key 可在设置页 UI 填写，不再需要手改 `config.yaml` / `.env`；首次启动自动迁移旧配置，key 留空时回退环境变量，零断供过渡）。供应商下挂多模型，聊天框与任务路由（主题发现 / 页面撰写）升级为「供应商 → 模型」两级选择（`provider::model` 引用，旧纯供应商格式兼容）。设置页新增「管理供应商」：预设模板（含免 key 的本地 Ollama）+ 完全自定义（OpenAI 兼容协议）、远程 `GET /models` 自动拉取模型列表、手输兜底、测试连接、删除（密钥脱敏返回，编辑留空保持原 key）。验证：Python `1231 passed`、Vitest `19 passed`、前端 lint 与生产构建通过、真实启动冒烟（settings / 新增 / 删除 / 测试连接 / 模型级 chat 引用）通过。
 - **完成 P5G.1 单进程本地 Web**：新增 `python agent.py web`，一条命令启动完整产品（FastAPI 托管 React 生产构建 + SPA 深链接回退 + `/api/*` 不被拦截）；默认 `127.0.0.1`、端口被占用自动向后查找、启动后自动打开浏览器；生产模式应用数据位于 `~/.bobodan`、日志写入 `%LOCALAPPDATA%\Bobodan\logs\web.log`（`--dev` 保持开发行为）；启动失败给出端口/配置/构建三类可操作提示。验证：Python `1212 passed`、Vitest `19 passed`、生产构建与真实启动冒烟通过。
 - **桌面端资料进库设计落地（2026-08-12）**：应用数据统一 `~/.bobodan` 点目录；资料库根目录全格式扫描（PDF/DOCX/PPTX 丢根目录或任意子目录即可被索引，`raw/` 旧 source 保持稳定，`wiki/` 等内部结构不索引）；新增 `agent.py library init --default` 一键创建 `Documents\Bobodan 资料库`；切片句子边界软切（句号 → 分号 → 逗号回退，中文长句不再腰斩）+ 阅读器相邻切片去重标题。设计决策全文见 `docs/PROJECT_GUIDE.md` P5E.1 小节。验证：Python `1217 passed`、Vitest `19 passed`、前端构建通过。
 - **完成 2026-07-26 项目审查整改**：修复审查报告中的 B1–B9 正确性问题，并继续沿“单一正常运行真相源、旧数据只做显式迁移”的原则收敛后端与前端。

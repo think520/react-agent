@@ -29,6 +29,7 @@ from web.backend.deps import (
     get_request_workspace,
     get_session_save_dir,
     get_workspace,
+    reset_dependency_caches,
 )
 from web.backend.errors import APIError
 
@@ -38,6 +39,23 @@ router = APIRouter()
 class PreferencesPatchRequest(BaseModel):
     revision: int = Field(..., ge=0)
     patch: dict[str, Any]
+
+
+class ProviderUpsertRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=80)
+    base_url: str = Field(..., min_length=1, max_length=300)
+    type: str = Field(default="openai_compatible", min_length=1, max_length=40)
+    provider_name: str | None = None
+    preset: str | None = None
+    api_key: str | None = None
+    api_key_env: str | None = None
+    model_default: str | None = None
+    models: list[dict[str, str]] = Field(default_factory=list, max_length=200)
+
+
+class ProviderFetchModelsRequest(BaseModel):
+    base_url: str = Field(..., min_length=1, max_length=300)
+    api_key: str | None = None
 
 
 class SettingsProposalRequest(BaseModel):
@@ -134,6 +152,95 @@ def patch_preferences(body: PreferencesPatchRequest) -> dict:
     except ValueError as exc:
         raise APIError(422, "invalid_preference", str(exc)) from exc
     return {"ok": True, "preferences": preferences}
+
+
+@router.get("/providers/presets")
+def provider_presets() -> dict:
+    """内建模板（P5G.4）：预设供应商 + Ollama，供「添加供应商」使用。"""
+    from providers.catalog import BUILTIN_PRESETS
+
+    return {
+        "ok": True,
+        "presets": [
+            {
+                "name": name,
+                "type": raw.get("type", "openai_compatible"),
+                "provider_name": raw.get("provider_name", name),
+                "base_url": raw.get("base_url", ""),
+                "api_key_env": raw.get("api_key_env", ""),
+            }
+            for name, raw in sorted(BUILTIN_PRESETS.items())
+        ],
+    }
+
+
+@router.put("/providers")
+def upsert_provider(body: ProviderUpsertRequest) -> dict:
+    """新增或编辑供应商（P5G.4）。api_key 留空 = 保持原 key。"""
+    from providers.catalog import upsert_provider as catalog_upsert
+
+    if body.name in ("auto", "default"):
+        raise APIError(422, "invalid_provider_name", "This name is reserved.")
+    entry = {
+        "type": body.type,
+        "provider_name": body.provider_name or body.preset or body.name,
+        "preset": body.preset or "",
+        "base_url": body.base_url,
+        "api_key": body.api_key or "",
+        "api_key_env": body.api_key_env or "",
+        "model_default": body.model_default or "",
+        "models": body.models or [],
+    }
+    catalog_upsert(body.name, entry)
+    reset_dependency_caches()
+    return {"ok": True, "name": body.name}
+
+
+@router.delete("/providers/{provider_name}")
+def remove_provider(provider_name: str) -> dict:
+    """删除供应商（P5G.4）。"""
+    from providers.catalog import delete_provider as catalog_delete
+
+    if not catalog_delete(provider_name):
+        raise APIError(404, "provider_not_found", "The provider does not exist.")
+    reset_dependency_caches()
+    return {"ok": True, "name": provider_name}
+
+
+@router.post("/providers/fetch-models")
+def fetch_provider_models(body: ProviderFetchModelsRequest) -> dict:
+    """远程拉取模型列表（GET {base}/models，OpenAI 兼容协议，P5G.4）。
+
+    失败返回 409，由前端提示手输兜底。
+    """
+    import httpx
+
+    base_url = body.base_url.rstrip("/")
+    headers = {}
+    if body.api_key:
+        headers["Authorization"] = f"Bearer {body.api_key}"
+    try:
+        response = httpx.get(f"{base_url}/models", headers=headers, timeout=10)
+        response.raise_for_status()
+        payload = response.json()
+    except httpx.TimeoutException:
+        raise APIError(409, "fetch_models_timeout", "The provider did not respond in time.")
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 401 or exc.response.status_code == 403:
+            raise APIError(409, "fetch_models_unauthorized", "The API key was rejected.")
+        raise APIError(409, "fetch_models_failed", "The provider could not be reached.")
+    except (httpx.HTTPError, ValueError):
+        raise APIError(409, "fetch_models_failed", "The provider could not be reached.")
+
+    items = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(items, list):
+        items = payload.get("models", []) if isinstance(payload, dict) else []
+    models = sorted(
+        ({"id": item.get("id") or item.get("name", ""), "name": item.get("id") or item.get("name", "")}
+         for item in items if isinstance(item, dict) and (item.get("id") or item.get("name"))),
+        key=lambda item: item["id"],
+    )
+    return {"ok": True, "models": models}
 
 
 @router.post("/providers/{provider_name}/test")

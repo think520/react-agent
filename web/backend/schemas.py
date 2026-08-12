@@ -29,6 +29,7 @@ class ChatRunRequest(BaseModel):
     message: str = Field(..., min_length=1)
     chat_session_id: str | None = None
     provider: str | None = None
+    model: str | None = None
     save: bool = True
     document_ids: list[str] = Field(default_factory=list, max_length=200)
     preferred_document_ids: list[str] = Field(default_factory=list, max_length=200)
@@ -45,6 +46,7 @@ class ChatSessionUpdateRequest(BaseModel):
 
 class ChatSessionProviderRequest(BaseModel):
     provider: str = Field(..., min_length=1, max_length=80)
+    model: str | None = None
 
 
 class PracticeArtifactStartRequest(BaseModel):

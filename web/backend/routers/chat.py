@@ -36,6 +36,7 @@ from web.backend.deps import (
     get_request_workspace,
     get_session_save_dir,
     get_workspace,
+    parse_provider_ref,
 )
 from web.backend.errors import APIError
 from web.backend.events import to_web_events
@@ -127,6 +128,7 @@ def _session_summary(summary: dict[str, Any]) -> dict[str, Any]:
         "message_count": summary.get("message_count", 0),
         "library_id": summary.get("library_id"),
         "provider_name": summary.get("provider_name"),
+        "model_name": summary.get("model_name"),
     }
 
 
@@ -159,8 +161,8 @@ def _session_detail(session: Session) -> dict[str, Any]:
         "created_at": session.created_at,
         "last_active": session.last_active,
         "message_count": len(messages),
-        "library_id": session.library_id,
         "provider_name": session.provider_name,
+        "model_name": session.model_name,
         "messages": messages,
     }
 
@@ -710,10 +712,11 @@ def update_session_provider(
         get_request_library_id(request),
     )
     session.provider_name = body.provider
+    session.model_name = body.model or session.model_name
     result = AgentService.save_session(session, get_session_save_dir(config, workspace))
     if not result.get("ok"):
         raise APIError(500, "session_save_failed", "The session provider could not be saved.")
-    return {"chat_session_id": chat_session_id, "provider_name": body.provider}
+    return {"chat_session_id": chat_session_id, "provider_name": body.provider, "model_name": session.model_name}
 
 
 @router.post("/sessions/{chat_session_id}/title")
@@ -742,7 +745,10 @@ def generate_session_title(chat_session_id: str, request: Request) -> dict:
     if assistant_text:
         try:
             provider = _runtime_for(workspace).create_provider(
-                _preferences(config).get("ai", {}).get("default_provider") or get_default_provider_name(config)
+                *parse_provider_ref(
+                    _preferences(config).get("ai", {}).get("default_provider")
+                    or get_default_provider_name(config)
+                )
             )
             prompt = (
                 "请根据下面第一轮学习对话生成一个简洁的中文会话标题。"
@@ -937,7 +943,9 @@ def create_wiki_focus(body: WikiFocusRequest, request: Request) -> dict:
     )
     try:
         provider = runtime.create_provider(
-            body.provider or _preferences(config).get("ai", {}).get("default_provider")
+            *parse_provider_ref(
+                body.provider or _preferences(config).get("ai", {}).get("default_provider")
+            )
         )
         response = provider.complete([{"role": "user", "content": prompt}])
         summary = str(getattr(response, "content", "") or "").strip()
@@ -1012,7 +1020,9 @@ def confirm_wiki_focus(
     scope = focus.get("scope") or {}
     try:
         provider = _runtime_for(workspace).create_provider(
-            body.provider or _preferences(config).get("ai", {}).get("default_provider")
+            *parse_provider_ref(
+                body.provider or _preferences(config).get("ai", {}).get("default_provider")
+            )
         )
     except ValueError as exc:
         raise APIError(409, "provider_unavailable", str(exc)) from exc
@@ -1250,14 +1260,15 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
     search_preferences = preferences.get("search") or {}
     search_permission = search_preferences.get("permission", "ask")
     session = _load_or_create_session(body.chat_session_id, config, workspace, library_id)
-    provider_name = (
+    provider_name, preference_model = parse_provider_ref(
         body.provider
         or session.provider_name
         or preferences.get("ai", {}).get("default_provider")
         or get_default_provider_name(config)
     )
+    model_name = body.model or session.model_name or preference_model or None
     try:
-        provider = runtime.create_provider(provider_name)
+        provider = runtime.create_provider(provider_name, model=model_name)
     except Exception as exc:
         logger.warning("Web provider creation failed for %s: %s", provider_name, exc)
         raise APIError(
@@ -1267,6 +1278,7 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
         ) from exc
 
     session.provider_name = provider_name
+    session.model_name = model_name
     web_evidence = None
     initial_attribution = None
     if body.web_research_id:

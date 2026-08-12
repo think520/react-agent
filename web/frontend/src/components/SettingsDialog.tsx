@@ -8,6 +8,8 @@ import { api } from "../lib/api";
 import type { LegacyGraphPreview, LibrarySummary, MemoryOverview, RuntimeStatus, SettingsSummary } from "../types";
 import { BrandIllustration, IconButton } from "./common";
 import { MemoryManagerDialog } from "./MemoryManagerDialog";
+import { ModelSelect } from "./ModelSelect";
+import { ProviderManagerDialog } from "./ProviderManagerDialog";
 
 type SectionId = "assistant" | "user" | "appearance" | "ai" | "memory" | "skills" | "status";
 
@@ -62,11 +64,11 @@ export function SettingsDialog({
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
-  const [providerTest, setProviderTest] = useState<Record<string, string>>({});
   const [searchTest, setSearchTest] = useState<Record<string, string>>({});
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus | null>(null);
   const [memoryOverview, setMemoryOverview] = useState<MemoryOverview | null>(null);
   const [memoryManagerOpen, setMemoryManagerOpen] = useState(false);
+  const [providerManagerOpen, setProviderManagerOpen] = useState(false);
   const [legacyGraph, setLegacyGraph] = useState<LegacyGraphPreview | null>(null);
   const [legacyConceptIds, setLegacyConceptIds] = useState<string[]>([]);
   const [legacyMemoryIds, setLegacyMemoryIds] = useState<string[]>([]);
@@ -199,16 +201,6 @@ export function SettingsDialog({
     await patchPreferences({ user: profile });
   }
 
-  async function testProvider(name: string) {
-    setProviderTest((current) => ({ ...current, [name]: "正在测试…" }));
-    try {
-      const result = await api.providerTest(name);
-      setProviderTest((current) => ({ ...current, [name]: `${result.latency_ms}ms · 连接正常` }));
-    } catch (reason) {
-      setProviderTest((current) => ({ ...current, [name]: reason instanceof Error ? reason.message : "连接失败" }));
-    }
-  }
-
   async function testSearchProvider(name: "auto" | "tavily" | "exa") {
     setSearchTest((current) => ({ ...current, [name]: "正在测试…" }));
     try {
@@ -249,12 +241,13 @@ export function SettingsDialog({
       </section>
     </>;
     if (active === "ai") return <>
-      <section className="settings-group"><header><h3>模型与连接</h3><p>密钥继续由本地环境变量管理。测试连接会发送一次最小请求。</p></header>
-        {settings.providers.map((provider) => <div className="provider-row" key={provider.name}><span className={`provider-mark ${provider.configured ? "ready" : ""}`}><Cpu size={17} /></span><div><strong>{provider.name}</strong><small>{provider.model || provider.type || "模型"}{!provider.configured && provider.api_key_env ? ` · 需要 ${provider.api_key_env}` : ""}{providerTest[provider.name] ? ` · ${providerTest[provider.name]}` : ""}</small></div><label><input type="radio" name="default-provider" checked={preferences.ai.default_provider === provider.name} disabled={!provider.configured} onChange={() => void patchPreferences({ ai: { default_provider: provider.name } })} />默认</label><button className="quiet-button" disabled={!provider.configured} onClick={() => void testProvider(provider.name)}>测试连接</button></div>)}
+      <section className="settings-group"><header><h3>模型与连接</h3><p>API key 在供应商管理中填写，密钥明文保存在本地应用数据目录。</p></header>
+        <SettingRow label="默认模型" hint="聊天与未指定任务默认使用"><ModelSelect providers={settings.providers} label="默认模型" value={preferences.ai.default_provider || "default"} onChange={(value) => void patchPreferences({ ai: { default_provider: value } })} includeDefault={false} /></SettingRow>
+        <div className="provider-row"><span className={`provider-mark ${settings.providers.some((item) => item.configured) ? "ready" : ""}`}><Cpu size={17} /></span><div><strong>{settings.providers.filter((item) => item.configured).length}/{settings.providers.length} 个供应商已配置</strong><small>管理 API key、模型列表、测试连接与删除</small></div><button className="quiet-button" onClick={() => setProviderManagerOpen(true)}>管理供应商</button></div>
       </section>
       <section className="settings-group"><header><h3>Wiki 模型与额度</h3><p>发现主题和撰写页面可以分别选择模型；达到额度后任务会保存并暂停。</p></header>
-        <SettingRow label="主题发现模型"><select className="settings-inline-select" value={preferences.ai.task_providers?.wiki_discovery || "default"} onChange={(event) => void patchPreferences({ ai: { task_providers: { wiki_discovery: event.target.value } } })}><option value="default">跟随默认模型</option>{settings.providers.filter((item) => item.configured).map((item) => <option value={item.name} key={item.name}>{item.name} · {item.model}</option>)}</select></SettingRow>
-        <SettingRow label="页面撰写模型"><select className="settings-inline-select" value={preferences.ai.task_providers?.wiki_drafting || "default"} onChange={(event) => void patchPreferences({ ai: { task_providers: { wiki_drafting: event.target.value } } })}><option value="default">跟随默认模型</option>{settings.providers.filter((item) => item.configured).map((item) => <option value={item.name} key={item.name}>{item.name} · {item.model}</option>)}</select></SettingRow>
+        <SettingRow label="主题发现模型"><ModelSelect providers={settings.providers} label="主题发现模型" value={preferences.ai.task_providers?.wiki_discovery || "default"} onChange={(value) => void patchPreferences({ ai: { task_providers: { wiki_discovery: value } } })} includeDefault /></SettingRow>
+        <SettingRow label="页面撰写模型"><ModelSelect providers={settings.providers} label="页面撰写模型" value={preferences.ai.task_providers?.wiki_drafting || "default"} onChange={(value) => void patchPreferences({ ai: { task_providers: { wiki_drafting: value } } })} includeDefault /></SettingRow>
         <SettingRow label="默认整理方式"><select className="settings-inline-select" value={preferences.wiki?.default_mode || "standard"} onChange={(event) => void patchPreferences({ wiki: { default_mode: event.target.value } })}><option value="catalog">快速建档</option><option value="standard">标准整理 · 每批 5 份</option><option value="deep">深度全库</option></select></SettingRow>
         <div className="wiki-budget-settings"><label><span>请求上限</span><input type="number" min={1} max={500} value={preferences.wiki?.budget.max_requests || 24} onChange={(event) => void patchPreferences({ wiki: { budget: { max_requests: Number(event.target.value) } } })} /></label><label><span>输入 Token</span><input type="number" min={1000} step={10000} value={preferences.wiki?.budget.max_input_tokens || 300000} onChange={(event) => void patchPreferences({ wiki: { budget: { max_input_tokens: Number(event.target.value) } } })} /></label><label><span>输出 Token</span><input type="number" min={1000} step={1000} value={preferences.wiki?.budget.max_output_tokens || 40000} onChange={(event) => void patchPreferences({ wiki: { budget: { max_output_tokens: Number(event.target.value) } } })} /></label></div>
       </section>
@@ -280,6 +273,8 @@ export function SettingsDialog({
     if (active === "skills") return <section className="settings-group"><header><h3>Web 安全 Skills</h3><p>这里只显示浏览器运行时能够完整执行的学习技能。</p></header>{settings.skills.length ? settings.skills.map((skill) => <SettingRow key={skill.name} label={skill.name} hint={`${skill.description} · 能力：${skill.capabilities.join("、")} · 来源：${skill.source}`}><Toggle label={`${skill.name} 技能`} checked={preferences.skills.enabled_names.includes(skill.name)} onChange={(value) => { const names = value ? [...preferences.skills.enabled_names, skill.name] : preferences.skills.enabled_names.filter((item) => item !== skill.name); void patchPreferences({ skills: { enabled_names: names } }); }} /></SettingRow>) : <p className="settings-empty">当前没有可用于 Web 的 Skills。</p>}</section>;
     return <section className="settings-group"><header><h3>运行状态</h3><p>只展示普通用户能理解并采取行动的状态。</p></header>{runtimeStatus ? <div className="runtime-grid"><div><Activity /><span><strong>后端</strong><small>连接正常</small></span></div><div><Cpu /><span><strong>AI</strong><small>{runtimeStatus.providers.configured}/{runtimeStatus.providers.available} 已配置</small></span></div><div><Search /><span><strong>联网搜索</strong><small>{runtimeStatus.search.permission === "auto" ? "模型自动" : "每次询问"} · {runtimeStatus.search.default} · {runtimeStatus.search.jina_fallback ? "Jina 后备开启" : "仅直接读取"}</small></span></div><div><Database /><span><strong>资料索引</strong><small>{runtimeStatus.knowledge.state === "ready" ? `${runtimeStatus.knowledge.documents} 份资料` : "等待资料"}</small></span></div><div><Brain /><span><strong>记忆</strong><small>{runtimeStatus.memory.enabled ? "已启用" : "已关闭"}</small></span></div><div><Wrench /><span><strong>Skills</strong><small>{runtimeStatus.skills.enabled}/{runtimeStatus.skills.available} 已启用</small></span></div><div><Gauge /><span><strong>版本</strong><small>{runtimeStatus.version}</small></span></div></div> : <p className="settings-empty">正在读取状态…</p>}</section>;
   }
+
+  if (providerManagerOpen) return <div className="settings-backdrop" role="presentation"><ProviderManagerDialog settings={settings} onClose={() => setProviderManagerOpen(false)} onChanged={async () => { const refreshed = await api.settings(); onSettingsChange(refreshed); }} /></div>;
 
   if (memoryManagerOpen) return <div className="settings-backdrop" role="presentation"><MemoryManagerDialog memoryEnabled={preferences.memory.enabled} onClose={() => { setMemoryManagerOpen(false); void api.memoryOverview().then(setMemoryOverview).catch(() => undefined); }} /></div>;
 
