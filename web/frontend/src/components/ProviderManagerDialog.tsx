@@ -4,6 +4,7 @@ import { Check, Cpu, Plus, RefreshCw, Trash2, X } from "lucide-react";
 import { api } from "../lib/api";
 import type { ProviderModel, ProviderPreset, ProviderSummary, SettingsSummary } from "../types";
 import { IconButton } from "./common";
+import { DropdownSelect } from "./DropdownSelect";
 
 interface ProviderForm {
   name: string;
@@ -196,7 +197,7 @@ export function ProviderManagerDialog({ settings, onClose, onChanged }: {
             <button className="quiet-button" disabled={working || !editing.base_url.trim()} onClick={() => void fetchModels()}><RefreshCw size={13} />{working ? "获取中…" : "获取模型"}</button>
           </div>
           <p className="provider-models-hint">从「获取模型」拉取，或手动输入。默认模型用于该供应商的常规调用。</p>
-          <label><span>默认模型</span><select className="settings-inline-select" value={editing.model_default} disabled={working} onChange={(event) => setEditing({ ...editing, model_default: event.target.value })}><option value="">跟随选择（未指定）</option>{editing.models.map((item) => <option key={item.id} value={item.id}>{item.name || item.id}</option>)}</select></label>
+          <label><span>默认模型</span><DropdownSelect className="bordered" ariaLabel="默认模型" value={editing.model_default} disabled={working} onChange={(value) => setEditing({ ...editing, model_default: value })} options={[{ value: "", label: "跟随选择（未指定）" }, ...editing.models.map((item) => ({ value: item.id, label: item.name || item.id }))]} /></label>
           <div className="provider-model-list">
             {editing.models.map((item) => <div key={item.id}><span>{item.name || item.id}<small>{item.id}</small></span><IconButton label={`删除模型 ${item.id}`} disabled={working} onClick={() => setEditing({ ...editing, models: editing.models.filter((m) => m.id !== item.id), model_default: editing.model_default === item.id ? "" : editing.model_default })}><Trash2 size={13} /></IconButton></div>)}
             {!editing.models.length && <p className="settings-empty">还没有模型。先「获取模型」或手动添加。</p>}

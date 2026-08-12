@@ -21,6 +21,7 @@ import type {
 } from "../types";
 import { GraphCanvas } from "../components/GraphCanvas";
 import { CandidateReviewPanel } from "../components/CandidateReviewPanel";
+import { DropdownSelect } from "../components/DropdownSelect";
 import type { AppOutletContext } from "../components/AppShell";
 
 interface ExtractionSource {
@@ -173,19 +174,13 @@ export function KnowledgeMapPage() {
 
         {/* Topic filter */}
         {topics.length > 0 && (
-          <select
+          <DropdownSelect
             className="km-topic-filter"
+            ariaLabel="按主题筛选"
             value={selectedTopicId ?? ""}
-            onChange={(e) => setSelectedTopicId(e.target.value || null)}
-            aria-label="按主题筛选"
-          >
-            <option value="">全部主题</option>
-            {topics.map((t) => (
-              <option key={t.concept_id} value={t.concept_id}>
-                {t.name}
-              </option>
-            ))}
-          </select>
+            onChange={(value) => setSelectedTopicId(value || null)}
+            options={[{ value: "", label: "全部主题" }, ...topics.map((t) => ({ value: t.concept_id, label: t.name }))]}
+          />
         )}
 
         {/* Search (directory + sources) */}

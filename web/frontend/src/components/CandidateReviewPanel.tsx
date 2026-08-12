@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CheckCircle, ChevronDown, ChevronUp, Tag, X } from "lucide-react";
 import { api } from "../lib/api";
+import { DropdownSelect } from "./DropdownSelect";
 import type { ConceptCandidate } from "../types";
 
 interface ExtractionSource {
@@ -436,9 +437,7 @@ function CandidateCard({
                 return <div key={index} className={`candidate-relation-review ${edit.enabled ? "" : "disabled"}`}>
                   <label><input type="checkbox" checked={edit.enabled} onChange={(event) => onRelationEdit(index, { enabled: event.target.checked })} />保留</label>
                   <span>{edit.direction === "outgoing" ? cand.name : relation.to_name}</span>
-                  <select value={edit.rel_type} disabled={!edit.enabled} onChange={(event) => onRelationEdit(index, { rel_type: event.target.value })}>
-                    {RELATION_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
-                  </select>
+                  <DropdownSelect ariaLabel="关系类型" value={edit.rel_type} disabled={!edit.enabled} onChange={(value) => onRelationEdit(index, { rel_type: value })} options={RELATION_TYPES.map((type) => ({ value: type, label: type }))} />
                   <span>{edit.direction === "outgoing" ? relation.to_name : cand.name}</span>
                   <button className="btn-sm btn-ghost" type="button" disabled={!edit.enabled} onClick={() => onRelationEdit(index, { direction: edit.direction === "outgoing" ? "incoming" : "outgoing" })}>反转方向</button>
                   {relation.excerpt && <blockquote>“{relation.excerpt}”</blockquote>}
