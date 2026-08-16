@@ -4,6 +4,22 @@
 > 版本：v1.0（2026-08-11）
 > 已确认决策：布局方案 A（列表页/阅读页分离）+ openhanako 三件套；编辑方案 A（入口快修）+ B（图谱编辑）；C（AI 协作图谱）后置，本轮不做
 
+## 执行状态（2026-08-13 完成，分支 feat/library-rework）
+
+| 任务 | 状态 | 落地 |
+|---|---|---|
+| 1 布局方案 A（列表页/阅读页分离） | ✅ 完成 | /library 列表 + /library/read/:id 阅读页；滚动恢复 / 键盘 / 移动端 |
+| 2 openhanako 三件套 | ✅ 完成 | 多文档 tab / 章节导轨 / 选中文字浮出动作（带到对话 + 基于此出题） |
+| 3 编辑入口 + 分栏编辑器 | ✅ 完成 | 列表行内 + 阅读页顶部编辑入口；DocumentEditor 分栏编辑预览 + 双向滚动同步 + Ctrl+\ |
+| 4 图谱编辑 | ✅ 完成 | update_concept / create_relationship + 3 端点 + ConceptSidebar 编辑 UI |
+
+验证：Python 1356 passed（基线 1343 → +13）、Vitest 46 passed、lint + 生产构建通过。
+
+### 交付说明
+- 图谱端点按任务书要求放在 web/backend/routers/kb.py（/api/kb/* 前缀）；graph/concept_store.py 已有 upsert_concept / upsert_relationship（提取流程用），新增的 update_concept / create_relationship 面向用户显式编辑并带完整校验。
+- 多文档 tab 用 zustand（readerTabsStore.ts）+ URL（/library/read/:id）双写，刷新不丢；每 tab 滚动位置独立保存。
+- 分栏编辑器 Ctrl+\（Web 端对应 MiaoYan 的 ⌘\）切换分栏/纯编辑，分隔线可拖拽（20%–80%）。
+
 ## 0. 任务总览
 
 1. **布局方案 A**：Library 拆成列表页与阅读页两个路由，解决"列表与正文固定分屏打架"。

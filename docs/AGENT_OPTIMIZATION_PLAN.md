@@ -36,6 +36,15 @@
 
 ## 0. 背景与原则
 
+### 0.0 参考项目优先级（2026-08-11 用户指定）
+
+Bobodan 遇到难题、问题、优化需求时，**首要翻阅这两个项目**查找解决方案：
+
+1. **tw93 旗下项目**（https://github.com/tw93）：Pake（网页打包桌面应用）、MiaoYan（分栏编辑预览 Markdown 笔记）等，本地优先、轻量、克制审美。
+2. **liliMozi/openhanako**（https://github.com/liliMozi/openhanako）：本地源码在 `F:\claude projects\openhanako-reference`（注意是上个版本）。
+
+这两个也是用户最喜欢的项目和审美。找不到答案再扩散到其他相关开源项目。
+
 ### 0.1 为什么是"优化"而不是"重构"
 
 - Bobodan 的 AgentLoop 是自研 ReAct 循环 + 证据门禁，已被 1000+ 测试保护。循环本身是资产。

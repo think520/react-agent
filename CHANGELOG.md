@@ -7,6 +7,12 @@
 ## [未发布]
 
 ### 变更
+- **完成 Library 重构 + 图谱编辑（TASKS_LIBRARY_REWORK v1.0，2026-08-13）**：分支 `feat/library-rework`，按任务书落地 4 个任务。
+  - **任务 1 布局方案 A**：Library 拆为列表页 `/library` + 阅读页 `/library/read/:id`（`ReaderPage.tsx`）；阅读页顶部细条（返回 / 上一份下一份 / 编辑 / 概念提取）、正文居中限宽、返回列表恢复滚动位置（localStorage）、键盘导航（Esc / Shift+J/K）、移动端天然兼容。
+  - **任务 2 openhanako 三件套**：多文档 tab（点击切换 / 双击关闭 / 滚轮横滑，每 tab 保留滚动位置，`readerTabsStore.ts`）；章节导轨（右缘 64px 悬停热区弹出 heading 列表，点击跳转 + 高亮）；选中文字浮出动作（带到对话 / 基于此出题）。
+  - **任务 3 编辑入口 + 分栏编辑器**：列表行内 + 阅读页顶部「编辑」按钮（md/txt/markdown）；`DocumentEditor.tsx` 升级为分栏编辑预览——编辑/预览并排、60fps 双向滚动同步（rAF 节流）、`Ctrl+\` 切换分栏/纯编辑、可拖拽分栏分隔线，保留检查点 / 10 版历史 / 回滚 / 哈希冲突三选项。
+  - **任务 4 图谱编辑**：`graph/concept_store.py` 新增 `update_concept`（部分更新 + 改名唯一冲突校验）与 `create_relationship`（自环 / 重复 / 非法类型 / 缺失概念全拒绝，`evidence_level='user'`）；`web/backend/routers/kb.py` 新增 `PATCH /api/kb/concepts/{id}`、`POST/DELETE /api/kb/relationships`；`ConceptSidebar.tsx` 加编辑概念 / 删除关系 / 添加关系，写入后经 `uiStore.graphRevision` 即时刷新图谱。
+  - 验证：Python `1356 passed`（基线 1343 → +13，零回归）、Vitest `46 passed`、前端 lint 与生产构建通过。
 - **完成整机优化计划（AGENT_OPTIMIZATION_PLAN v1.1，2026-08-13）**：按计划书依赖顺序落地 A 系列（发动机）、B 系列（车厢）、LB-1（资料协作）全部 10 个阶段核心，14 个 commit，分支 `feat/optimization-plan`（已推送 origin）。
   - **A 系列（发动机，按 Pi 图纸）**：AG-0 外围地基——`core/event_bus.py` 过滤事件总线、`core/agent_events.py` 事件四层收敛、`web/backend/sse.py` SSE 流身份（streamId + seq + 重放 ring buffer）、`core/stream_guard.py` 流消毒守卫、`core/runtime/` 适配层门面；AG-2 循环增强——`core/hooks.py` 两层钩子、证据门禁/工具白名单沉淀为 before_tool 门禁、只读工具并行执行、工具执行去重；AG-3 记忆与压缩——`core/memory_injector.py` before_turn 注入（1500 token 预算）、`core/prompt_layout.py` KV cache 分界线、`core/session_compactor.py` checkpoint 纯投影压缩。
   - **B 系列（车厢，按 OpenHanako 经验）**：FE-1 前端地基——`src/ui/` selector 归一化 / 动画原语 / 块级 ErrorBoundary / CSS Token / `@/` 别名；FE-2 流式体验——`streamBuffer.ts` 30fps 节流 + 自适应文本节流、`scrollEasing.ts` + `useStickyBottomScroll.ts` 贴底滚动、SSE seq 去重；FE-3 过程披露——`processFold.ts` + `ProcessFoldBlock.tsx` 过程折叠；FE-4 页面联动与图谱动效——FadeIn 页面过渡、知识地图概念→Chat 上下文跳转、学习范围共享，图谱入场 / hover 过渡 / 聚焦度数行走 / 拖拽反馈 / 搜索 spotlight / 力参数可调 + prefers-reduced-motion 降级（维持 sigma.js + graphology + forceAtlas2）。
