@@ -646,6 +646,7 @@ export function AppShell() {
             conceptId={conceptDetailId}
             onClose={() => setConceptDetailId(null)}
             onNavigateConcept={openConceptDetail}
+            onConceptUpdated={() => useUiStore.getState().bumpGraphRevision()}
           />
         ) : (
           <LearningContext

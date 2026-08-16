@@ -13,6 +13,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useOutletContext } from "react-router-dom";
 import { List, Map as MapIcon, Maximize2, Network, Search, Sparkles, Table } from "lucide-react";
 import { api } from "../lib/api";
+import { useUiStore } from "../stores/uiStore";
 import type {
   ConceptNode,
   GraphState,
@@ -70,6 +71,8 @@ export function KnowledgeMapPage() {
   const positionsSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const graphActionsRef = useRef<{ fit: () => void; relayout: (params?: ForceParams) => void } | null>(null);
   const initialFocusHandled = useRef(false);
+  const graphRevision = useUiStore((state) => state.graphRevision);
+  const lastGraphRevisionRef = useRef(graphRevision);
 
   const loadGraph = useCallback(async () => {
     setLoading(true);
@@ -90,6 +93,13 @@ export function KnowledgeMapPage() {
   useEffect(() => {
     void loadGraph();
   }, [loadGraph]);
+
+  // Reload the graph after a concept/relationship edit (bumped via uiStore).
+  useEffect(() => {
+    if (lastGraphRevisionRef.current === graphRevision) return;
+    lastGraphRevisionRef.current = graphRevision;
+    void loadGraph();
+  }, [graphRevision, loadGraph]);
 
   useEffect(() => {
     setSelectedConceptId(conceptDetailId);

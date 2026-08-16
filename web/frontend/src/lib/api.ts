@@ -491,6 +491,16 @@ export const api = {
     request<{ relationship: import("../types").RelationshipEdge }>("/api/graph/relationships", json(body)),
   graphDeleteRelationship: (relId: string) =>
     request<{ ok: boolean }>(`/api/graph/relationships/${encodeURIComponent(relId)}`, { method: "DELETE" }),
+  // Graph edit (TASKS_LIBRARY_REWORK task 4): validated user edits at /api/kb.
+  updateConcept: (conceptId: string, body: { name?: string; definition?: string; aliases?: string[]; note?: string }) =>
+    request<{ concept: import("../types").ConceptNode }>(
+      `/api/kb/concepts/${encodeURIComponent(conceptId)}`,
+      { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+    ),
+  createRelationship: (body: { from_id: string; to_id: string; rel_type: string; note?: string }) =>
+    request<{ relationship: import("../types").RelationshipEdge }>("/api/kb/relationships", json(body)),
+  deleteRelationship: (relId: string) =>
+    request<{ ok: boolean }>(`/api/kb/relationships/${encodeURIComponent(relId)}`, { method: "DELETE" }),
   graphCandidates: (status = "pending", documentId?: string) =>
     request<{ candidates: import("../types").ConceptCandidate[]; count: number }>(
       `/api/graph/candidates?status=${encodeURIComponent(status)}${documentId ? `&document_id=${encodeURIComponent(documentId)}` : ""}`,

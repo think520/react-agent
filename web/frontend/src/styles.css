@@ -1416,3 +1416,17 @@ kbd { color: var(--faint); font-family: inherit; font-size: 10px; }
 .km-force-params > div { position: absolute; z-index: 20; top: calc(100% + 6px); right: 0; display: grid; min-width: 180px; gap: 8px; border: 1px solid var(--border-strong); border-radius: 8px; padding: 10px 12px; background: var(--paper-soft); box-shadow: var(--shadow-float); }
 .km-force-params label { display: grid; grid-template-columns: 34px minmax(0,1fr); align-items: center; gap: 8px; color: var(--muted); font-size: 11px; }
 .km-force-params input { width: 100%; accent-color: var(--sage); }
+
+/* ConceptSidebar graph editing (TASKS_LIBRARY_REWORK task 4). */
+.sidebar-title-actions { display: flex; gap: 4px; align-items: center; }
+.sidebar-edit-form { display: grid; gap: 8px; border: 1px solid var(--border); border-radius: 7px; padding: 10px; margin: 8px 0; }
+.sidebar-edit-form label { display: grid; gap: 4px; color: var(--blue); font-size: 10px; font-weight: 650; }
+.sidebar-edit-form input, .sidebar-edit-form textarea { width: 100%; border: 1px solid var(--border-strong); border-radius: 6px; padding: 7px 9px; background: var(--paper-soft); color: var(--ink); font: inherit; font-size: 12px; }
+.sidebar-edit-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.sidebar-add-relation { display: grid; gap: 6px; margin-top: 8px; }
+.sidebar-add-relation input, .sidebar-add-relation select { width: 100%; border: 1px solid var(--border-strong); border-radius: 6px; padding: 6px 8px; background: var(--paper-soft); color: var(--ink); font-size: 12px; }
+.sidebar-rel-candidates { display: grid; gap: 2px; max-height: 140px; overflow-y: auto; }
+.sidebar-rel-candidates button { display: flex; align-items: center; gap: 6px; border: 0; border-radius: 5px; padding: 5px 7px; background: transparent; color: var(--ink); font-size: 12px; text-align: left; }
+.sidebar-rel-candidates button:hover { background: var(--blue-wash); color: var(--blue); }
+.rel-delete { opacity: 0; }
+.sidebar-rel-item:hover .rel-delete { opacity: 1; }
