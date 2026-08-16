@@ -381,6 +381,34 @@ class ConceptService:
             return _err("concept_not_found")
         return _ok()
 
+    def update_concept(
+        self,
+        concept_id: str,
+        *,
+        name: str | None = None,
+        definition: str | None = None,
+        aliases: list[str] | None = None,
+        note: str | None = None,
+    ) -> dict[str, Any]:
+        try:
+            concept = self._store.update_concept(
+                concept_id,
+                name=name,
+                definition=definition,
+                aliases=aliases,
+                note=note,
+            )
+            return _ok(concept=concept)
+        except ValueError as exc:
+            message = str(exc)
+            if message.startswith("concept_name_conflict:"):
+                conflicting = message.split(":", 1)[1]
+                return _err(f"已存在同名概念：{conflicting}", code="concept_name_conflict")
+            code = message.split(":")[0] if ":" in message else message
+            if code in {"from_concept_not_found", "to_concept_not_found"}:
+                code = "concept_not_found"
+            return _err(message, code=code)
+
     # ------------------------------------------------------------------
     # Relationships
     # ------------------------------------------------------------------
@@ -418,6 +446,24 @@ class ConceptService:
         if not deleted:
             return _err("relationship_not_found")
         return _ok()
+
+    def create_relationship(
+        self,
+        *,
+        from_id: str,
+        to_id: str,
+        rel_type: str,
+        note: str = "",
+    ) -> dict[str, Any]:
+        try:
+            rel = self._store.create_relationship(from_id, to_id, rel_type, note=note)
+            return _ok(relationship=rel)
+        except ValueError as exc:
+            message = str(exc)
+            code = message.split(":")[0] if ":" in message else message
+            if code in {"from_concept_not_found", "to_concept_not_found"}:
+                code = "concept_not_found"
+            return _err(message, code=code)
 
     # ------------------------------------------------------------------
     # Candidates

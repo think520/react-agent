@@ -8,6 +8,7 @@ from fastapi import APIRouter, File, Request, UploadFile
 from pydantic import BaseModel, Field
 
 from service.kb_service import KBService
+from service.concept_service import ConceptService
 from service.document_edit_service import DocumentEditService
 from service.document_proposal_service import DocumentProposalService
 from web.backend.deps import (
@@ -637,6 +638,57 @@ def undo_document_proposal(proposal_id: str, request: Request) -> dict:
     return unwrap_service_result(
         DocumentProposalService(get_request_workspace(request)).undo_proposal(proposal_id, config=get_config()),
         code="proposal_undo_failed",
+    )
+
+
+class ConceptUpdateRequest(BaseModel):
+    name: str | None = None
+    definition: str | None = None
+    aliases: list[str] | None = None
+    note: str | None = None
+
+
+class RelationshipCreateRequest(BaseModel):
+    from_id: str
+    to_id: str
+    rel_type: str
+    note: str = ""
+
+
+@router.patch("/concepts/{concept_id}")
+def update_concept(concept_id: str, body: ConceptUpdateRequest, request: Request) -> dict:
+    if all(value is None for value in (body.name, body.definition, body.aliases, body.note)):
+        raise APIError(400, "invalid_request", "At least one field is required.")
+    return unwrap_service_result(
+        ConceptService(get_request_workspace(request)).update_concept(
+            concept_id,
+            name=body.name,
+            definition=body.definition,
+            aliases=body.aliases,
+            note=body.note,
+        ),
+        code="concept_update_failed",
+    )
+
+
+@router.post("/relationships")
+def create_relationship(body: RelationshipCreateRequest, request: Request) -> dict:
+    return unwrap_service_result(
+        ConceptService(get_request_workspace(request)).create_relationship(
+            from_id=body.from_id,
+            to_id=body.to_id,
+            rel_type=body.rel_type,
+            note=body.note,
+        ),
+        code="relationship_create_failed",
+    )
+
+
+@router.delete("/relationships/{rel_id}")
+def delete_relationship(rel_id: str, request: Request) -> dict:
+    return unwrap_service_result(
+        ConceptService(get_request_workspace(request)).delete_relationship(rel_id),
+        code="relationship_delete_failed",
     )
 
 

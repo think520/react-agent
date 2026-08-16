@@ -601,6 +601,42 @@ def test_document_edit_endpoints(backend_client, monkeypatch):
     assert rolled.json()["version_id"] == "v1"
 
 
+def test_concept_graph_edit_endpoints(backend_client, monkeypatch):
+    class FakeConceptService:
+        def __init__(self, workspace):
+            pass
+
+        def update_concept(self, concept_id, name=None, definition=None, aliases=None, note=None):
+            return {"ok": True, "concept": {"concept_id": concept_id, "name": name or "A"}}
+
+        def create_relationship(self, from_id, to_id, rel_type, note=""):
+            if from_id == to_id:
+                return {"ok": False, "code": "self_relationship", "error": "self_relationship"}
+            if rel_type not in {"属于", "前置知识", "组成部分", "对比", "应用于", "来源于"} and not rel_type.startswith("user:"):
+                return {"ok": False, "code": "invalid_rel_type", "error": "invalid_rel_type"}
+            return {"ok": True, "relationship": {"rel_id": "r-1", "from_id": from_id, "to_id": to_id, "rel_type": rel_type}}
+
+        def delete_relationship(self, rel_id):
+            return {"ok": True}
+
+    monkeypatch.setattr("web.backend.routers.kb.ConceptService", FakeConceptService)
+
+    patched = backend_client.patch("/api/kb/concepts/c-1", json={"name": "改名"})
+    assert patched.status_code == 200
+    assert patched.json()["concept"]["name"] == "改名"
+
+    created = backend_client.post("/api/kb/relationships", json={"from_id": "c-1", "to_id": "c-2", "rel_type": "属于"})
+    assert created.status_code == 200
+    assert created.json()["relationship"]["rel_id"] == "r-1"
+
+    self_loop = backend_client.post("/api/kb/relationships", json={"from_id": "c-1", "to_id": "c-1", "rel_type": "属于"})
+    assert self_loop.status_code == 409
+    assert self_loop.json()["error"]["code"] == "self_relationship"
+
+    deleted = backend_client.delete("/api/kb/relationships/r-1")
+    assert deleted.status_code == 200
+
+
 def test_user_confirmed_wiki_plan_contract(backend_client, monkeypatch):
     provider = object()
     captured = {}

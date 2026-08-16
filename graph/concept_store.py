@@ -23,6 +23,13 @@ from typing import Any
 
 from core.db import open_connection
 
+# User-confirmable relationship types (user: prefix = user-defined custom).
+VALID_REL_TYPES = frozenset({"属于", "前置知识", "组成部分", "对比", "应用于", "来源于"})
+
+
+def _is_valid_rel_type(rel_type: str) -> bool:
+    return rel_type in VALID_REL_TYPES or rel_type.startswith("user:")
+
 
 _DDL = """
 CREATE TABLE IF NOT EXISTS concepts (
@@ -266,6 +273,57 @@ class ConceptStore:
             )
         return cur.rowcount > 0
 
+    def update_concept(
+        self,
+        concept_id: str,
+        *,
+        name: str | None = None,
+        definition: str | None = None,
+        aliases: list[str] | None = None,
+        note: str | None = None,
+    ) -> dict[str, Any]:
+        """Partially update a confirmed concept; concept_id is never changed.
+
+        Raises ValueError with a stable code prefix on validation failure
+        (concept_not_found / name_required / concept_name_conflict:<name>).
+        """
+        existing = self.get_concept(concept_id)
+        if existing is None:
+            raise ValueError("concept_not_found")
+        if name is not None:
+            name = name.strip()
+            if not name:
+                raise ValueError("name_required")
+            conflicting = self.get_concept_by_name(name)
+            if conflicting is not None and conflicting["concept_id"] != concept_id:
+                raise ValueError(f"concept_name_conflict:{name}")
+
+        updates: list[str] = []
+        params: list[Any] = []
+        if name is not None:
+            updates.append("name = ?")
+            params.append(name)
+        if definition is not None:
+            updates.append("definition = ?")
+            params.append(definition)
+        if aliases is not None:
+            updates.append("aliases = ?")
+            params.append(json.dumps(aliases, ensure_ascii=False))
+        if note is not None:
+            updates.append("note = ?")
+            params.append(note)
+        if not updates:
+            return existing
+        updates.append("updated_at = ?")
+        params.append(time.time())
+        params.append(concept_id)
+        with self._connect() as con:
+            con.execute(
+                f"UPDATE concepts SET {', '.join(updates)} WHERE concept_id = ?",
+                params,
+            )
+        return self.get_concept(concept_id)  # type: ignore[return-value]
+
     # ------------------------------------------------------------------
     # Relationships
     # ------------------------------------------------------------------
@@ -336,6 +394,51 @@ class ConceptStore:
                 "DELETE FROM relationships WHERE rel_id = ?", (rel_id,)
             )
         return cur.rowcount > 0
+
+    def _find_relationship(
+        self, from_id: str, to_id: str, rel_type: str
+    ) -> dict[str, Any] | None:
+        with self._connect() as con:
+            row = con.execute(
+                "SELECT * FROM relationships WHERE from_id = ? AND to_id = ? AND rel_type = ?",
+                (from_id, to_id, rel_type),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def create_relationship(
+        self,
+        from_id: str,
+        to_id: str,
+        rel_type: str,
+        note: str = "",
+    ) -> dict[str, Any]:
+        """Create a user-confirmed relationship with validation.
+
+        Rejects self-loops, unknown concepts, invalid rel_type, and duplicate
+        same-direction/same-type edges. Writes evidence_level='user'. Raises
+        ValueError with a stable code prefix on failure.
+        """
+        if from_id == to_id:
+            raise ValueError("self_relationship")
+        if not _is_valid_rel_type(rel_type):
+            raise ValueError(f"invalid_rel_type:{rel_type}")
+        if self.get_concept(from_id) is None:
+            raise ValueError("from_concept_not_found")
+        if self.get_concept(to_id) is None:
+            raise ValueError("to_concept_not_found")
+        if self._find_relationship(from_id, to_id, rel_type) is not None:
+            raise ValueError("relationship_exists")
+
+        now = time.time()
+        rid = f"r-{uuid.uuid4().hex[:12]}"
+        with self._connect() as con:
+            con.execute(
+                """INSERT INTO relationships
+                   (rel_id, from_id, to_id, rel_type, evidence_level, note, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, 'user', ?, ?, ?)""",
+                (rid, from_id, to_id, rel_type, note, now, now),
+            )
+        return self.get_relationship(rid)  # type: ignore[return-value]
 
     # ------------------------------------------------------------------
     # Evidence
