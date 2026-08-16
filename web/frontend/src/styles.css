@@ -1430,3 +1430,19 @@ kbd { color: var(--faint); font-family: inherit; font-size: 10px; }
 .sidebar-rel-candidates button:hover { background: var(--blue-wash); color: var(--blue); }
 .rel-delete { opacity: 0; }
 .sidebar-rel-item:hover .rel-delete { opacity: 1; }
+
+/* Library rework (task 1): list/reader split + reader page. */
+.library-workspace.list-only { grid-template-columns: minmax(0, 1fr); }
+.library-workspace.list-only .document-rail { max-width: 880px; margin: 0 auto; }
+.document-edit { position: absolute; right: 33px; width: 29px; height: 29px; opacity: 0; color: var(--blue); }
+.document-row-wrap:hover .document-edit, .document-row-wrap:focus-within .document-edit { opacity: 1; }
+
+.reader-container { max-width: 900px; }
+.reader-topbar { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+.reader-topbar-nav { display: flex; gap: 2px; }
+.reader-topbar-title { min-width: 0; flex: 1; }
+.reader-topbar-title span { color: var(--clay); font-size: 10px; font-weight: 700; text-transform: uppercase; }
+.reader-topbar-title h2 { margin: 2px 0 0; overflow: hidden; color: var(--blue); font-family: var(--font-reading); font-size: 20px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.reader-topbar-actions { display: flex; align-items: center; gap: 6px; }
+.reader-article { padding: 24px 0 60px; }
+.reader-article .reader-prose { margin: 0 auto; }

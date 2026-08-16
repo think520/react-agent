@@ -9,6 +9,7 @@ import { FadeIn } from "./ui";
 const ChatPage = lazy(() => import("./pages/ChatPage").then((module) => ({ default: module.ChatPage })));
 const KnowledgeMapPage = lazy(() => import("./pages/KnowledgeMapPage").then((module) => ({ default: module.KnowledgeMapPage })));
 const LibraryPage = lazy(() => import("./pages/LibraryPage").then((module) => ({ default: module.LibraryPage })));
+const ReaderPage = lazy(() => import("./pages/ReaderPage").then((module) => ({ default: module.ReaderPage })));
 const NotesPage = lazy(() => import("./pages/NotesPage").then((module) => ({ default: module.NotesPage })));
 const PracticePage = lazy(() => import("./pages/PracticePage").then((module) => ({ default: module.PracticePage })));
 const ReviewPage = lazy(() => import("./pages/ReviewPage").then((module) => ({ default: module.ReviewPage })));
@@ -31,6 +32,7 @@ export default function App() {
             <Route path="practice/:practiceSessionId" element={page(<PracticePage />)} />
             <Route path="review" element={page(<ReviewPage />)} />
             <Route path="library" element={page(<LibraryPage />)} />
+            <Route path="library/read/:id" element={page(<ReaderPage />)} />
             <Route path="notes" element={page(<NotesPage />)} />
             <Route path="knowledge-map" element={page(<KnowledgeMapPage />)} />
           </Route>

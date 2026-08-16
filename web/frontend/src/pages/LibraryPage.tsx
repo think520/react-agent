@@ -90,6 +90,15 @@ export function LibraryPage() {
   const searchParamsRef = useRef(searchParams);
   const wikiViewRef = useRef(wikiView);
   useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
+
+  // TASKS_LIBRARY_REWORK task 1: restore list scroll on mount, save on unmount.
+  useEffect(() => {
+    const element = pageRef.current;
+    if (element) element.scrollTop = Number(localStorage.getItem("bobodan:library-scroll")) || 0;
+    return () => {
+      if (element) localStorage.setItem("bobodan:library-scroll", String(element.scrollTop));
+    };
+  }, []);
   useEffect(() => { searchParamsRef.current = searchParams; }, [searchParams]);
   useEffect(() => { wikiViewRef.current = wikiView; }, [wikiView]);
 
@@ -571,9 +580,21 @@ export function LibraryPage() {
   }
 
   function selectDocument(documentId: string) {
+    // TASKS_LIBRARY_REWORK task 1: material documents open the full reader page.
+    if (collection === "material") {
+      saveListScroll();
+      navigate(`/library/read/${documentId}?collection=material`);
+      return;
+    }
     setSelectedId(documentId);
     setHighlightedChunk(null);
     setSearchParams({ collection, document: documentId, ...(collection === "wiki" ? { wikiView } : {}) }, { replace: true });
+  }
+
+  // Preserve the list scroll position across list <-> reader navigation.
+  function saveListScroll() {
+    const element = pageRef.current;
+    if (element) localStorage.setItem("bobodan:library-scroll", String(element.scrollTop));
   }
 
   function selectCollection(next: "material" | "wiki") {
@@ -902,7 +923,7 @@ export function LibraryPage() {
         {documentImportError && <ErrorNotice message={documentImportError} />}
         {error && <ErrorNotice message={error} action={<button className="quiet-button" onClick={() => void loadDocuments()}>重试</button>} />}
         {loading ? <div className="illustrated-loading"><BrandIllustration state="reading" size={76} /><LoadingState label={collection === "wiki" ? "正在整理 Wiki…" : "正在读取本地资料…"} /></div> : documents.length ? (
-          <div className="library-workspace">
+          <div className={"library-workspace" + (collection === "material" ? " list-only" : "")}>
             <aside className="document-rail">
               <div className="rail-label"><FolderOpen size={15} />{collection === "wiki" ? wikiView === "knowledge" ? "知识页面" : wikiView === "sources" ? "资料索引" : wikiView === "notes" ? "个人笔记" : "全部页面" : "我的资料"} <span>{filteredDocuments.length}</span></div>
               <label className="document-search"><Search size={14} /><input value={documentQuery} onChange={(event) => setDocumentQuery(event.target.value)} placeholder="搜索资料" aria-label="搜索资料" /></label>
@@ -929,12 +950,13 @@ export function LibraryPage() {
                       <i className={document.vector_status === "error" ? "error" : "ready"} title={document.vector_status || "已建立索引"} />
                     )}
                   </button>
+                  {collection === "material" && (document.kind === "md" || document.kind === "txt" || document.kind === "markdown") && <IconButton className="document-edit" label={`编辑 ${document.title || document.source}`} onClick={(event) => { event.stopPropagation(); setEditingDocumentId(document.document_id); }}><Pencil size={14} /></IconButton>}
                   {collection === "material" && document.managed && <IconButton className="document-delete" label={`删除 ${document.title || document.source}`} disabled={deletingId === document.document_id} onClick={() => void deleteDocument(document)}><Trash2 size={14} /></IconButton>}
                 </div>
               ))}
               {!filteredDocuments.length && <p className="document-search-empty">没有找到匹配的资料。</p>}
             </aside>
-            <article className="document-reader">
+            {collection === "wiki" && <article className="document-reader">
               {selected && <header>
                 <span>{selected.collection === "wiki" ? `历史整理 · ${selected.wiki_type ? wikiTypeLabels[selected.wiki_type] : "页面"}` : selected.kind || "本地资料"}{selected.course ? ` · ${selected.course}` : ""}</span>
                 <h2>{selected.title || selected.source}</h2>
@@ -996,7 +1018,7 @@ export function LibraryPage() {
                   </section>
                 );
               })}</div> : <EmptyState compact title="没有可阅读的片段" description="这份资料可能仍在建立索引，刷新后再试一次。" />}
-            </article>
+            </article>}
           </div>
         ) : (
           <EmptyState state={collection === "wiki" ? "listening" : "reading"}
