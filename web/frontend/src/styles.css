@@ -1403,3 +1403,7 @@ kbd { color: var(--faint); font-family: inherit; font-size: 10px; }
 
 /* FE-4 knowledge-map -> chat linkage. */
 .sidebar-ask { align-self: flex-start; }
+
+/* FE-4 graph entrance fade (disabled by the global prefers-reduced-motion rule). */
+.graph-canvas { animation: graph-enter 500ms var(--ease-out) both; }
+@keyframes graph-enter { from { opacity: 0; } to { opacity: 1; } }

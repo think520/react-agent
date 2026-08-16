@@ -56,6 +56,8 @@ export interface GraphCanvasProps {
   relationships: RelationshipEdge[];
   selectedConceptId: string | null;
   showAll?: boolean;
+  searchQuery?: string;
+  focusDegree?: number;
   onNodeClick: (conceptId: string) => void;
   onBackgroundClick: () => void;
   onPositionsChanged?: (positions: Array<{ concept_id: string; x: number; y: number }>) => void;
@@ -68,6 +70,8 @@ export function GraphCanvas({
   relationships,
   selectedConceptId,
   showAll = false,
+  searchQuery = "",
+  focusDegree = 1,
   onNodeClick,
   onBackgroundClick,
   onPositionsChanged,
@@ -83,6 +87,11 @@ export function GraphCanvas({
   const showDetailsRef = useRef(false);
   const hoveredNodeRef = useRef<string | null>(null);
   const hoveredEdgeRef = useRef<string | null>(null);
+  const searchQueryRef = useRef(searchQuery);
+  const focusDegreeRef = useRef(focusDegree);
+  const reducedMotionRef = useRef(
+    typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches,
+  );
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -143,24 +152,29 @@ export function GraphCanvas({
       nodeReducer: (node, data) => {
         const selected = selectedRef.current;
         const focused = focusedNodesRef.current;
+        const query = searchQueryRef.current.trim().toLowerCase();
+        const label = (data.label as string) || "";
+        const matchesSearch = !query || label.toLowerCase().includes(query);
         const isFocused = !selected || focused.has(node);
         const level = graph.getNodeAttribute(node, "level") as string;
         const hideDetail = level === "detail" && !showAllRef.current && !showDetailsRef.current && !focused.has(node);
         return {
           ...data,
           hidden: hideDetail,
-          color: !isFocused
+          color: !matchesSearch
             ? C.faintNode
-            : node === selected
-              ? C.selectedNode
-              : hoveredNodeRef.current === node
-                ? C.hoverNode
-                : selected && focused.has(node)
-                  ? C.sageSoft
-                  : nodeColor(level),
-          label: isFocused || !selected ? data.label : "",
+            : !isFocused
+              ? C.faintNode
+              : node === selected
+                ? C.selectedNode
+                : hoveredNodeRef.current === node
+                  ? C.hoverNode
+                  : selected && focused.has(node)
+                    ? C.sageSoft
+                    : nodeColor(level),
+          label: matchesSearch && (isFocused || !selected) ? data.label : "",
           labelColor: C.inkBlue,
-          highlighted: node === selected || node === hoveredNodeRef.current,
+          highlighted: matchesSearch && (node === selected || node === hoveredNodeRef.current || Boolean(query)),
           zIndex: node === selected || node === hoveredNodeRef.current ? 2 : 1,
         };
       },
@@ -190,6 +204,13 @@ export function GraphCanvas({
     sigmaRef.current = renderer;
     graphRef.current = graph;
 
+    // FE-4 recipe 1: entrance — a gentle camera reset on mount, skipped for
+    // reduced-motion users (the CSS fade is likewise disabled by the global
+    // prefers-reduced-motion rule).
+    if (!reducedMotionRef.current) {
+      void renderer.getCamera().animatedReset({ duration: 600 });
+    }
+
     let draggedNode: string | null = null;
     let isDragging = false;
 
@@ -215,9 +236,14 @@ export function GraphCanvas({
       hoveredEdgeRef.current = null;
       renderer.refresh({ skipIndexation: true });
     });
+    let dragOriginalSize: number | null = null;
     renderer.on("downNode", ({ node }) => {
       isDragging = true;
       draggedNode = node;
+      dragOriginalSize = graph.getNodeAttribute(node, "size") as number;
+      // FE-4 recipe 6: grab feedback — scale up while grabbed.
+      graph.setNodeAttribute(node, "size", dragOriginalSize * 1.25);
+      renderer.refresh();
       if (!renderer.getCustomBBox()) renderer.setCustomBBox(renderer.getBBox());
     });
     renderer.on("moveBody", ({ event }) => {
@@ -231,11 +257,17 @@ export function GraphCanvas({
     });
     const finishDrag = () => {
       if (draggedNode) {
+        // FE-4 recipe 6: release fall — restore the grabbed node's size.
+        if (dragOriginalSize !== null) {
+          graph.setNodeAttribute(draggedNode, "size", dragOriginalSize);
+          dragOriginalSize = null;
+        }
         onPositionsChanged?.([{
           concept_id: draggedNode,
           x: graph.getNodeAttribute(draggedNode, "x") as number,
           y: graph.getNodeAttribute(draggedNode, "y") as number,
         }]);
+        renderer.refresh();
       }
       window.setTimeout(() => { isDragging = false; }, 0);
       draggedNode = null;
@@ -296,9 +328,26 @@ export function GraphCanvas({
     const focused = new Set<string>();
     if (selectedConceptId && graph.hasNode(selectedConceptId)) {
       focused.add(selectedConceptId);
-      graph.forEachNeighbor(selectedConceptId, (neighbor) => focused.add(neighbor));
+      // FE-4 recipe 3: degree walk — focus out to focusDegree hops (BFS).
+      const degree = Math.max(1, focusDegreeRef.current);
+      let frontier = [selectedConceptId];
+      for (let hop = 0; hop < degree; hop++) {
+        const next: string[] = [];
+        for (const node of frontier) {
+          graph.forEachNeighbor(node, (neighbor) => {
+            if (!focused.has(neighbor)) {
+              focused.add(neighbor);
+              next.push(neighbor);
+            }
+          });
+        }
+        frontier = next;
+      }
       const position = renderer.getNodeDisplayData(selectedConceptId);
-      if (position) void renderer.getCamera().animate({ x: position.x, y: position.y }, { duration: 190 });
+      if (position) {
+        const duration = reducedMotionRef.current ? 0 : 460;
+        void renderer.getCamera().animate({ x: position.x, y: position.y }, { duration });
+      }
     }
     focusedNodesRef.current = focused;
     renderer.refresh();
@@ -306,8 +355,10 @@ export function GraphCanvas({
 
   useEffect(() => {
     showAllRef.current = showAll;
+    searchQueryRef.current = searchQuery;
+    focusDegreeRef.current = focusDegree;
     sigmaRef.current?.refresh();
-  }, [showAll]);
+  }, [showAll, searchQuery, focusDegree]);
 
   return (
     <div

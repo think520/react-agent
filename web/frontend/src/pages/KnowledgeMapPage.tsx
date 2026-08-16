@@ -63,6 +63,7 @@ export function KnowledgeMapPage() {
   const [selectedTopicId, setSelectedTopicId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [showAllNodes, setShowAllNodes] = useState(false);
+  const [focusDegree, setFocusDegree] = useState(1);
   const [showCandidates, setShowCandidates] = useState(initialExtraction !== null);
   const [extractionSource, setExtractionSource] = useState<ExtractionSource | null>(initialExtraction);
   const positionsSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -124,6 +125,21 @@ export function KnowledgeMapPage() {
     setSelectedConceptId(null);
     closeConceptDetail();
   }
+
+  // FE-4 recipe 3: degree walk — +/- extend focus to 2/3 hops, Esc clears.
+  useEffect(() => {
+    setFocusDegree(1);
+  }, [selectedConceptId]);
+
+  useEffect(() => {
+    if (!selectedConceptId) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "+" || e.key === "=") setFocusDegree((d) => Math.min(3, d + 1));
+      else if (e.key === "-") setFocusDegree((d) => Math.max(1, d - 1));
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [selectedConceptId]);
 
   function handleViewSwitch(next: KnowledgeMapView) {
     setView(next);
@@ -252,6 +268,8 @@ export function KnowledgeMapPage() {
                 relationships={graphState?.relationships ?? []}
                 selectedConceptId={selectedConceptId}
                 showAll={showAllNodes}
+                searchQuery={searchQuery}
+                focusDegree={focusDegree}
                 onNodeClick={handleNodeClick}
                 onBackgroundClick={handleBackgroundClick}
                 onPositionsChanged={handlePositionsChanged}
