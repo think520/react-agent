@@ -4,6 +4,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { AppShell } from "./components/AppShell";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { LoadingState } from "./components/common";
+import { FadeIn } from "./ui";
 
 const ChatPage = lazy(() => import("./pages/ChatPage").then((module) => ({ default: module.ChatPage })));
 const KnowledgeMapPage = lazy(() => import("./pages/KnowledgeMapPage").then((module) => ({ default: module.KnowledgeMapPage })));
@@ -13,7 +14,8 @@ const PracticePage = lazy(() => import("./pages/PracticePage").then((module) => 
 const ReviewPage = lazy(() => import("./pages/ReviewPage").then((module) => ({ default: module.ReviewPage })));
 
 function page(element: ReactElement) {
-  return <ErrorBoundary>{element}</ErrorBoundary>;
+  // FE-4: unified lightweight page transition (fade + micro-move), no full-page slide.
+  return <ErrorBoundary><FadeIn className="route-fade">{element}</FadeIn></ErrorBoundary>;
 }
 
 export default function App() {

@@ -8,8 +8,10 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { BookOpen, Edit2, FileText, PenLine, X } from "lucide-react";
+import { BookOpen, Edit2, FileText, MessageCircle, PenLine, X } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
+import { useHandoffStore } from "../stores/handoffStore";
 import type { ConceptDetail, ConceptNode, RelationshipEdge } from "../types";
 
 interface Props {
@@ -36,6 +38,13 @@ export function ConceptSidebar({ conceptId, onClose, onConceptUpdated, onNavigat
   const [editingNote, setEditingNote] = useState(false);
   const [noteValue, setNoteValue] = useState("");
   const sidebarRef = useRef<HTMLElement>(null);
+  const navigate = useNavigate();
+
+  function askAboutConcept(name: string) {
+    // FE-4 page linkage: knowledge-map concept -> Chat, carrying the context.
+    useHandoffStore.getState().setChatDraft(`请帮我讲讲「${name}」这个概念。`);
+    navigate("/chat");
+  }
 
   // Load concept detail when conceptId changes
   useEffect(() => {
@@ -125,6 +134,9 @@ export function ConceptSidebar({ conceptId, onClose, onConceptUpdated, onNavigat
                 : "细分概念"}
             </span>
             <h2 className="sidebar-concept-name">{detail.concept.name}</h2>
+            <button className="btn-sm btn-ghost sidebar-ask" onClick={() => askAboutConcept(detail.concept.name)}>
+              <MessageCircle size={13} />问 AI
+            </button>
           </div>
 
           {/* Definition */}

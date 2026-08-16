@@ -1397,3 +1397,9 @@ kbd { color: var(--faint); font-family: inherit; font-size: 10px; }
 .document-proposal-error { margin: 8px 0; color: var(--danger); font-size: 11px; }
 .document-proposal-card footer { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 10px; }
 .document-proposal-applied { color: var(--sage-deep); font-size: 11px; font-weight: 650; }
+
+/* FE-4 page transition wrapper. */
+.route-fade { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+
+/* FE-4 knowledge-map -> chat linkage. */
+.sidebar-ask { align-self: flex-start; }
