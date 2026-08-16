@@ -3,7 +3,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, CheckCircle2, NotebookPen, Pencil, Quote, RefreshCw, Sparkles } from "lucide-react";
+import { ArrowLeft, ArrowRight, CheckCircle2, NotebookPen, Pencil, Quote, RefreshCw, Sparkles, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useNavigate, useOutletContext, useParams, useSearchParams } from "react-router-dom";
@@ -13,6 +13,7 @@ import { EmptyState, ErrorNotice, LoadingState } from "../components/common";
 import { DocumentEditor } from "../components/DocumentEditor";
 import { ApiError, api } from "../lib/api";
 import { useHandoffStore } from "../stores/handoffStore";
+import { useReaderTabsStore } from "../stores/readerTabsStore";
 import type { DocumentExtractionStatus, DocumentSection, DocumentSummary, PersonalKnowledgeItem } from "../types";
 
 const EDITABLE_KINDS = new Set(["md", "txt", "markdown"]);
@@ -35,6 +36,7 @@ export function ReaderPage() {
   const [editingDocumentId, setEditingDocumentId] = useState<string | null>(null);
   const [startingExtractionId, setStartingExtractionId] = useState<string | null>(null);
   const [extractionStatuses, setExtractionStatuses] = useState<Record<string, DocumentExtractionStatus>>({});
+  const [railOpen, setRailOpen] = useState(false);
   const pageRef = useRef<HTMLElement>(null);
   const readingOpenedRef = useRef(false);
   const lastProgressRef = useRef(0);
@@ -42,6 +44,11 @@ export function ReaderPage() {
   const selectedId = id ?? null;
   const selected = documents.find((document) => document.document_id === selectedId) ?? null;
   const selectedIndex = documents.findIndex((document) => document.document_id === selectedId);
+  const openTab = useReaderTabsStore((state) => state.open);
+  const closeTab = useReaderTabsStore((state) => state.close);
+  const setTabScroll = useReaderTabsStore((state) => state.setScroll);
+  const openIds = useReaderTabsStore((state) => state.openIds);
+  const scrolls = useReaderTabsStore((state) => state.scrolls);
 
   const loadDocuments = useCallback(async () => {
     if (!activeLibrary) { setDocuments([]); setLoading(false); return; }
@@ -57,6 +64,14 @@ export function ReaderPage() {
   }, [activeLibrary, collection]);
 
   useEffect(() => { void loadDocuments(); }, [loadDocuments]);
+
+  // Multi-doc tabs: open the current doc and restore its scroll position.
+  useEffect(() => {
+    if (!selectedId) return;
+    openTab(selectedId);
+    if (pageRef.current) pageRef.current.scrollTop = scrolls[selectedId] || 0;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId]);
 
   useEffect(() => {
     setSelectionQuote("");
@@ -112,6 +127,7 @@ export function ReaderPage() {
 
   function recordReadingProgress() {
     const element = pageRef.current;
+    if (element && selectedId) setTabScroll(selectedId, element.scrollTop);
     if (!element || !selectedId || !readingOpenedRef.current) return;
     const available = element.scrollHeight - element.clientHeight;
     const raw = available > 0 ? Math.round((element.scrollTop / available) * 100) : 100;
@@ -153,6 +169,23 @@ export function ReaderPage() {
       toggleDocumentScope(selected.document_id);
     }
     navigate("/chat");
+  }
+
+  // TASKS_LIBRARY_REWORK task 2: selection -> practice.
+  function createPracticeFromSelection() {
+    if (!selectionQuote || !selected) return;
+    useHandoffStore.getState().setPracticeTopic(
+      "《" + (selected.title || selected.source) + "》\n\n> " + selectionQuote.slice(0, 400),
+    );
+    navigate("/practice");
+  }
+
+  function jumpToChunk(chunkId: string) {
+    const target = Array.from(document.querySelectorAll<HTMLElement>("[data-chunk-id]"))
+      .find((element) => element.dataset.chunkId === chunkId);
+    if (!target) return;
+    setHighlightedChunk(chunkId);
+    target.scrollIntoView({ block: "center", behavior: "smooth" });
   }
 
   function documentContentVersion(doc: DocumentSummary) {
@@ -238,6 +271,24 @@ export function ReaderPage() {
           </div>
         </header>
 
+        {openIds.length > 1 && (
+          <div className="reader-tabs" onWheel={(e) => { e.currentTarget.scrollLeft += e.deltaY; }}>
+            {openIds.map((tabId) => {
+              const doc = documents.find((d) => d.document_id === tabId);
+              return (
+                <button
+                  key={tabId}
+                  className={"reader-tab" + (tabId === selectedId ? " active" : "")}
+                  onClick={() => navigate("/library/read/" + tabId + "?collection=" + collection)}
+                  onDoubleClick={() => closeTab(tabId)}
+                >
+                  {doc?.title || doc?.source || "资料"}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         {error && <ErrorNotice message={error} />}
 
         {loading ? (
@@ -246,7 +297,7 @@ export function ReaderPage() {
           <EmptyState compact title="资料不存在" description="这份资料可能已被归档。" />
         ) : (
           <article className="reader-article">
-            {selectionQuote && <div className="selection-toolbar"><Quote size={15} /><span>已选择 {selectionQuote.length} 个字符</span><button className="quiet-button" onClick={askAboutSelection}>带到对话</button><button className="quiet-button" onClick={() => setSelectionQuote("")}>取消</button></div>}
+            {selectionQuote && <div className="selection-toolbar"><Quote size={15} /><span>已选择 {selectionQuote.length} 个字符</span><button className="quiet-button" onClick={askAboutSelection}>带到对话</button><button className="quiet-button" onClick={createPracticeFromSelection}>基于此出题</button><button className="quiet-button" onClick={() => setSelectionQuote("")}>取消</button></div>}
             {detailLoading ? <LoadingState label="正在打开资料…" /> : sections.length ? <div className="reader-prose" onMouseUp={captureSelection}>{sections.map((section, index) => {
               const previous = index > 0 ? sections[index - 1] : undefined;
               const showHeading = Boolean(section.heading) && section.heading !== previous?.heading;
@@ -284,6 +335,22 @@ export function ReaderPage() {
             }
           }}
         />
+      )}
+      {/* TASKS_LIBRARY_REWORK task 2: chapter rail (right-edge 64px hover zone). */}
+      <div className="chapter-rail-zone" onMouseEnter={() => setRailOpen(true)} />
+      {railOpen && (
+        <aside className="chapter-rail">
+          <header>
+            <span>章节</span>
+            <button className="icon-button" aria-label="关闭章节" onClick={() => setRailOpen(false)}><X size={14} /></button>
+          </header>
+          <div>
+            {sections.filter((section) => section.heading).map((section) => (
+              <button key={section.chunk_id} onClick={() => jumpToChunk(section.chunk_id)}>{section.heading}</button>
+            ))}
+            {!sections.some((section) => section.heading) && <p className="text-faint">暂无章节标题。</p>}
+          </div>
+        </aside>
       )}
     </section>
   );
