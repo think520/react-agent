@@ -197,6 +197,25 @@ export const api = {
     `/api/kb/documents/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}/rollback`,
     { method: "POST" },
   ),
+  createDocumentProposal: (id: string, body: { instruction: string; provider?: string | null }) => request<{ proposal: import("../types").DocumentProposal }>(
+    `/api/kb/documents/${encodeURIComponent(id)}/proposals`,
+    json(body),
+  ),
+  createNewDocumentProposal: (body: { title: string; content: string; reason?: string }) => request<{ proposal: import("../types").DocumentProposal }>(
+    "/api/kb/proposals",
+    json(body),
+  ),
+  documentProposal: (id: string) => request<{ proposal: import("../types").DocumentProposal }>(
+    `/api/kb/proposals/${encodeURIComponent(id)}`,
+  ),
+  applyDocumentProposal: (id: string) => request<{ proposal: import("../types").DocumentProposal }>(
+    `/api/kb/proposals/${encodeURIComponent(id)}/apply`,
+    { method: "POST" },
+  ),
+  undoDocumentProposal: (id: string) => request<{ proposal: import("../types").DocumentProposal }>(
+    `/api/kb/proposals/${encodeURIComponent(id)}/undo`,
+    { method: "POST" },
+  ),
   deleteDocument: (id: string) => request<{ document_id: string }>(
     `/api/kb/documents/${encodeURIComponent(id)}`,
     { method: "DELETE" },

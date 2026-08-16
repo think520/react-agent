@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from service.kb_service import KBService
 from service.document_edit_service import DocumentEditService
+from service.document_proposal_service import DocumentProposalService
 from web.backend.deps import (
     get_preferences,
     get_config, get_library_runtime_context, get_request_workspace,
@@ -578,6 +579,65 @@ def rollback_document(document_id: str, version_id: str, request: Request) -> di
     if "sync" in result:
         result["sync"] = _public_sync(result["sync"])
     return result
+
+
+class DocumentProposalRequest(BaseModel):
+    instruction: str
+    provider: str | None = None
+
+
+class NewDocumentProposalRequest(BaseModel):
+    title: str
+    content: str
+    reason: str = ""
+
+
+@router.post("/documents/{document_id}/proposals")
+def create_document_proposal(document_id: str, body: DocumentProposalRequest, request: Request) -> dict:
+    workspace = get_request_workspace(request)
+    try:
+        provider = _runtime_for(workspace).create_provider(*_preferred_provider(body.provider))
+    except ValueError as exc:
+        raise APIError(409, "provider_unavailable", str(exc)) from exc
+    return unwrap_service_result(
+        DocumentProposalService(workspace).create_proposal(document_id, body.instruction, provider),
+        code="proposal_failed",
+    )
+
+
+@router.post("/proposals")
+def create_new_document_proposal(body: NewDocumentProposalRequest, request: Request) -> dict:
+    return unwrap_service_result(
+        DocumentProposalService(get_request_workspace(request)).create_new_document_proposal(
+            body.title, body.content, body.reason
+        ),
+        code="proposal_failed",
+    )
+
+
+@router.get("/proposals/{proposal_id}")
+def get_document_proposal(proposal_id: str, request: Request) -> dict:
+    return unwrap_service_result(
+        DocumentProposalService(get_request_workspace(request)).get_proposal(proposal_id),
+        status_code=404,
+        code="proposal_not_found",
+    )
+
+
+@router.post("/proposals/{proposal_id}/apply")
+def apply_document_proposal(proposal_id: str, request: Request) -> dict:
+    return unwrap_service_result(
+        DocumentProposalService(get_request_workspace(request)).apply_proposal(proposal_id, config=get_config()),
+        code="proposal_apply_failed",
+    )
+
+
+@router.post("/proposals/{proposal_id}/undo")
+def undo_document_proposal(proposal_id: str, request: Request) -> dict:
+    return unwrap_service_result(
+        DocumentProposalService(get_request_workspace(request)).undo_proposal(proposal_id, config=get_config()),
+        code="proposal_undo_failed",
+    )
 
 
 @router.post("/search")

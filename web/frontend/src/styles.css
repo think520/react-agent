@@ -1379,3 +1379,21 @@ kbd { color: var(--faint); font-family: inherit; font-size: 10px; }
 .document-editor-versions > div:last-child { border-bottom: 0; }
 .document-editor > footer { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 22px; border-top: 1px solid var(--border); }
 .document-editor > footer > div { display: flex; gap: 8px; }
+
+
+/* LB-1.2 AI document proposal card. */
+.document-proposal-card { width: min(100%, 700px); border-left: 2px solid var(--blue); margin: 16px 0 8px; padding: 13px 15px; background: var(--blue-wash); }
+.document-proposal-card header { display: flex; align-items: center; gap: 7px; color: var(--blue); }
+.document-proposal-card header strong { font-size: 13px; }
+.document-proposal-card header span { margin-left: auto; overflow: hidden; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.document-proposal-reason { margin: 8px 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.document-proposal-diff { margin: 8px 0; }
+.document-proposal-diff summary { cursor: pointer; color: var(--blue); font-size: 11px; font-weight: 650; }
+.document-proposal-diff pre { overflow-x: auto; margin: 8px 0 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--paper-soft); font-family: var(--font-mono); font-size: 11px; line-height: 1.6; white-space: pre; }
+.document-proposal-diff .diff-add { color: var(--sage-deep); }
+.document-proposal-diff .diff-remove { color: var(--danger); }
+.document-proposal-diff .diff-context { color: var(--faint); }
+.document-proposal-impact { margin: 8px 0; color: var(--clay); font-size: 11px; }
+.document-proposal-error { margin: 8px 0; color: var(--danger); font-size: 11px; }
+.document-proposal-card footer { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+.document-proposal-applied { color: var(--sage-deep); font-size: 11px; font-weight: 650; }
