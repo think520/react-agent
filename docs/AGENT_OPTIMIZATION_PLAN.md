@@ -8,6 +8,32 @@
 
 ---
 
+## 执行状态（2026-08-13 完成主体，分支 feat/optimization-plan，已推送 origin）
+
+| 阶段 | 状态 | 落地说明 |
+|---|---|---|
+| AG-0 外围地基 | ✅ 完成 | 事件总线 / 事件四层收敛 / SSE 流身份+重放 / 流消毒守卫 / 适配层门面 |
+| FE-1 前端地基 | ✅ 完成（基础） | selector 归一化 / 动画原语 / 块级 ErrorBoundary / CSS Token / @ 别名；上滑分页待 AG-1 |
+| LB-1.1 用户编辑 | ✅ 完成 | Markdown 优先 + 检查点 + 最近 10 版 + 哈希冲突三选项 + 编辑器 UI |
+| AG-2 循环增强 | ✅ 完成 | 两层钩子 / 证据门禁与白名单沉淀为 before_tool 门禁 / 只读并行 / 去重 |
+| FE-2 流式体验 | ✅ 完成（核心） | StreamBuffer 30fps / 自适应节流 / 贴底滚动 / seq 去重；Markdown 顶层 reconcile 待补 |
+| AG-3 记忆与压缩 | ✅ 完成 | before_turn 注入生命周期 / KV cache 布局 / checkpoint 压缩 |
+| FE-3 过程披露 | ✅ 完成（过程折叠） | 过程折叠（阈值 3）；CardParser 实时卡片待补 |
+| LB-1.2 AI 协作编辑 | ✅ 完成 | 提案 → 确认 → 应用 → 撤销（复用 Wiki 检查点） |
+| AG-1 会话革命 | ⏸ 条件完成 | P5G 未验收 → 仅设计 + JSONL 迁移路径 + 测试，未切换线上默认 .json 格式 |
+| FE-4 页面联动与图谱动效 | ✅ 完成（主体） | 页面联动（FadeIn / 上下文跳转 / 学习范围共享）+ 配方 1/2/3/6 + spotlight + 力参数 + 降级 |
+
+### 遗留事项
+- FE-1 上滑分页：依赖 AG-1 会话格式，且默认 max_messages=20 使价值有限。
+- FE-2 Markdown 顶层 reconcile（流式阅读选中文字不被打断）、TailFade、完整重连客户端。
+- FE-3 CardParser 实时卡片：现有 SSE chat_artifact 已近实时发卡片，延迟感已缓解。
+- FE-4 配方 4（活跃节点呼吸）/ 5（新节点脉冲）+ forceAtlas2 布局异步化（worker）。
+- Playwright e2e：关键流程（断线重连 / 编辑回滚 / AI 提案撤销）当前以后端单元与端点测试为等价测试。
+
+验证：Python 1343 passed（基线 1233 → +110，零回归）、Vitest 46 passed、前端 lint 与生产构建通过；SSE 对外事件名不变、证据门禁行为不变。
+
+---
+
 ## 0. 背景与原则
 
 ### 0.1 为什么是"优化"而不是"重构"
