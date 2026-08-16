@@ -46,9 +46,15 @@ const drawNodeLabel: NodeLabelDrawingFunction = (context, data, settings) => {
   context.fillText(data.label, x, y);
 };
 
+export interface ForceParams {
+  center: number;
+  repel: number;
+  link: number;
+}
+
 export interface GraphCanvasActions {
   fit: () => void;
-  relayout: () => void;
+  relayout: (params?: ForceParams) => void;
 }
 
 export interface GraphCanvasProps {
@@ -292,11 +298,16 @@ export function GraphCanvas({
           renderer.refresh();
           void renderer.getCamera().animatedReset({ duration: 220 });
         },
-        relayout: () => {
+        relayout: (params?: ForceParams) => {
           renderer.setCustomBBox(null);
           forceAtlas2.assign(graph, {
             iterations: 180,
-            settings: { scalingRatio: 10, gravity: 0.6, slowDown: 2, adjustSizes: true },
+            settings: {
+              scalingRatio: params?.repel ?? 10,
+              gravity: params?.center ?? 0.6,
+              slowDown: params?.link ?? 2,
+              adjustSizes: true,
+            },
           });
           renderer.refresh();
           onPositionsChanged?.(graph.nodes().map((node) => ({

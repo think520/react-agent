@@ -19,7 +19,7 @@ import type {
   KnowledgeMapView,
   RelationshipEdge,
 } from "../types";
-import { GraphCanvas } from "../components/GraphCanvas";
+import { GraphCanvas, type ForceParams } from "../components/GraphCanvas";
 import { CandidateReviewPanel } from "../components/CandidateReviewPanel";
 import { DropdownSelect } from "../components/DropdownSelect";
 import type { AppOutletContext } from "../components/AppShell";
@@ -64,10 +64,11 @@ export function KnowledgeMapPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [showAllNodes, setShowAllNodes] = useState(false);
   const [focusDegree, setFocusDegree] = useState(1);
+  const [forceParams, setForceParams] = useState<ForceParams>({ center: 0.6, repel: 10, link: 2 });
   const [showCandidates, setShowCandidates] = useState(initialExtraction !== null);
   const [extractionSource, setExtractionSource] = useState<ExtractionSource | null>(initialExtraction);
   const positionsSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const graphActionsRef = useRef<{ fit: () => void; relayout: () => void } | null>(null);
+  const graphActionsRef = useRef<{ fit: () => void; relayout: (params?: ForceParams) => void } | null>(null);
   const initialFocusHandled = useRef(false);
 
   const loadGraph = useCallback(async () => {
@@ -216,7 +217,15 @@ export function KnowledgeMapPage() {
           <div className="km-map-actions">
             <button className={`km-density-toggle ${showAllNodes ? "active" : ""}`} onClick={() => setShowAllNodes((value) => !value)}>{showAllNodes ? "渐进显示" : "显示全部"}</button>
             <button className="icon-button" title="适配视图" aria-label="适配视图" onClick={() => graphActionsRef.current?.fit()}><Maximize2 size={15} /></button>
-            <button className="icon-button" title="重新布局" aria-label="重新布局" onClick={() => graphActionsRef.current?.relayout()}><Network size={15} /></button>
+            <button className="icon-button" title="重新布局" aria-label="重新布局" onClick={() => graphActionsRef.current?.relayout(forceParams)}><Network size={15} /></button>
+            <details className="km-force-params">
+              <summary>力参数</summary>
+              <div>
+                <label>向心 <input type="range" min={0} max={1} step={0.05} value={forceParams.center} onChange={(e) => setForceParams((p) => ({ ...p, center: Number(e.target.value) }))} /></label>
+                <label>排斥 <input type="range" min={1} max={30} step={1} value={forceParams.repel} onChange={(e) => setForceParams((p) => ({ ...p, repel: Number(e.target.value) }))} /></label>
+                <label>连线 <input type="range" min={1} max={5} step={0.5} value={forceParams.link} onChange={(e) => setForceParams((p) => ({ ...p, link: Number(e.target.value) }))} /></label>
+              </div>
+            </details>
           </div>
         )}
 

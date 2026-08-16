@@ -1407,3 +1407,12 @@ kbd { color: var(--faint); font-family: inherit; font-size: 10px; }
 /* FE-4 graph entrance fade (disabled by the global prefers-reduced-motion rule). */
 .graph-canvas { animation: graph-enter 500ms var(--ease-out) both; }
 @keyframes graph-enter { from { opacity: 0; } to { opacity: 1; } }
+
+/* FE-4 force params (center / repel / link). */
+.km-force-params { position: relative; }
+.km-force-params > summary { list-style: none; cursor: pointer; border: 1px solid var(--border); border-radius: 6px; padding: 6px 9px; color: var(--muted); font-size: 11px; }
+.km-force-params > summary::-webkit-details-marker { display: none; }
+.km-force-params[open] > summary { color: var(--blue); }
+.km-force-params > div { position: absolute; z-index: 20; top: calc(100% + 6px); right: 0; display: grid; min-width: 180px; gap: 8px; border: 1px solid var(--border-strong); border-radius: 8px; padding: 10px 12px; background: var(--paper-soft); box-shadow: var(--shadow-float); }
+.km-force-params label { display: grid; grid-template-columns: 34px minmax(0,1fr); align-items: center; gap: 8px; color: var(--muted); font-size: 11px; }
+.km-force-params input { width: 100%; accent-color: var(--sage); }
