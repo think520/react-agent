@@ -1357,3 +1357,25 @@ kbd { color: var(--faint); font-family: inherit; font-size: 10px; }
 .process-fold-collapsed > div { display: grid; gap: 2px; margin-top: 6px; }
 .process-fold-collapsed p { display: flex; justify-content: space-between; gap: 10px; margin: 0; color: var(--muted); font-size: 11px; }
 .process-fold-collapsed p small { color: var(--faint); font-size: 10px; }
+
+
+/* LB-1.1 document editor (Markdown materials). */
+.document-editor-backdrop { position: fixed; z-index: 70; inset: 0; display: grid; place-items: center; padding: 28px; background: rgba(24, 26, 28, .52); }
+.document-editor { display: flex; flex-direction: column; width: min(860px, 100%); height: min(640px, 84vh); overflow: hidden; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--paper); box-shadow: var(--shadow-dialog); }
+.document-editor > header { display: flex; flex: 0 0 auto; align-items: flex-start; justify-content: space-between; gap: 20px; padding: 18px 22px 14px; border-bottom: 1px solid var(--border); }
+.document-editor > header span { color: var(--clay); font-size: 10px; font-weight: 700; text-transform: uppercase; }
+.document-editor > header h3 { margin: 4px 0 0; color: var(--blue); font-family: var(--font-reading); font-size: 20px; font-weight: 500; }
+.document-editor > main { flex: 1 1 auto; min-height: 0; overflow: auto; }
+.document-editor-textarea { display: block; width: 100%; height: 100%; min-height: 320px; border: 0; padding: 18px 22px; resize: none; outline: 0; background: transparent; color: var(--ink); font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 13px; line-height: 1.7; }
+.document-editor-hint { padding: 18px 22px; color: var(--muted); font-size: 13px; }
+.document-editor-conflict { border-left: 2px solid var(--clay); margin: 18px 22px; padding: 12px 14px; background: var(--clay-wash); }
+.document-editor-conflict strong { color: var(--blue); font-size: 14px; }
+.document-editor-conflict p { margin: 6px 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.document-editor-conflict > div { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.document-editor-error { margin: 0; padding: 10px 22px; color: var(--danger); font-size: 12px; }
+.document-editor-versions { flex: 0 0 auto; max-height: 200px; overflow-y: auto; border-top: 1px solid var(--border); padding: 10px 22px; }
+.document-editor-versions > header { display: flex; align-items: center; gap: 6px; color: var(--sage-deep); font-size: 11px; font-weight: 650; }
+.document-editor-versions > div { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--border); color: var(--muted); font-size: 11px; }
+.document-editor-versions > div:last-child { border-bottom: 0; }
+.document-editor > footer { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 22px; border-top: 1px solid var(--border); }
+.document-editor > footer > div { display: flex; gap: 8px; }

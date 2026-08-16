@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CheckCircle2, FilePlus2, FileText, FolderOpen, Library, MessageCircle, MoreHorizontal, NotebookPen, Quote, RefreshCw, Save, Search, Settings2, ShieldCheck, Sparkles, Trash2, Upload, Wrench, X } from "lucide-react";
+import { CheckCircle2, FilePlus2, FileText, FolderOpen, Library, MessageCircle, MoreHorizontal, NotebookPen, Pencil, Quote, RefreshCw, Save, Search, Settings2, ShieldCheck, Sparkles, Trash2, Upload, Wrench, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useNavigate, useOutletContext, useSearchParams } from "react-router-dom";
 import { DropdownSelect } from "../components/DropdownSelect";
+import { DocumentEditor } from "../components/DocumentEditor";
 
 import type { AppOutletContext } from "../components/AppShell";
 import { BrandIllustration, EmptyState, ErrorNotice, IconButton, LoadingState, formatRelativeDate } from "../components/common";
@@ -59,6 +60,7 @@ export function LibraryPage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [editingDocumentId, setEditingDocumentId] = useState<string | null>(null);
   const [highlightedChunk, setHighlightedChunk] = useState<string | null>(null);
   const [startingExtractionId, setStartingExtractionId] = useState<string | null>(null);
   const [extractionStatuses, setExtractionStatuses] = useState<Record<string, DocumentExtractionStatus>>({});
@@ -953,6 +955,9 @@ export function LibraryPage() {
                     <button className="primary-button reader-extract" disabled={startingExtractionId === selected.document_id || !sections.length} onClick={() => void extractAndReview(selected, true)}><RefreshCw size={15} />{effectiveExtractionStatus(selected) === "failed" ? "重新尝试" : "重新提取"}</button>
                   )}
                   <button className="quiet-button" onClick={askAboutDocument}><MessageCircle size={15} />基于此文档提问</button>
+                  {(selected.kind === "md" || selected.kind === "txt" || selected.kind === "markdown") && (
+                    <button className="quiet-button" onClick={() => setEditingDocumentId(selected.document_id)}><Pencil size={15} />编辑</button>
+                  )}
                   {["review", "completed"].includes(effectiveExtractionStatus(selected)) && (
                     <details className="reader-extract-more">
                       <summary className="icon-button" aria-label="更多概念操作" title="更多概念操作"><MoreHorizontal size={16} /></summary>
@@ -1001,6 +1006,23 @@ export function LibraryPage() {
           />
         )}
       </div>
+      {editingDocumentId && selected && (
+        <DocumentEditor
+          documentId={editingDocumentId}
+          title={selected.title || selected.source}
+          onClose={() => setEditingDocumentId(null)}
+          onSaved={() => {
+            setEditingDocumentId(null);
+            void loadDocuments();
+            if (selectedId) {
+              setDetailLoading(true);
+              void api.document(selectedId)
+                .then((result) => setSections(result.sections))
+                .finally(() => setDetailLoading(false));
+            }
+          }}
+        />
+      )}
     </section>
   );
 }
