@@ -19,6 +19,7 @@ import { WebEvidenceCard } from "../components/artifacts/WebEvidenceCard";
 import { WikiFocusCard } from "../components/artifacts/WikiFocusCard";
 import { WikiResultCard } from "../components/artifacts/WikiResultCard";
 import { useChatStream, type ProcessBrandState } from "../hooks/useChatStream";
+import { useStickyBottomScroll } from "../hooks/useStickyBottomScroll";
 import { BlockErrorBoundary } from "../ui";
 import { api, streamChat } from "../lib/api";
 import { routeSlashCommand } from "../lib/commandRouter";
@@ -203,7 +204,7 @@ export function ChatPage() {
   const [mentionTab, setMentionTab] = useState<"document" | "session">("document");
   const [mentionIndex, setMentionIndex] = useState(0);
   const [mentionDismissed, setMentionDismissed] = useState(false);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useStickyBottomScroll<HTMLDivElement>([messages, status]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const sessionIdRef = useRef(sessionId);
@@ -290,13 +291,6 @@ export function ChatPage() {
     const timer = window.setInterval(() => void poll(), 1600);
     return () => { cancelled = true; window.clearInterval(timer); };
   }, [planningRunKey, setMessages]);
-
-  useEffect(() => {
-    const element = scrollRef.current;
-    if (element && typeof element.scrollTo === "function") {
-      element.scrollTo({ top: element.scrollHeight, behavior: sending ? "smooth" : "auto" });
-    }
-  }, [messages, status, sending]);
 
   async function send(event?: FormEvent, overrideMessage?: string, webResearchId?: string) {
     event?.preventDefault();

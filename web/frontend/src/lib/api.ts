@@ -498,16 +498,21 @@ export const api = {
     request<{ saved: number }>("/api/graph/positions", json({ positions, view_id: viewId })),
 };
 
+interface StreamFrameMeta {
+  stream_id?: string;
+  seq?: number;
+}
+
 export type ChatStreamEvent =
-  | { event: "run_started"; data: { run_id: string; chat_session_id: string } }
-  | { event: "message_delta"; data: { content: string } }
-  | { event: "status"; data: { phase: string; message: string; tool_name?: string; elapsed?: number } }
-  | { event: "citation"; data: { attribution: Attribution } }
-  | { event: "chat_artifact"; data: { artifact: ChatArtifact } }
-  | { event: "personalization"; data: { references: PersonalizationRef[] } }
-  | { event: "practice" | "learning_update"; data: Record<string, unknown> }
-  | { event: "run_completed"; data: { chat_session_id: string; termination_reason: string } }
-  | { event: "run_failed"; data: { error: { code: string; message: string } } };
+  | { event: "run_started"; data: { run_id: string; chat_session_id: string } & StreamFrameMeta }
+  | { event: "message_delta"; data: { content: string } & StreamFrameMeta }
+  | { event: "status"; data: { phase: string; message: string; tool_name?: string; elapsed?: number } & StreamFrameMeta }
+  | { event: "citation"; data: { attribution: Attribution } & StreamFrameMeta }
+  | { event: "chat_artifact"; data: { artifact: ChatArtifact } & StreamFrameMeta }
+  | { event: "personalization"; data: { references: PersonalizationRef[] } & StreamFrameMeta }
+  | { event: "practice" | "learning_update"; data: Record<string, unknown> & StreamFrameMeta }
+  | { event: "run_completed"; data: { chat_session_id: string; termination_reason: string } & StreamFrameMeta }
+  | { event: "run_failed"; data: { error: { code: string; message: string } } & StreamFrameMeta };
 
 export function parseFrame(frame: string): ChatStreamEvent | null {
   let event = "message";
@@ -582,6 +587,15 @@ export async function streamChat(
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  // De-duplicate replayed frames on reconnect (AG-0.3): each frame carries a
+  // monotonic seq; an already-consumed seq must never render twice.
+  const consumedSeqs = new Set<number>();
+  const dispatch = (parsed: ChatStreamEvent) => {
+    const seq = parsed.data.seq;
+    if (typeof seq === "number" && consumedSeqs.has(seq)) return;
+    if (typeof seq === "number") consumedSeqs.add(seq);
+    onEvent(parsed);
+  };
   while (true) {
     const { done, value } = await reader.read();
     buffer += decoder.decode(value, { stream: !done });
@@ -589,12 +603,12 @@ export async function streamChat(
     buffer = frames.pop() || "";
     for (const frame of frames) {
       const parsed = parseFrame(frame);
-      if (parsed) onEvent(parsed);
+      if (parsed) dispatch(parsed);
     }
     if (done) break;
   }
   if (buffer.trim()) {
     const parsed = parseFrame(buffer);
-    if (parsed) onEvent(parsed);
+    if (parsed) dispatch(parsed);
   }
 }

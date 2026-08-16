@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
+import { StreamBuffer } from "../lib/streamBuffer";
 import type { ChatStreamEvent } from "../lib/api";
 import type { ChatMessage, KnowledgeContext } from "../types";
 
@@ -14,69 +15,51 @@ export interface StreamEventHandlers {
   onKnowledgeContext?: (context: KnowledgeContext) => void;
 }
 
-// 后端为证据门禁会先生成完整回答、再一次性回放所有 token，前端直接 append
-// 会导致整段弹出（无打字机效果）。这里用缓冲区匀速 flush，模拟流式观感。
-const FLUSH_CHARS_PER_TICK = 4;
-const FLUSH_TICK_MS = 30;
-
 /**
  * Owns the streaming chat surface state (messages, status line, brand state)
  * and reduces SSE events onto the pending assistant message.
+ *
+ * The backend evidence gate replays a full answer as a burst of deltas; a
+ * 30fps StreamBuffer flushes those into a typewriter-like effect (FE-2).
  */
 export function useChatStream() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [status, setStatus] = useState("");
   const [brandState, setBrandState] = useState<ProcessBrandState>("thinking");
 
-  const bufferRef = useRef("");
-  const flushTimerRef = useRef<number | null>(null);
+  const bufferRef = useRef<StreamBuffer | null>(null);
 
   const updateLastMessage = (patch: (message: ChatMessage) => ChatMessage) => {
     setMessages((current) => current.map((item, index) => index === current.length - 1 ? patch(item) : item));
   };
 
-  const stopFlush = () => {
-    if (flushTimerRef.current !== null) {
-      window.clearTimeout(flushTimerRef.current);
-      flushTimerRef.current = null;
-    }
-  };
-
-  const drainBuffer = () => {
-    const remaining = bufferRef.current;
-    bufferRef.current = "";
-    stopFlush();
-    if (remaining) {
-      updateLastMessage((item) => ({ ...item, content: item.content + remaining }));
-    }
-  };
-
-  const flushStep = () => {
+  const ensureBuffer = () => {
     if (!bufferRef.current) {
-      flushTimerRef.current = null;
-      return;
+      const reducedMotion = typeof window !== "undefined"
+        ? window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false
+        : false;
+      bufferRef.current = new StreamBuffer(
+        (chunk) => updateLastMessage((item) => ({ ...item, content: item.content + chunk })),
+        { reducedMotion },
+      );
     }
-    const chunk = bufferRef.current.slice(0, FLUSH_CHARS_PER_TICK);
-    bufferRef.current = bufferRef.current.slice(FLUSH_CHARS_PER_TICK);
-    if (chunk) {
-      updateLastMessage((item) => ({ ...item, content: item.content + chunk }));
-    }
-    flushTimerRef.current = window.setTimeout(flushStep, FLUSH_TICK_MS);
+    return bufferRef.current;
   };
 
-  const enqueueDelta = (text: string) => {
-    bufferRef.current += text;
-    if (flushTimerRef.current === null) {
-      flushTimerRef.current = window.setTimeout(flushStep, FLUSH_TICK_MS);
-    }
+  const resetBuffer = () => {
+    bufferRef.current?.reset();
+    bufferRef.current = null;
   };
 
-  useEffect(() => () => { stopFlush(); bufferRef.current = ""; }, []);
+  const drainBuffer = () => bufferRef.current?.drain();
+
+  const enqueueDelta = (text: string) => ensureBuffer().push(text);
+
+  useEffect(() => () => resetBuffer(), []);
 
   function handleStreamEvent(streamEvent: ChatStreamEvent, handlers: StreamEventHandlers = {}) {
     if (streamEvent.event === "run_started") {
-      bufferRef.current = "";
-      stopFlush();
+      resetBuffer();
       handlers.onRunStarted?.(streamEvent.data.chat_session_id);
     }
     if (streamEvent.event === "status") {
