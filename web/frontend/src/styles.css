@@ -1,4 +1,4 @@
-﻿@import "tailwindcss";
+@import "tailwindcss";
 
 @font-face {
   font-family: "Luo";
@@ -526,6 +526,13 @@
   --sage-deep: #4f6e4c;
   --ink-soft: #5c554b;
   --accent: #1b365d;
+  /* rgb-split triplets for composable transparency (FE-1). Theme switching
+     only flips these (and their hex twins) under a [data-theme] attribute,
+     never through React state. */
+  --accent-rgb: 27, 54, 93;
+  --ink-rgb: 46, 43, 39;
+  --sage-rgb: 122, 155, 118;
+  --clay-rgb: 184, 111, 75;
   --border: rgba(46, 43, 39, 0.1);
   --border-strong: rgba(46, 43, 39, 0.16);
   --shadow-soft: 0 4px 12px rgba(46, 43, 39, 0.04);
@@ -1318,3 +1325,23 @@ kbd { color: var(--faint); font-family: inherit; font-size: 10px; }
 .migration-preview small { color: var(--muted); font-size: 11px; line-height: 1.45; }
 .migration-actions { display: flex; justify-content: flex-end; align-items: center; gap: 10px; margin-top: 4px; }
 .settings-warning { margin: 0; color: var(--warning, #9a5b18); font-size: 12px; line-height: 1.5; }
+
+
+/* FE-1 animation primitives (@/ui). Business components import from @/ui only;
+   swapping the animation implementation is a one-file change. */
+.ui-anim { will-change: opacity, transform; }
+.ui-fade-in { animation: ui-fade-in 240ms var(--ease-out) both; }
+.ui-slide-in { animation: ui-slide-in 260ms var(--ease-out) both; }
+.ui-slide-left { animation-name: ui-slide-left; }
+@keyframes ui-fade-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+@keyframes ui-slide-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes ui-slide-left { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: none; } }
+
+.ui-collapse { display: grid; grid-template-rows: 0fr; opacity: 0; overflow: hidden; transition: grid-template-rows 220ms var(--ease-out), opacity 200ms var(--ease-out); }
+.ui-collapse.open { grid-template-rows: 1fr; opacity: 1; }
+.ui-collapse > * { min-height: 0; }
+
+.ui-animated-list > * { animation: ui-fade-in 220ms var(--ease-out) both; }
+
+/* Block-level error fallback: quiet, keeps the message around it intact. */
+.ui-block-error { display: inline-block; padding: 8px 11px; border-left: 2px solid var(--clay); border-radius: 4px; background: var(--clay-wash); color: var(--muted); font-size: 12px; }
