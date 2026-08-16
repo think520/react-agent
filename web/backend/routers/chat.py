@@ -15,6 +15,8 @@ from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
 from core.session import Session
+from core.agent_events import canonicalize_event
+from core.event_bus import get_default_bus
 from service.agent_service import AgentService
 from core.skills import build_skills_system_prompt, find_skill_by_name
 from web.backend.capabilities import WEB_SKILL_NAMES
@@ -25,7 +27,7 @@ from service.memory_service import MemoryService
 from service.quiz_service import QuizService
 from service.research_service import ResearchService
 from service.usage_service import UsageService
-from tools import get_tools_schema
+from core.runtime import get_tools_schema
 from web.backend.deps import (
     get_preferences,
     get_config,
@@ -52,7 +54,7 @@ from web.backend.schemas import (
     WikiPlanApplyRequest,
     WikiPlanRecoveryRequest,
 )
-from web.backend.sse import encode_sse
+from web.backend.sse import StreamEmitter, encode_sse, get_default_stream_store
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -1250,6 +1252,25 @@ def restore_chat_wiki_checkpoint(
     return {"chat_session_id": session.session_id, "artifact": restored}
 
 
+@router.get("/streams/{stream_id}/replay")
+def replay_stream(stream_id: str, after_seq: int = 0) -> StreamingResponse:
+    """Replay buffered SSE frames for a stream after a sequence cursor.
+
+    Used by the client on reconnect (AG-0.3): it resumes from streamId + seq
+    without re-rendering already-consumed events.
+    """
+    store = get_default_stream_store()
+
+    def frames():
+        for frame in store.replay(stream_id, after_seq):
+            yield encode_sse(
+                frame["event"],
+                {**frame["data"], "seq": frame["seq"], "stream_id": stream_id},
+            )
+
+    return StreamingResponse(frames(), media_type="text/event-stream")
+
+
 @router.post("/runs")
 def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
     config = get_config()
@@ -1351,6 +1372,8 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
         else getattr(runtime, "skills_prompt", None)
     )
     run_id = str(uuid.uuid4())
+    stream_id = str(uuid.uuid4())
+    emitter = StreamEmitter(get_default_stream_store(), stream_id)
     response_policies = []
     if _requires_local_evidence(
         body.message,
@@ -1364,8 +1387,9 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
 
     def event_stream():
         run_started_at = time.monotonic()
-        yield encode_sse("run_started", {
+        yield emitter.emit("run_started", {
             "run_id": run_id,
+            "stream_id": stream_id,
             "chat_session_id": session.session_id,
             "provider": provider_name,
         })
@@ -1402,9 +1426,9 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
         try:
             run_operations: list[dict[str, Any]] = []
             if initial_attribution:
-                yield encode_sse("citation", {"run_id": run_id, "attribution": initial_attribution})
+                yield emitter.emit("citation", {"run_id": run_id, "attribution": initial_attribution})
             if personalization.get("references"):
-                yield encode_sse("personalization", {
+                yield emitter.emit("personalization", {
                     "run_id": run_id,
                     "references": personalization["references"],
                 })
@@ -1421,6 +1445,11 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
             )
             termination_reason = "final_answer"
             for event in events:
+                # Publish canonical events to the bus so trace/usage/tests
+                # observe the same stream (AG-0.1/AG-0.2).
+                get_default_bus().publish(
+                    canonicalize_event(event, session_id=session.session_id)
+                )
                 if event.get("type") == "tool_end":
                     run_operations.append(_run_summary_operation(event, body.message))
                 if event.get("type") == "assistant_done":
@@ -1439,7 +1468,7 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
                         latest_attribution = payload.get("attribution")
                     if web_event == "chat_artifact" and isinstance(payload.get("artifact"), dict):
                         pending_artifacts.append(payload["artifact"])
-                    yield encode_sse(web_event, {"run_id": run_id, **payload})
+                    yield emitter.emit(web_event, {"run_id": run_id, **payload})
 
             run_summary = {
                 "artifact_id": f"run-summary-{uuid.uuid4().hex[:12]}",
@@ -1449,28 +1478,29 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
                 "operations": run_operations,
             }
             pending_artifacts.append(run_summary)
-            yield encode_sse("chat_artifact", {"run_id": run_id, "artifact": run_summary})
+            yield emitter.emit("chat_artifact", {"run_id": run_id, "artifact": run_summary})
 
             if body.save:
                 save_result = persist_session()
                 if not save_result["ok"]:
-                    yield encode_sse("run_failed", {
+                    yield emitter.emit("run_failed", {
                         "run_id": run_id,
                         "error": {
                             "code": "session_save_failed",
                             "message": "The conversation could not be saved.",
                         },
                     })
+                    emitter.clear()
                     return
 
-            yield encode_sse("run_completed", {
+            yield emitter.emit("run_completed", {
                 "run_id": run_id,
                 "chat_session_id": session.session_id,
                 "termination_reason": termination_reason,
             })
         except Exception as exc:
             logger.exception("Web chat run failed: %s", exc)
-            yield encode_sse("run_failed", {
+            yield emitter.emit("run_failed", {
                 "run_id": run_id,
                 "error": {
                     "code": "run_failed",
@@ -1484,5 +1514,7 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
                 persist_session()
             except Exception:
                 logger.exception("Failed to persist chat session after stream interruption")
+            # Turn ended: clear the replay buffer so it cannot grow forever.
+            emitter.clear()
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")

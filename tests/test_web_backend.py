@@ -71,6 +71,32 @@ def test_health_endpoint(backend_client):
     assert response.json() == {"ok": True}
 
 
+def test_stream_replay_endpoint_returns_frames_after_cursor(backend_client):
+    from web.backend.sse import get_default_stream_store
+
+    store = get_default_stream_store()
+    stream_id = "replay-test-stream"
+    store.clear(stream_id)
+    store.append(stream_id, "message_delta", {"content": "hello"})
+    store.append(stream_id, "status", {"phase": "running"})
+
+    response = backend_client.get(
+        f"/api/chat/streams/{stream_id}/replay", params={"after_seq": 1}
+    )
+    assert response.status_code == 200
+    body = response.text
+    assert "event: status" in body
+    assert '"seq": 2' in body
+    assert '"seq": 1' not in body
+    assert stream_id in body
+
+
+def test_stream_replay_endpoint_empty_when_unknown(backend_client):
+    response = backend_client.get("/api/chat/streams/does-not-exist/replay")
+    assert response.status_code == 200
+    assert response.text.strip() == ""
+
+
 def test_graph_extraction_job_reports_completion_and_scopes_candidates(
     backend_client,
     tmp_path,

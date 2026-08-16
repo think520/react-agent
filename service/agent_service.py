@@ -213,9 +213,11 @@ class AgentService:
         Yields events: assistant_delta, tool_start, tool_end, specialist_event, assistant_done.
         """
         from core.agent_loop import AgentLoop
+        from core.runtime import guard_provider
 
+        guarded_provider = guard_provider(provider)
         agent = AgentLoop(
-            provider,
+            guarded_provider,
             session,
             skills_prompt=skills_prompt,
             mcp_prompt=mcp_prompt,
