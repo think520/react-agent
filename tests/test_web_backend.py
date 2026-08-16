@@ -565,6 +565,42 @@ def test_document_impact_endpoint(backend_client, monkeypatch):
     assert response.json()["affected_count"] == 1
 
 
+def test_document_edit_endpoints(backend_client, monkeypatch):
+    class FakeEdit:
+        def __init__(self, workspace):
+            pass
+
+        def read(self, document_id):
+            return {"ok": True, "content": "hello", "editable": True, "content_hash": "h",
+                    "document": {"document_id": document_id, "title": "Doc"}}
+
+        def edit(self, document_id, content, expected_hash=None, conflict_action="overwrite", config=None):
+            return {"ok": True, "document_id": document_id, "content_hash": "h2", "sync": {"fake": True}}
+
+        def list_versions(self, document_id):
+            return {"ok": True, "versions": [{"id": "v1", "content_hash": "h"}]}
+
+        def rollback(self, document_id, version_id, config=None):
+            return {"ok": True, "document_id": document_id, "version_id": version_id, "sync": {"fake": True}}
+
+    monkeypatch.setattr("web.backend.routers.kb.DocumentEditService", FakeEdit)
+
+    content = backend_client.get("/api/kb/documents/doc-1/content")
+    assert content.status_code == 200
+    assert content.json()["content"] == "hello"
+
+    edited = backend_client.put("/api/kb/documents/doc-1/content", json={"content": "new", "expected_hash": "h"})
+    assert edited.status_code == 200
+    assert edited.json()["content_hash"] == "h2"
+
+    versions = backend_client.get("/api/kb/documents/doc-1/versions")
+    assert versions.json()["versions"][0]["id"] == "v1"
+
+    rolled = backend_client.post("/api/kb/documents/doc-1/versions/v1/rollback")
+    assert rolled.status_code == 200
+    assert rolled.json()["version_id"] == "v1"
+
+
 def test_user_confirmed_wiki_plan_contract(backend_client, monkeypatch):
     provider = object()
     captured = {}

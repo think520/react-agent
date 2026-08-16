@@ -8,6 +8,7 @@ from fastapi import APIRouter, File, Request, UploadFile
 from pydantic import BaseModel, Field
 
 from service.kb_service import KBService
+from service.document_edit_service import DocumentEditService
 from web.backend.deps import (
     get_preferences,
     get_config, get_library_runtime_context, get_request_workspace,
@@ -522,6 +523,60 @@ def delete_document(document_id: str, request: Request) -> dict:
         code="document_not_deletable",
     )
     result["sync"] = _public_sync(result["sync"])
+    return result
+
+
+class DocumentEditRequest(BaseModel):
+    content: str
+    expected_hash: str | None = None
+    conflict_action: Literal["overwrite", "abandon", "save_as_new"] = "overwrite"
+
+
+@router.get("/documents/{document_id}/content")
+def document_content(document_id: str, request: Request) -> dict:
+    return unwrap_service_result(
+        DocumentEditService(get_request_workspace(request)).read(document_id),
+        status_code=404,
+        code="document_not_found",
+    )
+
+
+@router.put("/documents/{document_id}/content")
+def edit_document(document_id: str, body: DocumentEditRequest, request: Request) -> dict:
+    result = unwrap_service_result(
+        DocumentEditService(get_request_workspace(request)).edit(
+            document_id,
+            body.content,
+            expected_hash=body.expected_hash,
+            conflict_action=body.conflict_action,
+            config=get_config(),
+        ),
+        code="document_edit_failed",
+    )
+    if "sync" in result:
+        result["sync"] = _public_sync(result["sync"])
+    return result
+
+
+@router.get("/documents/{document_id}/versions")
+def document_versions(document_id: str, request: Request) -> dict:
+    return unwrap_service_result(
+        DocumentEditService(get_request_workspace(request)).list_versions(document_id),
+        status_code=404,
+        code="document_not_found",
+    )
+
+
+@router.post("/documents/{document_id}/versions/{version_id}/rollback")
+def rollback_document(document_id: str, version_id: str, request: Request) -> dict:
+    result = unwrap_service_result(
+        DocumentEditService(get_request_workspace(request)).rollback(
+            document_id, version_id, config=get_config()
+        ),
+        code="document_rollback_failed",
+    )
+    if "sync" in result:
+        result["sync"] = _public_sync(result["sync"])
     return result
 
 

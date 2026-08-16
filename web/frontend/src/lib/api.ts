@@ -181,6 +181,22 @@ export const api = {
   document: (id: string) => request<{ document: DocumentSummary; sections: DocumentSection[] }>(
     `/api/kb/documents/${encodeURIComponent(id)}`,
   ),
+  documentContent: (id: string) => request<{ document: DocumentSummary; content: string; editable: boolean; content_hash: string }>(
+    `/api/kb/documents/${encodeURIComponent(id)}/content`,
+  ),
+  editDocument: (id: string, body: { content: string; expected_hash?: string | null; conflict_action?: "overwrite" | "abandon" | "save_as_new" }) => request<{
+    document_id: string; content_hash: string; conflict?: string | null; sync?: Record<string, unknown>;
+  }>(
+    `/api/kb/documents/${encodeURIComponent(id)}/content`,
+    { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+  ),
+  documentVersions: (id: string) => request<{ versions: Array<{ id: string; created_at: string; content_hash: string }> }>(
+    `/api/kb/documents/${encodeURIComponent(id)}/versions`,
+  ),
+  rollbackDocument: (id: string, versionId: string) => request<{ document_id: string; version_id: string; sync?: Record<string, unknown> }>(
+    `/api/kb/documents/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}/rollback`,
+    { method: "POST" },
+  ),
   deleteDocument: (id: string) => request<{ document_id: string }>(
     `/api/kb/documents/${encodeURIComponent(id)}`,
     { method: "DELETE" },
