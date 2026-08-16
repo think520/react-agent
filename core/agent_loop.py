@@ -1,14 +1,45 @@
+import hashlib
 import json
 import logging
 import os
 import time
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
+
 from core.skills import SKILLS_PROMPT_MARKER
+from core.hooks import (
+    AFTER_TOOL,
+    AFTER_TURN,
+    BEFORE_TOOL,
+    BEFORE_TURN,
+    ToolGate,
+    before_tool_gates,
+    before_turn_results,
+    dispatch,
+)
 from tools import get_tools_schema, execute_tool
 from tools.base import ToolResult
 from providers.types import LLMResponse, ToolCall
 
 logger = logging.getLogger(__name__)
+
+# Read-only tools may run concurrently (AG-2.3) and are de-duplicated by
+# name + args (AG-2.4). Write tools and tools with side effects stay serial.
+READ_ONLY_TOOLS = frozenset({
+    "rag_search",
+    "concept_map_query",
+    "concept_map_status",
+    "knowledge_status",
+})
+
+# Bounded thread pool for concurrent read-only tool execution (AG-2.3).
+MAX_PARALLEL_TOOLS = 2
+
+
+def _args_hash(args: dict) -> str:
+    """Stable hash of a tool's arguments (for idempotent de-duplication)."""
+    canonical = json.dumps(args, ensure_ascii=False, sort_keys=True, default=str)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def _compute_result_summary(tool_name: str, result: ToolResult) -> str | None:
@@ -111,6 +142,8 @@ class AgentLoop:
             frozenset(allowed_tool_names) if allowed_tool_names is not None else None
         )
         self.response_guard = response_guard
+        # Idempotent result cache for read-only tools within one turn (AG-2.4).
+        self._tool_result_cache: dict[str, ToolResult] = {}
 
     def set_session(self, session) -> None:
         self.session = session
@@ -179,8 +212,10 @@ class AgentLoop:
 
     def run_stream(self, user_input: str) -> Iterator[dict]:
         """Run one turn and yield UI-friendly progress events."""
+        final_response = ""
         request_message = None
         guard_messages: list[dict] = []
+        turn_injections: list[dict] = []
         tool_history: list[dict] = []
         guard_retry_count = 0
         usage_records: list[dict] = []
@@ -192,6 +227,11 @@ class AgentLoop:
             if self.request_prompt:
                 request_message = {"role": "system", "content": self.request_prompt}
                 self.session.messages.append(request_message)
+            # before_turn hooks (memory injection, review reminders) — AG-2.1.
+            for injection in before_turn_results(session=self.session, user_input=user_input):
+                message = {"role": "system", "content": injection}
+                self.session.messages.append(message)
+                turn_injections.append(message)
             self.session.add_message("user", user_input)
 
             for iteration in range(self.max_iterations):
@@ -212,97 +252,24 @@ class AgentLoop:
                     tool_calls_data = [tc.to_dict() for tc in response.tool_calls]
                     self.session.add_message_with_tool_calls("assistant", response.content, tool_calls_data)
 
-                    # Now execute tools and add tool messages
-                    for tc in response.tool_calls:
-                        logger.info(f"[AgentLoop] calling tool — id={tc.id!r} name={tc.name!r}")
-
-                        args_parse_error = None
-                        try:
-                            args = json.loads(tc.arguments) if isinstance(tc.arguments, str) else tc.arguments
-                        except json.JSONDecodeError as exc:
-                            args = {}
-                            args_parse_error = str(exc)
-
-                        tool_start_event = {
-                            "type": "tool_start",
-                            "tool_call_id": tc.id,
-                            "tool_name": tc.name,
-                            "args": args,
+                    terminate_turn = yield from self._execute_tool_calls(
+                        response.tool_calls, tool_history
+                    )
+                    if terminate_turn:
+                        fallback = "本轮操作被安全策略终止。"
+                        final_response = fallback
+                        self.session.add_message("assistant", fallback)
+                        yield {"type": "assistant_delta", "content": fallback}
+                        term_event = {
+                            "type": "assistant_done",
+                            "content": fallback,
+                            "termination_reason": "max_iter",
+                            "usage_records": usage_records,
                         }
-                        yield tool_start_event
+                        yield term_event
                         if self.trace_writer:
-                            self.trace_writer.write(tool_start_event)
-
-                        start_ts = time.monotonic()
-                        if args_parse_error is not None:
-                            # Tell the model its arguments were malformed instead of
-                            # silently running the tool with empty args.
-                            result = ToolResult(
-                                ok=False,
-                                content=(
-                                    f"Invalid tool arguments for {tc.name}: JSON parse error "
-                                    f"({args_parse_error}). Re-issue the tool call with valid JSON."
-                                ),
-                            )
-                        elif (
-                            self.allowed_tool_names is not None
-                            and tc.name not in self.allowed_tool_names
-                        ):
-                            result = ToolResult(
-                                ok=False,
-                                content=f"Tool unavailable in this runtime: {tc.name}",
-                            )
-                        else:
-                            result = execute_tool(tc.name, args, session=self.session)
-                        elapsed = time.monotonic() - start_ts
-                        if isinstance(result, ToolResult):
-                            tool_history.append({
-                                "name": tc.name,
-                                "ok": result.ok,
-                                "data": result.data,
-                            })
-                            self._sync_session_state(tc.name, result)
-                            self.session.add_tool_message(tc.id, result.content)
-                            logger.info(f"[AgentLoop] tool result for id={tc.id!r}: {result.content[:200]!r}")
-                            for display_event in result.data.get("display_events", []):
-                                yield {
-                                    **display_event,
-                                    "type": "specialist_event",
-                                    "event_type": display_event.get("type"),
-                                    "parent_tool_call_id": tc.id,
-                                    "parent_tool_name": tc.name,
-                                }
-                            tool_end_event = {
-                                "type": "tool_end",
-                                "tool_call_id": tc.id,
-                                "tool_name": tc.name,
-                                "ok": result.ok,
-                                "content": result.content,
-                                "artifacts": result.artifacts,
-                                "args": args,
-                                "metrics": _compute_run_metrics(tc.name, result),
-                                "elapsed": elapsed,
-                                "result_summary": _compute_result_summary(tc.name, result),
-                            }
-                            yield tool_end_event
-                            if self.trace_writer:
-                                self.trace_writer.write(tool_end_event)
-                        else:
-                            # Fallback for unknown tools returning plain string
-                            self.session.add_tool_message(tc.id, str(result))
-                            logger.info(f"[AgentLoop] tool result for id={tc.id!r}: {str(result)[:200]!r}")
-                            fallback_end_event = {
-                                "type": "tool_end",
-                                "tool_call_id": tc.id,
-                                "tool_name": tc.name,
-                                "ok": True,
-                                "content": str(result),
-                                "elapsed": elapsed,
-                                "result_summary": None,
-                            }
-                            yield fallback_end_event
-                            if self.trace_writer:
-                                self.trace_writer.write(fallback_end_event)
+                            self.trace_writer.write(term_event)
+                        return fallback
 
                     continue
 
@@ -333,6 +300,7 @@ class AgentLoop:
                 if response.content:
                     self.session.add_message("assistant", response.content)
 
+                final_response = response.content
                 done_event = {
                     "type": "assistant_done",
                     "content": response.content,
@@ -345,6 +313,7 @@ class AgentLoop:
                 return response.content
 
             fallback = "本轮工具调用次数过多，未能完成回答。请缩小问题范围后重试。"
+            final_response = fallback
             self.session.add_message("assistant", fallback)
             yield {"type": "assistant_delta", "content": fallback}
             max_iter_event = {
@@ -379,6 +348,195 @@ class AgentLoop:
                     message for message in self.session.messages
                     if all(message is not guard_message for guard_message in guard_messages)
                 ]
+            if turn_injections:
+                self.session.messages = [
+                    message for message in self.session.messages
+                    if all(message is not injection for injection in turn_injections)
+                ]
+            # after_turn hooks (usage accounting, title generation, learning
+            # events) — AG-2.1. Dispatched once per turn, even on error/abort.
+            try:
+                dispatch(
+                    AFTER_TURN,
+                    session=self.session,
+                    user_input=user_input,
+                    final_response=final_response,
+                    usage_records=usage_records,
+                )
+            except Exception:
+                logger.exception("after_turn hook dispatch failed")
+
+    def _execute_tool_calls(
+        self, tool_calls: list[ToolCall], tool_history: list[dict]
+    ) -> Iterator[dict]:
+        """Execute a batch of tool calls (AG-2.2/AG-2.3/AG-2.4).
+
+        Yields tool_start/tool_end events in model order. Read-only tools run
+        concurrently on a small thread pool; write tools stay serial. Returns
+        True when a before_tool hook requested turn termination.
+        """
+        parsed: list[tuple[ToolCall, dict, str | None]] = []
+        for tc in tool_calls:
+            args_parse_error = None
+            try:
+                args = json.loads(tc.arguments) if isinstance(tc.arguments, str) else tc.arguments
+                if not isinstance(args, dict):
+                    args = {}
+            except json.JSONDecodeError as exc:
+                args = {}
+                args_parse_error = str(exc)
+            parsed.append((tc, args, args_parse_error))
+            logger.info(f"[AgentLoop] calling tool — id={tc.id!r} name={tc.name!r}")
+            tool_start_event = {
+                "type": "tool_start",
+                "tool_call_id": tc.id,
+                "tool_name": tc.name,
+                "args": args,
+            }
+            yield tool_start_event
+            if self.trace_writer:
+                self.trace_writer.write(tool_start_event)
+
+        results: list = [None] * len(parsed)
+        read_only_indices = [
+            i for i, (tc, _args, err) in enumerate(parsed)
+            if err is None and tc.name in READ_ONLY_TOOLS
+        ]
+
+        if len(read_only_indices) > 1:
+            with ThreadPoolExecutor(max_workers=MAX_PARALLEL_TOOLS) as pool:
+                futures = {
+                    pool.submit(self._run_single_tool, parsed[i][0], parsed[i][1]): i
+                    for i in read_only_indices
+                }
+                for future in futures:
+                    results[futures[future]] = future.result()
+        else:
+            for i in read_only_indices:
+                results[i] = self._run_single_tool(parsed[i][0], parsed[i][1])
+
+        for i, (tc, args, err) in enumerate(parsed):
+            if results[i] is None:
+                results[i] = self._run_single_tool(tc, args, args_parse_error=err)
+
+        terminate = False
+        for i, (tc, args, _err) in enumerate(parsed):
+            result, elapsed, term = results[i]
+            terminate = terminate or term
+            if isinstance(result, ToolResult):
+                tool_history.append({
+                    "name": tc.name,
+                    "ok": result.ok,
+                    "data": result.data,
+                })
+                self._sync_session_state(tc.name, result)
+                self.session.add_tool_message(tc.id, result.content)
+                logger.info(f"[AgentLoop] tool result for id={tc.id!r}: {result.content[:200]!r}")
+                for display_event in result.data.get("display_events", []):
+                    yield {
+                        **display_event,
+                        "type": "specialist_event",
+                        "event_type": display_event.get("type"),
+                        "parent_tool_call_id": tc.id,
+                        "parent_tool_name": tc.name,
+                    }
+                tool_end_event = {
+                    "type": "tool_end",
+                    "tool_call_id": tc.id,
+                    "tool_name": tc.name,
+                    "ok": result.ok,
+                    "content": result.content,
+                    "artifacts": result.artifacts,
+                    "args": args,
+                    "metrics": _compute_run_metrics(tc.name, result),
+                    "elapsed": elapsed,
+                    "result_summary": _compute_result_summary(tc.name, result),
+                }
+                yield tool_end_event
+                if self.trace_writer:
+                    self.trace_writer.write(tool_end_event)
+            else:
+                self.session.add_tool_message(tc.id, str(result))
+                logger.info(f"[AgentLoop] tool result for id={tc.id!r}: {str(result)[:200]!r}")
+                fallback_end_event = {
+                    "type": "tool_end",
+                    "tool_call_id": tc.id,
+                    "tool_name": tc.name,
+                    "ok": True,
+                    "content": str(result),
+                    "elapsed": elapsed,
+                    "result_summary": None,
+                }
+                yield fallback_end_event
+                if self.trace_writer:
+                    self.trace_writer.write(fallback_end_event)
+        return terminate
+
+    def _run_single_tool(
+        self,
+        tc: ToolCall,
+        args: dict,
+        args_parse_error: str | None = None,
+    ):
+        """Execute one tool call with gates, hooks, and de-duplication.
+
+        Returns (result, elapsed_seconds, terminate_flag).
+        """
+        start_ts = time.monotonic()
+        if args_parse_error is not None:
+            return (
+                ToolResult(
+                    ok=False,
+                    content=(
+                        f"Invalid tool arguments for {tc.name}: JSON parse error "
+                        f"({args_parse_error}). Re-issue the tool call with valid JSON."
+                    ),
+                ),
+                time.monotonic() - start_ts,
+                False,
+            )
+
+        # Built-in allowlist gate (the before_tool checkpoint) — AG-2.2.
+        if (
+            self.allowed_tool_names is not None
+            and tc.name not in self.allowed_tool_names
+        ):
+            return (
+                ToolResult(ok=False, content=f"Tool unavailable in this runtime: {tc.name}"),
+                time.monotonic() - start_ts,
+                False,
+            )
+
+        # External before_tool hooks (permissions, additional gating) — AG-2.1.
+        for gate in before_tool_gates(tool_name=tc.name, args=args, session=self.session):
+            if not gate.allow:
+                return (
+                    ToolResult(ok=False, content=gate.reason or f"Tool blocked: {tc.name}"),
+                    time.monotonic() - start_ts,
+                    gate.terminate,
+                )
+
+        # Idempotent de-duplication for read-only tools (AG-2.4).
+        cache_key = None
+        if tc.name in READ_ONLY_TOOLS:
+            cache_key = f"{tc.name}:{_args_hash(args)}"
+            cached = self._tool_result_cache.get(cache_key)
+            if cached is not None:
+                return cached, 0.0, False
+
+        result = execute_tool(tc.name, args, session=self.session)
+
+        # after_tool hooks (sanitize / audit / evidence state) — AG-2.1.
+        for replacement in dispatch(
+            AFTER_TOOL, tool_name=tc.name, args=args, result=result, session=self.session
+        ):
+            if isinstance(replacement, ToolResult):
+                result = replacement
+
+        if cache_key is not None and isinstance(result, ToolResult):
+            self._tool_result_cache[cache_key] = result
+
+        return result, time.monotonic() - start_ts, False
 
     def _complete_with_events(self, *, emit_content: bool = True) -> Iterator[dict]:
         complete_stream = getattr(self.llm, "complete_stream", None)
