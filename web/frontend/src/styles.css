@@ -1345,3 +1345,15 @@ kbd { color: var(--faint); font-family: inherit; font-size: 10px; }
 
 /* Block-level error fallback: quiet, keeps the message around it intact. */
 .ui-block-error { display: inline-block; padding: 8px 11px; border-left: 2px solid var(--clay); border-radius: 4px; background: var(--clay-wash); color: var(--muted); font-size: 12px; }
+
+
+/* FE-3 process disclosure: fold runs of process steps. */
+.process-fold { margin: 8px 0 4px; }
+.process-fold-inline { display: flex; flex-wrap: wrap; gap: 6px; }
+.process-fold-inline span { border: 1px solid var(--border); border-radius: 6px; padding: 2px 8px; background: var(--paper-soft); color: var(--muted); font-size: 11px; }
+.process-fold-collapsed { border-left: 2px solid var(--sage); padding: 2px 0 2px 10px; }
+.process-fold-collapsed summary { cursor: pointer; color: var(--sage-deep); font-size: 11px; font-weight: 650; list-style: none; }
+.process-fold-collapsed summary::-webkit-details-marker { display: none; }
+.process-fold-collapsed > div { display: grid; gap: 2px; margin-top: 6px; }
+.process-fold-collapsed p { display: flex; justify-content: space-between; gap: 10px; margin: 0; color: var(--muted); font-size: 11px; }
+.process-fold-collapsed p small { color: var(--faint); font-size: 10px; }

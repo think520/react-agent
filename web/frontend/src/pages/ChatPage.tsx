@@ -18,6 +18,7 @@ import { WebConsentCard } from "../components/artifacts/WebConsentCard";
 import { WebEvidenceCard } from "../components/artifacts/WebEvidenceCard";
 import { WikiFocusCard } from "../components/artifacts/WikiFocusCard";
 import { WikiResultCard } from "../components/artifacts/WikiResultCard";
+import { ProcessFoldBlock } from "../components/ProcessFoldBlock";
 import { useChatStream, type ProcessBrandState } from "../hooks/useChatStream";
 import { useStickyBottomScroll } from "../hooks/useStickyBottomScroll";
 import { BlockErrorBoundary } from "../ui";
@@ -984,6 +985,7 @@ export function ChatPage() {
                 <div className="assistant-heading"><img src="/assets/brand/expressions/bobodan-expression-neutral.webp" alt="" /><span>{settings?.preferences.assistant.display_name || "Bobodan"}</span></div>
                 {message.pending && status && <BobodanProcess state={brandState} detail={status} />}
                 {!message.pending && <RunSummary artifact={message.artifacts?.find((artifact): artifact is RunSummaryArtifact => artifact.type === "run_summary")} />}
+                {!message.pending && message.process?.length ? <ProcessFoldBlock steps={message.process} /> : null}
                 <BlockErrorBoundary><div className="answer-prose"><ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content || (message.pending ? "正在整理回答…" : message.failed ? "回答没有完成。" : "本轮没有生成可显示的内容。")}</ReactMarkdown></div></BlockErrorBoundary>
                 {message.artifacts?.map((artifact) => <BlockErrorBoundary key={artifact.artifact_id}>{artifactSurface(artifact)}</BlockErrorBoundary>)}
                 <AttributionBadges attribution={message.attribution} onOpenSources={showSourceContext} />
