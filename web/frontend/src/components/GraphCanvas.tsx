@@ -93,6 +93,9 @@ export function GraphCanvas({
   const showDetailsRef = useRef(false);
   const hoveredNodeRef = useRef<string | null>(null);
   const hoveredEdgeRef = useRef<string | null>(null);
+  const hoverTweenRef = useRef(0);
+  const hoverTargetRef = useRef(0);
+  const hoverRafRef = useRef<number | null>(null);
   const searchQueryRef = useRef(searchQuery);
   const focusDegreeRef = useRef(focusDegree);
   const reducedMotionRef = useRef(
@@ -166,6 +169,7 @@ export function GraphCanvas({
         const hideDetail = level === "detail" && !showAllRef.current && !showDetailsRef.current && !focused.has(node);
         return {
           ...data,
+          size: (data.size as number) * (node === hoveredNodeRef.current ? 1 + 0.12 * hoverTweenRef.current : 1),
           hidden: hideDetail,
           color: !matchesSearch
             ? C.faintNode
@@ -224,14 +228,38 @@ export function GraphCanvas({
     renderer.on("clickStage", () => {
       if (!isDragging) onBackgroundClick();
     });
+    // FE-4 recipe 2: hover transition — ease the hovered node's scale in/out.
+    const stepHoverTween = () => {
+      const target = hoverTargetRef.current;
+      const current = hoverTweenRef.current;
+      if (Math.abs(target - current) < 0.02) {
+        hoverTweenRef.current = target;
+        hoverRafRef.current = null;
+        renderer.refresh({ skipIndexation: true });
+        return;
+      }
+      const duration = target > current ? 180 : 280;
+      hoverTweenRef.current = current + (target - current) * (16 / duration);
+      renderer.refresh({ skipIndexation: true });
+      hoverRafRef.current = requestAnimationFrame(stepHoverTween);
+    };
+    const startHoverTween = (target: number) => {
+      hoverTargetRef.current = target;
+      if (hoverRafRef.current === null && !reducedMotionRef.current) {
+        hoverRafRef.current = requestAnimationFrame(stepHoverTween);
+      }
+    };
+
     renderer.on("enterNode", ({ node }) => {
       hoveredNodeRef.current = node;
       containerRef.current?.classList.add("node-hovered");
+      startHoverTween(1);
       renderer.refresh({ skipIndexation: true });
     });
     renderer.on("leaveNode", () => {
       hoveredNodeRef.current = null;
       containerRef.current?.classList.remove("node-hovered");
+      startHoverTween(0);
       renderer.refresh({ skipIndexation: true });
     });
     renderer.on("enterEdge", ({ edge }) => {
@@ -321,6 +349,10 @@ export function GraphCanvas({
     }
 
     return () => {
+      if (hoverRafRef.current !== null) {
+        cancelAnimationFrame(hoverRafRef.current);
+        hoverRafRef.current = null;
+      }
       resizeObserver.disconnect();
       if (actionsRef) actionsRef.current = null;
       renderer.kill();
