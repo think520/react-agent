@@ -17,6 +17,8 @@ from core.hooks import (
     before_turn_results,
     dispatch,
 )
+from core.prompt_layout import mark_dynamic_tail
+from core.session_compactor import project_context, should_compact
 from tools import get_tools_schema, execute_tool
 from tools.base import ToolResult
 from providers.types import LLMResponse, ToolCall
@@ -129,7 +131,8 @@ class AgentLoop:
                  request_prompt: str | None = None,
                  tools_schema: list[dict] | None = None,
                  max_iterations: int | None = None,
-                 trace_writer=None, allowed_tool_names=None, response_guard=None):
+                 trace_writer=None, allowed_tool_names=None, response_guard=None,
+                 memory_injector=None, context_window: int | None = None, checkpoint=None):
         self.llm = llm_provider
         self.session = session
         self.tools_schema = tools_schema if tools_schema is not None else get_tools_schema()
@@ -142,6 +145,9 @@ class AgentLoop:
             frozenset(allowed_tool_names) if allowed_tool_names is not None else None
         )
         self.response_guard = response_guard
+        self.memory_injector = memory_injector
+        self.context_window = context_window
+        self.checkpoint = checkpoint
         # Idempotent result cache for read-only tools within one turn (AG-2.4).
         self._tool_result_cache: dict[str, ToolResult] = {}
 
@@ -225,10 +231,18 @@ class AgentLoop:
             self._inject_skills_prompt()
             self._inject_mcp_prompt()
             if self.request_prompt:
-                request_message = {"role": "system", "content": self.request_prompt}
+                # Dynamic tail is marked with the cache boundary (AG-3.2).
+                request_message = {"role": "system", "content": mark_dynamic_tail(self.request_prompt)}
                 self.session.messages.append(request_message)
             # before_turn hooks (memory injection, review reminders) — AG-2.1.
-            for injection in before_turn_results(session=self.session, user_input=user_input):
+            turn_injection_texts = list(
+                before_turn_results(session=self.session, user_input=user_input)
+            )
+            if self.memory_injector is not None:
+                injected = self.memory_injector.before_turn(self.session, user_input)
+                if injected:
+                    turn_injection_texts.append(injected)
+            for injection in turn_injection_texts:
                 message = {"role": "system", "content": injection}
                 self.session.messages.append(message)
                 turn_injections.append(message)
@@ -538,10 +552,22 @@ class AgentLoop:
 
         return result, time.monotonic() - start_ts, False
 
+    def _build_context(self) -> list[dict]:
+        """Return the message list sent to the model for this turn.
+
+        When a context window is configured and the session exceeds the
+        compaction threshold, the context is projected to [stable prefix +
+        checkpoint + recent tail] (AG-3.3). History is never mutated here.
+        """
+        messages = self.session.messages
+        if self.context_window is not None and should_compact(messages, self.context_window):
+            return project_context(messages, self.checkpoint)
+        return messages
+
     def _complete_with_events(self, *, emit_content: bool = True) -> Iterator[dict]:
         complete_stream = getattr(self.llm, "complete_stream", None)
         if not callable(complete_stream):
-            response = self.llm.complete(self.session.messages, tools=self.tools_schema)
+            response = self.llm.complete(self._build_context(), tools=self.tools_schema)
             if response.content and emit_content:
                 yield {"type": "assistant_delta", "content": response.content}
             return response, ([response.content] if response.content else [])
@@ -551,7 +577,7 @@ class AgentLoop:
         stream_usage = None
         request_id = ""
 
-        for chunk in complete_stream(self.session.messages, tools=self.tools_schema):
+        for chunk in complete_stream(self._build_context(), tools=self.tools_schema):
             if chunk.usage is not None:
                 stream_usage = chunk.usage
             if chunk.request_id:

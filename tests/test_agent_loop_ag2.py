@@ -183,6 +183,33 @@ def test_read_only_parallel_correct_results_and_event_order(monkeypatch, tmp_pat
     assert all(e["ok"] for e in tool_ends)
 
 
+def test_loop_compacts_context_when_over_window():
+    from core.session_compactor import Checkpoint
+
+    session = Session.new("/test")
+    for i in range(20):
+        session.add_message("user", f"message {i}")
+        session.add_message("assistant", f"reply {i}")
+
+    captured = []
+
+    class CapturingLLM:
+        def complete(self, messages, tools=None):
+            captured.extend(dict(m) for m in messages)
+            return LLMResponse(content="done")
+
+        def get_name(self):
+            return "capturing"
+
+    checkpoint = Checkpoint(goal="复习", progress="已学")
+    agent = AgentLoop(CapturingLLM(), session, context_window=100, checkpoint=checkpoint)
+    agent.run("final question")
+
+    # Projected context carries the checkpoint and a tail, not the full history.
+    assert any("<!-- bobodan:checkpoint -->" in m.get("content", "") for m in captured)
+    assert len(captured) < len(session.messages)
+
+
 def test_read_only_tool_set_contains_expected_names():
     assert {"rag_search", "concept_map_query", "concept_map_status", "knowledge_status"} <= READ_ONLY_TOOLS
 

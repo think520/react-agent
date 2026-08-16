@@ -17,6 +17,7 @@ from fastapi.responses import StreamingResponse
 from core.session import Session
 from core.agent_events import canonicalize_event
 from core.event_bus import get_default_bus
+from core.memory_injector import MemoryInjector
 from service.agent_service import AgentService
 from core.skills import build_skills_system_prompt, find_skill_by_name
 from web.backend.capabilities import WEB_SKILL_NAMES
@@ -313,17 +314,6 @@ def _save_wiki_session(session: Session, workspace: str, config: dict[str, Any])
     result = AgentService.save_session(session, get_session_save_dir(config, workspace))
     if not result.get("ok"):
         raise APIError(500, "session_save_failed", "The Wiki conversation could not be saved.")
-
-
-def _personalization_prompt(content: str) -> str | None:
-    if not content.strip():
-        return None
-    return (
-        "<!-- bobodan:confirmed-personal-knowledge -->\n"
-        "The following entries are confirmed user knowledge or deterministic mastery summaries. "
-        "Use them only when relevant, never override source evidence, and do not reveal internal identifiers.\n"
-        f"{content}"
-    )
 
 
 def _concept_map_prompt(workspace: str) -> str | None:
@@ -1350,14 +1340,14 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
         and preferences.get("memory", {}).get("enabled", True)
     )
     personalization = {"content": "", "references": []}
+    memory_injector = None
     if memory_enabled:
-        personalization = MemoryService(
-            workspace,
-            legacy_workspace=get_workspace(),
-        ).personalization_context(body.message)
-        personal_prompt = _personalization_prompt(personalization.get("content", ""))
-        if personal_prompt:
-            request_prompt = f"{request_prompt}\n\n{personal_prompt}" if request_prompt else personal_prompt
+        # Memory injection moves to the before_turn lifecycle (AG-3.1) with a
+        # token budget; references are kept here for the personalization chip.
+        injector = MemoryInjector(workspace)
+        content, references = injector.retrieve(body.message)
+        personalization = {"content": content, "references": references}
+        memory_injector = injector
     allowed_tool_names = _WEB_TOOL_NAMES if memory_enabled else _WEB_TOOL_NAMES - _MEMORY_TOOL_NAMES
     if search_permission == "auto":
         allowed_tool_names = allowed_tool_names - {"request_web_search"}
@@ -1442,6 +1432,7 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
                 allowed_tool_names=allowed_tool_names,
                 request_prompt=request_prompt,
                 response_guard=response_guard,
+                memory_injector=memory_injector,
             )
             termination_reason = "final_answer"
             for event in events:
