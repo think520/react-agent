@@ -1,5 +1,7 @@
-import { useEffect, useState } from "react";
-import { History, Save, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Columns2, History, Save, X } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 import { ApiError, api } from "../lib/api";
 
@@ -17,9 +19,11 @@ interface Version {
 }
 
 /**
- * Inline Markdown editor for managed material documents (LB-1.1). Edits are
- * checkpointed server-side; on an external (Obsidian double-open) change the
- * user chooses to overwrite, abandon, or save as a new file.
+ * Markdown editor for managed material documents (LB-1.1 + TASKS_LIBRARY_REWORK
+ * task 3.4.2). Split-pane edit + live preview with bidirectional scroll sync
+ * (MiaoYan-inspired, 60fps rAF), Ctrl+\ to toggle split/pure-edit, and a
+ * draggable divider. Keeps checkpoints / 10-version history / rollback / the
+ * Obsidian double-open hash-conflict three options.
  */
 export function DocumentEditor({ documentId, title, onClose, onSaved }: DocumentEditorProps) {
   const [content, setContent] = useState("");
@@ -30,6 +34,13 @@ export function DocumentEditor({ documentId, title, onClose, onSaved }: Document
   const [conflict, setConflict] = useState(false);
   const [versions, setVersions] = useState<Version[]>([]);
   const [showVersions, setShowVersions] = useState(false);
+  const [splitView, setSplitView] = useState(true);
+  const [previewPct, setPreviewPct] = useState(45);
+
+  const editRef = useRef<HTMLTextAreaElement>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
+  const syncingRef = useRef(false);
+  const rafRef = useRef<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -47,6 +58,57 @@ export function DocumentEditor({ documentId, title, onClose, onSaved }: Document
       });
     return () => { cancelled = true; };
   }, [documentId]);
+
+  // Ctrl+\ (or Cmd+\) toggles split / pure-edit.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "\\") {
+        e.preventDefault();
+        setSplitView((value) => !value);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
+  function syncScroll(source: HTMLElement, target: HTMLElement) {
+    if (syncingRef.current) return;
+    syncingRef.current = true;
+    if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+    rafRef.current = requestAnimationFrame(() => {
+      const sourceMax = source.scrollHeight - source.clientHeight;
+      const targetMax = target.scrollHeight - target.clientHeight;
+      const ratio = sourceMax > 0 ? source.scrollTop / sourceMax : 0;
+      target.scrollTop = ratio * Math.max(0, targetMax);
+      window.setTimeout(() => { syncingRef.current = false; }, 60);
+    });
+  }
+
+  function onEditScroll() {
+    if (!splitView || !editRef.current || !previewRef.current) return;
+    syncScroll(editRef.current, previewRef.current);
+  }
+  function onPreviewScroll() {
+    if (!splitView || !editRef.current || !previewRef.current) return;
+    syncScroll(previewRef.current, editRef.current);
+  }
+
+  function startDividerDrag(e: React.PointerEvent) {
+    e.preventDefault();
+    const move = (ev: PointerEvent) => {
+      const editor = document.querySelector<HTMLElement>(".document-editor-split");
+      if (!editor) return;
+      const rect = editor.getBoundingClientRect();
+      const pct = ((ev.clientX - rect.left) / rect.width) * 100;
+      setPreviewPct(Math.max(20, Math.min(80, pct)));
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  }
 
   async function save(action: "overwrite" | "abandon" | "save_as_new" = "overwrite") {
     setSaving(true);
@@ -96,7 +158,10 @@ export function DocumentEditor({ documentId, title, onClose, onSaved }: Document
             <span>编辑资料</span>
             <h3>{title}</h3>
           </div>
-          <button className="icon-button" type="button" aria-label="关闭编辑" onClick={onClose}><X size={18} /></button>
+          <div className="document-editor-header-actions">
+            <button className="icon-button" type="button" aria-label="切换分栏" title="Ctrl+\ 切换分栏" onClick={() => setSplitView((value) => !value)}><Columns2 size={17} /></button>
+            <button className="icon-button" type="button" aria-label="关闭编辑" onClick={onClose}><X size={18} /></button>
+          </div>
         </header>
 
         {loading ? (
@@ -113,9 +178,32 @@ export function DocumentEditor({ documentId, title, onClose, onSaved }: Document
               </div>
             </div>
           </main>
+        ) : splitView ? (
+          <main className="document-editor-split">
+            <textarea
+              ref={editRef}
+              className="document-editor-textarea split"
+              value={content}
+              onChange={(event) => setContent(event.target.value)}
+              onScroll={onEditScroll}
+              spellCheck={false}
+            />
+            <div className="document-editor-divider" role="separator" aria-label="拖动调整预览宽度" onPointerDown={startDividerDrag} />
+            <div
+              className="document-editor-preview"
+              ref={previewRef}
+              onScroll={onPreviewScroll}
+              style={{ flexBasis: previewPct + "%" }}
+            >
+              <article className="reader-prose document-editor-preview-body">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{content || "还没有正文。"}</ReactMarkdown>
+              </article>
+            </div>
+          </main>
         ) : (
           <main>
             <textarea
+              ref={editRef}
               className="document-editor-textarea"
               value={content}
               onChange={(event) => setContent(event.target.value)}

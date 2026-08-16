@@ -1446,3 +1446,12 @@ kbd { color: var(--faint); font-family: inherit; font-size: 10px; }
 .reader-topbar-actions { display: flex; align-items: center; gap: 6px; }
 .reader-article { padding: 24px 0 60px; }
 .reader-article .reader-prose { margin: 0 auto; }
+
+/* DocumentEditor split-pane (TASKS_LIBRARY_REWORK task 3.4.2). */
+.document-editor-header-actions { display: flex; gap: 2px; }
+.document-editor > main.document-editor-split { display: flex; flex-direction: row; overflow: hidden; padding: 0; }
+.document-editor-textarea.split { flex: 1 1 auto; min-width: 0; min-height: 0; }
+.document-editor-divider { flex: 0 0 5px; cursor: col-resize; background: var(--border); }
+.document-editor-divider:hover { background: var(--border-strong); }
+.document-editor-preview { flex: 0 0 45%; min-width: 0; overflow-y: auto; border-left: 1px solid var(--border); background: var(--paper-soft); }
+.document-editor-preview-body { max-width: 720px; margin: 0 auto; padding: 18px 22px; }
