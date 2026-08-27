@@ -977,7 +977,7 @@ export function LibraryPage() {
                     <button className="primary-button reader-extract" disabled={startingExtractionId === selected.document_id || !sections.length} onClick={() => void extractAndReview(selected, true)}><RefreshCw size={15} />{effectiveExtractionStatus(selected) === "failed" ? "重新尝试" : "重新提取"}</button>
                   )}
                   <button className="quiet-button" onClick={askAboutDocument}><MessageCircle size={15} />基于此文档提问</button>
-                  {(selected.kind === "md" || selected.kind === "txt" || selected.kind === "markdown") && (
+                  {(selected.kind === "md" || selected.kind === "txt" || selected.kind === "markdown" || selected.kind === "course_document" || selected.kind === "obsidian_note") && (
                     <button className="quiet-button" onClick={() => setEditingDocumentId(selected.document_id)}><Pencil size={15} />编辑</button>
                   )}
                   {["review", "completed"].includes(effectiveExtractionStatus(selected)) && (

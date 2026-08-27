@@ -16,7 +16,7 @@ import { useHandoffStore } from "../stores/handoffStore";
 import { useReaderTabsStore } from "../stores/readerTabsStore";
 import type { DocumentExtractionStatus, DocumentSection, DocumentSummary, PersonalKnowledgeItem } from "../types";
 
-const EDITABLE_KINDS = new Set(["md", "txt", "markdown"]);
+const EDITABLE_KINDS = new Set(["md", "txt", "markdown", "course_document", "obsidian_note"]);
 
 export function ReaderPage() {
   const { id } = useParams();
@@ -336,8 +336,10 @@ export function ReaderPage() {
           }}
         />
       )}
-      {/* TASKS_LIBRARY_REWORK task 2: chapter rail (right-edge 64px hover zone). */}
-      <div className="chapter-rail-zone" onMouseEnter={() => setRailOpen(true)} />
+      {/* TASKS_LIBRARY_REWORK task 2: chapter rail (right-edge 64px hover zone).
+          The zone only exists while the rail is closed, so clicking the X really
+          dismisses it (the mouse stays inside the zone otherwise and re-opens it). */}
+      {!railOpen && <div className="chapter-rail-zone" onMouseEnter={() => setRailOpen(true)} />}
       {railOpen && (
         <aside className="chapter-rail">
           <header>

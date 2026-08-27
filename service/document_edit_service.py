@@ -25,7 +25,20 @@ from typing import Any
 
 from service._result import err as _err, ok as _ok
 
-EDITABLE_KINDS = frozenset({"md", "txt", "markdown"})
+EDITABLE_KINDS = frozenset({"md", "txt", "markdown", "course_document", "obsidian_note"})
+
+# System areas that must never be edited through the document editor: the
+# rebuildable runtime index (.knowledge), version snapshots and archives.
+# Legacy workspaces keep real user content under .bobodan/sources and
+# .bobodan/managed-vault, so .bobodan itself cannot be blanket-banned.
+_SYSTEM_DIR_PARTS = frozenset(
+    part + os.sep
+    for part in (
+        os.sep + ".knowledge",
+        os.sep + ".bobodan" + os.sep + "checkpoints",
+        os.sep + ".bobodan" + os.sep + "archive",
+    )
+)
 MAX_VERSIONS = 10
 CONFLICT_ACTIONS = frozenset({"overwrite", "abandon", "save_as_new"})
 
@@ -118,7 +131,16 @@ class DocumentEditService:
             )
 
         path = document.get("path") or ""
-        if not path or not self.kb._is_within_workspace(path, self.kb.managed_sources_dir):
+        # Editable when the file lives inside the library workspace (vault /
+        # course folders included) but never inside Bobodan's own system dirs.
+        # Managed uploads (raw/inbox, .bobodan/sources) already pass; vault
+        # course documents now pass too (user edits them like Obsidian does).
+        normalized = os.path.abspath(path) if path else ""
+        if (
+            not normalized
+            or not self.kb._is_within_workspace(normalized, self.workspace)
+            or any(part in normalized for part in _SYSTEM_DIR_PARTS)
+        ):
             return _err(
                 "This knowledge source cannot be edited here",
                 code="document_read_only",

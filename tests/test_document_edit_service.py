@@ -131,3 +131,54 @@ def test_versions_capped_at_ten(svc):
 
     versions = svc.list_versions("doc-1")["versions"]
     assert len(versions) == 10
+
+
+def _editable_service(tmp_path, monkeypatch, rel_path, kind):
+    workspace = str(tmp_path)
+    doc_path = os.path.join(workspace, rel_path)
+    os.makedirs(os.path.dirname(doc_path), exist_ok=True)
+    with open(doc_path, "w", encoding="utf-8") as handle:
+        handle.write("seed content")
+    _seed_document(workspace, "doc-x", os.path.basename(rel_path), kind, doc_path)
+
+    service = DocumentEditService(workspace)
+    monkeypatch.setattr(service.kb, "_sync_registered_sources", lambda mode, config: _FakeSummary())
+    monkeypatch.setattr(service.kb, "_mark_wiki_sources_stale", lambda *a, **kw: None)
+    return service
+
+
+@pytest.mark.parametrize("kind", ["course_document", "obsidian_note"])
+def test_workspace_documents_of_new_kinds_are_editable(tmp_path, monkeypatch, kind):
+    # Vault / course files live anywhere in the workspace, not only in the
+    # managed sources dir — user edits them like Obsidian does.
+    svc = _editable_service(tmp_path, monkeypatch, os.path.join("courses", "algo", "dijkstra.md"), kind)
+
+    result = svc.edit("doc-x", "updated", expected_hash=content_hash("seed content"))
+    assert result["ok"]
+
+    versions = svc.list_versions("doc-x")["versions"]
+    assert len(versions) == 1
+
+
+@pytest.mark.parametrize(
+    "rel_path",
+    [os.path.join(".knowledge", "junk.md"), os.path.join(".bobodan", "checkpoints", "doc-1", "v1.md"), os.path.join(".bobodan", "archive", "raw", "old.md")],
+)
+def test_system_dir_files_stay_read_only(tmp_path, monkeypatch, rel_path):
+    # The editor must never touch the rebuildable index, version snapshots
+    # or archived files, even when their kind looks editable.
+    svc = _editable_service(tmp_path, monkeypatch, rel_path, "md")
+
+    result = svc.edit("doc-x", "tamper")
+    assert not result["ok"]
+    assert result["code"] == "document_read_only"
+
+
+def test_legacy_managed_sources_dir_stays_editable(svc):
+    # .bobodan/sources holds real user uploads in legacy workspaces and
+    # guards against a blanket .bobodan ban.
+    read = svc.read("doc-1")
+    assert read["ok"] and read["editable"] is True
+
+    result = svc.edit("doc-1", "still mine", expected_hash=content_hash("original content"))
+    assert result["ok"]
