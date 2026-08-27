@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { StreamBuffer } from "../lib/streamBuffer";
+import { prefersReducedMotion } from "../lib/motion";
 import type { ChatStreamEvent } from "../lib/api";
 import type { ChatMessage, KnowledgeContext } from "../types";
 
@@ -35,12 +36,11 @@ export function useChatStream() {
 
   const ensureBuffer = () => {
     if (!bufferRef.current) {
-      const reducedMotion = typeof window !== "undefined"
-        ? window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false
-        : false;
+      // Live provider: honoring the in-app reduced-motion toggle mid-session
+      // requires re-evaluating on every flush, not once at mount.
       bufferRef.current = new StreamBuffer(
         (chunk) => updateLastMessage((item) => ({ ...item, content: item.content + chunk })),
-        { reducedMotion },
+        { reducedMotion: prefersReducedMotion },
       );
     }
     return bufferRef.current;

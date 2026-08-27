@@ -6,6 +6,7 @@ import Sigma from "sigma";
 import type { Settings as SigmaSettings } from "sigma/settings";
 import type { NodeLabelDrawingFunction } from "sigma/rendering";
 import forceAtlas2 from "graphology-layout-forceatlas2";
+import { prefersReducedMotion } from "../lib/motion";
 import type { ConceptNode, RelationshipEdge } from "../types";
 
 const C = {
@@ -98,9 +99,6 @@ export function GraphCanvas({
   const hoverRafRef = useRef<number | null>(null);
   const searchQueryRef = useRef(searchQuery);
   const focusDegreeRef = useRef(focusDegree);
-  const reducedMotionRef = useRef(
-    typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches,
-  );
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -217,7 +215,7 @@ export function GraphCanvas({
     // FE-4 recipe 1: entrance — a gentle camera reset on mount, skipped for
     // reduced-motion users (the CSS fade is likewise disabled by the global
     // prefers-reduced-motion rule).
-    if (!reducedMotionRef.current) {
+    if (!prefersReducedMotion()) {
       void renderer.getCamera().animatedReset({ duration: 600 });
     }
 
@@ -245,7 +243,7 @@ export function GraphCanvas({
     };
     const startHoverTween = (target: number) => {
       hoverTargetRef.current = target;
-      if (hoverRafRef.current === null && !reducedMotionRef.current) {
+      if (hoverRafRef.current === null && !prefersReducedMotion()) {
         hoverRafRef.current = requestAnimationFrame(stepHoverTween);
       }
     };
@@ -388,7 +386,7 @@ export function GraphCanvas({
       }
       const position = renderer.getNodeDisplayData(selectedConceptId);
       if (position) {
-        const duration = reducedMotionRef.current ? 0 : 460;
+        const duration = prefersReducedMotion() ? 0 : 460;
         void renderer.getCamera().animate({ x: position.x, y: position.y }, { duration });
       }
     }

@@ -34,7 +34,8 @@ export function segment(text: string): string[] {
 
 export interface StreamBufferOptions {
   intervalMs?: number;
-  reducedMotion?: boolean;
+  /** Static flag or a live provider evaluated on every flush. */
+  reducedMotion?: boolean | (() => boolean);
 }
 
 /**
@@ -45,7 +46,7 @@ export class StreamBuffer {
   private buffer = "";
   private timer: ReturnType<typeof setInterval> | null = null;
   private readonly intervalMs: number;
-  private readonly reducedMotion: boolean;
+  private readonly reducedMotion: boolean | (() => boolean);
   private readonly onFlush: (chunk: string) => void;
 
   constructor(onFlush: (chunk: string) => void, options: StreamBufferOptions = {}) {
@@ -90,7 +91,8 @@ export class StreamBuffer {
       this.stop();
       return;
     }
-    const batch = adaptiveBatchSize(this.buffer.length, this.reducedMotion);
+    const reduced = typeof this.reducedMotion === "function" ? this.reducedMotion() : this.reducedMotion;
+    const batch = adaptiveBatchSize(this.buffer.length, reduced);
     const chunk = this.buffer.slice(0, batch);
     this.buffer = this.buffer.slice(batch);
     if (chunk) this.onFlush(chunk);

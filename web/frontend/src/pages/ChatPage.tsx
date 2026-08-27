@@ -60,9 +60,16 @@ function processTitle(state: ProcessBrandState) {
   return "正在理解问题";
 }
 
+// State art swaps must not flash empty; warm every phase image once so the
+// 160ms opacity transition is the only visible change between phases.
+for (const state of ["thinking", "reading", "writing", "ready"] as const) {
+  const img = new Image();
+  img.src = `/assets/brand/states/bobodan-state-${state}.webp`;
+}
+
 function BobodanProcess({ state, detail }: { state: ProcessBrandState; detail: string }) {
   return <div className={`bobodan-process ${state}`} role="status">
-    <BrandIllustration key={state} state={state} size={52} />
+    <BrandIllustration state={state} size={52} />
     <div><strong>{processTitle(state)}</strong><small>{detail}</small><span className="bobodan-process-ink" aria-hidden="true"><i /><i /><i /></span></div>
   </div>;
 }
