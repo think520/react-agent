@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { BookOpen, Check, Eye, Pencil, PenLine, Pin, Plus, Search, Trash2, X } from "lucide-react";
+import { BookOpen, Check, Eye, Pencil, Pin, Plus, Search, Trash2, X } from "lucide-react";
 import { useOutletContext } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { api } from "../lib/api";
 import type { AppOutletContext } from "../components/AppShell";
-import { IconButton, LoadingState } from "../components/common";
+import { IconButton, EmptyState, LoadingState } from "../components/common";
 import { MemoryManagerDialog } from "../components/MemoryManagerDialog";
 import { useConfirm } from "../ui/Modal";
 import type { PersonalKnowledgeItem } from "../types";
@@ -225,7 +225,7 @@ export function NotesPage() {
         </section>
       )}
 
-      {loading ? <LoadingState label="正在读取笔记…" /> : (
+      {loading ? <LoadingState label="正在读取笔记…" state="reading" /> : (
         <div className="notes-list">
           {filtered.map((item) => (
             <article key={item.id}>
@@ -252,11 +252,11 @@ export function NotesPage() {
           ))}
           {!filtered.length && (query
             ? <p className="settings-empty">没有匹配的笔记。</p>
-            : <div className="notes-empty"><PenLine size={28} /><h3>还没有笔记</h3><p>记录你的思考、结论和摘录。笔记可关联资料，阅读原文时也能看到。</p><button className="primary-button" onClick={startNew}><Plus size={15} />写第一条笔记</button></div>)}
+            : <EmptyState title="还没有笔记" description="记录你的思考、结论和摘录。笔记可关联资料，阅读原文时也能看到。" state="thinking" action={<button className="primary-button" onClick={startNew}><Plus size={15} />写第一条笔记</button>} />)}
         </div>
       )}
 
-      {managerOpen && <div className="settings-backdrop" role="presentation"><MemoryManagerDialog memoryEnabled={settings?.preferences.memory.enabled ?? true} onClose={() => { setManagerOpen(false); void loadNotes(); }} /></div>}
+      {managerOpen && <MemoryManagerDialog memoryEnabled={settings?.preferences.memory.enabled ?? true} onClose={() => { setManagerOpen(false); void loadNotes(); }} />}
       </div>
     </section>
   );

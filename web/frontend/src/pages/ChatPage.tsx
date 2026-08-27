@@ -989,7 +989,7 @@ export function ChatPage() {
               </div>
             ) : (
               <article className={`assistant-message ${message.failed ? "failed" : ""}`} key={index}>
-                <div className="assistant-heading"><img src="/assets/brand/expressions/bobodan-expression-neutral.webp" alt="" /><span>{settings?.preferences.assistant.display_name || "Bobodan"}</span></div>
+                <div className="assistant-heading"><img src={message.failed ? "/assets/brand/expressions/bobodan-expression-curious.webp" : "/assets/brand/expressions/bobodan-expression-neutral.webp"} alt="" /><span>{settings?.preferences.assistant.display_name || "Bobodan"}</span></div>
                 {message.pending && status && <BobodanProcess state={brandState} detail={status} />}
                 {!message.pending && <RunSummary artifact={message.artifacts?.find((artifact): artifact is RunSummaryArtifact => artifact.type === "run_summary")} />}
                 {!message.pending && message.process?.length ? <ProcessFoldBlock steps={message.process} /> : null}
@@ -1006,12 +1006,17 @@ export function ChatPage() {
           </div>
         ) : (
           <div className="welcome-view">
-            <div className="welcome-identity">
-              <BrandIllustration state="ready" size={112} alt="Bobodan" />
-              <h2>今天想学点什么？</h2>
-              <div className="welcome-context">
-                <span><FolderOpen size={14} />{activeLibrary?.name || "尚未选择资料库"}</span>
-                <span><Brain size={14} />记忆随学习沉淀</span>
+            <div className="welcome-hero">
+              <picture>
+                <source media="(max-width: 720px)" srcSet="/assets/brand/hero/bobodan-chat-hero-960x600.webp" />
+                <img src="/assets/brand/hero/bobodan-chat-hero-1536x960.webp" width={1536} height={960} alt="Bobodan 陪伴学习" loading="eager" fetchPriority="high" />
+              </picture>
+              <div className="welcome-hero-copy">
+                <h2>今天想学点什么？</h2>
+                <div className="welcome-context">
+                  <span><FolderOpen size={14} />{activeLibrary?.name || "尚未选择资料库"}</span>
+                  <span><Brain size={14} />记忆随学习沉淀</span>
+                </div>
               </div>
             </div>
             {error && <ErrorNotice message={error} />}

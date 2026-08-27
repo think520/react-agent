@@ -1018,7 +1018,7 @@ export function LibraryPage() {
                     <div className="reader-section-prose"><ReactMarkdown remarkPlugins={[remarkGfm]}>{section.text}</ReactMarkdown></div>
                   </section>
                 );
-              })}</div> : <EmptyState compact title="没有可阅读的片段" description="这份资料可能仍在建立索引，刷新后再试一次。" />}
+              })}</div> : <EmptyState compact title="没有可阅读的片段" description="这份资料可能仍在建立索引，刷新后再试一次。" state="resting" />}
             </article>}
           </div>
         ) : (

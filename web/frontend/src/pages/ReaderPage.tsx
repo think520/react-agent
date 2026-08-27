@@ -295,13 +295,13 @@ export function ReaderPage() {
         {error && <ErrorNotice message={error} />}
 
         {loading ? (
-          <LoadingState label="正在读取资料…" />
+          <LoadingState label="正在读取资料…" state="reading" />
         ) : !selected ? (
-          <EmptyState compact title="资料不存在" description="这份资料可能已被归档。" />
+          <EmptyState compact title="资料不存在" description="这份资料可能已被归档。" state="resting" />
         ) : (
           <article className="reader-article">
             {selectionQuote && <div className="selection-toolbar"><Quote size={15} /><span>已选择 {selectionQuote.length} 个字符</span><button className="quiet-button" onClick={askAboutSelection}>带到对话</button><button className="quiet-button" onClick={createPracticeFromSelection}>基于此出题</button><button className="quiet-button" onClick={() => setSelectionQuote("")}>取消</button></div>}
-            {detailLoading ? <LoadingState label="正在打开资料…" /> : sections.length ? <div className="reader-prose" onMouseUp={captureSelection}>{sections.map((section, index) => {
+            {detailLoading ? <LoadingState label="正在打开资料…" state="reading" /> : sections.length ? <div className="reader-prose" onMouseUp={captureSelection}>{sections.map((section, index) => {
               const previous = index > 0 ? sections[index - 1] : undefined;
               const showHeading = Boolean(section.heading) && section.heading !== previous?.heading;
               return (
@@ -311,7 +311,7 @@ export function ReaderPage() {
                   <div className="reader-section-prose"><ReactMarkdown remarkPlugins={[remarkGfm]}>{section.text}</ReactMarkdown></div>
                 </section>
               );
-            })}</div> : <EmptyState compact title="没有可阅读的片段" description="这份资料可能仍在建立索引。" />}
+            })}</div> : <EmptyState compact title="没有可阅读的片段" description="这份资料可能仍在建立索引。" state="resting" />}
 
             {selected.collection === "material" && relatedNotes.length > 0 && (
               <div className="reader-related-notes">

@@ -23,6 +23,7 @@ import type {
 import { GraphCanvas, type ForceParams } from "../components/GraphCanvas";
 import { CandidateReviewPanel } from "../components/CandidateReviewPanel";
 import { DropdownSelect } from "../components/DropdownSelect";
+import { LoadingState } from "../components/common";
 import { Modal } from "../ui/Modal";
 import type { AppOutletContext } from "../components/AppShell";
 
@@ -285,7 +286,7 @@ export function KnowledgeMapPage() {
         {view === "map" && !isEmpty && (
           <div className="km-map-wrapper">
             {loading ? (
-              <div className="km-loading" aria-live="polite">正在加载图谱…</div>
+              <div className="km-loading" aria-live="polite"><LoadingState label="正在加载图谱…" state="reading" /></div>
             ) : (
               <GraphCanvas
                 concepts={graphState?.concepts ?? []}

@@ -9,13 +9,24 @@ export function IconButton({ label, className = "", ...props }: ButtonHTMLAttrib
   return <button className={`icon-button ${className}`} aria-label={label} title={label} {...props} />;
 }
 
-export function LoadingState({ label = "正在整理…" }: { label?: string }) {
-  return (
+/**
+ * Inline status line. Pass a `state` to get theBobodan-branded variant used
+ * by running surfaces (DESIGN.md §9) — callers previously hand-rolled the
+ * same combination as `.illustrated-loading`.
+ */
+export function LoadingState({ label = "正在整理…", state }: { label?: string; state?: BrandState }) {
+  const line = (
     <div className="state-line" role="status">
       <LoaderCircle className="spin" size={17} />
       <span>{label}</span>
     </div>
   );
+  return state ? (
+    <div className="empty-state compact" role="status">
+      <BrandIllustration state={state} size={62} />
+      {line}
+    </div>
+  ) : line;
 }
 
 export type BrandState = "ready" | "thinking" | "reading" | "writing" | "listening" | "resting";
