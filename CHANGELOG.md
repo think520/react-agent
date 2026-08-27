@@ -7,6 +7,7 @@
 ## [未发布]
 
 ### 变更
+- **Library 重构后续打磨（2026-08-27）**：编辑器向资料库全库开放——`course_document` 与 `obsidian_note` 资料也可在列表页/阅读页编辑（原始资料 truth source 原则不变，仍走检查点 + 最近 10 版 + 哈希冲突三选项）；系统区域保持只读（`.knowledge` 运行时索引、`.bobodan/checkpoints` 版本快照、`.bobodan/archive` 归档），旧工作区的 `.bobodan/sources` 与 `managed-vault` 用户内容不受影响。知识地图工具栏新增「添加概念 / 添加关系」弹窗（用户手写即视为已审查，`evidence_level='user'` 边界不变）。修复章节导轨关闭后被悬停热区立即重新弹出的问题；阅读 tab 栏改为吸顶。验证：Python `1362 passed`（1356 基线 → +6 回归测试）、Vitest `46 passed`、前端 lint 与生产构建通过。
 - **完成 Library 重构 + 图谱编辑（TASKS_LIBRARY_REWORK v1.0，2026-08-13）**：分支 `feat/library-rework`，按任务书落地 4 个任务。
   - **任务 1 布局方案 A**：Library 拆为列表页 `/library` + 阅读页 `/library/read/:id`（`ReaderPage.tsx`）；阅读页顶部细条（返回 / 上一份下一份 / 编辑 / 概念提取）、正文居中限宽、返回列表恢复滚动位置（localStorage）、键盘导航（Esc / Shift+J/K）、移动端天然兼容。
   - **任务 2 openhanako 三件套**：多文档 tab（点击切换 / 双击关闭 / 滚轮横滑，每 tab 保留滚动位置，`readerTabsStore.ts`）；章节导轨（右缘 64px 悬停热区弹出 heading 列表，点击跳转 + 高亮）；选中文字浮出动作（带到对话 / 基于此出题）。
