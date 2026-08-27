@@ -151,6 +151,8 @@ export function ReaderPage() {
       if (e.key === "Escape") { navigate("/library?collection=" + collection); return; }
       if (e.shiftKey && (e.key === "J" || e.key === "j")) goTo(1);
       if (e.shiftKey && (e.key === "K" || e.key === "k")) goTo(-1);
+      if (e.key === "[") setRailOpen(false);
+      if (e.key === "]") setRailOpen(true);
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
@@ -248,10 +250,10 @@ export function ReaderPage() {
       {confirmElement}
       <div className="page-container reader-container">
         <header className="reader-topbar">
-          <button className="quiet-button" onClick={() => navigate("/library?collection=" + collection)}><ArrowLeft size={15} />返回资料库</button>
+          <button className="quiet-button" title="Esc 返回列表" onClick={() => navigate("/library?collection=" + collection)}><ArrowLeft size={15} />返回资料库</button>
           <div className="reader-topbar-nav">
-            <button className="icon-button" aria-label="上一份" disabled={!documents.length} onClick={() => goTo(-1)}><ArrowLeft size={15} /></button>
-            <button className="icon-button" aria-label="下一份" disabled={!documents.length} onClick={() => goTo(1)}><ArrowRight size={15} /></button>
+            <button className="icon-button" aria-label="上一份" title="上一份 · Shift+K" disabled={!documents.length} onClick={() => goTo(-1)}><ArrowLeft size={15} /></button>
+            <button className="icon-button" aria-label="下一份" title="下一份 · Shift+J" disabled={!documents.length} onClick={() => goTo(1)}><ArrowRight size={15} /></button>
           </div>
           <div className="reader-topbar-title">
             <span>{selected ? selected.kind || "资料" : ""}{selected?.course ? " · " + selected.course : ""}</span>

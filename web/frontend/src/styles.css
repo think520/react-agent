@@ -1392,6 +1392,16 @@ kbd { color: var(--faint); font-family: inherit; font-size: 10px; }
 /* Block-level error fallback: quiet, keeps the message around it intact. */
 .ui-block-error { display: inline-block; padding: 8px 11px; border-left: 2px solid var(--clay); border-radius: 4px; background: var(--clay-wash); color: var(--muted); font-size: 12px; }
 
+/* Keyboard shortcut reference (ShortcutsDialog). */
+.shortcuts-dialog { display: grid; gap: 14px; width: min(460px, 100%); max-height: 80vh; overflow-y: auto; border: 1px solid var(--border-strong); border-radius: 8px; padding: 20px 22px 24px; background: var(--paper-soft); box-shadow: var(--shadow-dialog); }
+.shortcuts-header { display: flex; align-items: center; justify-content: space-between; }
+.shortcuts-header > div > span { color: var(--clay); font-size: 10px; font-weight: 700; text-transform: uppercase; }
+.shortcuts-header h2 { margin: 3px 0 0; color: var(--blue); font-family: var(--font-reading); font-size: 21px; font-weight: 500; }
+.shortcuts-group h3 { margin: 0 0 8px; color: var(--muted); font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: .04em; }
+.shortcuts-group dl { margin: 0; display: grid; gap: 6px; }
+.shortcuts-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.shortcuts-row dd { margin: 0; color: var(--ink); font-size: 12px; }
+
 
 /* FE-3 process disclosure: fold runs of process steps. */
 .process-fold { margin: 8px 0 4px; }

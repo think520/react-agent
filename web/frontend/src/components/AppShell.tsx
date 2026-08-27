@@ -3,6 +3,7 @@ import {
   BookOpen,
   ChevronLeft,
   FileText,
+  Keyboard,
   Library,
   Map,
   Menu,
@@ -24,6 +25,7 @@ import { useUiStore } from "../stores/uiStore";
 import type { Attribution, ChatSessionSummary, DocumentSummary, KnowledgeContext, LibraryMigrationPreview, LibrarySummary, ReviewQueue, SettingsSummary } from "../types";
 import { groupAttributionSources, IconButton, textValue } from "./common";
 import { OnboardingDialog } from "./OnboardingDialog";
+import { ShortcutsDialog } from "./ShortcutsDialog";
 import { LibrarySetupDialog, type LibrarySetupMode } from "./LibrarySetupDialog";
 import { SettingsDialog, SettingsUnavailableDialog } from "./SettingsDialog";
 import { ConceptSidebar } from "./ConceptSidebar";
@@ -188,6 +190,7 @@ export function AppShell() {
   const [documents, setDocuments] = useState<DocumentSummary[]>([]);
   const [initialDataLoaded, setInitialDataLoaded] = useState(false);
   const [review, setReview] = useState<ReviewQueue | null>(null);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
   const previewTimer = useRef<number | null>(null);
   const [loadingSessions, setLoadingSessions] = useState(true);
@@ -404,6 +407,19 @@ export function AppShell() {
     };
   }, []);
 
+  // Ctrl/Cmd+N — the shortcut the 新对话 button advertises.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "n") {
+        event.preventDefault();
+        setShortcutsOpen(false);
+        navigate("/chat");
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [navigate]);
+
   function openSettings(section = "assistant") {
     const next = new URLSearchParams(searchParams);
     next.set("settings", section);
@@ -596,6 +612,7 @@ export function AppShell() {
           <IconButton label="打开导航" className="menu-button" onClick={() => setSidebarOpen(true)}><Menu /></IconButton>
           <IconButton label={leftOpen ? "收起左栏" : "展开左栏"} className="panel-toggle desktop-panel-toggle" onClick={() => togglePanel("left")}><PanelLeft /></IconButton>
           <div className="topbar-title"><span>{meta[0]}</span><h1>{title}</h1></div>
+          <IconButton label="键盘快捷键" onClick={() => setShortcutsOpen(true)}><Keyboard size={17} /></IconButton>
           <IconButton label={rightOpen ? "收起右栏" : "展开右栏"} className="panel-toggle desktop-panel-toggle" onClick={() => togglePanel("right")}><PanelRight /></IconButton>
           <IconButton label="学习上下文" className="context-button" onClick={() => setContextOpen(true)}><PanelRight /></IconButton>
         </header>
@@ -715,6 +732,7 @@ export function AppShell() {
         onRetry={() => void reconnectBackend()}
         onClose={closeSettings}
       />}
+      {shortcutsOpen && <ShortcutsDialog onClose={() => setShortcutsOpen(false)} />}
     </div>
   );
 }
