@@ -57,8 +57,33 @@ export function ConceptSidebar({ conceptId, onClose, onConceptUpdated, onNavigat
   const [relNote, setRelNote] = useState("");
   const [allConcepts, setAllConcepts] = useState<ConceptNode[]>([]);
   const [busy, setBusy] = useState(false);
+  // Live mastery for this concept (null = 尚未练习).
+  const [mastery, setMastery] = useState<{
+    status?: string;
+    score?: number;
+    next_review?: string | null;
+  } | null>(null);
   const sidebarRef = useRef<HTMLElement>(null);
   const navigate = useNavigate();
+
+  const conceptName = detail?.concept.name;
+  useEffect(() => {
+    setMastery(null);
+    if (!conceptName) return;
+    let cancelled = false;
+    void api.conceptMastery(conceptName)
+      .then((result) => { if (!cancelled) setMastery({ status: result.status, score: result.score, next_review: result.next_review }); })
+      .catch(() => { if (!cancelled) setMastery(null); });
+    return () => { cancelled = true; };
+  }, [conceptName]);
+
+  const masteryText = mastery?.status === "mastered"
+    ? "已掌握"
+    : mastery?.status === "learning"
+      ? "学习中"
+      : mastery?.status === "needs_review"
+        ? "需要复习"
+        : "尚未练习";
 
   function askAboutConcept(name: string) {
     useHandoffStore.getState().setChatDraft(`请帮我讲讲「${name}」这个概念。`);
@@ -339,12 +364,14 @@ export function ConceptSidebar({ conceptId, onClose, onConceptUpdated, onNavigat
             )}
           </section>
 
-          {/* Mastery placeholder */}
+          {/* Mastery: live from the learning service, no longer a placeholder. */}
           <section className="sidebar-section sidebar-mastery">
             <div className="sidebar-section-title">掌握状态</div>
             <div className="mastery-row">
               <BookOpen size={14} />
-              <span className="mastery-label">尚未练习</span>
+              <span className="mastery-label">{masteryText}</span>
+              {mastery?.score !== undefined && <small className="mastery-score">评分 {Math.round(mastery.score * 100)}%</small>}
+              {mastery?.next_review && <small className="mastery-next">下次复习 {new Date(mastery.next_review).toLocaleDateString("zh-CN")}</small>}
               <a href="/practice" className="btn-sm btn-ghost mastery-practice"><PenLine size={13} />生成练习题</a>
             </div>
           </section>

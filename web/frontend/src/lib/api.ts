@@ -408,6 +408,13 @@ export const api = {
   })),
   abandonPractice: (id: number) => request(`/api/quiz/sessions/${id}`, { method: "DELETE" }),
   reviewQueue: () => request<ReviewQueue>("/api/learning/review-queue"),
+  conceptMastery: (concept: string) => request<{
+    concept: string;
+    status?: string;
+    score?: number;
+    review_count?: number;
+    next_review?: string | null;
+  }>(`/api/learning/progress?concept=${encodeURIComponent(concept)}`),
   generateWrongAnswerVariant: (attemptId: number) => request<{ question_id: number; question: Question }>(
     "/api/quiz/wrong/variant",
     json({ attempt_id: attemptId }),
