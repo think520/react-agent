@@ -824,7 +824,10 @@ kbd { color: var(--faint); font-family: inherit; font-size: 10px; }
    whitespace for the greeting card — never crop it with object-fit cover. */
 .welcome-hero { position: relative; width: min(100%, 720px); animation: ui-fade-in var(--dur-slow) var(--ease-out) both; }
 .welcome-hero > picture { display: block; }
-.welcome-hero > picture > img { width: 100%; height: auto; display: block; object-fit: contain; }
+/* Height-capped so the composer and starter actions stay in the first
+   viewport (welcome layout guarantees composer visibility); contain keeps
+   the full artwork visible — never cover-crop the cat. */
+.welcome-hero > picture > img { width: 100%; height: auto; max-height: clamp(200px, 30vh, 300px); object-fit: contain; object-position: center; }
 .welcome-hero-copy { position: absolute; left: 5%; bottom: 9%; max-width: 62%; display: grid; gap: 10px; justify-items: start; border: 1px solid var(--border); border-radius: 10px; padding: 14px 18px; background: var(--paper-soft); box-shadow: var(--shadow-float); }
 .welcome-hero-copy h2 { margin: 0; color: var(--blue); font-family: var(--font-reading); font-size: clamp(20px, 3.4vw, 26px); font-weight: 400; line-height: 1.35; }
 .welcome-hero-copy .welcome-context { font-size: 12px; }

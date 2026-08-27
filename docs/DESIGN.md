@@ -1053,6 +1053,11 @@ TUI 的文案要短、温和、确定。
 - 轻微 fade
 - 仅在弹窗、抽屉和状态解释需要空间关系时使用短距离 slide
 - 按钮按压 `100–160ms`，Popover `140–180ms`，状态变化约 `160ms`，弹窗约 `220ms`
+- 时长统一走 CSS token 三档刻度（2026-08 起）：`--dur-fast: 120ms`（微反馈）、
+  `--dur-base: 160ms`（状态变化与悬停）、`--dur-slow: 220ms`（弹窗与浮层入场）；
+  缓动只允许 `--ease-out` / `--ease-in-out` 两个 token，不写裸 ms 数值或第三条贝塞尔曲线
+- 应用内「减少动态效果」开关与 OS 级 `prefers-reduced-motion` 同义：
+  开启后全局停用装饰性动画；JS 动画一律实时读取（`lib/motion.ts`），不做挂载时快照
 - 阅读进度或生成状态的柔和变化
 - 进入使用有即时反馈的 ease-out，持续移动使用 ease-in-out；不使用起步迟缓的 ease-in
 - 只过渡 `opacity` 和 `transform` 等低成本属性，高频键盘菜单不添加明显开关动画

@@ -7,6 +7,15 @@
 ## [未发布]
 
 ### 变更
+- **前端体验与动效体系优化轮（2026-08-27，分支 `refactor/perf-2026-08`）**：全面审查后的交互层收敛，六个提交。
+  - **弹窗基元**：新增 `ui/Modal`——统一 backdrop 与 220ms 入场、模块级层级栈（嵌套管理器只关最顶层，修复供应商/记忆管理器叠加在设置页时一次 Esc 两层同关的竞态）、焦点陷阱与焦点归还；`ConfirmDialog + useConfirm()` 替换全部 10 处原生 `window.confirm` 破坏性确认。
+  - **动效收敛**：时长归一到 `--dur-fast/base/slow` 三档 token、缓动只剩两条 token 曲线；去重 `spin` 关键帧；删除零消费的 Collapse/SlideIn/AnimatedList；Bobodan 处理状态图不再按状态重挂载（预加载四态图消除闪烁）；mention 面板与其余弹出菜单共用 menu-enter 入场。
+  - **减少动效对齐 OS 语义**：应用内开关现在施加与 `prefers-reduced-motion` 一致的全局停用规则；图谱相机/hover 补间与流式打字机改为实时读取 `lib/motion.ts`（原先只在挂载时快照一次）。
+  - **品牌形象接入**：Chat 欢迎页改用专用 hero 双分辨率插图（含移动端降级布局）；失败回答换 curious 表情；Knowledge Map 加载、复习/笔记/阅读器加载态统一为品牌插画变体；图标型空状态补齐品牌状态图；笔记页复用共享 EmptyState 且个人知识管理浮层不再双重遮罩。
+  - **加载平滑**：知识地图改为「实例创建一次 + 数据增量同步」——候选审查、概念编辑不再重建 WebGL 渲染器、重放入场动画和相机复位；Library/阅读页切换文档保留旧正文淡出（stale-while-revalidate），不再白屏闪转圈；Practice「问 AI」接入 StreamBuffer 打字机缓冲并支持 Markdown 渲染。
+  - **可发现性**：Ctrl/Cmd+N 新对话真实生效（此前按钮上有提示但无绑定）；阅读页补 `[` / `]` 章节导轨键；顶栏新增键盘快捷键参考弹窗（只列真实存在的绑定）。
+  - **掌握度去占位**：知识地图侧栏「掌握状态」接通既有 `/api/learning/progress?concept=` 接口，显示真实状态/评分/下次复习（此前硬编码「尚未练习」）。经核实，「已停止」标记与孤儿提取运行启动扫描此前已实现。
+  - DESIGN.md §11 同步三档动效 token 与减动效语义。验证：Vitest 46 passed、lint/tsc 与生产构建通过、Python 全量 1365 passed；Playwright desktop 项目与本分支起点基线**完全持平**（12 处失败均为分支前已存在的陈旧/环境用例，hero 初版曾挤出新对话页 composer 导致 slash-palette 用例失败，限高后通过）。SSE 对外契约与证据门禁行为不变。
 - **后端并发模型优化（2026-08-27，分支 `refactor/perf-2026-08`）**：聊天 SSE 流改为在专用受限通道（CapacityLimiter 16）上泵送，不再占用 FastAPI 共享请求线程池（默认 40 线程）——此前每条活跃对话流会独占一个池线程直至该轮结束，极端情况下会饿死普通端点；对外 SSE 事件契约不变。`/api/kb/import` 的文件解析/提取工作下沉到线程池，不再阻塞事件循环（该端点此前是唯一 async def 路由却在循环内做阻塞解析）。验证：Python `1365 passed`（1362 基线 → +3 泵流单测）、`test_web_backend` 全量回归零失败。
 - **Library 重构后续打磨（2026-08-27）**：编辑器向资料库全库开放——`course_document` 与 `obsidian_note` 资料也可在列表页/阅读页编辑（原始资料 truth source 原则不变，仍走检查点 + 最近 10 版 + 哈希冲突三选项）；系统区域保持只读（`.knowledge` 运行时索引、`.bobodan/checkpoints` 版本快照、`.bobodan/archive` 归档），旧工作区的 `.bobodan/sources` 与 `managed-vault` 用户内容不受影响。知识地图工具栏新增「添加概念 / 添加关系」弹窗（用户手写即视为已审查，`evidence_level='user'` 边界不变）。修复章节导轨关闭后被悬停热区立即重新弹出的问题；阅读 tab 栏改为吸顶。验证：Python `1362 passed`（1356 基线 → +6 回归测试）、Vitest `46 passed`、前端 lint 与生产构建通过。
 - **完成 Library 重构 + 图谱编辑（TASKS_LIBRARY_REWORK v1.0，2026-08-13）**：分支 `feat/library-rework`，按任务书落地 4 个任务。
