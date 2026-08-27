@@ -1006,7 +1006,7 @@ export function LibraryPage() {
                 )}
               </header>}
               {selectionQuote && <div className="selection-toolbar"><Quote size={15} /><span>已选择 {selectionQuote.length} 个字符</span><button className="quiet-button" onClick={askAboutSelection}>带到对话</button></div>}
-              {detailLoading ? <LoadingState label="正在打开资料…" /> : sections.length ? <div className="reader-prose" onMouseUp={captureSelection}>{sections.map((section, index) => {
+              {detailLoading && !sections.length ? <LoadingState label="正在打开资料…" /> : sections.length ? <div className={`reader-prose ${detailLoading ? "refreshing" : ""}`} onMouseUp={captureSelection}>{sections.map((section, index) => {
                 // 同一标题的相邻切片只显示一次 heading，避免切片边界造成
                 // 重复标题的"断开感"（2026-08-12 阅读体验决策）。
                 const previous = index > 0 ? sections[index - 1] : undefined;

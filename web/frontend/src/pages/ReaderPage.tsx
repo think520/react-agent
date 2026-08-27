@@ -303,7 +303,7 @@ export function ReaderPage() {
         ) : (
           <article className="reader-article">
             {selectionQuote && <div className="selection-toolbar"><Quote size={15} /><span>已选择 {selectionQuote.length} 个字符</span><button className="quiet-button" onClick={askAboutSelection}>带到对话</button><button className="quiet-button" onClick={createPracticeFromSelection}>基于此出题</button><button className="quiet-button" onClick={() => setSelectionQuote("")}>取消</button></div>}
-            {detailLoading ? <LoadingState label="正在打开资料…" state="reading" /> : sections.length ? <div className="reader-prose" onMouseUp={captureSelection}>{sections.map((section, index) => {
+            {detailLoading && !sections.length ? <LoadingState label="正在打开资料…" state="reading" /> : sections.length ? <div className={`reader-prose ${detailLoading ? "refreshing" : ""}`} onMouseUp={captureSelection}>{sections.map((section, index) => {
               const previous = index > 0 ? sections[index - 1] : undefined;
               const showHeading = Boolean(section.heading) && section.heading !== previous?.heading;
               return (

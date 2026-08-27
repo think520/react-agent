@@ -1,11 +1,15 @@
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, BookOpen, Brain, CheckCircle2, CircleHelp, Globe2, LogOut, Play, RotateCcw, Send, X } from "lucide-react";
 import { useNavigate, useOutletContext, useParams } from "react-router-dom";
 
 import type { AppOutletContext } from "../components/AppShell";
 import { AttributionBadges, BrandIllustration, ErrorNotice, LoadingState, formatRelativeDate } from "../components/common";
 import { api, streamChat } from "../lib/api";
+import { prefersReducedMotion } from "../lib/motion";
+import { StreamBuffer } from "../lib/streamBuffer";
 import { toErrorMessage } from "../lib/errors";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { useHandoffStore } from "../stores/handoffStore";
 import { useUiStore } from "../stores/uiStore";
 import { useConfirm } from "../ui/Modal";
@@ -76,6 +80,18 @@ export function PracticePage() {
   const [aiOpen, setAiOpen] = useState(false);
   const [aiQuestion, setAiQuestion] = useState("给我一个不直接揭示答案的提示。");
   const [aiAnswer, setAiAnswer] = useState("");
+  // 问 AI answers stream through the same 30fps typewriter buffer as Chat so
+  // SSE bursts don't appear as raw block dumps.
+  const aiBufferRef = useRef<StreamBuffer | null>(null);
+  function ensureAiBuffer() {
+    if (!aiBufferRef.current) {
+      aiBufferRef.current = new StreamBuffer(
+        (chunk) => setAiAnswer((current) => current + chunk),
+        { reducedMotion: prefersReducedMotion },
+      );
+    }
+    return aiBufferRef.current;
+  }
   const [aiStatus, setAiStatus] = useState("");
   const [aiError, setAiError] = useState("");
   const [aiWorking, setAiWorking] = useState(false);
@@ -185,6 +201,7 @@ export function PracticePage() {
     if (!currentQuestion || !aiQuestion.trim() || aiWorking) return;
     setAiWorking(true);
     setAiAnswer("");
+    aiBufferRef.current?.reset();
     setAiError("");
     setAiStatus("正在理解这道题");
     let nextSessionId: string | undefined;
@@ -201,10 +218,10 @@ export function PracticePage() {
         if (streamEvent.event === "status") setAiStatus(streamEvent.data.message);
         if (streamEvent.event === "message_delta") {
           setAiStatus("正在整理提示");
-          setAiAnswer((current) => current + streamEvent.data.content);
+          ensureAiBuffer().push(streamEvent.data.content);
         }
         if (streamEvent.event === "run_failed") throw new Error(streamEvent.data.error.message);
-        if (streamEvent.event === "run_completed") setAiStatus("");
+        if (streamEvent.event === "run_completed") { ensureAiBuffer().drain(); setAiStatus(""); }
       });
       await refreshSessions();
       if (nextSessionId) void api.generateSessionTitle(nextSessionId).then(refreshSessions).catch(() => undefined);
@@ -306,7 +323,7 @@ export function PracticePage() {
       {aiOpen && <aside className="practice-ai-drawer" role="dialog" aria-modal="false" aria-labelledby="practice-ai-title">
         <header><div><span>当前题目辅导</span><strong id="practice-ai-title">问 Bobodan</strong></div><button className="icon-button" type="button" aria-label="关闭问 AI" onClick={() => setAiOpen(false)}><X size={18} /></button></header>
         <div className="practice-ai-context"><small>只围绕第 {session.progress.current_index + 1} 题</small><p>{currentQuestion.question}</p></div>
-        {aiAnswer && <div className="practice-ai-answer">{aiAnswer}</div>}
+        {aiAnswer && <div className="practice-ai-answer"><ReactMarkdown remarkPlugins={[remarkGfm]}>{aiAnswer}</ReactMarkdown></div>}
         {aiStatus && <div className="practice-ai-status" role="status">{aiStatus}</div>}
         {aiError && <ErrorNotice message={aiError} />}
         <form onSubmit={(event) => void askAi(event)}>

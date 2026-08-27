@@ -9,6 +9,30 @@ import forceAtlas2 from "graphology-layout-forceatlas2";
 import { prefersReducedMotion } from "../lib/motion";
 import type { ConceptNode, RelationshipEdge } from "../types";
 
+/** Fallback seed for a node without a saved position: spread around the
+ *  centroid of positioned nodes on a golden-angle spiral. */
+function positionOrSeed(positioned: ConceptNode[], angle: number, radius: number): number {
+  if (!positioned.length) return Math.cos(angle) * radius;
+  let min = Infinity;
+  let max = -Infinity;
+  for (const concept of positioned) {
+    if (concept.x < min) min = concept.x;
+    if (concept.x > max) max = concept.x;
+  }
+  return (min + max) / 2 + Math.cos(angle) * radius * 0.4;
+}
+
+function positionOrSeedY(positioned: ConceptNode[], angle: number, radius: number): number {
+  if (!positioned.length) return Math.sin(angle) * radius;
+  let min = Infinity;
+  let max = -Infinity;
+  for (const concept of positioned) {
+    if (concept.y < min) min = concept.y;
+    if (concept.y > max) max = concept.y;
+  }
+  return (min + max) / 2 + Math.sin(angle) * radius * 0.4;
+}
+
 const C = {
   inkBlue: "#1b365d",
   inkBlueFaint: "#4a6fa5",
@@ -99,45 +123,17 @@ export function GraphCanvas({
   const hoverRafRef = useRef<number | null>(null);
   const searchQueryRef = useRef(searchQuery);
   const focusDegreeRef = useRef(focusDegree);
+  // Edge identity for incremental syncs: composite key -> sigma edge key.
+  const edgeKeysRef = useRef(new Map<string, string>());
 
   useEffect(() => {
     if (!containerRef.current) return;
+    const edgeKeys = edgeKeysRef.current;
 
+    // The renderer instance lives for the component's lifetime; graph data is
+    // diffed in by the effect below so candidate reviews / concept edits no
+    // longer tear down WebGL, replay the entrance, and yank the camera.
     const graph = new Graph({ type: "mixed" });
-    for (const concept of concepts) {
-      const size = concept.level === "cluster" ? 15 : concept.level === "core" ? 11 : 7;
-      graph.addNode(concept.concept_id, {
-        label: concept.name,
-        size,
-        color: nodeColor(concept.level),
-        labelColor: C.inkBlue,
-        x: concept.x !== 0 || concept.y !== 0 ? concept.x : Math.random() * 10,
-        y: concept.x !== 0 || concept.y !== 0 ? concept.y : Math.random() * 10,
-        level: concept.level,
-      });
-    }
-
-    for (const relationship of relationships) {
-      if (!graph.hasNode(relationship.from_id) || !graph.hasNode(relationship.to_id)) continue;
-      try {
-        graph.addEdge(relationship.from_id, relationship.to_id, {
-          label: relationship.rel_type,
-          color: edgeColor(relationship.evidence_level),
-          size: 1.15,
-          type: "arrow",
-        });
-      } catch {
-        // A duplicate relation is visually redundant.
-      }
-    }
-
-    const hasSavedPositions = concepts.some((concept) => concept.x !== 0 || concept.y !== 0);
-    if (!hasSavedPositions && graph.order > 0) {
-      forceAtlas2.assign(graph, {
-        iterations: 140,
-        settings: { scalingRatio: 9, gravity: 0.65, slowDown: 2, adjustSizes: true },
-      });
-    }
 
     const settings: Partial<SigmaSettings> = {
       defaultNodeColor: C.paperSoft,
@@ -211,13 +207,6 @@ export function GraphCanvas({
     const renderer = new Sigma(graph, containerRef.current, settings);
     sigmaRef.current = renderer;
     graphRef.current = graph;
-
-    // FE-4 recipe 1: entrance — a gentle camera reset on mount, skipped for
-    // reduced-motion users (the CSS fade is likewise disabled by the global
-    // prefers-reduced-motion rule).
-    if (!prefersReducedMotion()) {
-      void renderer.getCamera().animatedReset({ duration: 600 });
-    }
 
     let draggedNode: string | null = null;
     let isDragging = false;
@@ -356,9 +345,118 @@ export function GraphCanvas({
       renderer.kill();
       sigmaRef.current = null;
       graphRef.current = null;
+      edgeKeys.clear();
     };
-  // Rebuild only when graph data changes; reducers handle interaction state.
+  // Instance effect: reducers read interaction state through refs, so nothing
+  // else needs to be a dependency here.
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Incremental data sync: add/update/remove nodes and edges in place. Only a
+  // genuinely fresh graph (first fill, no saved positions) gets the Force
+  // Atlas seed layout; later refreshes keep node positions and the camera.
+  useEffect(() => {
+    const graph = graphRef.current;
+    const renderer = sigmaRef.current;
+    if (!graph || !renderer) return;
+
+    const firstFill = graph.order === 0 && concepts.length > 0;
+
+    for (const node of [...graph.nodes()]) {
+      if (!concepts.some((concept) => concept.concept_id === node)) graph.dropNode(node);
+    }
+
+    const positioned = concepts.filter((concept) => concept.x !== 0 || concept.y !== 0);
+    let seededNewNode = false;
+    for (const concept of concepts) {
+      const size = concept.level === "cluster" ? 15 : concept.level === "core" ? 11 : 7;
+      const attributes = {
+        label: concept.name,
+        size,
+        color: nodeColor(concept.level),
+        labelColor: C.inkBlue,
+        level: concept.level,
+      };
+      if (graph.hasNode(concept.concept_id)) {
+        // Positions are user state — only metadata merges.
+        graph.mergeNodeAttributes(concept.concept_id, attributes);
+        continue;
+      }
+      // Seed new nodes near an existing neighbor so refreshes don't reshuffle
+      // the whole layout (and never near-zero pile onto the origin).
+      const anchorRelationship = relationships.find(
+        (rel) =>
+          (rel.from_id === concept.concept_id && graph.hasNode(rel.to_id))
+          || (rel.to_id === concept.concept_id && graph.hasNode(rel.from_id)),
+      );
+      const anchorId = anchorRelationship
+        ? (anchorRelationship.from_id === concept.concept_id ? anchorRelationship.to_id : anchorRelationship.from_id)
+        : null;
+      const hasAnchor = Boolean(anchorId && graph.hasNode(anchorId));
+      const angle = graph.order * 2.399963; // golden-angle spiral fallback
+      const radius = 6 + Math.sqrt(graph.order + 1) * 2.4;
+      graph.addNode(concept.concept_id, {
+        ...attributes,
+        x: hasAnchor
+          ? (graph.getNodeAttribute(anchorId!, "x") as number) + Math.cos(angle) * 1.5
+          : positionOrSeed(positioned, angle, radius),
+        y: hasAnchor
+          ? (graph.getNodeAttribute(anchorId!, "y") as number) + Math.sin(angle) * 1.5
+          : positionOrSeedY(positioned, angle, radius),
+      });
+      seededNewNode = true;
+    }
+
+    const seenEdges = new Set<string>();
+    for (const relationship of relationships) {
+      if (!graph.hasNode(relationship.from_id) || !graph.hasNode(relationship.to_id)) continue;
+      const key = `${relationship.from_id}\u0000${relationship.to_id}`;
+      seenEdges.add(key);
+      const color = edgeColor(relationship.evidence_level);
+      const existingKey = edgeKeysRef.current.get(key);
+      if (existingKey !== undefined && graph.hasEdge(existingKey)) {
+        graph.mergeEdgeAttributes(existingKey, { label: relationship.rel_type, color });
+        continue;
+      }
+      try {
+        const edgeKey = graph.addEdge(relationship.from_id, relationship.to_id, {
+          label: relationship.rel_type,
+          color,
+          size: 1.15,
+          type: "arrow",
+        });
+        edgeKeysRef.current.set(key, edgeKey);
+      } catch {
+        // A duplicate relation is visually redundant.
+      }
+    }
+    for (const [key, edgeKey] of [...edgeKeysRef.current]) {
+      if (!seenEdges.has(key) || !graph.hasEdge(edgeKey)) {
+        if (graph.hasEdge(edgeKey)) graph.dropEdge(edgeKey);
+        edgeKeysRef.current.delete(key);
+      }
+    }
+
+    const hasSavedPositions = positioned.length > 0;
+    if (firstFill && !hasSavedPositions && graph.order > 0) {
+      forceAtlas2.assign(graph, {
+        iterations: 140,
+        settings: { scalingRatio: 9, gravity: 0.65, slowDown: 2, adjustSizes: true },
+      });
+    } else if (seededNewNode && !hasSavedPositions) {
+      // Give freshly seeded nodes a light settle so they don't overlap.
+      forceAtlas2.assign(graph, {
+        iterations: 24,
+        settings: { scalingRatio: 9, gravity: 0.65, slowDown: 8, adjustSizes: true },
+      });
+    }
+
+    renderer.refresh();
+
+    // FE-4 recipe 1: entrance plays once, when the map fills for real.
+    if (firstFill && !prefersReducedMotion()) {
+      void renderer.getCamera().animatedReset({ duration: 600 });
+    }
   }, [concepts, relationships]);
 
   useEffect(() => {
