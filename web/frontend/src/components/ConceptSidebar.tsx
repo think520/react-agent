@@ -16,6 +16,7 @@ import { BookOpen, Edit2, FileText, Link2, MessageCircle, PenLine, Plus, Trash2,
 import { useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
 import { useHandoffStore } from "../stores/handoffStore";
+import { useConfirm } from "../ui/Modal";
 import type { ConceptDetail, ConceptNode, RelationshipEdge } from "../types";
 
 interface Props {
@@ -39,6 +40,7 @@ const REL_TYPE_OPTIONS = ["属于", "前置知识", "组成部分", "对比", "�
 
 export function ConceptSidebar({ conceptId, onClose, onConceptUpdated, onNavigateConcept, embedded = false }: Props) {
   const [detail, setDetail] = useState<ConceptDetail | null>(null);
+  const { confirm, confirmElement } = useConfirm();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editingNote, setEditingNote] = useState(false);
@@ -149,7 +151,7 @@ export function ConceptSidebar({ conceptId, onClose, onConceptUpdated, onNavigat
   }
 
   async function deleteRelation(relId: string) {
-    if (!window.confirm("删除这条关系？")) return;
+    if (!(await confirm({ title: "删除这条关系？", detail: "删除后图谱与侧栏会即时刷新。", confirmLabel: "删除关系", danger: true }))) return;
     setBusy(true);
     try {
       await api.deleteRelationship(relId);
@@ -206,6 +208,7 @@ export function ConceptSidebar({ conceptId, onClose, onConceptUpdated, onNavigat
       className={`concept-sidebar ${embedded ? "embedded" : ""} ${conceptId ? "open" : ""}`}
       aria-label="概念详情"
     >
+      {confirmElement}
       {!embedded && <div className="sidebar-header">
         <button className="icon-button sidebar-close" aria-label="关闭详情" onClick={onClose}><X size={16} /></button>
       </div>}

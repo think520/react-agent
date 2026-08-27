@@ -82,16 +82,28 @@
 .km-map-actions { display: flex; align-items: center; gap: 4px; margin-left: auto; }
 .km-edit-action { min-height: 29px; border: 1px solid var(--border, #ddd); border-radius: 6px; padding: 0 9px; background: transparent; color: var(--blue, #1b365d); font-size: 11px; display: inline-flex; align-items: center; gap: 4px; cursor: pointer; transition: background 140ms ease, color 140ms ease; }
 .km-edit-action:hover { background: var(--blue-wash, #edf1f6); color: var(--blue, #1b365d); }
-/* Knowledge map add concept / relation dialogs */
-.km-dialog-backdrop {
+/* Shared modal foundation (ui/Modal.tsx): one backdrop recipe + 220ms entrance.
+   Feature backdrop classes (settings-backdrop, onboarding-backdrop, …) survive
+   only where media queries need a hook; their desktop visuals moved here. */
+.ui-modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 60;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(43, 38, 32, 0.25);
+  z-index: 110;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+  background: rgba(29, 31, 32, 0.34);
+  backdrop-filter: blur(3px);
+  animation: overlay-fade-in var(--dur-slow) var(--ease-out);
 }
+.ui-modal-panel { min-width: 0; outline: 0; animation: ui-modal-in var(--dur-slow) var(--ease-out); }
+@keyframes ui-modal-in { from { opacity: 0; transform: translateY(8px) scale(0.985); } }
+.ui-confirm { display: grid; gap: 10px; width: min(380px, calc(100vw - 48px)); border: 1px solid var(--border-strong); border-radius: 8px; padding: 18px 20px; background: var(--paper-soft); box-shadow: var(--shadow-dialog); }
+.ui-confirm h3 { margin: 0; color: var(--blue); font-family: var(--font-reading); font-size: 17px; font-weight: 500; }
+.ui-confirm-detail { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.7; }
+.ui-confirm footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+.danger-button { display: inline-flex; min-height: 32px; align-items: center; gap: 6px; border: 1px solid rgba(147,77,67,.35); border-radius: 7px; padding: 0 12px; background: rgba(147,77,67,.08); color: #9a493a; transition: background var(--dur-base) ease, color var(--dur-base) ease; }
+.danger-button:hover { background: rgba(147,77,67,.14); }
 .km-dialog {
   width: min(380px, calc(100vw - 48px));
   max-height: 80vh;
@@ -378,18 +390,9 @@
 /* ------------------------------------------------------------------
    CandidateReviewPanel
    ------------------------------------------------------------------ */
-.km-candidate-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 120;
-  background: rgba(27,24,18,.35);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  animation: overlay-fade-in 120ms ease-out;
-}
-@keyframes overlay-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes overlay-fade-in { from { opacity: 0; } }
+/* km add/relation dialogs use the shared ui-modal system; .km-dialog below
+   keeps the panel styling. Candidate review sheet migrates separately. */
 .candidate-panel {
   width: min(720px, 100%);
   max-height: min(760px, calc(100vh - 48px));
@@ -584,6 +587,11 @@
   --content-width: 720px;
   --ease-out: cubic-bezier(.23, 1, .32, 1);
   --ease-in-out: cubic-bezier(.77, 0, .175, 1);
+  /* Motion scale (DESIGN.md §11): micro-feedback / state changes / dialogs.
+     Only opacity and transform animate; never `transition: all`. */
+  --dur-fast: 120ms;
+  --dur-base: 160ms;
+  --dur-slow: 220ms;
   color: var(--ink);
   background: var(--paper);
   font-family: var(--font-ui);
@@ -906,8 +914,9 @@ kbd { color: var(--faint); font-family: inherit; font-size: 10px; }
 .connection-bar.reconnecting { color: var(--blue); }
 .connection-bar button { min-height: 27px; border: 1px solid currentColor; border-radius: 6px; padding: 0 8px; background: transparent; color: inherit; font-size: 10px; }
 
-.settings-backdrop { position: fixed; z-index: 110; inset: 0; display: grid; place-items: center; padding: 28px; background: rgba(29,31,32,.34); backdrop-filter: blur(3px); }
-.settings-dialog { display: flex; width: min(1060px, calc(100vw - 56px)); max-height: 84vh; min-height: 620px; flex-direction: column; overflow: hidden; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--paper-soft); box-shadow: var(--shadow-dialog); opacity: 1; transform: translateY(0) scale(1); transition: opacity 220ms var(--ease-out), transform 220ms var(--ease-out); }
+/* Backdrop visuals for all dialogs live under .ui-modal-backdrop; this class
+   remains as a media-query hook and full-bleed mobile override target. */
+.settings-dialog { display: flex; width: min(1060px, calc(100vw - 56px)); max-height: 84vh; min-height: 620px; flex-direction: column; overflow: hidden; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--paper-soft); box-shadow: var(--shadow-dialog); }
 .settings-dialog:focus { outline: 0; }
 .settings-dialog-header { display: grid; min-height: 64px; grid-template-columns: 38px 178px minmax(0,1fr) 38px; align-items: center; gap: 8px; border-bottom: 1px solid var(--border); padding: 0 14px; }
 .settings-dialog-header > strong { color: var(--blue); font-family: var(--font-brand); font-size: 18px; font-weight: 400; }
@@ -1013,11 +1022,6 @@ kbd { color: var(--faint); font-family: inherit; font-size: 10px; }
 [data-session-density="compact"] .session-row { min-height: 40px; }
 [data-session-density="compact"] .session-main { padding-top: 2px; padding-bottom: 2px; }
 .reader-prose { max-width: var(--content-width); font-size: var(--body-font-size); }
-
-@starting-style {
-  .settings-dialog { opacity: 0; transform: translateY(8px) scale(.985); }
-  .mention-palette { opacity: 0; transform: translateY(5px); }
-}
 
 @media (max-width: 700px) {
   .settings-backdrop { padding: 0; background: var(--paper-soft); backdrop-filter: none; }
@@ -1147,7 +1151,7 @@ kbd { color: var(--faint); font-family: inherit; font-size: 10px; }
 .wiki-repair-plan { margin-top: 16px; border-top: 1px solid var(--border); }.wiki-repair-plan > header, .wiki-repair-plan > div > div, .wiki-repair-plan > footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 11px 0; border-bottom: 1px solid var(--border); }.wiki-repair-plan header > div, .wiki-repair-plan > div > div > span { display: grid; gap: 2px; }.wiki-repair-plan small { color: var(--muted); font-size: 10px; }.wiki-repair-plan header > span, .wiki-repair-plan i { color: var(--clay); font-size: 10px; font-style: normal; }.wiki-repair-plan footer { justify-content: flex-end; border-bottom: 0; }
 .wiki-repair-plan > div > div > span:last-child { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }.wiki-ai-review { display: grid; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--border); }.wiki-ai-review article { padding-left: 10px; border-left: 2px solid var(--blue-soft); }.wiki-ai-review p { margin: 3px 0 0; color: var(--muted); font-size: 10px; line-height: 1.55; }
 .reader-edit { margin-top: 10px; }
-.wiki-editor-backdrop { position: fixed; z-index: 70; inset: 0; display: grid; place-items: center; padding: 28px; background: rgba(24, 26, 28, .52); }
+/* wiki-editor-backdrop also lives under .ui-modal-backdrop; class kept as hook. */
 .wiki-editor { display: grid; grid-template-rows: auto auto minmax(0,1fr) auto; width: min(960px, 100%); height: min(820px, 86vh); overflow: hidden; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--paper); box-shadow: var(--shadow-dialog); }
 .wiki-editor > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding: 20px 24px 16px; border-bottom: 1px solid var(--border); }.wiki-editor > header > div { display: grid; gap: 4px; }.wiki-editor > header span { color: var(--clay); font-size: 10px; font-weight: 700; text-transform: uppercase; }.wiki-editor > header h3 { margin: 0; color: var(--blue); font-family: var(--font-reading); font-size: 23px; }.wiki-editor > header p { margin: 0; color: var(--muted); font-size: 11px; }
 .wiki-editor-toolbar { display: flex; min-height: 48px; align-items: center; justify-content: space-between; gap: 16px; padding: 7px 24px; border-bottom: 1px solid var(--border); }.wiki-editor-toolbar > div { display: flex; gap: 2px; padding: 3px; border: 1px solid var(--border); border-radius: 7px; }.wiki-editor-toolbar button { min-height: 30px; border: 0; border-radius: 5px; padding: 0 12px; background: transparent; color: var(--muted); }.wiki-editor-toolbar button.active { background: var(--blue); color: white; }
@@ -1272,8 +1276,8 @@ kbd { color: var(--faint); font-family: inherit; font-size: 10px; }
 .review-container { max-width: 980px; }.review-summary { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); margin-bottom: 28px; }.review-summary div { display: grid; gap: 3px; padding: 19px 22px; }.review-summary div + div { border-left: 1px solid var(--border); }.review-summary strong { color: var(--blue); font-family: Georgia, serif; font-size: 28px; font-weight: 500; }.review-summary span { color: var(--faint); font-size: 11px; }
 .review-list { display: grid; }.review-row { display: grid; grid-template-columns: 38px 62px minmax(0,1fr) auto; align-items: center; gap: 14px; border-bottom: 1px solid var(--border); padding: 18px 8px; }.review-index { color: var(--faint); font-family: Georgia, serif; }.review-kind { display: inline-grid; min-height: 25px; place-items: center; border-radius: 5px; background: var(--blue-wash); color: var(--blue); font-family: var(--font-brand); font-size: 11px; font-weight: 400; }.review-kind.错题 { background: var(--clay-wash); color: var(--clay); }.review-kind.薄弱点 { background: var(--sage-wash); color: var(--sage-deep); }.review-row h3 { margin: 0; font-family: var(--font-reading); font-size: 17px; font-weight: 400; }.review-row p { margin: 3px 0 0; color: var(--faint); font-size: 11px; }.review-note { display: flex; align-items: center; gap: 12px; margin-top: 34px; border-left: 2px solid var(--sage); padding: 12px 18px; background: var(--sage-wash); }.review-note > div { min-width: 0; flex: 1; }.review-note strong { color: var(--blue); }.review-note p { margin: 2px 0 0; color: var(--muted); font-family: var(--font-reading); }
 
-.onboarding-backdrop { position: fixed; z-index: 100; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(46,43,39,0.24); backdrop-filter: blur(5px); }
-.dialog-layer { position: fixed; z-index: 110; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(46,43,39,.24); backdrop-filter: blur(5px); }
+/* onboarding-backdrop / dialog-layer also live under .ui-modal-backdrop now;
+   class names kept for the mobile full-bleed overrides below and TSX hooks. */
 .library-setup-dialog { display: grid; width: min(500px,100%); gap: 18px; border: 1px solid var(--border-strong); border-radius: 8px; padding: 22px; background: var(--paper-soft); box-shadow: var(--shadow-dialog); }.library-setup-dialog header { display: grid; grid-template-columns: 40px minmax(0,1fr) 38px; align-items: center; gap: 12px; }.dialog-symbol { display: grid; width: 40px; height: 40px; place-items: center; border-radius: 50%; background: var(--sage-wash); color: var(--blue); }.library-setup-dialog header div { display: grid; gap: 2px; }.library-setup-dialog header div span { color: var(--clay); font-size: 10px; font-weight: 700; text-transform: uppercase; }.library-setup-dialog h2 { margin: 0; color: var(--blue); font-family: var(--font-reading); font-size: 22px; font-weight: 500; }.library-setup-dialog label { display: grid; gap: 7px; color: var(--blue); font-size: 11px; font-weight: 700; }.library-setup-dialog input { width: 100%; min-height: 42px; border: 1px solid var(--border-strong); border-radius: 7px; padding: 0 11px; background: var(--paper); color: var(--ink); font-family: var(--font-ui); font-size: 13px; outline: 0; }.path-input { display: flex; align-items: center; gap: 8px; border: 1px solid var(--border-strong); border-radius: 7px; padding-left: 11px; background: var(--paper); color: var(--faint); }.path-input input { border: 0; padding-left: 0; background: transparent; }.library-path-hint { color: var(--muted); font-size: 11px; font-weight: 400; line-height: 1.5; }.mastery-changes { display: grid; gap: 3px; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }.mastery-changes small { color: var(--sage-deep, #5d7a4a); font-size: 11px; }.answer-feedback.partial { border-color: var(--amber, #c98a3b); background: var(--amber-wash, #fbf3e3); }.practice-summary { display: grid; gap: 18px; max-width: 640px; margin: 0 auto; }.practice-summary header span { color: var(--clay, #b0714e); font-size: 10px; font-weight: 700; text-transform: uppercase; }.practice-summary h2 { margin: 0; color: var(--blue, #36506c); font-family: var(--font-reading, serif); font-size: 24px; font-weight: 500; }.practice-summary header p { margin: 6px 0 0; color: var(--muted, #7a7060); font-size: 13px; }.summary-recap { display: grid; gap: 8px; }.summary-recap h3 { margin: 0; font-size: 13px; color: var(--blue, #36506c); }.recap-item { display: grid; gap: 4px; border: 1px solid var(--border, #e6dfd2); border-radius: 7px; padding: 10px 12px; background: var(--paper-soft, #faf8f4); }.recap-item .recap-head { display: flex; align-items: baseline; gap: 10px; }.recap-item .recap-head span { flex: none; color: var(--clay, #b0714e); font-size: 11px; font-weight: 700; }.recap-item.correct .recap-head span { color: var(--sage-deep, #5d7a4a); }.recap-item .recap-head p { margin: 0; color: var(--ink, #2c2a24); font-size: 13px; }.recap-item small { color: var(--muted, #7a7060); font-size: 11px; }.practice-summary-actions { display: flex; gap: 10px; justify-content: flex-end; }.library-mode-tabs { display: grid; grid-template-columns: 1fr 1fr; border-bottom: 1px solid var(--border); }.library-mode-tabs button { border: 0; border-bottom: 2px solid transparent; padding: 9px; background: transparent; color: var(--muted); }.library-mode-tabs button.active { border-color: var(--sage); color: var(--blue); }
 .library-mode-tabs button:hover { color: var(--blue); }.library-setup-dialog footer { display: flex; justify-content: flex-end; gap: 8px; }
 .library-mode-tabs { grid-template-columns: repeat(3,1fr); }.library-mode-tabs button { padding: 9px 6px; font-size: 12px; }
@@ -1395,7 +1399,7 @@ kbd { color: var(--faint); font-family: inherit; font-size: 10px; }
 
 
 /* LB-1.1 document editor (Markdown materials). */
-.document-editor-backdrop { position: fixed; z-index: 70; inset: 0; display: grid; place-items: center; padding: 28px; background: rgba(24, 26, 28, .52); }
+/* document-editor-backdrop lives under .ui-modal-backdrop; panel class below. */
 .document-editor { display: flex; flex-direction: column; width: min(860px, 100%); height: min(640px, 84vh); overflow: hidden; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--paper); box-shadow: var(--shadow-dialog); }
 .document-editor > header { display: flex; flex: 0 0 auto; align-items: flex-start; justify-content: space-between; gap: 20px; padding: 18px 22px 14px; border-bottom: 1px solid var(--border); }
 .document-editor > header span { color: var(--clay); font-size: 10px; font-weight: 700; text-transform: uppercase; }

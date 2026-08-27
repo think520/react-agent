@@ -23,6 +23,7 @@ import type {
 import { GraphCanvas, type ForceParams } from "../components/GraphCanvas";
 import { CandidateReviewPanel } from "../components/CandidateReviewPanel";
 import { DropdownSelect } from "../components/DropdownSelect";
+import { Modal } from "../ui/Modal";
 import type { AppOutletContext } from "../components/AppShell";
 
 interface ExtractionSource {
@@ -339,7 +340,7 @@ export function KnowledgeMapPage() {
 
       {/* Candidate review panel */}
       {showCandidates && (
-        <div className="km-candidate-overlay">
+        <Modal onClose={() => { setShowCandidates(false); setExtractionSource(null); }} ariaLabel="候选审查" zIndex={120}>
           <CandidateReviewPanel
             extractionSource={extractionSource ?? undefined}
             onReturnToSource={extractionSource ? () => navigate(`/library?document=${encodeURIComponent(extractionSource.documentId)}`) : undefined}
@@ -349,7 +350,7 @@ export function KnowledgeMapPage() {
             }}
             onCandidatesChanged={handleCandidatesChanged}
           />
-        </div>
+        </Modal>
       )}
     </div>
   );
@@ -513,8 +514,7 @@ function AddConceptDialog({ onClose, onCreated }: { onClose: () => void; onCreat
   }
 
   return (
-    <div className="km-dialog-backdrop" role="dialog" aria-label="添加概念">
-      <div className="km-dialog">
+    <Modal onClose={onClose} ariaLabel="添加概念" className="km-dialog" zIndex={125}>
         <header>
           <h3>添加概念</h3>
           <button className="icon-button" aria-label="关闭" onClick={onClose}><X size={15} /></button>
@@ -537,8 +537,7 @@ function AddConceptDialog({ onClose, onCreated }: { onClose: () => void; onCreat
           <button className="quiet-button" onClick={onClose}>取消</button>
           <button className="primary-button" disabled={busy || !name.trim()} onClick={() => void submit()}>创建</button>
         </footer>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -567,8 +566,7 @@ function AddRelationDialog({ concepts, onClose, onCreated }: { concepts: Concept
   }
 
   return (
-    <div className="km-dialog-backdrop" role="dialog" aria-label="添加关系">
-      <div className="km-dialog">
+    <Modal onClose={onClose} ariaLabel="添加关系" className="km-dialog" zIndex={125}>
         <header>
           <h3>添加关系</h3>
           <button className="icon-button" aria-label="关闭" onClick={onClose}><X size={15} /></button>
@@ -598,7 +596,6 @@ function AddRelationDialog({ concepts, onClose, onCreated }: { concepts: Concept
           <button className="quiet-button" onClick={onClose}>取消</button>
           <button className="primary-button" disabled={busy || !fromId || !toId || fromId === toId} onClick={() => void submit()}>创建关系</button>
         </footer>
-      </div>
-    </div>
+    </Modal>
   );
 }

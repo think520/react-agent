@@ -8,6 +8,7 @@ import type {
 } from "../types";
 import { IconButton, LoadingState } from "./common";
 import { DropdownSelect } from "./DropdownSelect";
+import { Modal, useConfirm } from "../ui/Modal";
 
 type Tab = "knowledge" | "candidates" | "events" | "legacy";
 
@@ -52,6 +53,7 @@ const emptyDraft: KnowledgeDraft = {
 
 export function MemoryManagerDialog({ onClose, memoryEnabled }: { onClose: () => void; memoryEnabled: boolean }) {
   const [tab, setTab] = useState<Tab>("knowledge");
+  const { confirm, confirmElement } = useConfirm();
   const [overview, setOverview] = useState<MemoryOverview | null>(null);
   const [knowledge, setKnowledge] = useState<PersonalKnowledgeItem[]>([]);
   const [candidates, setCandidates] = useState<KnowledgeCandidate[]>([]);
@@ -156,7 +158,7 @@ export function MemoryManagerDialog({ onClose, memoryEnabled }: { onClose: () =>
   }
 
   async function removeItem(item: PersonalKnowledgeItem) {
-    if (!window.confirm(`删除“${item.title}”？删除后将立即停止用于个性化。`)) return;
+    if (!(await confirm({ title: `删除“${item.title}”？`, detail: "删除后将立即停止用于个性化。", confirmLabel: "删除", danger: true }))) return;
     setWorking(true);
     try {
       await api.deleteMemoryKnowledge(item.id);
@@ -222,7 +224,8 @@ export function MemoryManagerDialog({ onClose, memoryEnabled }: { onClose: () =>
     }
   }
 
-  return <section className="memory-manager" role="dialog" aria-modal="true" aria-label="管理个人知识">
+  return <Modal onClose={onClose} ariaLabel="管理个人知识" className="memory-manager">
+    {confirmElement}
     <header className="memory-manager-header"><div><span>Personal Knowledge</span><h2>管理个人知识</h2><p>只有已确认内容会参与个性化。学习记录用于进度判断，不会自动变成人格画像。</p></div><IconButton label="关闭个人知识" onClick={onClose}><X /></IconButton></header>
     <div className="memory-overview"><div><strong>{overview?.knowledge_count || 0}</strong><span>已确认</span></div><div><strong>{overview?.pending_candidate_count || 0}</strong><span>待确认</span></div><div><strong>{overview?.event_count || 0}</strong><span>学习记录</span></div><div><strong>{overview?.jobs.failed || 0}</strong><span>整理失败</span></div></div>
     <nav className="memory-tabs" role="tablist">
@@ -247,5 +250,5 @@ export function MemoryManagerDialog({ onClose, memoryEnabled }: { onClose: () =>
       {tab === "events" && <div className="memory-event-list">{events.map((event) => <article key={event.id}><span>{eventLabels[event.type]}</span><strong>{event.concept || String(event.payload.origin || event.source_type)}</strong><small>{new Date(event.occurred_at).toLocaleString("zh-CN")}</small>{typeof event.payload.progress === "number" && <i>{event.payload.progress}%</i>}</article>)}{!events.length && <p className="settings-empty">还没有学习记录。</p>}</div>}
       {tab === "legacy" && <div className="legacy-memory"><p>旧 Markdown 记忆保持只读。选中的条目只会转为待确认候选，不会删除原文件。</p>{legacy ? <>{legacy.entries.map((entry) => { const selected = legacySelections[entry.name]; return <article key={entry.name}><input type="checkbox" disabled={!memoryEnabled} checked={Boolean(selected)} onChange={(event) => setLegacySelections((current) => { const next = { ...current }; if (event.target.checked) next[entry.name] = { scope: entry.suggested_scope, kind: entry.suggested_kind }; else delete next[entry.name]; return next; })} /><div><strong>{entry.name}</strong><p>{entry.content_preview}</p><small>{entry.description || entry.type}</small></div>{selected && <DropdownSelect ariaLabel="作用域" value={selected.scope} disabled={!memoryEnabled} onChange={(value) => setLegacySelections({ ...legacySelections, [entry.name]: { ...selected, scope: value as "global" | "library" } })} options={[{ value: "global", label: "全局" }, { value: "library", label: "资料库" }]} />}</article>})}<div className="legacy-daily"><strong>旧 daily 文件</strong><span>{legacy.daily_files.length ? `${legacy.daily_files.length} 个文件，只读保留` : "没有发现旧 daily 文件"}</span></div><footer><button className="primary-button" disabled={!memoryEnabled || working || !Object.keys(legacySelections).length} onClick={() => void importLegacy()}><Check size={15} />转为待确认候选</button></footer></> : <LoadingState label="正在读取旧记忆…" />}</div>}
     </main>}
-  </section>;
+  </Modal>;
 }

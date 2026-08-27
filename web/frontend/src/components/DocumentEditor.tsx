@@ -4,6 +4,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { ApiError, api } from "../lib/api";
+import { Modal } from "../ui/Modal";
 
 interface DocumentEditorProps {
   documentId: string;
@@ -151,8 +152,8 @@ export function DocumentEditor({ documentId, title, onClose, onSaved }: Document
   }
 
   return (
-    <div className="document-editor-backdrop" role="dialog" aria-label="编辑资料">
-      <div className="document-editor">
+    <Modal onClose={onClose} ariaLabel="编辑资料" className="document-editor">
+      <>
         <header>
           <div>
             <span>编辑资料</span>
@@ -234,7 +235,7 @@ export function DocumentEditor({ documentId, title, onClose, onSaved }: Document
             <button className="primary-button" type="button" disabled={saving || loading || conflict} onClick={() => void save("overwrite")}><Save size={15} />保存</button>
           </div>
         </footer>
-      </div>
-    </div>
+      </>
+    </Modal>
   );
 }

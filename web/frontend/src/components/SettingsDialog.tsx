@@ -11,6 +11,7 @@ import { MemoryManagerDialog } from "./MemoryManagerDialog";
 import { ModelSelect } from "./ModelSelect";
 import { DropdownSelect } from "./DropdownSelect";
 import { ProviderManagerDialog } from "./ProviderManagerDialog";
+import { Modal, ConfirmDialog } from "../ui/Modal";
 
 type SectionId = "assistant" | "user" | "appearance" | "ai" | "memory" | "skills" | "status";
 
@@ -76,15 +77,8 @@ export function SettingsDialog({
   const [migrationBusy, setMigrationBusy] = useState(false);
   const [usage, setUsage] = useState<Awaited<ReturnType<typeof api.llmUsage>> | null>(null);
   const [usageDays, setUsageDays] = useState<7 | 30>(7);
-  const dialogRef = useRef<HTMLElement>(null);
+  const [confirmLegacy, setConfirmLegacy] = useState<"migrate" | "archive" | null>(null);
   const activeNavRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    dialogRef.current?.focus();
-    const close = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
-    window.addEventListener("keydown", close);
-    return () => window.removeEventListener("keydown", close);
-  }, [onClose]);
 
   useEffect(() => {
     setPreferences(settings.preferences);
@@ -163,7 +157,6 @@ export function SettingsDialog({
 
   async function migrateLegacyGraph() {
     if (!legacyGraph?.detected || migrationBusy) return;
-    if (!window.confirm("导入后，概念和记忆仍需在候选区确认。校验成功后会归档旧 JSON，是否继续？")) return;
     setMigrationBusy(true);
     setError("");
     try {
@@ -175,12 +168,12 @@ export function SettingsDialog({
       setError(reason instanceof Error ? reason.message : "旧版知识图谱迁移失败");
     } finally {
       setMigrationBusy(false);
+      setConfirmLegacy(null);
     }
   }
 
   async function archiveLegacyGraphWithoutImport() {
     if (!legacyGraph?.detected || migrationBusy) return;
-    if (!window.confirm("确认不导入任何旧概念或记忆，并将旧 JSON 归档？归档文件仍会保留在本地，但这些内容不会进入候选区。")) return;
     setMigrationBusy(true);
     setError("");
     try {
@@ -191,6 +184,7 @@ export function SettingsDialog({
       setError(reason instanceof Error ? reason.message : "旧版知识图谱归档失败");
     } finally {
       setMigrationBusy(false);
+      setConfirmLegacy(null);
     }
   }
 
@@ -267,7 +261,7 @@ export function SettingsDialog({
         <SettingRow label="旧记忆候选" hint={`${legacyMemoryIds.length}/${recommendedMemories.length} 条已选择 · ${legacyGraph.memories.filter((item) => item.quality === "name_only").length} 条只有名称`}><label className="migration-check"><input type="checkbox" checked={allRecommendedMemoriesSelected} onChange={(event) => setLegacyMemoryIds(event.target.checked ? recommendedMemories.map((item) => item.id) : [])} />选择建议项</label></SettingRow>
         {legacyGraph.memories.length > 0 && <details className="migration-preview"><summary>查看记忆风险</summary><div>{legacyGraph.memories.map((item) => <label className={!item.recommended ? "disabled" : ""} key={item.id}><input type="checkbox" disabled={!item.recommended} checked={legacyMemoryIds.includes(item.id)} onChange={(event) => setLegacyMemoryIds((current) => event.target.checked ? [...current, item.id] : current.filter((id) => id !== item.id))} /><span><strong>{item.name}</strong><small>{item.covered_by_legacy_memory ? "已由旧记忆迁移流程覆盖" : item.possible_duplicate ? `可能与“${item.possible_duplicate}”重复，请自行判断` : item.quality === "name_only" ? "只有名称，导入后参考价值可能较低" : "内容较完整"}</small></span></label>)}</div></details>}
         {Object.keys(legacyGraph.excluded).length > 0 && <p className="settings-warning">不会进入概念图谱：{Object.entries(legacyGraph.excluded).map(([label, count]) => `${label} ${count} 个`).join(" · ")}</p>}
-        <div className="migration-actions"><button className="danger-text-button" disabled={migrationBusy} onClick={() => void archiveLegacyGraphWithoutImport()}>全部跳过并归档</button><button className="quiet-button" disabled={migrationBusy || (!legacyConceptIds.length && !legacyMemoryIds.length)} onClick={() => void migrateLegacyGraph()}><Database size={15} />{migrationBusy ? "正在处理…" : "迁移所选数据"}</button></div>
+        <div className="migration-actions"><button className="danger-text-button" disabled={migrationBusy} onClick={() => setConfirmLegacy("archive")}>全部跳过并归档</button><button className="quiet-button" disabled={migrationBusy || (!legacyConceptIds.length && !legacyMemoryIds.length)} onClick={() => setConfirmLegacy("migrate")}><Database size={15} />{migrationBusy ? "正在处理…" : "迁移所选数据"}</button></div>
       </section>}
       <section className="settings-boundary"><ShieldCheck size={20} /><div><strong>本地数据边界</strong><p>原始资料只读，设置不会把资料上传到 Bobodan 服务。当前资料库：{activeLibrary?.name || "尚未选择"}。</p></div></section>
     </>;
@@ -275,14 +269,27 @@ export function SettingsDialog({
     return <section className="settings-group"><header><h3>运行状态</h3><p>只展示普通用户能理解并采取行动的状态。</p></header>{runtimeStatus ? <div className="runtime-grid"><div><Activity /><span><strong>后端</strong><small>连接正常</small></span></div><div><Cpu /><span><strong>AI</strong><small>{runtimeStatus.providers.configured}/{runtimeStatus.providers.available} 已配置</small></span></div><div><Search /><span><strong>联网搜索</strong><small>{runtimeStatus.search.permission === "auto" ? "模型自动" : "每次询问"} · {runtimeStatus.search.default} · {runtimeStatus.search.jina_fallback ? "Jina 后备开启" : "仅直接读取"}</small></span></div><div><Database /><span><strong>资料索引</strong><small>{runtimeStatus.knowledge.state === "ready" ? `${runtimeStatus.knowledge.documents} 份资料` : "等待资料"}</small></span></div><div><Brain /><span><strong>记忆</strong><small>{runtimeStatus.memory.enabled ? "已启用" : "已关闭"}</small></span></div><div><Wrench /><span><strong>Skills</strong><small>{runtimeStatus.skills.enabled}/{runtimeStatus.skills.available} 已启用</small></span></div><div><Gauge /><span><strong>版本</strong><small>{runtimeStatus.version}</small></span></div></div> : <p className="settings-empty">正在读取状态…</p>}</section>;
   }
 
-  if (providerManagerOpen) return <div className="settings-backdrop" role="presentation"><ProviderManagerDialog settings={settings} onClose={() => setProviderManagerOpen(false)} onChanged={async () => { const refreshed = await api.settings(); onSettingsChange(refreshed); }} /></div>;
-
-  if (memoryManagerOpen) return <div className="settings-backdrop" role="presentation"><MemoryManagerDialog memoryEnabled={preferences.memory.enabled} onClose={() => { setMemoryManagerOpen(false); void api.memoryOverview().then(setMemoryOverview).catch(() => undefined); }} /></div>;
-
-  return <div className="settings-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="settings-dialog" role="dialog" aria-modal="true" aria-label="设置" tabIndex={-1} ref={dialogRef}>
-    <header className="settings-dialog-header"><button className="settings-back" onClick={onClose} aria-label="返回"><ChevronLeft /></button><strong>设置</strong><h2>{sections.find((item) => item.id === active)?.label}</h2><IconButton label="关闭设置" onClick={onClose}><X /></IconButton></header>
-    <div className="settings-dialog-body"><nav className="settings-nav" aria-label="设置分类"><label className="settings-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (!matches.length) return; if (event.key === "ArrowDown") { event.preventDefault(); setSearchIndex((current) => (current + 1) % matches.length); } else if (event.key === "ArrowUp") { event.preventDefault(); setSearchIndex((current) => (current - 1 + matches.length) % matches.length); } else if (event.key === "Enter") { event.preventDefault(); onSectionChange(matches[Math.min(searchIndex, matches.length - 1)].id); } }} placeholder="搜索设置" />{query && <button onClick={() => setQuery("")} aria-label="清空搜索"><X size={13} /></button>}</label>{matches.map(({ id, label, icon: Icon }, index) => <button ref={active === id ? activeNavRef : undefined} className={`${active === id ? "active" : ""} ${query && searchIndex === index ? "search-active" : ""}`} key={id} onClick={() => onSectionChange(id)}><Icon size={17} /><span>{label}</span>{id === "memory" && Boolean(memoryOverview?.pending_candidate_count) && <i className="settings-nav-badge">{memoryOverview?.pending_candidate_count}</i>}</button>)}</nav><main className="settings-main">{error && <div className="settings-error">{error}</div>}{notice && <div className="settings-notice"><Check size={14} />{notice}</div>}<div className="settings-page-heading"><Sparkles size={16} /><span>Bobodan Settings</span><h2>{sections.find((item) => item.id === active)?.label}</h2></div>{sectionContent()}</main></div>
-  </section></div>;
+  return <Modal backdropClassName="settings-backdrop" onClose={onClose} ariaLabel="设置">
+    {/* Nested managers render alongside instead of replacing this dialog, so
+        the Modal stack decides which layer Escape closes. */}
+    {providerManagerOpen && <ProviderManagerDialog settings={settings} onClose={() => setProviderManagerOpen(false)} onChanged={async () => { const refreshed = await api.settings(); onSettingsChange(refreshed); }} />}
+    {memoryManagerOpen && <MemoryManagerDialog memoryEnabled={preferences.memory.enabled} onClose={() => { setMemoryManagerOpen(false); void api.memoryOverview().then(setMemoryOverview).catch(() => undefined); }} />}
+    {confirmLegacy && <ConfirmDialog
+      busy={migrationBusy}
+      danger={confirmLegacy === "archive"}
+      title={confirmLegacy === "migrate" ? "迁移所选旧数据？" : "全部跳过并归档？"}
+      detail={confirmLegacy === "migrate"
+        ? "导入后，概念和记忆仍需在候选区确认。校验成功后会归档旧 JSON。"
+        : "确认不导入任何旧概念或记忆，并将旧 JSON 归档？归档文件仍会保留在本地，但这些内容不会进入候选区。"}
+      confirmLabel={confirmLegacy === "migrate" ? "迁移所选数据" : "跳过并归档"}
+      onCancel={() => setConfirmLegacy(null)}
+      onConfirm={() => void (confirmLegacy === "migrate" ? migrateLegacyGraph() : archiveLegacyGraphWithoutImport())}
+    />}
+    <section className="settings-dialog">
+      <header className="settings-dialog-header"><button className="settings-back" onClick={onClose} aria-label="返回"><ChevronLeft /></button><strong>设置</strong><h2>{sections.find((item) => item.id === active)?.label}</h2><IconButton label="关闭设置" onClick={onClose}><X /></IconButton></header>
+      <div className="settings-dialog-body"><nav className="settings-nav" aria-label="设置分类"><label className="settings-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (!matches.length) return; if (event.key === "ArrowDown") { event.preventDefault(); setSearchIndex((current) => (current + 1) % matches.length); } else if (event.key === "ArrowUp") { event.preventDefault(); setSearchIndex((current) => (current - 1 + matches.length) % matches.length); } else if (event.key === "Enter") { event.preventDefault(); onSectionChange(matches[Math.min(searchIndex, matches.length - 1)].id); } }} placeholder="搜索设置" />{query && <button onClick={() => setQuery("")} aria-label="清空搜索"><X size={13} /></button>}</label>{matches.map(({ id, label, icon: Icon }, index) => <button ref={active === id ? activeNavRef : undefined} className={`${active === id ? "active" : ""} ${query && searchIndex === index ? "search-active" : ""}`} key={id} onClick={() => onSectionChange(id)}><Icon size={17} /><span>{label}</span>{id === "memory" && Boolean(memoryOverview?.pending_candidate_count) && <i className="settings-nav-badge">{memoryOverview?.pending_candidate_count}</i>}</button>)}</nav><main className="settings-main">{error && <div className="settings-error">{error}</div>}{notice && <div className="settings-notice"><Check size={14} />{notice}</div>}<div className="settings-page-heading"><Sparkles size={16} /><span>Bobodan Settings</span><h2>{sections.find((item) => item.id === active)?.label}</h2></div>{sectionContent()}</main></div>
+    </section>
+  </Modal>;
 }
 
 export function SettingsUnavailableDialog({
@@ -294,14 +301,8 @@ export function SettingsUnavailableDialog({
   onRetry: () => void;
   onClose: () => void;
 }) {
-  useEffect(() => {
-    const close = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
-    window.addEventListener("keydown", close);
-    return () => window.removeEventListener("keydown", close);
-  }, [onClose]);
-
-  return <div className="settings-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-    <section className="settings-dialog settings-unavailable" role="dialog" aria-modal="true" aria-label="设置" tabIndex={-1}>
+  return <Modal backdropClassName="settings-backdrop" onClose={onClose} ariaLabel="设置">
+    <section className="settings-dialog settings-unavailable">
       <header className="settings-dialog-header"><button className="settings-back" onClick={onClose} aria-label="返回"><ChevronLeft /></button><strong>设置</strong><h2>连接状态</h2><IconButton label="关闭设置" onClick={onClose}><X /></IconButton></header>
       <main className="settings-unavailable-main">
         <span className="settings-unavailable-icon"><Activity size={24} /></span>
@@ -309,5 +310,5 @@ export function SettingsUnavailableDialog({
         <button className="primary-button" disabled={reconnecting} onClick={onRetry}>{reconnecting ? <><RefreshCw className="spin" size={15} />正在重连</> : <><RefreshCw size={15} />重新连接</>}</button>
       </main>
     </section>
-  </div>;
+  </Modal>;
 }

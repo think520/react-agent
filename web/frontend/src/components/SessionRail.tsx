@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 
 import { api } from "../lib/api";
 import { sessionGroup, SESSION_GROUP_LABELS } from "../lib/sessionGroup";
+import { useConfirm } from "../ui/Modal";
 import type { ChatSessionSummary } from "../types";
 import { formatSessionTime, IconButton, LoadingState } from "./common";
 
@@ -17,6 +18,7 @@ export function SessionRail({ sessions, loading, activeSessionId, refreshSession
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
   const [sessionQuery, setSessionQuery] = useState("");
+  const { confirm, confirmElement } = useConfirm();
 
   const groupedSessions = useMemo(() => {
     const query = sessionQuery.trim().toLocaleLowerCase();
@@ -36,7 +38,7 @@ export function SessionRail({ sessions, loading, activeSessionId, refreshSession
   }
 
   async function removeSession(session: ChatSessionSummary) {
-    if (!window.confirm(`删除会话「${session.name || "未命名会话"}」？此操作无法撤销。`)) return;
+    if (!(await confirm({ title: `删除会话「${session.name || "未命名会话"}」？`, detail: "此操作无法撤销。", confirmLabel: "删除会话", danger: true }))) return;
     await api.deleteSession(session.chat_session_id);
     if (activeSessionId === session.chat_session_id) navigate("/chat");
     await refreshSessions();
@@ -44,6 +46,7 @@ export function SessionRail({ sessions, loading, activeSessionId, refreshSession
 
   return (
     <div className="session-section">
+      {confirmElement}
       <div className="section-label"><span>最近对话</span><IconButton label="刷新会话" onClick={() => void refreshSessions()}><RefreshCw size={15} /></IconButton></div>
       <label className="session-search"><Search size={14} /><input value={sessionQuery} onChange={(event) => setSessionQuery(event.target.value)} placeholder="搜索对话" aria-label="搜索对话" /></label>
       {loading ? <LoadingState label="正在找回会话…" /> : groupedSessions.length ? (

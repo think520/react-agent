@@ -8,6 +8,7 @@ import { api } from "../lib/api";
 import type { AppOutletContext } from "../components/AppShell";
 import { IconButton, LoadingState } from "../components/common";
 import { MemoryManagerDialog } from "../components/MemoryManagerDialog";
+import { useConfirm } from "../ui/Modal";
 import type { PersonalKnowledgeItem } from "../types";
 
 interface NoteDraft {
@@ -48,6 +49,7 @@ export function NotesPage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [managerOpen, setManagerOpen] = useState(false);
+  const { confirm, confirmElement } = useConfirm();
 
   async function loadNotes() {
     setLoading(true);
@@ -160,7 +162,7 @@ export function NotesPage() {
   }
 
   async function removeNote(item: PersonalKnowledgeItem) {
-    if (!window.confirm(`删除笔记“${item.title}”？`)) return;
+    if (!(await confirm({ title: `删除笔记“${item.title}”？`, detail: "删除后无法恢复。", confirmLabel: "删除笔记", danger: true }))) return;
     try {
       await api.deleteMemoryKnowledge(item.id);
       await loadNotes();
@@ -171,6 +173,7 @@ export function NotesPage() {
 
   return (
     <section className="page-scroll">
+      {confirmElement}
       <div className="page-container notes-container">
       <header className="notes-header">
         <div>

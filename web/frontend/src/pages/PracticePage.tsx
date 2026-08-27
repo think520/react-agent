@@ -8,6 +8,7 @@ import { api, streamChat } from "../lib/api";
 import { toErrorMessage } from "../lib/errors";
 import { useHandoffStore } from "../stores/handoffStore";
 import { useUiStore } from "../stores/uiStore";
+import { useConfirm } from "../ui/Modal";
 import type { PracticeSession } from "../types";
 
 interface AnswerResult {
@@ -68,6 +69,7 @@ export function PracticePage() {
   const [result, setResult] = useState<AnswerResult | null>(null);
   const [loading, setLoading] = useState(Boolean(id));
   const [working, setWorking] = useState(false);
+  const { confirm, confirmElement } = useConfirm();
   const [error, setError] = useState("");
   const [webConsent, setWebConsent] = useState<WebPracticeConsent | null>(null);
   const [resolution, setResolution] = useState<{ original: string; resolved: string } | null>(null);
@@ -173,7 +175,7 @@ export function PracticePage() {
   }
 
   async function abandon() {
-    if (!id || !window.confirm("退出并放弃这次练习？已提交的答案仍会保留。")) return;
+    if (!id || !(await confirm({ title: "退出并放弃这次练习？", detail: "已提交的答案仍会保留。", confirmLabel: "放弃练习", danger: true }))) return;
     await api.abandonPractice(id);
     navigate("/practice");
   }
@@ -218,6 +220,7 @@ export function PracticePage() {
 
   if (!id) return (
     <section className="page-scroll">
+      {confirmElement}
       <div className="page-container practice-start">
         <header className="page-heading"><div><span>Practice</span><h2>开始一轮练习</h2><p>默认生成 5 题，题目和批改结果会回流到掌握度与今日复习。</p></div></header>
         {error && <ErrorNotice message={error} />}
@@ -280,6 +283,7 @@ export function PracticePage() {
       }));
   return (
     <section className="page-scroll practice-page">
+      {confirmElement}
       <div className="practice-container">
         <header className="practice-header"><div><span>{questionTypeLabel(currentQuestion.type, currentQuestion.type_label)} · {difficultyLabel(currentQuestion.difficulty)}</span><strong>第 {session.progress.current_index + 1} / {session.progress.total} 题</strong>{resolution && <small>已将“{resolution.original}”按“{resolution.resolved}”理解</small>}</div><button className="quiet-button" onClick={() => void abandon()}><LogOut size={15} />退出练习</button></header>
         <div className="progress-track"><span style={{ width: `${progress}%` }} /></div>

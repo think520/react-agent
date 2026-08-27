@@ -107,15 +107,21 @@ describe("Bobodan app shell", () => {
 
   it("requires confirmation before explicitly archiving all legacy graph data", async () => {
     localStorage.setItem("bobodan:onboarding:v1", "complete");
-    const confirm = vi.fn(() => true);
-    vi.stubGlobal("confirm", confirm);
 
     render(<MemoryRouter initialEntries={["/chat?settings=memory"]}><App /></MemoryRouter>);
 
     expect(await screen.findByText("旧版知识图谱迁移")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "全部跳过并归档" }));
 
-    await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
+    // First click only opens the styled confirmation dialog.
+    fireEvent.click(screen.getByRole("button", { name: "全部跳过并归档" }));
+    const dialog = await screen.findByRole("dialog", { name: "全部跳过并归档？" });
+    await waitFor(() => expect(vi.mocked(fetch)).not.toHaveBeenCalledWith(
+      "/api/graph/legacy/import",
+      expect.objectContaining({ body: JSON.stringify({ concept_ids: [], memory_ids: [], archive: true }) }),
+    ));
+
+    // Confirming inside the dialog performs the archive call.
+    fireEvent.click(within(dialog).getByRole("button", { name: "跳过并归档" }));
     await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledWith(
       "/api/graph/legacy/import",
       expect.objectContaining({ body: JSON.stringify({ concept_ids: [], memory_ids: [], archive: true }) }),

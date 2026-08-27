@@ -5,6 +5,7 @@ import { api } from "../lib/api";
 import type { ProviderModel, ProviderPreset, ProviderSummary, SettingsSummary } from "../types";
 import { IconButton } from "./common";
 import { DropdownSelect } from "./DropdownSelect";
+import { Modal, ConfirmDialog } from "../ui/Modal";
 
 interface ProviderForm {
   name: string;
@@ -30,16 +31,11 @@ export function ProviderManagerDialog({ settings, onClose, onChanged }: {
   const [notice, setNotice] = useState("");
   const [testMsg, setTestMsg] = useState<Record<string, string>>({});
   const [modelInput, setModelInput] = useState({ id: "", name: "" });
+  const [confirmDelete, setConfirmDelete] = useState<ProviderSummary | null>(null);
 
   useEffect(() => {
     void api.providerPresets().then((result) => setPresets(result.presets)).catch(() => setPresets([]));
   }, []);
-
-  useEffect(() => {
-    const close = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
-    window.addEventListener("keydown", close);
-    return () => window.removeEventListener("keydown", close);
-  }, [onClose]);
 
   function startEdit(provider: ProviderSummary) {
     const form: ProviderForm = {
@@ -134,10 +130,6 @@ export function ProviderManagerDialog({ settings, onClose, onChanged }: {
   }
 
   async function removeProvider(provider: ProviderSummary) {
-    const suffix = provider.is_default
-      ? "\n\n这是当前默认模型，删除后默认会失效，请先在「AI 与模型」里改选其它默认模型。"
-      : "";
-    if (!window.confirm(`删除供应商“${provider.name}”？其 API key 也会一并清除。${suffix}`)) return;
     setWorking(true);
     setError("");
     setNotice("");
@@ -148,10 +140,20 @@ export function ProviderManagerDialog({ settings, onClose, onChanged }: {
       setError(reason instanceof Error ? reason.message : "删除失败。");
     } finally {
       setWorking(false);
+      setConfirmDelete(null);
     }
   }
 
-  return <section className="provider-manager" role="dialog" aria-modal="true" aria-label="管理模型供应商">
+  return <Modal onClose={onClose} ariaLabel="管理模型供应商" className="provider-manager">
+    {confirmDelete && <ConfirmDialog
+      busy={working}
+      danger
+      title={`删除供应商“${confirmDelete.name}”？`}
+      detail={<>其 API key 也会一并清除。{confirmDelete.is_default && <strong>这是当前默认模型，删除后默认会失效，请先在「AI 与模型」里改选其它默认模型。</strong>}</>}
+      confirmLabel="删除供应商"
+      onCancel={() => setConfirmDelete(null)}
+      onConfirm={() => void removeProvider(confirmDelete)}
+    />}
     <header className="provider-manager-header">
       <div><span>Providers</span><h2>模型供应商</h2><p>填写 API key 后即可使用。密钥明文保存在本地应用数据目录，不会写入资料库或日志。</p></div>
       <IconButton label="关闭供应商管理" onClick={onClose}><X /></IconButton>
@@ -214,5 +216,5 @@ export function ProviderManagerDialog({ settings, onClose, onChanged }: {
         </div>
       </main>
     )}
-  </section>;
+  </Modal>;
 }

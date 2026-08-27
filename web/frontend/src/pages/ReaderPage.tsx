@@ -14,6 +14,7 @@ import { DocumentEditor } from "../components/DocumentEditor";
 import { ApiError, api } from "../lib/api";
 import { useHandoffStore } from "../stores/handoffStore";
 import { useReaderTabsStore } from "../stores/readerTabsStore";
+import { useConfirm } from "../ui/Modal";
 import type { DocumentExtractionStatus, DocumentSection, DocumentSummary, PersonalKnowledgeItem } from "../types";
 
 const EDITABLE_KINDS = new Set(["md", "txt", "markdown", "course_document", "obsidian_note"]);
@@ -33,6 +34,7 @@ export function ReaderPage() {
   const [error, setError] = useState("");
   const [highlightedChunk, setHighlightedChunk] = useState<string | null>(null);
   const [selectionQuote, setSelectionQuote] = useState("");
+  const { confirm, confirmElement } = useConfirm();
   const [editingDocumentId, setEditingDocumentId] = useState<string | null>(null);
   const [startingExtractionId, setStartingExtractionId] = useState<string | null>(null);
   const [extractionStatuses, setExtractionStatuses] = useState<Record<string, DocumentExtractionStatus>>({});
@@ -210,7 +212,7 @@ export function ReaderPage() {
     if (startingExtractionId || !sections.length) return;
     const existing = extractionStatuses[doc.document_id];
     if (!force && existing && existing.status !== "failed") { openExtractionReview(doc, existing); return; }
-    if (force && !window.confirm("重新提取「" + (doc.title || doc.source) + "」的概念？这会再次调用模型并消耗 Token。")) return;
+    if (force && !(await confirm({ title: `重新提取「${doc.title || doc.source}」的概念？`, detail: "这会再次调用模型并消耗 Token。", confirmLabel: "重新提取" }))) return;
     setStartingExtractionId(doc.document_id);
     setError("");
     const content = sections.map((s) => s.text).join("\n\n");
@@ -243,6 +245,7 @@ export function ReaderPage() {
 
   return (
     <section className="page-scroll reader-page" ref={pageRef} onScroll={recordReadingProgress}>
+      {confirmElement}
       <div className="page-container reader-container">
         <header className="reader-topbar">
           <button className="quiet-button" onClick={() => navigate("/library?collection=" + collection)}><ArrowLeft size={15} />返回资料库</button>
