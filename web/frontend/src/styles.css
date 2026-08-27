@@ -80,6 +80,41 @@
   grid-column: 1 / -1;
 }
 .km-map-actions { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+.km-edit-action { min-height: 29px; border: 1px solid var(--border, #ddd); border-radius: 6px; padding: 0 9px; background: transparent; color: var(--blue, #1b365d); font-size: 11px; display: inline-flex; align-items: center; gap: 4px; cursor: pointer; transition: background 140ms ease, color 140ms ease; }
+.km-edit-action:hover { background: var(--blue-wash, #edf1f6); color: var(--blue, #1b365d); }
+/* Knowledge map add concept / relation dialogs */
+.km-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(43, 38, 32, 0.25);
+}
+.km-dialog {
+  width: min(380px, calc(100vw - 48px));
+  max-height: 80vh;
+  overflow-y: auto;
+  background: var(--bg-card, #fbf7ee);
+  border: 0.5px solid var(--border, #d8cfbe);
+  border-radius: 8px;
+  padding: 16px 18px;
+}
+.km-dialog header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.km-dialog header h3 { margin: 0; font-size: 15px; font-weight: 500; color: var(--text, #2a2622); }
+.km-dialog label { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; font-size: 12px; color: var(--text-light, #4a433c); }
+.km-dialog input, .km-dialog textarea {
+  border: 0.5px solid var(--border, #d8cfbe);
+  border-radius: 6px;
+  padding: 7px 9px;
+  background: var(--bg, #f5efe4);
+  color: var(--text, #2a2622);
+  font-size: 13px;
+  font-family: var(--font-ui);
+}
+.km-dialog footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+.km-dialog-error { margin: 6px 0 0; font-size: 12px; color: var(--danger, #8b2c1f); }
 .km-density-toggle { min-height: 29px; border: 1px solid var(--border, #ddd); border-radius: 6px; padding: 0 9px; background: var(--paper-soft, #faf8f4); color: var(--muted, #7a7060); font-size: 11px; transition: background 140ms ease, color 140ms ease, transform 120ms cubic-bezier(.23,1,.32,1); }
 .km-density-toggle:hover, .km-density-toggle.active { background: var(--blue-wash, #edf1f6); color: var(--blue, #1b365d); }
 .km-density-toggle:active, .km-map-actions .icon-button:active { transform: scale(.97); }
@@ -1465,6 +1500,6 @@ kbd { color: var(--faint); font-family: inherit; font-size: 10px; }
 .chapter-rail > div > button:hover { background: var(--blue-wash); color: var(--blue); }
 
 /* Reader tabs (TASKS_LIBRARY_REWORK task 2.3.1). */
-.reader-tabs { display: flex; gap: 4px; overflow-x: auto; border-bottom: 1px solid var(--border); padding: 8px 0; }
+.reader-tabs { position: sticky; top: 0; z-index: 20; display: flex; gap: 4px; overflow-x: auto; border-bottom: 1px solid var(--border); padding: 8px 0; background: var(--bg); }
 .reader-tab { flex: 0 0 auto; max-width: 200px; overflow: hidden; border: 1px solid var(--border); border-radius: 6px 6px 0 0; padding: 6px 12px; background: transparent; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .reader-tab.active { background: var(--paper-soft); color: var(--blue); border-bottom-color: var(--paper-soft); font-weight: 650; }

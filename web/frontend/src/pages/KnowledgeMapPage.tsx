@@ -11,7 +11,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useOutletContext } from "react-router-dom";
-import { List, Map as MapIcon, Maximize2, Network, Search, Sparkles, Table } from "lucide-react";
+import { List, Map as MapIcon, Link2, Maximize2, Network, Plus, Search, Sparkles, Table, X } from "lucide-react";
 import { api } from "../lib/api";
 import { useUiStore } from "../stores/uiStore";
 import type {
@@ -67,6 +67,8 @@ export function KnowledgeMapPage() {
   const [focusDegree, setFocusDegree] = useState(1);
   const [forceParams, setForceParams] = useState<ForceParams>({ center: 0.6, repel: 10, link: 2 });
   const [showCandidates, setShowCandidates] = useState(initialExtraction !== null);
+  const [showAddConcept, setShowAddConcept] = useState(false);
+  const [showAddRelation, setShowAddRelation] = useState(false);
   const [extractionSource, setExtractionSource] = useState<ExtractionSource | null>(initialExtraction);
   const positionsSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const graphActionsRef = useRef<{ fit: () => void; relayout: (params?: ForceParams) => void } | null>(null);
@@ -228,6 +230,8 @@ export function KnowledgeMapPage() {
             <button className={`km-density-toggle ${showAllNodes ? "active" : ""}`} onClick={() => setShowAllNodes((value) => !value)}>{showAllNodes ? "渐进显示" : "显示全部"}</button>
             <button className="icon-button" title="适配视图" aria-label="适配视图" onClick={() => graphActionsRef.current?.fit()}><Maximize2 size={15} /></button>
             <button className="icon-button" title="重新布局" aria-label="重新布局" onClick={() => graphActionsRef.current?.relayout(forceParams)}><Network size={15} /></button>
+            <button className="km-edit-action" title="添加概念" aria-label="添加概念" onClick={() => setShowAddConcept(true)}><Plus size={15} />概念</button>
+            <button className="km-edit-action" title="添加关系" aria-label="添加关系" onClick={() => setShowAddRelation(true)}><Link2 size={15} />关系</button>
             <details className="km-force-params">
               <summary>力参数</summary>
               <div>
@@ -317,6 +321,21 @@ export function KnowledgeMapPage() {
           />
         )}
       </div>
+
+      {/* Add concept / add relation dialogs (toolbar edit entries) */}
+      {showAddConcept && (
+        <AddConceptDialog
+          onClose={() => setShowAddConcept(false)}
+          onCreated={() => { setShowAddConcept(false); void loadGraph(); }}
+        />
+      )}
+      {showAddRelation && graphState && (
+        <AddRelationDialog
+          concepts={graphState.concepts}
+          onClose={() => setShowAddRelation(false)}
+          onCreated={() => { setShowAddRelation(false); void loadGraph(); }}
+        />
+      )}
 
       {/* Candidate review panel */}
       {showCandidates && (
@@ -461,6 +480,125 @@ function SourcesView({ concepts, relationships, selectedConceptId, onConceptSele
           })}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------
+// Add concept / add relation dialogs (toolbar edit entries)
+// ------------------------------------------------------------------
+
+const REL_TYPES = ["属于", "前置知识", "组成部分", "对比", "应用于", "来源于", "user:custom"];
+
+function AddConceptDialog({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const [name, setName] = useState("");
+  const [level, setLevel] = useState("core");
+  const [definition, setDefinition] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit() {
+    const trimmed = name.trim();
+    if (!trimmed || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.graphUpsertConcept({ name: trimmed, level, definition: definition.trim(), note: "" });
+      onCreated();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "创建失败，请重试。");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="km-dialog-backdrop" role="dialog" aria-label="添加概念">
+      <div className="km-dialog">
+        <header>
+          <h3>添加概念</h3>
+          <button className="icon-button" aria-label="关闭" onClick={onClose}><X size={15} /></button>
+        </header>
+        <label>
+          <span>名称</span>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="概念名称（必填）" autoFocus />
+        </label>
+        <label>
+          <span>层级</span>
+          <DropdownSelect ariaLabel="层级" value={level} onChange={setLevel}
+            options={[{ value: "cluster", label: "主题簇" }, { value: "core", label: "核心概念" }, { value: "detail", label: "细分概念" }]} />
+        </label>
+        <label>
+          <span>定义</span>
+          <textarea value={definition} onChange={(e) => setDefinition(e.target.value)} rows={3} placeholder="一句话定义（可选）" />
+        </label>
+        {error && <p className="km-dialog-error">{error}</p>}
+        <footer>
+          <button className="quiet-button" onClick={onClose}>取消</button>
+          <button className="primary-button" disabled={busy || !name.trim()} onClick={() => void submit()}>创建</button>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+function AddRelationDialog({ concepts, onClose, onCreated }: { concepts: ConceptNode[]; onClose: () => void; onCreated: () => void }) {
+  const [fromId, setFromId] = useState("");
+  const [toId, setToId] = useState("");
+  const [relType, setRelType] = useState(REL_TYPES[0]);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const options = concepts.map((c) => ({ value: c.concept_id, label: c.name }));
+
+  async function submit() {
+    if (!fromId || !toId || fromId === toId || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.createRelationship({ from_id: fromId, to_id: toId, rel_type: relType, note: note.trim() || undefined });
+      onCreated();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "创建失败，请重试。");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="km-dialog-backdrop" role="dialog" aria-label="添加关系">
+      <div className="km-dialog">
+        <header>
+          <h3>添加关系</h3>
+          <button className="icon-button" aria-label="关闭" onClick={onClose}><X size={15} /></button>
+        </header>
+        <label>
+          <span>起点概念</span>
+          <DropdownSelect ariaLabel="起点概念" value={fromId} onChange={setFromId}
+            options={[{ value: "", label: "选择概念…" }, ...options]} />
+        </label>
+        <label>
+          <span>终点概念</span>
+          <DropdownSelect ariaLabel="终点概念" value={toId} onChange={setToId}
+            options={[{ value: "", label: "选择概念…" }, ...options]} />
+        </label>
+        <label>
+          <span>关系类型</span>
+          <DropdownSelect ariaLabel="关系类型" value={relType} onChange={setRelType}
+            options={REL_TYPES.map((t) => ({ value: t, label: t === "user:custom" ? "自定义" : t }))} />
+        </label>
+        <label>
+          <span>备注</span>
+          <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="可选" />
+        </label>
+        {error && <p className="km-dialog-error">{error}</p>}
+        {fromId && toId && fromId === toId && <p className="km-dialog-error">起点和终点不能是同一个概念。</p>}
+        <footer>
+          <button className="quiet-button" onClick={onClose}>取消</button>
+          <button className="primary-button" disabled={busy || !fromId || !toId || fromId === toId} onClick={() => void submit()}>创建关系</button>
+        </footer>
+      </div>
     </div>
   );
 }
