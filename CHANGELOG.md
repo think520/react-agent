@@ -11,7 +11,7 @@
   - **弹窗基元**：新增 `ui/Modal`——统一 backdrop 与 220ms 入场、模块级层级栈（嵌套管理器只关最顶层，修复供应商/记忆管理器叠加在设置页时一次 Esc 两层同关的竞态）、焦点陷阱与焦点归还；`ConfirmDialog + useConfirm()` 替换全部 10 处原生 `window.confirm` 破坏性确认。
   - **动效收敛**：时长归一到 `--dur-fast/base/slow` 三档 token、缓动只剩两条 token 曲线；去重 `spin` 关键帧；删除零消费的 Collapse/SlideIn/AnimatedList；Bobodan 处理状态图不再按状态重挂载（预加载四态图消除闪烁）；mention 面板与其余弹出菜单共用 menu-enter 入场。
   - **减少动效对齐 OS 语义**：应用内开关现在施加与 `prefers-reduced-motion` 一致的全局停用规则；图谱相机/hover 补间与流式打字机改为实时读取 `lib/motion.ts`（原先只在挂载时快照一次）。
-  - **品牌形象接入**：Chat 欢迎页改用专用 hero 双分辨率插图（含移动端降级布局）；失败回答换 curious 表情；Knowledge Map 加载、复习/笔记/阅读器加载态统一为品牌插画变体；图标型空状态补齐品牌状态图；笔记页复用共享 EmptyState 且个人知识管理浮层不再双重遮罩。
+  - **品牌形象接入**：失败回答换 curious 表情；Knowledge Map 加载、复习/笔记/阅读器加载态统一为品牌插画变体；图标型空状态补齐品牌状态图；笔记页复用共享 EmptyState 且个人知识管理浮层不再双重遮罩。Chat 欢迎页曾改用 hero 插图，**经用户对比后确认保留原版**（方形形象 + 居中标题，hero 图自带底色与页面纸色不一致、浮层卡片显杂乱），已回退并在品牌 README 标注 hero 暂不接线。
   - **加载平滑**：知识地图改为「实例创建一次 + 数据增量同步」——候选审查、概念编辑不再重建 WebGL 渲染器、重放入场动画和相机复位；Library/阅读页切换文档保留旧正文淡出（stale-while-revalidate），不再白屏闪转圈；Practice「问 AI」接入 StreamBuffer 打字机缓冲并支持 Markdown 渲染。
   - **可发现性**：Ctrl/Cmd+N 新对话真实生效（此前按钮上有提示但无绑定）；阅读页补 `[` / `]` 章节导轨键；顶栏新增键盘快捷键参考弹窗（只列真实存在的绑定）。
   - **掌握度去占位**：知识地图侧栏「掌握状态」接通既有 `/api/learning/progress?concept=` 接口，显示真实状态/评分/下次复习（此前硬编码「尚未练习」）。经核实，「已停止」标记与孤儿提取运行启动扫描此前已实现。

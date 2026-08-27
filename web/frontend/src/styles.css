@@ -820,17 +820,6 @@ kbd { color: var(--faint); font-family: inherit; font-size: 10px; }
 .welcome-identity { display: grid; justify-items: center; }
 .welcome-identity img { width: 112px; height: 112px; object-fit: contain; }
 .welcome-identity h2 { margin: 18px 0 13px; color: var(--blue); font-family: var(--font-reading); font-size: 27px; font-weight: 400; line-height: 1.35; }
-/* Hero illustration (brand README "Chat 场景"): the art carries its own left
-   whitespace for the greeting card — never crop it with object-fit cover. */
-.welcome-hero { position: relative; width: min(100%, 720px); animation: ui-fade-in var(--dur-slow) var(--ease-out) both; }
-.welcome-hero > picture { display: block; }
-/* Height-capped so the composer and starter actions stay in the first
-   viewport (welcome layout guarantees composer visibility); contain keeps
-   the full artwork visible — never cover-crop the cat. */
-.welcome-hero > picture > img { width: 100%; height: auto; max-height: clamp(200px, 30vh, 300px); object-fit: contain; object-position: center; }
-.welcome-hero-copy { position: absolute; left: 5%; bottom: 9%; max-width: 62%; display: grid; gap: 10px; justify-items: start; border: 1px solid var(--border); border-radius: 10px; padding: 14px 18px; background: var(--paper-soft); box-shadow: var(--shadow-float); }
-.welcome-hero-copy h2 { margin: 0; color: var(--blue); font-family: var(--font-reading); font-size: clamp(20px, 3.4vw, 26px); font-weight: 400; line-height: 1.35; }
-.welcome-hero-copy .welcome-context { font-size: 12px; }
 .welcome-context { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 18px; color: var(--faint); font-size: 12px; }
 .welcome-context span { display: inline-flex; align-items: center; gap: 6px; }
 .welcome-view > .error-notice { width: min(100%, 720px); margin: 20px 0 0; }
@@ -1326,7 +1315,7 @@ kbd { color: var(--faint); font-family: inherit; font-size: 10px; }
   .topbar { min-height: 58px; padding: 0 11px; }.menu-button, .context-button { display: inline-grid; }.desktop-panel-toggle, .panel-hover-edge { display: none; }.topbar-title span { display: none; }.topbar-title h1 { font-size: 16px; }
   .mobile-nav { position: fixed; z-index: 35; right: 0; bottom: 0; left: 0; display: grid; height: calc(61px + env(safe-area-inset-bottom)); grid-template-columns: repeat(4, 1fr); border-top: 1px solid var(--border); padding-bottom: env(safe-area-inset-bottom); background: rgba(247,245,239,0.96); backdrop-filter: blur(16px); }.mobile-nav a { display: grid; place-content: center; justify-items: center; gap: 2px; color: var(--faint); font-size: 10px; }.mobile-nav svg { width: 19px; }.mobile-nav a.active { color: var(--blue); }
   .conversation { padding: 28px 17px 156px; }.user-message { max-width: 88%; font-size: 14px; }.answer-prose { font-size: 16px; line-height: 1.8; }.assistant-heading img { width: 27px; height: 27px; }
-  .welcome-view { align-content: start; padding: 64px 16px 90px; }.welcome-identity img { width: 78px; height: 78px; }.welcome-identity h2 { margin-top: 15px; font-size: 25px; }.welcome-context { font-size: 11px; }.welcome-view .composer-wrap { margin-top: 24px; }.starter-actions { max-width: 360px; }.welcome-hero-copy { position: static; max-width: 100%; justify-items: center; text-align: center; margin: -34px auto 0; padding-inline: 14px; }
+  .welcome-view { align-content: start; padding: 64px 16px 90px; }.welcome-identity img { width: 78px; height: 78px; }.welcome-identity h2 { margin-top: 15px; font-size: 25px; }.welcome-context { font-size: 11px; }.welcome-view .composer-wrap { margin-top: 24px; }.starter-actions { max-width: 360px; }
   .composer-wrap { padding: 14px 12px calc(12px + env(safe-area-inset-bottom)); }.composer-hint { display: none; }.composer-model { font-size: 10px; }
   .slash-palette { max-height: 300px; }.slash-palette-heading small { display: none; }.slash-palette-list { max-height: 262px; }
   .page-container { padding: 30px 17px 70px; }.page-heading { align-items: flex-start; flex-direction: column; margin-bottom: 24px; }.page-heading h2 { font-size: 28px; }.heading-actions { width: 100%; flex-wrap: wrap; }.heading-actions .primary-button { flex: 1; }.library-context-bar { align-items: stretch; flex-direction: column; margin-top: -5px; padding: 13px 0; }.library-context-actions { width: 100%; }.library-switcher { min-width: 0; flex: 1; }.library-switcher select { min-width: 0; max-width: none; flex: 1; }.library-context-actions .quiet-button { flex: 0 0 auto; }.library-context-copy small { white-space: normal; }
