@@ -5,10 +5,54 @@ from __future__ import annotations
 import json
 import threading
 from collections import deque
+from collections.abc import AsyncIterator, Iterator
 from typing import Any
+
+import anyio
 
 MAX_STREAM_ENTRIES = 5000
 MAX_STREAM_BYTES = 8 * 1024 * 1024
+
+# Long-lived SSE producers (a chat run blocks for seconds between events) are
+# pumped on this dedicated lane instead of Starlette's shared request pool
+# (anyio default: 40 threads), so active streams can never starve regular
+# endpoint handlers of worker threads. Bounded so streams cannot spawn
+# unbounded threads either.
+STREAM_LANE_TOKENS = 16
+_stream_lane_limiter = anyio.CapacityLimiter(total_tokens=STREAM_LANE_TOKENS)
+
+
+class _StreamLaneDone(Exception):
+    pass
+
+
+def _lane_next(iterator: Iterator[Any]) -> Any:
+    try:
+        return next(iterator)
+    except StopIteration:
+        # Raw StopIteration must not cross a task boundary (asyncio may read
+        # it as a clean return); same trick as starlette's own threadpool
+        # iteration.
+        raise _StreamLaneDone
+
+
+async def iterate_on_stream_lane(generator: Iterator[Any]) -> AsyncIterator[Any]:
+    """Drive a blocking SSE generator on the dedicated stream lane.
+
+    Drop-in replacement for passing a sync iterator straight into
+    StreamingResponse: consumers see the same items in the same order, but
+    every blocked next() occupies the bounded SSE lane rather than the shared
+    request threadpool.
+    """
+    iterator = iter(generator)
+    while True:
+        try:
+            item = await anyio.to_thread.run_sync(
+                _lane_next, iterator, limiter=_stream_lane_limiter
+            )
+        except _StreamLaneDone:
+            return
+        yield item
 
 
 def encode_sse(event: str, data: Any) -> str:

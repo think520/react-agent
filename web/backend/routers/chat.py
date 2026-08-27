@@ -55,7 +55,7 @@ from web.backend.schemas import (
     WikiPlanApplyRequest,
     WikiPlanRecoveryRequest,
 )
-from web.backend.sse import StreamEmitter, encode_sse, get_default_stream_store
+from web.backend.sse import StreamEmitter, encode_sse, get_default_stream_store, iterate_on_stream_lane
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -1508,4 +1508,7 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
             # Turn ended: clear the replay buffer so it cannot grow forever.
             emitter.clear()
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    # Pump the blocking producer on the dedicated SSE lane: without it,
+    # Starlette borrows a shared request-pool thread per blocked next() and
+    # every active stream would eat into the default 40-thread budget.
+    return StreamingResponse(iterate_on_stream_lane(event_stream()), media_type="text/event-stream")

@@ -90,3 +90,48 @@ def test_stream_emitter_stamps_identity():
     # Second emit increments seq.
     frame2 = emitter.emit("message_delta", {"content": "y"})
     assert '"seq": 2' in frame2
+
+
+# --- SSE stream lane (dedicated pump for long-lived producers) -------------
+
+def _consume(gen):
+    import asyncio
+
+    from web.backend.sse import iterate_on_stream_lane
+
+    async def run():
+        return [item async for item in iterate_on_stream_lane(gen)]
+
+    return asyncio.run(run())
+
+
+def test_iterate_on_stream_lane_preserves_order_and_completion():
+    from web.backend.sse import iterate_on_stream_lane
+
+    def producer():
+        for index in range(5):
+            yield f"frame-{index}"
+
+    assert _consume(producer()) == [f"frame-{i}" for i in range(5)]
+
+
+def test_iterate_on_stream_lane_empty_generator():
+    from web.backend.sse import iterate_on_stream_lane
+
+    def producer():
+        return iter(())
+        yield  # pragma: no cover - makes this a generator
+
+    assert _consume(producer()) == []
+
+
+def test_iterate_on_stream_lane_propagates_producer_errors():
+    import pytest as _pytest
+    from web.backend.sse import iterate_on_stream_lane
+
+    def producer():
+        yield "ok"
+        raise ValueError("boom")
+
+    with _pytest.raises(ValueError, match="boom"):
+        _consume(producer())
