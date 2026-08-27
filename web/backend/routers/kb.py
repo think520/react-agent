@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Literal
 
 from fastapi import APIRouter, File, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
 from service.kb_service import KBService
@@ -175,7 +176,12 @@ async def import_files(request: Request, files: list[UploadFile] = File(...)) ->
                 f"File exceeds 25 MB limit: {upload.filename or '(unnamed)'}",
             )
         payload.append((upload.filename or "", content))
-    result = unwrap_service_result(_service(request).import_files(payload, config=get_config()))
+    # Parsing/extraction is CPU- and disk-bound; running it inline here would
+    # freeze the event loop for every concurrent request.
+    service_result = await run_in_threadpool(
+        lambda: _service(request).import_files(payload, config=get_config())
+    )
+    result = unwrap_service_result(service_result)
     result["sync"] = _public_sync(result["sync"])
     return result
 
