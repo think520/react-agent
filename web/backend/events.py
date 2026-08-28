@@ -1,9 +1,22 @@
-"""Convert internal AgentLoop events into stable Web events."""
+"""Convert internal AgentLoop events into stable Web events.
+
+Internal events are canonicalized through core.agent_events (AG-0.2) and then
+translated here into the stable SSE event names the frontend already consumes.
+The outward event names must never change.
+"""
 
 from __future__ import annotations
 
 from typing import Any
 
+from core.agent_events import (
+    MESSAGE_DELTA,
+    MESSAGE_END,
+    SPECIALIST_EVENT,
+    TOOL_END,
+    TOOL_START,
+    canonical_type,
+)
 
 _TOOL_STATUS = {
     "rag_search": "正在查找你的资料",
@@ -40,12 +53,13 @@ _TOOL_COMPLETED_STATUS.update({
 
 
 def to_web_events(event: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
-    event_type = event.get("type")
+    # Canonicalize first so the adapter speaks the AG-0.2 naming contract.
+    event_type = canonical_type(event.get("type"))
 
-    if event_type == "assistant_delta":
+    if event_type == MESSAGE_DELTA:
         return [("message_delta", {"content": event.get("content", "")})]
 
-    if event_type == "tool_start":
+    if event_type == TOOL_START:
         tool_name = str(event.get("tool_name", ""))
         return [("status", {
             "phase": "running",
@@ -53,7 +67,7 @@ def to_web_events(event: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
             "tool_name": tool_name,
         })]
 
-    if event_type == "tool_end":
+    if event_type == TOOL_END:
         web_events: list[tuple[str, dict[str, Any]]] = [("status", {
             "phase": "completed" if event.get("ok") else "failed",
             "message": _TOOL_COMPLETED_STATUS.get(str(event.get("tool_name") or ""), "处理完成") if event.get("ok") else "处理失败",
@@ -70,10 +84,10 @@ def to_web_events(event: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
                 web_events.append(("chat_artifact", {"artifact": artifact}))
         return web_events
 
-    if event_type == "assistant_done":
+    if event_type == MESSAGE_END:
         return []
 
-    if event_type == "specialist_event":
+    if event_type == SPECIALIST_EVENT:
         return []
 
     return []

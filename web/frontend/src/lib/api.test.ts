@@ -64,6 +64,29 @@ describe("api client", () => {
     warn.mockRestore();
   });
 
+  it("de-duplicates replayed frames by seq", async () => {
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode(
+          'event: message_delta\ndata: {"content":"a","seq":1,"stream_id":"s"}\n\n' +
+          'event: message_delta\ndata: {"content":"b","seq":2,"stream_id":"s"}\n\n' +
+          'event: message_delta\ndata: {"content":"a","seq":1,"stream_id":"s"}\n\n',
+        ));
+        controller.close();
+      },
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(body, { status: 200 })));
+    const contents: string[] = [];
+
+    await streamChat("hello", undefined, [], {}, (event) => {
+      if (event.event === "message_delta") contents.push(event.data.content);
+    });
+
+    // The duplicate seq:1 frame is skipped.
+    expect(contents).toEqual(["a", "b"]);
+  });
+
   it("preserves the stable API error code", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
       error: { code: "provider_unavailable", message: "AI 尚未连接" },

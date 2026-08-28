@@ -77,7 +77,7 @@ export function ReviewPage() {
       <div className="page-container review-container">
         <header className="page-heading"><div><span>Review</span><h2>今天的复习</h2><p>先处理到期内容，再回到新的学习任务。</p></div><button className="quiet-button" onClick={() => void loadQueue()}><RefreshCw size={16} />刷新</button></header>
         {error && <ErrorNotice message={error} />}
-        {loading ? <LoadingState label="正在整理复习队列…" /> : items.length ? <>
+        {loading ? <LoadingState label="正在整理复习队列…" state="thinking" /> : items.length ? <>
           {queue?.personalization?.length ? <details className="personalization-chip review-personalization"><summary><Brain size={13} />复习排序依据 <span>{queue.personalization.length}</span></summary><div>{queue.personalization.map((reference) => <section key={reference.id}><strong>{reference.title}</strong><p>{reference.content}</p><small>{reference.scope === "global" ? "全局" : "当前资料库"}</small></section>)}</div></details> : null}
           <div className="review-summary">
             <div><strong>{queue?.due_concepts.length || 0}</strong><span>到期知识点</span></div>

@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CheckCircle2, FilePlus2, FileText, FolderOpen, Library, MessageCircle, MoreHorizontal, NotebookPen, Quote, RefreshCw, Save, Search, Settings2, ShieldCheck, Sparkles, Trash2, Upload, Wrench, X } from "lucide-react";
+import { CheckCircle2, FilePlus2, FileText, FolderOpen, Library, MessageCircle, MoreHorizontal, NotebookPen, Pencil, Quote, RefreshCw, Save, Search, Settings2, ShieldCheck, Sparkles, Trash2, Upload, Wrench, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useNavigate, useOutletContext, useSearchParams } from "react-router-dom";
 import { DropdownSelect } from "../components/DropdownSelect";
+import { DocumentEditor } from "../components/DocumentEditor";
 
 import type { AppOutletContext } from "../components/AppShell";
 import { BrandIllustration, EmptyState, ErrorNotice, IconButton, LoadingState, formatRelativeDate } from "../components/common";
 import { WikiPlanCard } from "../components/WikiPlanCard";
 import { ApiError, api } from "../lib/api";
+import { Modal, useConfirm } from "../ui/Modal";
 import { useHandoffStore } from "../stores/handoffStore";
 import type { DocumentExtractionStatus, DocumentSection, DocumentSummary, PersonalKnowledgeItem, WikiEditablePage, WikiGenerationMode, WikiHealth, WikiPlan, WikiRepairPlan, WikiRunEstimate, WikiScopeMode, WikiTask } from "../types";
 
@@ -43,6 +45,7 @@ export function LibraryPage() {
   } = useOutletContext<AppOutletContext>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const { confirm, confirmElement } = useConfirm();
   const [documents, setDocuments] = useState<DocumentSummary[]>([]);
   const [collection, setCollection] = useState<"material" | "wiki">(
     searchParams.get("collection") === "wiki" ? "wiki" : "material",
@@ -59,6 +62,7 @@ export function LibraryPage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [editingDocumentId, setEditingDocumentId] = useState<string | null>(null);
   const [highlightedChunk, setHighlightedChunk] = useState<string | null>(null);
   const [startingExtractionId, setStartingExtractionId] = useState<string | null>(null);
   const [extractionStatuses, setExtractionStatuses] = useState<Record<string, DocumentExtractionStatus>>({});
@@ -88,6 +92,15 @@ export function LibraryPage() {
   const searchParamsRef = useRef(searchParams);
   const wikiViewRef = useRef(wikiView);
   useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
+
+  // TASKS_LIBRARY_REWORK task 1: restore list scroll on mount, save on unmount.
+  useEffect(() => {
+    const element = pageRef.current;
+    if (element) element.scrollTop = Number(localStorage.getItem("bobodan:library-scroll")) || 0;
+    return () => {
+      if (element) localStorage.setItem("bobodan:library-scroll", String(element.scrollTop));
+    };
+  }, []);
   useEffect(() => { searchParamsRef.current = searchParams; }, [searchParams]);
   useEffect(() => { wikiViewRef.current = wikiView; }, [wikiView]);
 
@@ -360,7 +373,7 @@ export function LibraryPage() {
   }
 
   async function startEstimatedWiki(mode = wikiGenerationMode) {
-    if (mode === "deep" && !window.confirm("深度整理会处理完整范围，耗时和 Token 消耗可能明显增加。确认开始？")) return;
+    if (mode === "deep" && !(await confirm({ title: "开始深度整理？", detail: "深度整理会处理完整范围，耗时和 Token 消耗可能明显增加。", confirmLabel: "开始深度整理" }))) return;
     setWikiPlanLoading(true);
     setError("");
     try {
@@ -556,7 +569,7 @@ export function LibraryPage() {
   }
 
   async function archiveSelectedWikiPage() {
-    if (!wikiEditor?.document_id || !window.confirm(`归档“${wikiEditor.title}”？之后可以通过数据恢复入口找回。`)) return;
+    if (!wikiEditor?.document_id || !(await confirm({ title: `归档“${wikiEditor.title}”？`, detail: "之后可以通过数据恢复入口找回。", confirmLabel: "归档页面", danger: true }))) return;
     setWikiEditorSaving(true);
     try {
       await api.archiveWikiPage(wikiEditor.document_id);
@@ -569,9 +582,21 @@ export function LibraryPage() {
   }
 
   function selectDocument(documentId: string) {
+    // TASKS_LIBRARY_REWORK task 1: material documents open the full reader page.
+    if (collection === "material") {
+      saveListScroll();
+      navigate(`/library/read/${documentId}?collection=material`);
+      return;
+    }
     setSelectedId(documentId);
     setHighlightedChunk(null);
     setSearchParams({ collection, document: documentId, ...(collection === "wiki" ? { wikiView } : {}) }, { replace: true });
+  }
+
+  // Preserve the list scroll position across list <-> reader navigation.
+  function saveListScroll() {
+    const element = pageRef.current;
+    if (element) localStorage.setItem("bobodan:library-scroll", String(element.scrollTop));
   }
 
   function selectCollection(next: "material" | "wiki") {
@@ -635,7 +660,7 @@ export function LibraryPage() {
       openExtractionReview(doc, existing);
       return;
     }
-    if (force && !window.confirm(`重新提取「${doc.title || doc.source}」的概念？这会再次调用模型并消耗 Token。`)) return;
+    if (force && !(await confirm({ title: `重新提取「${doc.title || doc.source}」的概念？`, detail: "这会再次调用模型并消耗 Token。", confirmLabel: "重新提取" }))) return;
 
     setStartingExtractionId(doc.document_id);
     const content = sections.map((s) => s.text).join("\n\n");
@@ -715,9 +740,9 @@ export function LibraryPage() {
       const impact = await api.documentImpact(document.document_id);
       const affected = impact.affected_pages.slice(0, 4).map((item) => item.title).join("、");
       const impactMessage = impact.affected_count
-        ? `\n\n这会影响 ${impact.affected_count} 个 Wiki 页面${affected ? `：${affected}` : ""}。这些页面只会标记为待更新，不会自动删除。`
+        ? `这会影响 ${impact.affected_count} 个 Wiki 页面${affected ? `：${affected}` : ""}。这些页面只会标记为待更新，不会自动删除。`
         : "";
-      if (!window.confirm(`归档资料“${document.title || document.source}”？原文件会移入资料库归档区，并从当前索引移除。${impactMessage}`)) return;
+      if (!(await confirm({ title: `归档资料“${document.title || document.source}”？`, detail: <>原文件会移入资料库归档区，并从当前索引移除。{impactMessage && <p>{impactMessage}</p>}</>, confirmLabel: "归档资料", danger: true }))) return;
       await api.deleteDocument(document.document_id);
       setNotice("资料已归档，本地索引已更新；关联 Wiki 已标记为待检查。");
       if (selectedId === document.document_id) {
@@ -888,19 +913,18 @@ export function LibraryPage() {
           {repairPlan && <section className="wiki-repair-plan" aria-label="Wiki 修复计划"><header><div><strong>修复计划已准备</strong><small>{repairPlan.items.length} 个检查项 · {repairPlan.items.filter((item) => item.execution === "local" && item.status === "pending").length} 项可本地安全处理</small></div><span>{repairPlan.status === "applied" ? "已完成" : repairPlan.status === "partial" ? "部分完成" : "等待确认"}</span></header><div>{repairPlan.items.slice(0, 12).map((item) => <div key={item.item_id}><span><b>{item.title}</b><small>{item.execution === "local" ? "本地修复" : item.execution === "ai" ? "需要 AI 审核" : "需要人工确认"}</small></span><span>{item.page_id && item.execution !== "local" && <button className="quiet-button" onClick={() => void openWikiEditor(item.page_id || undefined)}>打开页面处理</button>}<i>{item.status === "applied" ? "已修复" : item.status === "ready" ? "候选已准备" : "待处理"}</i></span></div>)}</div>{repairPlan.ai_review?.length ? <div className="wiki-ai-review">{repairPlan.ai_review.slice(0, 6).map((item, index) => <article key={`${item.issue_type || "review"}-${index}`}><strong>{item.pages?.join("、") || "Wiki 审核候选"}</strong><p>{item.reason || item.suggestion || "请打开相关页面核对后再修改。"}</p></article>)}</div> : null}<footer>{repairPlan.items.some((item) => item.execution === "ai" && item.status === "pending") && <button className="quiet-button" disabled={maintenanceLoading} onClick={() => void draftRepairPlan()}><Sparkles size={15} />生成 AI 审核候选 · 约 1 次请求</button>}<button className="primary-button" disabled={maintenanceLoading || !repairPlan.items.some((item) => item.execution === "local" && item.status === "pending")} onClick={() => void applyRepairPlan()}><ShieldCheck size={15} />应用本地安全修复</button></footer></section>}
           <footer><button className="quiet-button" disabled={maintenanceLoading} onClick={() => void checkWiki()}><RefreshCw size={15} />重新检查</button><button className="quiet-button" disabled={maintenanceLoading} onClick={() => void reviewWikiSemantics()}><Sparkles size={15} />AI 语义检查</button><button className="primary-button" disabled={maintenanceLoading} onClick={() => void organizeWiki()}><Wrench size={15} />{maintenanceLoading ? "正在生成" : "生成修复计划"}</button></footer>
         </section>}
-        {wikiEditorOpen && wikiEditor && <div className="wiki-editor-backdrop" role="presentation">
-          <section className="wiki-editor" role="dialog" aria-modal="true" aria-label={wikiEditor.document_id ? "编辑 Wiki 页面" : "新建个人笔记"}>
+        {wikiEditorOpen && wikiEditor && <Modal onClose={() => setWikiEditorOpen(false)} ariaLabel={wikiEditor.document_id ? "编辑 Wiki 页面" : "新建个人笔记"} className="wiki-editor" backdropClassName="wiki-editor-backdrop">
             <header><div><span>{wikiEditor.page_type === "wiki_note" ? "Personal Note" : "Wiki Page"}</span><h3>{wikiEditor.document_id ? "编辑页面" : "新建个人笔记"}</h3><p>{wikiEditor.managed_by === "mixed" ? "这页包含你的手写修改，后续 AI 更新会先展示差异。" : "来源与系统字段保持只读，正文由你决定。"}</p></div><IconButton label="关闭编辑器" onClick={() => setWikiEditorOpen(false)}><X size={18} /></IconButton></header>
             <div className="wiki-editor-toolbar"><div role="tablist" aria-label="编辑模式"><button className={!wikiEditorPreview ? "active" : ""} onClick={() => setWikiEditorPreview(false)}>编辑</button><button className={wikiEditorPreview ? "active" : ""} onClick={() => setWikiEditorPreview(true)}>预览</button></div><small>修订 {wikiEditor.content_revision} · {wikiEditor.generated_by === "user" ? "个人笔记" : wikiEditor.managed_by === "mixed" ? "AI 与你共同维护" : "AI 整理页"}</small></div>
             <main>{wikiEditorPreview ? <article className="reader-prose wiki-editor-preview"><h1>{wikiEditor.title || "未命名笔记"}</h1><ReactMarkdown remarkPlugins={[remarkGfm]}>{wikiEditor.body || "还没有正文。"}</ReactMarkdown></article> : <div className="wiki-editor-fields"><label><span>标题</span><input value={wikiEditor.title} maxLength={160} onChange={(event) => updateWikiEditor({ title: event.target.value })} /></label><label><span>标签</span><input value={wikiEditor.tags.join("，")} onChange={(event) => updateWikiEditor({ tags: event.target.value.split(/[，,]/).map((item) => item.trim()).filter(Boolean) })} placeholder="学习，概念" /></label><label><span>关联页面</span><input value={wikiEditor.related.join("，")} onChange={(event) => updateWikiEditor({ related: event.target.value.split(/[，,]/).map((item) => item.trim()).filter(Boolean) })} placeholder="用页面标题建立关联" /></label><label className="wide"><span>Markdown 正文</span><textarea value={wikiEditor.body} onChange={(event) => updateWikiEditor({ body: event.target.value })} rows={18} /></label></div>}</main>
             <footer>{wikiEditor.document_id && <button className="danger-text-button" disabled={wikiEditorSaving} onClick={() => void archiveSelectedWikiPage()}><Trash2 size={15} />归档</button>}<div><button className="quiet-button" disabled={wikiEditorSaving} onClick={() => setWikiEditorOpen(false)}>取消</button><button className="primary-button" disabled={wikiEditorSaving || !wikiEditor.title.trim() || !wikiEditor.body.trim()} onClick={() => void saveWikiEditor()}><Save size={15} />{wikiEditorSaving ? "正在保存" : "保存页面"}</button></div></footer>
-          </section>
-        </div>}
+        </Modal>}
+        {confirmElement}
         {(documentImportNotice || notice) && <div className="success-notice"><CheckCircle2 size={17} />{documentImportNotice || notice}</div>}
         {documentImportError && <ErrorNotice message={documentImportError} />}
         {error && <ErrorNotice message={error} action={<button className="quiet-button" onClick={() => void loadDocuments()}>重试</button>} />}
         {loading ? <div className="illustrated-loading"><BrandIllustration state="reading" size={76} /><LoadingState label={collection === "wiki" ? "正在整理 Wiki…" : "正在读取本地资料…"} /></div> : documents.length ? (
-          <div className="library-workspace">
+          <div className={"library-workspace" + (collection === "material" ? " list-only" : "")}>
             <aside className="document-rail">
               <div className="rail-label"><FolderOpen size={15} />{collection === "wiki" ? wikiView === "knowledge" ? "知识页面" : wikiView === "sources" ? "资料索引" : wikiView === "notes" ? "个人笔记" : "全部页面" : "我的资料"} <span>{filteredDocuments.length}</span></div>
               <label className="document-search"><Search size={14} /><input value={documentQuery} onChange={(event) => setDocumentQuery(event.target.value)} placeholder="搜索资料" aria-label="搜索资料" /></label>
@@ -927,12 +951,13 @@ export function LibraryPage() {
                       <i className={document.vector_status === "error" ? "error" : "ready"} title={document.vector_status || "已建立索引"} />
                     )}
                   </button>
+                  {collection === "material" && (document.kind === "md" || document.kind === "txt" || document.kind === "markdown") && <IconButton className="document-edit" label={`编辑 ${document.title || document.source}`} onClick={(event) => { event.stopPropagation(); setEditingDocumentId(document.document_id); }}><Pencil size={14} /></IconButton>}
                   {collection === "material" && document.managed && <IconButton className="document-delete" label={`删除 ${document.title || document.source}`} disabled={deletingId === document.document_id} onClick={() => void deleteDocument(document)}><Trash2 size={14} /></IconButton>}
                 </div>
               ))}
               {!filteredDocuments.length && <p className="document-search-empty">没有找到匹配的资料。</p>}
             </aside>
-            <article className="document-reader">
+            {collection === "wiki" && <article className="document-reader">
               {selected && <header>
                 <span>{selected.collection === "wiki" ? `历史整理 · ${selected.wiki_type ? wikiTypeLabels[selected.wiki_type] : "页面"}` : selected.kind || "本地资料"}{selected.course ? ` · ${selected.course}` : ""}</span>
                 <h2>{selected.title || selected.source}</h2>
@@ -953,6 +978,9 @@ export function LibraryPage() {
                     <button className="primary-button reader-extract" disabled={startingExtractionId === selected.document_id || !sections.length} onClick={() => void extractAndReview(selected, true)}><RefreshCw size={15} />{effectiveExtractionStatus(selected) === "failed" ? "重新尝试" : "重新提取"}</button>
                   )}
                   <button className="quiet-button" onClick={askAboutDocument}><MessageCircle size={15} />基于此文档提问</button>
+                  {(selected.kind === "md" || selected.kind === "txt" || selected.kind === "markdown" || selected.kind === "course_document" || selected.kind === "obsidian_note") && (
+                    <button className="quiet-button" onClick={() => setEditingDocumentId(selected.document_id)}><Pencil size={15} />编辑</button>
+                  )}
                   {["review", "completed"].includes(effectiveExtractionStatus(selected)) && (
                     <details className="reader-extract-more">
                       <summary className="icon-button" aria-label="更多概念操作" title="更多概念操作"><MoreHorizontal size={16} /></summary>
@@ -978,7 +1006,7 @@ export function LibraryPage() {
                 )}
               </header>}
               {selectionQuote && <div className="selection-toolbar"><Quote size={15} /><span>已选择 {selectionQuote.length} 个字符</span><button className="quiet-button" onClick={askAboutSelection}>带到对话</button></div>}
-              {detailLoading ? <LoadingState label="正在打开资料…" /> : sections.length ? <div className="reader-prose" onMouseUp={captureSelection}>{sections.map((section, index) => {
+              {detailLoading && !sections.length ? <LoadingState label="正在打开资料…" /> : sections.length ? <div className={`reader-prose ${detailLoading ? "refreshing" : ""}`} onMouseUp={captureSelection}>{sections.map((section, index) => {
                 // 同一标题的相邻切片只显示一次 heading，避免切片边界造成
                 // 重复标题的"断开感"（2026-08-12 阅读体验决策）。
                 const previous = index > 0 ? sections[index - 1] : undefined;
@@ -990,8 +1018,8 @@ export function LibraryPage() {
                     <div className="reader-section-prose"><ReactMarkdown remarkPlugins={[remarkGfm]}>{section.text}</ReactMarkdown></div>
                   </section>
                 );
-              })}</div> : <EmptyState compact title="没有可阅读的片段" description="这份资料可能仍在建立索引，刷新后再试一次。" />}
-            </article>
+              })}</div> : <EmptyState compact title="没有可阅读的片段" description="这份资料可能仍在建立索引，刷新后再试一次。" state="resting" />}
+            </article>}
           </div>
         ) : (
           <EmptyState state={collection === "wiki" ? "listening" : "reading"}
@@ -1001,6 +1029,23 @@ export function LibraryPage() {
           />
         )}
       </div>
+      {editingDocumentId && selected && (
+        <DocumentEditor
+          documentId={editingDocumentId}
+          title={selected.title || selected.source}
+          onClose={() => setEditingDocumentId(null)}
+          onSaved={() => {
+            setEditingDocumentId(null);
+            void loadDocuments();
+            if (selectedId) {
+              setDetailLoading(true);
+              void api.document(selectedId)
+                .then((result) => setSections(result.sections))
+                .finally(() => setDetailLoading(false));
+            }
+          }}
+        />
+      )}
     </section>
   );
 }

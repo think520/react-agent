@@ -3,6 +3,7 @@ import { FolderOpen, Library, X } from "lucide-react";
 
 import { ErrorNotice, IconButton } from "./common";
 import type { LibraryMigrationPreview } from "../types";
+import { Modal } from "../ui/Modal";
 
 export type LibrarySetupMode = "create" | "open" | "migrate";
 
@@ -70,8 +71,8 @@ export function LibrarySetupDialog({
     }
   }
 
-  return <div className="dialog-layer" role="presentation">
-    <form className="library-setup-dialog" role="dialog" aria-modal="true" aria-labelledby="library-setup-title" onSubmit={submit}>
+  return <Modal backdropClassName="dialog-layer" onClose={onClose} labelledBy="library-setup-title" className="library-setup-dialog">
+    <form onSubmit={submit}>
       <header>
         <span className="dialog-symbol"><Library size={20} /></span>
         <div><span>本地资料库</span><h2 id="library-setup-title">{importCount ? `准备导入 ${importCount} 份资料` : mode === "create" ? "新建空资料库" : mode === "open" ? "打开 Bobodan 资料库" : "接入现有资料文件夹"}</h2></div>
@@ -93,5 +94,5 @@ export function LibrarySetupDialog({
       {error && <ErrorNotice message={error} />}
       <footer><button type="button" className="quiet-button" onClick={onClose}>取消</button><button className="primary-button" disabled={busy || !path.trim()}>{busy ? (mode === "migrate" && preview ? (preview.already_initialized ? "正在打开资料库" : "正在接入并同步") : "正在处理") : mode === "create" ? (importCount ? "创建并继续导入" : "新建资料库") : mode === "open" ? (importCount ? "打开并继续导入" : "打开资料库") : preview ? (preview.already_initialized ? (importCount ? "打开并继续导入" : "打开这个资料库") : importCount ? "接入并继续导入" : "确认原地接入") : "扫描文件夹"}</button></footer>
     </form>
-  </div>;
+  </Modal>;
 }

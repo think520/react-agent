@@ -18,7 +18,10 @@ import { WebConsentCard } from "../components/artifacts/WebConsentCard";
 import { WebEvidenceCard } from "../components/artifacts/WebEvidenceCard";
 import { WikiFocusCard } from "../components/artifacts/WikiFocusCard";
 import { WikiResultCard } from "../components/artifacts/WikiResultCard";
+import { ProcessFoldBlock } from "../components/ProcessFoldBlock";
 import { useChatStream, type ProcessBrandState } from "../hooks/useChatStream";
+import { useStickyBottomScroll } from "../hooks/useStickyBottomScroll";
+import { BlockErrorBoundary } from "../ui";
 import { api, streamChat } from "../lib/api";
 import { routeSlashCommand } from "../lib/commandRouter";
 import { toErrorMessage } from "../lib/errors";
@@ -57,9 +60,16 @@ function processTitle(state: ProcessBrandState) {
   return "正在理解问题";
 }
 
+// State art swaps must not flash empty; warm every phase image once so the
+// 160ms opacity transition is the only visible change between phases.
+for (const state of ["thinking", "reading", "writing", "ready"] as const) {
+  const img = new Image();
+  img.src = `/assets/brand/states/bobodan-state-${state}.webp`;
+}
+
 function BobodanProcess({ state, detail }: { state: ProcessBrandState; detail: string }) {
   return <div className={`bobodan-process ${state}`} role="status">
-    <BrandIllustration key={state} state={state} size={52} />
+    <BrandIllustration state={state} size={52} />
     <div><strong>{processTitle(state)}</strong><small>{detail}</small><span className="bobodan-process-ink" aria-hidden="true"><i /><i /><i /></span></div>
   </div>;
 }
@@ -202,7 +212,7 @@ export function ChatPage() {
   const [mentionTab, setMentionTab] = useState<"document" | "session">("document");
   const [mentionIndex, setMentionIndex] = useState(0);
   const [mentionDismissed, setMentionDismissed] = useState(false);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useStickyBottomScroll<HTMLDivElement>([messages, status]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const sessionIdRef = useRef(sessionId);
@@ -289,13 +299,6 @@ export function ChatPage() {
     const timer = window.setInterval(() => void poll(), 1600);
     return () => { cancelled = true; window.clearInterval(timer); };
   }, [planningRunKey, setMessages]);
-
-  useEffect(() => {
-    const element = scrollRef.current;
-    if (element && typeof element.scrollTo === "function") {
-      element.scrollTo({ top: element.scrollHeight, behavior: sending ? "smooth" : "auto" });
-    }
-  }, [messages, status, sending]);
 
   async function send(event?: FormEvent, overrideMessage?: string, webResearchId?: string) {
     event?.preventDefault();
@@ -986,11 +989,12 @@ export function ChatPage() {
               </div>
             ) : (
               <article className={`assistant-message ${message.failed ? "failed" : ""}`} key={index}>
-                <div className="assistant-heading"><img src="/assets/brand/expressions/bobodan-expression-neutral.webp" alt="" /><span>{settings?.preferences.assistant.display_name || "Bobodan"}</span></div>
+                <div className="assistant-heading"><img src={message.failed ? "/assets/brand/expressions/bobodan-expression-curious.webp" : "/assets/brand/expressions/bobodan-expression-neutral.webp"} alt="" /><span>{settings?.preferences.assistant.display_name || "Bobodan"}</span></div>
                 {message.pending && status && <BobodanProcess state={brandState} detail={status} />}
                 {!message.pending && <RunSummary artifact={message.artifacts?.find((artifact): artifact is RunSummaryArtifact => artifact.type === "run_summary")} />}
-                <div className="answer-prose"><ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content || (message.pending ? "正在整理回答…" : message.failed ? "回答没有完成。" : "本轮没有生成可显示的内容。")}</ReactMarkdown></div>
-                {message.artifacts?.map(artifactSurface)}
+                {!message.pending && message.process?.length ? <ProcessFoldBlock steps={message.process} /> : null}
+                <BlockErrorBoundary><div className="answer-prose"><ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content || (message.pending ? "正在整理回答…" : message.failed ? "回答没有完成。" : "本轮没有生成可显示的内容。")}</ReactMarkdown></div></BlockErrorBoundary>
+                {message.artifacts?.map((artifact) => <BlockErrorBoundary key={artifact.artifact_id}>{artifactSurface(artifact)}</BlockErrorBoundary>)}
                 <AttributionBadges attribution={message.attribution} onOpenSources={showSourceContext} />
                 <PersonalizationChip references={message.personalization} />
                 {!message.pending && !message.failed && message.content && !message.artifacts?.some((artifact) => artifact.type === "practice_ready") && <div className="answer-actions"><button className="quiet-button" onClick={() => preparePractice(index)}><BookOpen size={15} />生成 5 道练习</button></div>}

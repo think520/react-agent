@@ -17,9 +17,14 @@ __pycache__/
 .pytest_cache/
 .pytest_cache_local/
 .pytest_tmp/
+.pytest_tmp2/
 .tmp_test/
 venv/
 .venv/
+
+# Scratch / debug scripts
+/_tmp/
+/tmp/
 
 # Frontend
 web/frontend/node_modules/
@@ -41,3 +46,4 @@ obsidian/.obsidian/
 # OS
 .DS_Store
 Thumbs.db
+.zcode/

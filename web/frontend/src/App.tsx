@@ -4,16 +4,19 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { AppShell } from "./components/AppShell";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { LoadingState } from "./components/common";
+import { FadeIn } from "./ui";
 
 const ChatPage = lazy(() => import("./pages/ChatPage").then((module) => ({ default: module.ChatPage })));
 const KnowledgeMapPage = lazy(() => import("./pages/KnowledgeMapPage").then((module) => ({ default: module.KnowledgeMapPage })));
 const LibraryPage = lazy(() => import("./pages/LibraryPage").then((module) => ({ default: module.LibraryPage })));
+const ReaderPage = lazy(() => import("./pages/ReaderPage").then((module) => ({ default: module.ReaderPage })));
 const NotesPage = lazy(() => import("./pages/NotesPage").then((module) => ({ default: module.NotesPage })));
 const PracticePage = lazy(() => import("./pages/PracticePage").then((module) => ({ default: module.PracticePage })));
 const ReviewPage = lazy(() => import("./pages/ReviewPage").then((module) => ({ default: module.ReviewPage })));
 
 function page(element: ReactElement) {
-  return <ErrorBoundary>{element}</ErrorBoundary>;
+  // FE-4: unified lightweight page transition (fade + micro-move), no full-page slide.
+  return <ErrorBoundary><FadeIn className="route-fade">{element}</FadeIn></ErrorBoundary>;
 }
 
 export default function App() {
@@ -29,6 +32,7 @@ export default function App() {
             <Route path="practice/:practiceSessionId" element={page(<PracticePage />)} />
             <Route path="review" element={page(<ReviewPage />)} />
             <Route path="library" element={page(<LibraryPage />)} />
+            <Route path="library/read/:id" element={page(<ReaderPage />)} />
             <Route path="notes" element={page(<NotesPage />)} />
             <Route path="knowledge-map" element={page(<KnowledgeMapPage />)} />
           </Route>

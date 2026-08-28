@@ -181,6 +181,41 @@ export const api = {
   document: (id: string) => request<{ document: DocumentSummary; sections: DocumentSection[] }>(
     `/api/kb/documents/${encodeURIComponent(id)}`,
   ),
+  documentContent: (id: string) => request<{ document: DocumentSummary; content: string; editable: boolean; content_hash: string }>(
+    `/api/kb/documents/${encodeURIComponent(id)}/content`,
+  ),
+  editDocument: (id: string, body: { content: string; expected_hash?: string | null; conflict_action?: "overwrite" | "abandon" | "save_as_new" }) => request<{
+    document_id: string; content_hash: string; conflict?: string | null; sync?: Record<string, unknown>;
+  }>(
+    `/api/kb/documents/${encodeURIComponent(id)}/content`,
+    { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+  ),
+  documentVersions: (id: string) => request<{ versions: Array<{ id: string; created_at: string; content_hash: string }> }>(
+    `/api/kb/documents/${encodeURIComponent(id)}/versions`,
+  ),
+  rollbackDocument: (id: string, versionId: string) => request<{ document_id: string; version_id: string; sync?: Record<string, unknown> }>(
+    `/api/kb/documents/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}/rollback`,
+    { method: "POST" },
+  ),
+  createDocumentProposal: (id: string, body: { instruction: string; provider?: string | null }) => request<{ proposal: import("../types").DocumentProposal }>(
+    `/api/kb/documents/${encodeURIComponent(id)}/proposals`,
+    json(body),
+  ),
+  createNewDocumentProposal: (body: { title: string; content: string; reason?: string }) => request<{ proposal: import("../types").DocumentProposal }>(
+    "/api/kb/proposals",
+    json(body),
+  ),
+  documentProposal: (id: string) => request<{ proposal: import("../types").DocumentProposal }>(
+    `/api/kb/proposals/${encodeURIComponent(id)}`,
+  ),
+  applyDocumentProposal: (id: string) => request<{ proposal: import("../types").DocumentProposal }>(
+    `/api/kb/proposals/${encodeURIComponent(id)}/apply`,
+    { method: "POST" },
+  ),
+  undoDocumentProposal: (id: string) => request<{ proposal: import("../types").DocumentProposal }>(
+    `/api/kb/proposals/${encodeURIComponent(id)}/undo`,
+    { method: "POST" },
+  ),
   deleteDocument: (id: string) => request<{ document_id: string }>(
     `/api/kb/documents/${encodeURIComponent(id)}`,
     { method: "DELETE" },
@@ -373,6 +408,13 @@ export const api = {
   })),
   abandonPractice: (id: number) => request(`/api/quiz/sessions/${id}`, { method: "DELETE" }),
   reviewQueue: () => request<ReviewQueue>("/api/learning/review-queue"),
+  conceptMastery: (concept: string) => request<{
+    concept: string;
+    status?: string;
+    score?: number;
+    review_count?: number;
+    next_review?: string | null;
+  }>(`/api/learning/progress?concept=${encodeURIComponent(concept)}`),
   generateWrongAnswerVariant: (attemptId: number) => request<{ question_id: number; question: Question }>(
     "/api/quiz/wrong/variant",
     json({ attempt_id: attemptId }),
@@ -456,6 +498,16 @@ export const api = {
     request<{ relationship: import("../types").RelationshipEdge }>("/api/graph/relationships", json(body)),
   graphDeleteRelationship: (relId: string) =>
     request<{ ok: boolean }>(`/api/graph/relationships/${encodeURIComponent(relId)}`, { method: "DELETE" }),
+  // Graph edit (TASKS_LIBRARY_REWORK task 4): validated user edits at /api/kb.
+  updateConcept: (conceptId: string, body: { name?: string; definition?: string; aliases?: string[]; note?: string }) =>
+    request<{ concept: import("../types").ConceptNode }>(
+      `/api/kb/concepts/${encodeURIComponent(conceptId)}`,
+      { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+    ),
+  createRelationship: (body: { from_id: string; to_id: string; rel_type: string; note?: string }) =>
+    request<{ relationship: import("../types").RelationshipEdge }>("/api/kb/relationships", json(body)),
+  deleteRelationship: (relId: string) =>
+    request<{ ok: boolean }>(`/api/kb/relationships/${encodeURIComponent(relId)}`, { method: "DELETE" }),
   graphCandidates: (status = "pending", documentId?: string) =>
     request<{ candidates: import("../types").ConceptCandidate[]; count: number }>(
       `/api/graph/candidates?status=${encodeURIComponent(status)}${documentId ? `&document_id=${encodeURIComponent(documentId)}` : ""}`,
@@ -498,16 +550,21 @@ export const api = {
     request<{ saved: number }>("/api/graph/positions", json({ positions, view_id: viewId })),
 };
 
+interface StreamFrameMeta {
+  stream_id?: string;
+  seq?: number;
+}
+
 export type ChatStreamEvent =
-  | { event: "run_started"; data: { run_id: string; chat_session_id: string } }
-  | { event: "message_delta"; data: { content: string } }
-  | { event: "status"; data: { phase: string; message: string; tool_name?: string; elapsed?: number } }
-  | { event: "citation"; data: { attribution: Attribution } }
-  | { event: "chat_artifact"; data: { artifact: ChatArtifact } }
-  | { event: "personalization"; data: { references: PersonalizationRef[] } }
-  | { event: "practice" | "learning_update"; data: Record<string, unknown> }
-  | { event: "run_completed"; data: { chat_session_id: string; termination_reason: string } }
-  | { event: "run_failed"; data: { error: { code: string; message: string } } };
+  | { event: "run_started"; data: { run_id: string; chat_session_id: string } & StreamFrameMeta }
+  | { event: "message_delta"; data: { content: string } & StreamFrameMeta }
+  | { event: "status"; data: { phase: string; message: string; tool_name?: string; elapsed?: number } & StreamFrameMeta }
+  | { event: "citation"; data: { attribution: Attribution } & StreamFrameMeta }
+  | { event: "chat_artifact"; data: { artifact: ChatArtifact } & StreamFrameMeta }
+  | { event: "personalization"; data: { references: PersonalizationRef[] } & StreamFrameMeta }
+  | { event: "practice" | "learning_update"; data: Record<string, unknown> & StreamFrameMeta }
+  | { event: "run_completed"; data: { chat_session_id: string; termination_reason: string } & StreamFrameMeta }
+  | { event: "run_failed"; data: { error: { code: string; message: string } } & StreamFrameMeta };
 
 export function parseFrame(frame: string): ChatStreamEvent | null {
   let event = "message";
@@ -582,6 +639,15 @@ export async function streamChat(
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  // De-duplicate replayed frames on reconnect (AG-0.3): each frame carries a
+  // monotonic seq; an already-consumed seq must never render twice.
+  const consumedSeqs = new Set<number>();
+  const dispatch = (parsed: ChatStreamEvent) => {
+    const seq = parsed.data.seq;
+    if (typeof seq === "number" && consumedSeqs.has(seq)) return;
+    if (typeof seq === "number") consumedSeqs.add(seq);
+    onEvent(parsed);
+  };
   while (true) {
     const { done, value } = await reader.read();
     buffer += decoder.decode(value, { stream: !done });
@@ -589,12 +655,12 @@ export async function streamChat(
     buffer = frames.pop() || "";
     for (const frame of frames) {
       const parsed = parseFrame(frame);
-      if (parsed) onEvent(parsed);
+      if (parsed) dispatch(parsed);
     }
     if (done) break;
   }
   if (buffer.trim()) {
     const parsed = parseFrame(buffer);
-    if (parsed) onEvent(parsed);
+    if (parsed) dispatch(parsed);
   }
 }

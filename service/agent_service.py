@@ -204,6 +204,7 @@ class AgentService:
         tools_schema: list[dict] | None = None,
         allowed_tool_names: set[str] | frozenset[str] | None = None,
         response_guard=None,
+        memory_injector=None,
     ) -> Iterator[dict]:
         """Create an AgentLoop and return its event stream iterator.
 
@@ -213,9 +214,11 @@ class AgentService:
         Yields events: assistant_delta, tool_start, tool_end, specialist_event, assistant_done.
         """
         from core.agent_loop import AgentLoop
+        from core.runtime import guard_provider
 
+        guarded_provider = guard_provider(provider)
         agent = AgentLoop(
-            provider,
+            guarded_provider,
             session,
             skills_prompt=skills_prompt,
             mcp_prompt=mcp_prompt,
@@ -224,5 +227,6 @@ class AgentService:
             tools_schema=tools_schema,
             allowed_tool_names=allowed_tool_names,
             response_guard=response_guard,
+            memory_injector=memory_injector,
         )
         return agent.run_stream(user_input)

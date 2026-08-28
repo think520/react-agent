@@ -32,6 +32,7 @@ interface UiState {
   onboardingOpen: boolean;
   librarySetup: LibrarySetupDialogState | null;
   conceptDetailId: string | null;
+  graphRevision: number;
   knowledgeContext: KnowledgeContext | null;
   sourceContext: Attribution | null;
   setPanelOpen: (side: "left" | "right", open: boolean) => void;
@@ -43,6 +44,7 @@ interface UiState {
   openLibrarySetup: (options?: LibrarySetupDialogState) => void;
   closeLibrarySetup: () => void;
   setConceptDetailId: (conceptId: string | null) => void;
+  bumpGraphRevision: () => void;
   setKnowledgeContext: (context: KnowledgeContext | null) => void;
   setSourceContext: (attribution: Attribution | null) => void;
   setDocumentScope: (documentIds: string[]) => void;
@@ -82,6 +84,7 @@ export const useUiStore = create<UiState>()(
       onboardingOpen: false,
       librarySetup: null,
       conceptDetailId: null,
+      graphRevision: 0,
       knowledgeContext: null,
       sourceContext: null,
       setPanelOpen: (side, open) => set(side === "left" ? { leftSidebarOpen: open } : { rightSidebarOpen: open }),
@@ -95,6 +98,7 @@ export const useUiStore = create<UiState>()(
       openLibrarySetup: (options = {}) => set({ librarySetup: options }),
       closeLibrarySetup: () => set({ librarySetup: null }),
       setConceptDetailId: (conceptId) => set({ conceptDetailId: conceptId }),
+      bumpGraphRevision: () => set((state) => ({ graphRevision: state.graphRevision + 1 })),
       setKnowledgeContext: (context) => set({ knowledgeContext: context }),
       setSourceContext: (attribution) => set({ sourceContext: attribution }),
       setDocumentScope: (documentIds) => set({ documentScope: Array.from(new Set(documentIds)) }),

@@ -113,6 +113,23 @@ export interface DocumentSummary {
   wiki_coverage?: WikiDocumentCoverage;
 }
 
+export interface DocumentProposal {
+  proposal_id: string;
+  kind: "edit" | "create";
+  status: "proposed" | "applied" | "undone";
+  document_id: string | null;
+  title: string;
+  instruction: string;
+  reason: string;
+  new_content: string;
+  original_content: string;
+  diff: Array<{ type: "add" | "remove" | "context"; line: string }>;
+  impact: Array<{ title: string; page_type: string; target: string; source_count: number; action: string }>;
+  impact_count: number;
+  checkpoint_id: string | null;
+  created_at: string;
+}
+
 export interface DocumentExtractionReport {
   status: "complete" | "partial" | "empty" | "error";
   parser?: string | null;

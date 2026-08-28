@@ -15,6 +15,9 @@ from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
 from core.session import Session
+from core.agent_events import canonicalize_event
+from core.event_bus import get_default_bus
+from core.memory_injector import MemoryInjector
 from service.agent_service import AgentService
 from core.skills import build_skills_system_prompt, find_skill_by_name
 from web.backend.capabilities import WEB_SKILL_NAMES
@@ -25,7 +28,7 @@ from service.memory_service import MemoryService
 from service.quiz_service import QuizService
 from service.research_service import ResearchService
 from service.usage_service import UsageService
-from tools import get_tools_schema
+from core.runtime import get_tools_schema
 from web.backend.deps import (
     get_preferences,
     get_config,
@@ -52,7 +55,7 @@ from web.backend.schemas import (
     WikiPlanApplyRequest,
     WikiPlanRecoveryRequest,
 )
-from web.backend.sse import encode_sse
+from web.backend.sse import StreamEmitter, encode_sse, get_default_stream_store, iterate_on_stream_lane
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -311,17 +314,6 @@ def _save_wiki_session(session: Session, workspace: str, config: dict[str, Any])
     result = AgentService.save_session(session, get_session_save_dir(config, workspace))
     if not result.get("ok"):
         raise APIError(500, "session_save_failed", "The Wiki conversation could not be saved.")
-
-
-def _personalization_prompt(content: str) -> str | None:
-    if not content.strip():
-        return None
-    return (
-        "<!-- bobodan:confirmed-personal-knowledge -->\n"
-        "The following entries are confirmed user knowledge or deterministic mastery summaries. "
-        "Use them only when relevant, never override source evidence, and do not reveal internal identifiers.\n"
-        f"{content}"
-    )
 
 
 def _concept_map_prompt(workspace: str) -> str | None:
@@ -1250,6 +1242,25 @@ def restore_chat_wiki_checkpoint(
     return {"chat_session_id": session.session_id, "artifact": restored}
 
 
+@router.get("/streams/{stream_id}/replay")
+def replay_stream(stream_id: str, after_seq: int = 0) -> StreamingResponse:
+    """Replay buffered SSE frames for a stream after a sequence cursor.
+
+    Used by the client on reconnect (AG-0.3): it resumes from streamId + seq
+    without re-rendering already-consumed events.
+    """
+    store = get_default_stream_store()
+
+    def frames():
+        for frame in store.replay(stream_id, after_seq):
+            yield encode_sse(
+                frame["event"],
+                {**frame["data"], "seq": frame["seq"], "stream_id": stream_id},
+            )
+
+    return StreamingResponse(frames(), media_type="text/event-stream")
+
+
 @router.post("/runs")
 def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
     config = get_config()
@@ -1329,14 +1340,14 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
         and preferences.get("memory", {}).get("enabled", True)
     )
     personalization = {"content": "", "references": []}
+    memory_injector = None
     if memory_enabled:
-        personalization = MemoryService(
-            workspace,
-            legacy_workspace=get_workspace(),
-        ).personalization_context(body.message)
-        personal_prompt = _personalization_prompt(personalization.get("content", ""))
-        if personal_prompt:
-            request_prompt = f"{request_prompt}\n\n{personal_prompt}" if request_prompt else personal_prompt
+        # Memory injection moves to the before_turn lifecycle (AG-3.1) with a
+        # token budget; references are kept here for the personalization chip.
+        injector = MemoryInjector(workspace)
+        content, references = injector.retrieve(body.message)
+        personalization = {"content": content, "references": references}
+        memory_injector = injector
     allowed_tool_names = _WEB_TOOL_NAMES if memory_enabled else _WEB_TOOL_NAMES - _MEMORY_TOOL_NAMES
     if search_permission == "auto":
         allowed_tool_names = allowed_tool_names - {"request_web_search"}
@@ -1351,6 +1362,8 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
         else getattr(runtime, "skills_prompt", None)
     )
     run_id = str(uuid.uuid4())
+    stream_id = str(uuid.uuid4())
+    emitter = StreamEmitter(get_default_stream_store(), stream_id)
     response_policies = []
     if _requires_local_evidence(
         body.message,
@@ -1364,8 +1377,9 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
 
     def event_stream():
         run_started_at = time.monotonic()
-        yield encode_sse("run_started", {
+        yield emitter.emit("run_started", {
             "run_id": run_id,
+            "stream_id": stream_id,
             "chat_session_id": session.session_id,
             "provider": provider_name,
         })
@@ -1402,9 +1416,9 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
         try:
             run_operations: list[dict[str, Any]] = []
             if initial_attribution:
-                yield encode_sse("citation", {"run_id": run_id, "attribution": initial_attribution})
+                yield emitter.emit("citation", {"run_id": run_id, "attribution": initial_attribution})
             if personalization.get("references"):
-                yield encode_sse("personalization", {
+                yield emitter.emit("personalization", {
                     "run_id": run_id,
                     "references": personalization["references"],
                 })
@@ -1418,9 +1432,15 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
                 allowed_tool_names=allowed_tool_names,
                 request_prompt=request_prompt,
                 response_guard=response_guard,
+                memory_injector=memory_injector,
             )
             termination_reason = "final_answer"
             for event in events:
+                # Publish canonical events to the bus so trace/usage/tests
+                # observe the same stream (AG-0.1/AG-0.2).
+                get_default_bus().publish(
+                    canonicalize_event(event, session_id=session.session_id)
+                )
                 if event.get("type") == "tool_end":
                     run_operations.append(_run_summary_operation(event, body.message))
                 if event.get("type") == "assistant_done":
@@ -1439,7 +1459,7 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
                         latest_attribution = payload.get("attribution")
                     if web_event == "chat_artifact" and isinstance(payload.get("artifact"), dict):
                         pending_artifacts.append(payload["artifact"])
-                    yield encode_sse(web_event, {"run_id": run_id, **payload})
+                    yield emitter.emit(web_event, {"run_id": run_id, **payload})
 
             run_summary = {
                 "artifact_id": f"run-summary-{uuid.uuid4().hex[:12]}",
@@ -1449,28 +1469,29 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
                 "operations": run_operations,
             }
             pending_artifacts.append(run_summary)
-            yield encode_sse("chat_artifact", {"run_id": run_id, "artifact": run_summary})
+            yield emitter.emit("chat_artifact", {"run_id": run_id, "artifact": run_summary})
 
             if body.save:
                 save_result = persist_session()
                 if not save_result["ok"]:
-                    yield encode_sse("run_failed", {
+                    yield emitter.emit("run_failed", {
                         "run_id": run_id,
                         "error": {
                             "code": "session_save_failed",
                             "message": "The conversation could not be saved.",
                         },
                     })
+                    emitter.clear()
                     return
 
-            yield encode_sse("run_completed", {
+            yield emitter.emit("run_completed", {
                 "run_id": run_id,
                 "chat_session_id": session.session_id,
                 "termination_reason": termination_reason,
             })
         except Exception as exc:
             logger.exception("Web chat run failed: %s", exc)
-            yield encode_sse("run_failed", {
+            yield emitter.emit("run_failed", {
                 "run_id": run_id,
                 "error": {
                     "code": "run_failed",
@@ -1484,5 +1505,10 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
                 persist_session()
             except Exception:
                 logger.exception("Failed to persist chat session after stream interruption")
+            # Turn ended: clear the replay buffer so it cannot grow forever.
+            emitter.clear()
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    # Pump the blocking producer on the dedicated SSE lane: without it,
+    # Starlette borrows a shared request-pool thread per blocked next() and
+    # every active stream would eat into the default 40-thread budget.
+    return StreamingResponse(iterate_on_stream_lane(event_stream()), media_type="text/event-stream")

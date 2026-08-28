@@ -5,9 +5,13 @@ from __future__ import annotations
 from typing import Literal
 
 from fastapi import APIRouter, File, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
 from service.kb_service import KBService
+from service.concept_service import ConceptService
+from service.document_edit_service import DocumentEditService
+from service.document_proposal_service import DocumentProposalService
 from web.backend.deps import (
     get_preferences,
     get_config, get_library_runtime_context, get_request_workspace,
@@ -172,7 +176,12 @@ async def import_files(request: Request, files: list[UploadFile] = File(...)) ->
                 f"File exceeds 25 MB limit: {upload.filename or '(unnamed)'}",
             )
         payload.append((upload.filename or "", content))
-    result = unwrap_service_result(_service(request).import_files(payload, config=get_config()))
+    # Parsing/extraction is CPU- and disk-bound; running it inline here would
+    # freeze the event loop for every concurrent request.
+    service_result = await run_in_threadpool(
+        lambda: _service(request).import_files(payload, config=get_config())
+    )
+    result = unwrap_service_result(service_result)
     result["sync"] = _public_sync(result["sync"])
     return result
 
@@ -523,6 +532,170 @@ def delete_document(document_id: str, request: Request) -> dict:
     )
     result["sync"] = _public_sync(result["sync"])
     return result
+
+
+class DocumentEditRequest(BaseModel):
+    content: str
+    expected_hash: str | None = None
+    conflict_action: Literal["overwrite", "abandon", "save_as_new"] = "overwrite"
+
+
+@router.get("/documents/{document_id}/content")
+def document_content(document_id: str, request: Request) -> dict:
+    return unwrap_service_result(
+        DocumentEditService(get_request_workspace(request)).read(document_id),
+        status_code=404,
+        code="document_not_found",
+    )
+
+
+@router.put("/documents/{document_id}/content")
+def edit_document(document_id: str, body: DocumentEditRequest, request: Request) -> dict:
+    result = unwrap_service_result(
+        DocumentEditService(get_request_workspace(request)).edit(
+            document_id,
+            body.content,
+            expected_hash=body.expected_hash,
+            conflict_action=body.conflict_action,
+            config=get_config(),
+        ),
+        code="document_edit_failed",
+    )
+    if "sync" in result:
+        result["sync"] = _public_sync(result["sync"])
+    return result
+
+
+@router.get("/documents/{document_id}/versions")
+def document_versions(document_id: str, request: Request) -> dict:
+    return unwrap_service_result(
+        DocumentEditService(get_request_workspace(request)).list_versions(document_id),
+        status_code=404,
+        code="document_not_found",
+    )
+
+
+@router.post("/documents/{document_id}/versions/{version_id}/rollback")
+def rollback_document(document_id: str, version_id: str, request: Request) -> dict:
+    result = unwrap_service_result(
+        DocumentEditService(get_request_workspace(request)).rollback(
+            document_id, version_id, config=get_config()
+        ),
+        code="document_rollback_failed",
+    )
+    if "sync" in result:
+        result["sync"] = _public_sync(result["sync"])
+    return result
+
+
+class DocumentProposalRequest(BaseModel):
+    instruction: str
+    provider: str | None = None
+
+
+class NewDocumentProposalRequest(BaseModel):
+    title: str
+    content: str
+    reason: str = ""
+
+
+@router.post("/documents/{document_id}/proposals")
+def create_document_proposal(document_id: str, body: DocumentProposalRequest, request: Request) -> dict:
+    workspace = get_request_workspace(request)
+    try:
+        provider = _runtime_for(workspace).create_provider(*_preferred_provider(body.provider))
+    except ValueError as exc:
+        raise APIError(409, "provider_unavailable", str(exc)) from exc
+    return unwrap_service_result(
+        DocumentProposalService(workspace).create_proposal(document_id, body.instruction, provider),
+        code="proposal_failed",
+    )
+
+
+@router.post("/proposals")
+def create_new_document_proposal(body: NewDocumentProposalRequest, request: Request) -> dict:
+    return unwrap_service_result(
+        DocumentProposalService(get_request_workspace(request)).create_new_document_proposal(
+            body.title, body.content, body.reason
+        ),
+        code="proposal_failed",
+    )
+
+
+@router.get("/proposals/{proposal_id}")
+def get_document_proposal(proposal_id: str, request: Request) -> dict:
+    return unwrap_service_result(
+        DocumentProposalService(get_request_workspace(request)).get_proposal(proposal_id),
+        status_code=404,
+        code="proposal_not_found",
+    )
+
+
+@router.post("/proposals/{proposal_id}/apply")
+def apply_document_proposal(proposal_id: str, request: Request) -> dict:
+    return unwrap_service_result(
+        DocumentProposalService(get_request_workspace(request)).apply_proposal(proposal_id, config=get_config()),
+        code="proposal_apply_failed",
+    )
+
+
+@router.post("/proposals/{proposal_id}/undo")
+def undo_document_proposal(proposal_id: str, request: Request) -> dict:
+    return unwrap_service_result(
+        DocumentProposalService(get_request_workspace(request)).undo_proposal(proposal_id, config=get_config()),
+        code="proposal_undo_failed",
+    )
+
+
+class ConceptUpdateRequest(BaseModel):
+    name: str | None = None
+    definition: str | None = None
+    aliases: list[str] | None = None
+    note: str | None = None
+
+
+class RelationshipCreateRequest(BaseModel):
+    from_id: str
+    to_id: str
+    rel_type: str
+    note: str = ""
+
+
+@router.patch("/concepts/{concept_id}")
+def update_concept(concept_id: str, body: ConceptUpdateRequest, request: Request) -> dict:
+    if all(value is None for value in (body.name, body.definition, body.aliases, body.note)):
+        raise APIError(400, "invalid_request", "At least one field is required.")
+    return unwrap_service_result(
+        ConceptService(get_request_workspace(request)).update_concept(
+            concept_id,
+            name=body.name,
+            definition=body.definition,
+            aliases=body.aliases,
+            note=body.note,
+        ),
+        code="concept_update_failed",
+    )
+
+
+@router.post("/relationships")
+def create_relationship(body: RelationshipCreateRequest, request: Request) -> dict:
+    return unwrap_service_result(
+        ConceptService(get_request_workspace(request)).create_relationship(
+            from_id=body.from_id,
+            to_id=body.to_id,
+            rel_type=body.rel_type,
+            note=body.note,
+        ),
+        code="relationship_create_failed",
+    )
+
+
+@router.delete("/relationships/{rel_id}")
+def delete_relationship(rel_id: str, request: Request) -> dict:
+    return unwrap_service_result(
+        ConceptService(get_request_workspace(request)).delete_relationship(rel_id),
+        code="relationship_delete_failed",
+    )
 
 
 @router.post("/search")

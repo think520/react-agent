@@ -71,6 +71,32 @@ def test_health_endpoint(backend_client):
     assert response.json() == {"ok": True}
 
 
+def test_stream_replay_endpoint_returns_frames_after_cursor(backend_client):
+    from web.backend.sse import get_default_stream_store
+
+    store = get_default_stream_store()
+    stream_id = "replay-test-stream"
+    store.clear(stream_id)
+    store.append(stream_id, "message_delta", {"content": "hello"})
+    store.append(stream_id, "status", {"phase": "running"})
+
+    response = backend_client.get(
+        f"/api/chat/streams/{stream_id}/replay", params={"after_seq": 1}
+    )
+    assert response.status_code == 200
+    body = response.text
+    assert "event: status" in body
+    assert '"seq": 2' in body
+    assert '"seq": 1' not in body
+    assert stream_id in body
+
+
+def test_stream_replay_endpoint_empty_when_unknown(backend_client):
+    response = backend_client.get("/api/chat/streams/does-not-exist/replay")
+    assert response.status_code == 200
+    assert response.text.strip() == ""
+
+
 def test_graph_extraction_job_reports_completion_and_scopes_candidates(
     backend_client,
     tmp_path,
@@ -537,6 +563,78 @@ def test_document_impact_endpoint(backend_client, monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["affected_count"] == 1
+
+
+def test_document_edit_endpoints(backend_client, monkeypatch):
+    class FakeEdit:
+        def __init__(self, workspace):
+            pass
+
+        def read(self, document_id):
+            return {"ok": True, "content": "hello", "editable": True, "content_hash": "h",
+                    "document": {"document_id": document_id, "title": "Doc"}}
+
+        def edit(self, document_id, content, expected_hash=None, conflict_action="overwrite", config=None):
+            return {"ok": True, "document_id": document_id, "content_hash": "h2", "sync": {"fake": True}}
+
+        def list_versions(self, document_id):
+            return {"ok": True, "versions": [{"id": "v1", "content_hash": "h"}]}
+
+        def rollback(self, document_id, version_id, config=None):
+            return {"ok": True, "document_id": document_id, "version_id": version_id, "sync": {"fake": True}}
+
+    monkeypatch.setattr("web.backend.routers.kb.DocumentEditService", FakeEdit)
+
+    content = backend_client.get("/api/kb/documents/doc-1/content")
+    assert content.status_code == 200
+    assert content.json()["content"] == "hello"
+
+    edited = backend_client.put("/api/kb/documents/doc-1/content", json={"content": "new", "expected_hash": "h"})
+    assert edited.status_code == 200
+    assert edited.json()["content_hash"] == "h2"
+
+    versions = backend_client.get("/api/kb/documents/doc-1/versions")
+    assert versions.json()["versions"][0]["id"] == "v1"
+
+    rolled = backend_client.post("/api/kb/documents/doc-1/versions/v1/rollback")
+    assert rolled.status_code == 200
+    assert rolled.json()["version_id"] == "v1"
+
+
+def test_concept_graph_edit_endpoints(backend_client, monkeypatch):
+    class FakeConceptService:
+        def __init__(self, workspace):
+            pass
+
+        def update_concept(self, concept_id, name=None, definition=None, aliases=None, note=None):
+            return {"ok": True, "concept": {"concept_id": concept_id, "name": name or "A"}}
+
+        def create_relationship(self, from_id, to_id, rel_type, note=""):
+            if from_id == to_id:
+                return {"ok": False, "code": "self_relationship", "error": "self_relationship"}
+            if rel_type not in {"属于", "前置知识", "组成部分", "对比", "应用于", "来源于"} and not rel_type.startswith("user:"):
+                return {"ok": False, "code": "invalid_rel_type", "error": "invalid_rel_type"}
+            return {"ok": True, "relationship": {"rel_id": "r-1", "from_id": from_id, "to_id": to_id, "rel_type": rel_type}}
+
+        def delete_relationship(self, rel_id):
+            return {"ok": True}
+
+    monkeypatch.setattr("web.backend.routers.kb.ConceptService", FakeConceptService)
+
+    patched = backend_client.patch("/api/kb/concepts/c-1", json={"name": "改名"})
+    assert patched.status_code == 200
+    assert patched.json()["concept"]["name"] == "改名"
+
+    created = backend_client.post("/api/kb/relationships", json={"from_id": "c-1", "to_id": "c-2", "rel_type": "属于"})
+    assert created.status_code == 200
+    assert created.json()["relationship"]["rel_id"] == "r-1"
+
+    self_loop = backend_client.post("/api/kb/relationships", json={"from_id": "c-1", "to_id": "c-1", "rel_type": "属于"})
+    assert self_loop.status_code == 409
+    assert self_loop.json()["error"]["code"] == "self_relationship"
+
+    deleted = backend_client.delete("/api/kb/relationships/r-1")
+    assert deleted.status_code == 200
 
 
 def test_user_confirmed_wiki_plan_contract(backend_client, monkeypatch):

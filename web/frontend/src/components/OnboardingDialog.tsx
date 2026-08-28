@@ -3,6 +3,7 @@ import { ArrowLeft, ArrowRight, Check, Database, ShieldCheck, Sparkles, UserRoun
 
 import type { DocumentSummary, SettingsSummary } from "../types";
 import { BrandIllustration } from "./common";
+import { Modal } from "../ui/Modal";
 
 export interface LearningProfile {
   displayName: string;
@@ -47,8 +48,15 @@ export function OnboardingDialog({
   }
 
   return (
-    <div className="onboarding-backdrop" role="presentation">
-      <section className="onboarding-dialog" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
+    <Modal
+      backdropClassName="onboarding-backdrop"
+      onClose={complete}
+      labelledBy="onboarding-title"
+      className="onboarding-dialog"
+      // Forced first-run flow: no backdrop-click / Escape exit; the explicit
+      // footer buttons are the only way through (or out).
+      dismissible={false}
+    >
         <header className="onboarding-header">
           <BrandIllustration state="listening" size={72} />
           <div><span>初次设置 · {step + 1}/4</span><h2 id="onboarding-title">{steps[step].label}</h2></div>
@@ -83,12 +91,12 @@ export function OnboardingDialog({
         </div>
 
         <footer className="onboarding-actions">
-          {step > 0 ? <button className="quiet-button" onClick={() => setStep((value) => value - 1)}><ArrowLeft size={16} />上一步</button> : <span />}
+          {step > 0 ? <button className="quiet-button" onClick={() => setStep((value) => value - 1)}><ArrowLeft size={16} />上一步</button>
+            : <button className="quiet-button" onClick={complete}>跳过引导</button>}
           {step < 3
             ? <button className="primary-button" onClick={() => setStep((value) => value + 1)}>下一步<ArrowRight size={16} /></button>
             : <button className="primary-button" onClick={complete}><Check size={16} />开始学习</button>}
         </footer>
-      </section>
-    </div>
+    </Modal>
   );
 }
