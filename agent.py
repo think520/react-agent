@@ -48,9 +48,14 @@ def main():
     web_parser = subparsers.add_parser("web", help="Start the single-process local Web server (P5G.1)")
     from cli.web_serve import build_parser
     build_parser(web_parser)
+    subparsers.add_parser("diagnose", help="Print a redacted health report for bug reports (read-only)")
     args = parser.parse_args()
 
     setup_logging(verbose=args.verbose)
+
+    if args.command == "diagnose":
+        from cli.diagnose import run_diagnose
+        raise SystemExit(run_diagnose())
 
     if args.command == "web":
         from cli.web_serve import run_web
