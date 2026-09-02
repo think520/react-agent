@@ -181,6 +181,15 @@ export function useConfirm() {
     [],
   );
 
+  // If the owning component unmounts with a confirm still open, settle the
+  // promise as cancelled instead of leaving the awaiting flow hanging.
+  useEffect(() => () => {
+    setPending((current) => {
+      current?.resolve(false);
+      return null;
+    });
+  }, []);
+
   const element = pending ? (
     <ConfirmDialog
       {...pending.options}
