@@ -1055,9 +1055,15 @@ P5E.5 Wiki 易用性、手写编辑与 AI 成本控制（完成）
 → P5G.0 文档提取完整性与发布合规（完成）
 → P5G.1 单进程本地 Web（完成）
 → P5G.4 模型供应商管理（Provider Catalog，完成）
-→ P5G.2 Windows Electron 桌面版
+→ R0 质量与调试基建（完成，2026-08-28，分支 feat/r0-quality-infra）
+→ P5G.2 Windows Electron 桌面版（推迟：先推进 docs/PRE_DESKTOP_ROADMAP.md 的 R1/R2 主体）
 → P5G.3 支撑页面与体验收尾
 ```
+
+桌面版之前存在一条前置路线（`docs/PRE_DESKTOP_ROADMAP.md`，基于 openhanako v0.450 研究制定）：
+R0 质量与调试基建（测试策略成文 / ScriptedProvider 单缝 mock / e2e 收缩为冒烟 / scripts/dev.py 一键隔离开发栈 /
+`agent.py diagnose` 排障 / 持久化登记册 tripwire）已完成；R1 前端第二批与 R2 学习闭环运行时增强在其后交错推进。
+P5G.2 启动前必须吸收其研究结论：sidecar 独立进程、server-info 握手、契约测试替代浏览器 e2e。
 
 与 P5G 并行存在一条整机优化工作流（Agent 运行时、前端体验、资料协作），详见 `docs/AGENT_OPTIMIZATION_PLAN.md`：其中 AG-0 / FE-1 / LB-1.1 为纯增量改动，可与 P5G 并行；会话格式变更（AG-1）等 P5G 验收后才启动。该工作流不改变本节 P5G 的执行顺序与验收条件。
 
