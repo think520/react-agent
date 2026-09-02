@@ -7,6 +7,7 @@
 ## [未发布]
 
 ### 变更
+- **文档体系收敛（2026-09-03）**：新增统一路线图 `docs/ROADMAP.md`——合并 openhanako 前置路线（R0-R3）、参考项目调研报告借鉴清单（DeepTutor D1-D13 / OpenMAIC O1-O10 / qiaomu Q1-Q10 / 前端 F1-F18）、整机优化计划遗留、2026-08-01 体验审查未决项与 P5G.2/3 剩余，按 W1 学习闭环 / W2 检索与 RAG / W3 前端第二批 / W4 运行时底座 / W5 发布通道五个工作流组织，附执行波次、已拍板决策与合并后的明确不做清单。7 份已完成或被取代的文档（任务书 / 审查报告 / 旧路线 / 知识地图设计）移入 `docs/archive/`；`docs/README.md` 重写为 6 份活跃文档索引；`rag_design.md` 顶部加 embedding 决策更新横幅（用户自配 API 取代 Ollama 假设，详见调研报告第十章）。调研报告保留为活文档（ROADMAP 条目的论据与源码索引）。
 - **R0 质量与调试基建（2026-08-28，分支 `feat/r0-quality-infra`，依据 `docs/PRE_DESKTOP_ROADMAP.md`）**：借鉴 openhanako v0.450 的测试与调试实践，正面解决"桌面版前难调试难测试"。
   - **测试策略成文**（`tests/README.md`）：风险驱动分层 + keep/delete 规则（删锁文案、删 mock 私有字段、删环境依赖的间歇失败用例），LLM 测试必须走单缝。
   - **ScriptedProvider**（`tests/llm_fake.py`）：唯一认可的 LLM 测试替身——脚本化文本/工具调用/错误注入、分块流式、请求全量记录；`scripted_provider` fixture 统一注入，替代散装 FakeProvider。

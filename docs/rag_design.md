@@ -1,6 +1,8 @@
 # Bobodan Full RAG Design
 
 > 实现状态（2026-07-27）：RAG v2 已是唯一正常运行检索链路。SQLite `knowledge.db` 是元数据和 FTS truth source，Qdrant 是可选语义索引；旧 `rag_index*.json`、`rag/vector_store.py`、`rag/embeddings.py` 和旧 chunker 已退出 runtime。本文保留最初设计背景，但以下章节以当前实现边界为准。
+>
+> **Embedding 决策更新（2026-09-03）**：本文写作时的「Ollama 本地 embedding」假设已由新决策取代——embedding 走**用户自配 API**（SiliconFlow bge-m3 免费标推荐 / DashScope / OpenAI 兼容），Ollama 降格为注册表中的可选离线档；向量库仍为 qdrant 本地模式不动；配套签名版本化、批次维度校验、索引心跳守卫与召回评测集。完整论证与实施清单见 `ROADMAP.md` W2 与 `Bobodan参考项目调研报告.md` 第十章；实测现状是向量腿从未运行（qdrant 目录为空），`fts_only` 是一等公民形态而非降级。
 
 ## 1. 目标
 

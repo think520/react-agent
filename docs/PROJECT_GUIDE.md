@@ -1056,16 +1056,12 @@ P5E.5 Wiki 易用性、手写编辑与 AI 成本控制（完成）
 → P5G.1 单进程本地 Web（完成）
 → P5G.4 模型供应商管理（Provider Catalog，完成）
 → R0 质量与调试基建（完成，2026-08-28，分支 feat/r0-quality-infra）
-→ P5G.2 Windows Electron 桌面版（推迟：先推进 docs/PRE_DESKTOP_ROADMAP.md 的 R1/R2 主体）
+→ P5G.2 Windows Electron 桌面版（推迟：先推进 docs/ROADMAP.md 的 W1–W4 主体）
 → P5G.3 支撑页面与体验收尾
 ```
 
-桌面版之前存在一条前置路线（`docs/PRE_DESKTOP_ROADMAP.md`，基于 openhanako v0.450 研究制定）：
-R0 质量与调试基建（测试策略成文 / ScriptedProvider 单缝 mock / e2e 收缩为冒烟 / scripts/dev.py 一键隔离开发栈 /
-`agent.py diagnose` 排障 / 持久化登记册 tripwire）已完成；R1 前端第二批与 R2 学习闭环运行时增强在其后交错推进。
-P5G.2 启动前必须吸收其研究结论：sidecar 独立进程、server-info 握手、契约测试替代浏览器 e2e。
-
-与 P5G 并行存在一条整机优化工作流（Agent 运行时、前端体验、资料协作），详见 `docs/AGENT_OPTIMIZATION_PLAN.md`：其中 AG-0 / FE-1 / LB-1.1 为纯增量改动，可与 P5G 并行；会话格式变更（AG-1）等 P5G 验收后才启动。该工作流不改变本节 P5G 的执行顺序与验收条件。
+当前唯一路线文档是 **`docs/ROADMAP.md`**（合并了 openhanako 研究路线 R0-R3、DeepTutor/OpenMAIC/qiaomu 调研借鉴清单、整机优化计划遗留与 2026-08-01 体验审查未决项；已完成的部分归档于 `docs/archive/`）。
+P5G.2 启动前必须吸收其 W5 门禁与研究结论：sidecar 独立进程、server-info 握手、契约测试替代浏览器 e2e。
 
 首发版本不集成 OCR。Bobodan 只处理文档已有文本层，并明确告诉用户哪些页面、幻灯片或图片没有形成可检索文字。OCR 不是技术上永久禁止，而是保留为未来可选组件；当前不加入引擎、模型、下载入口或安装包依赖。
 
@@ -1160,7 +1156,7 @@ P5G 总体验收：
 
 ### P5G 补充规划（2026-08-01 体验审查补充）
 
-以下五项在 2026-08-01 体验审查（`docs/experience_review_2026-08-01.md`）中被确认为计划缺口：P5G 章节原有条目停留在功能名级别，缺少桌面本地产品发布所需的落地细节；均不属于"本轮明确不做"范围，进入 P5G 执行时一并落地。
+以下五项在 2026-08-01 体验审查（`docs/archive/experience_review_2026-08-01.md`）中被确认为计划缺口：P5G 章节原有条目停留在功能名级别，缺少桌面本地产品发布所需的落地细节；均不属于"本轮明确不做"范围，进入 P5G 执行时一并落地。
 
 1. **数据备份 / 恢复专项**：明确备份对象清单（资料库、`personal-knowledge.db`、`usage.db`、`research.db`、`preferences.json`）、备份格式与 SQLite WAL 一致性方法、手动 / 自动触发、校验与恢复 UI、失败恢复验证。这是本地优先产品用户信任的根基。
 2. **复习提醒交付机制**：指定 Windows 系统通知或托盘常驻方案；Electron 不常驻时提醒无法送达，Review 闭环缺最后一环。
@@ -2013,12 +2009,13 @@ Obsidian vault：
 
 日常只需要读本文。需要深入时再看：
 
+- `docs/ROADMAP.md`：**统一路线图**——现在做什么、接下来做什么、已拍板决策、明确不做。
 - `docs/DESIGN.md`：Web / TUI / 官网视觉硬约束。任何界面设计开工前必须先读。
-- `docs/AGENT_OPTIMIZATION_PLAN.md`：整机优化计划书（Agent 运行时 / 前端体验 / 资料协作），与 P5G 并行的工作流，排期与验收门禁以该文档为准。
+- `docs/Bobodan参考项目调研报告.md`：DeepTutor / OpenMAIC / qiaomu 借鉴机制精讲与源码索引（ROADMAP 条目的论据）。
 - `docs/rag_design.md`：RAG v2 详细设计。
-- `docs/knowledge_map_design.md` 与 `docs/knowledge_map_reliability_editing_design_2026-07-27.md`：知识地图产品与可靠性设计。
 - `docs/MCP.md`：MCP 客户端使用。
 - `docs/tools/skills.md`：Skills 系统说明。
+- `docs/archive/`：已完成任务书与历史审查报告，仅供考古。
 
 ## 11. 最终结论
 
