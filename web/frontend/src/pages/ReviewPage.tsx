@@ -4,6 +4,8 @@ import { useNavigate } from "react-router-dom";
 
 import { EmptyState, ErrorNotice, LoadingState, textValue } from "../components/common";
 import { api } from "../lib/api";
+import { wrongAnswerFallbackNotice } from "../lib/wrongAnswerMode";
+import { notifyInfo } from "../stores/noticeStore";
 import type { ReviewQueue } from "../types";
 
 interface ReviewItem {
@@ -60,7 +62,10 @@ export function ReviewPage() {
     try {
       let ids: number[];
       if (item.kind === "错题" && item.attemptId) {
-        ids = [(await api.generateWrongAnswerVariant(item.attemptId)).question_id];
+        const variant = await api.generateWrongAnswerVariant(item.attemptId);
+        const fallbackReason = wrongAnswerFallbackNotice(variant.mode);
+        if (fallbackReason) notifyInfo(fallbackReason);
+        ids = [variant.question_id];
       } else {
         ids = item.questionIds.length ? item.questionIds : (await api.generateQuestions(item.title)).question_ids || [];
       }

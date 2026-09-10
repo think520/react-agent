@@ -49,3 +49,8 @@ export const useNoticeStore = create<NoticeState>()((set) => ({
 export function notifyError(message: string, code?: string) {
   useNoticeStore.getState().pushNotice({ message, code, tone: "error" });
 }
+
+/** Non-failure notice, e.g. an explained degradation (E3). */
+export function notifyInfo(message: string) {
+  useNoticeStore.getState().pushNotice({ message, tone: "info" });
+}
