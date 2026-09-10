@@ -1,6 +1,7 @@
 # Bobodan 统一路线图
 
-> 版本：v1.1（2026-09-08）
+> 版本：v1.2（2026-09-08）
+> v1.2：路线审查补齐被遗漏的 F12，并记录 A0 完成状态。
 > 定位：**唯一的"下一步"文档。** 想知道现在做什么、接下来做什么，只看这里。
 > 本文合并了以下来源并取代它们的前瞻部分（原文见 `docs/archive/`）：
 > - [`archive/PRE_DESKTOP_ROADMAP.md`](archive/PRE_DESKTOP_ROADMAP.md)（openhanako v0.450 研究 → R0-R3 路线，R0 已完成）
@@ -21,6 +22,7 @@
 | 整机优化计划（AG-0~3 / FE-1~4 / LB-1 主体） | ✅ 主体完成（遗留项已并入本文 W3/W4） |
 | Library 重构 + 图谱编辑 + 体验轮（Modal/动效/品牌/增量图谱） | ✅ 完成 |
 | R0 质量与调试基建（测试策略 / ScriptedProvider / e2e 冒烟化 / dev.py / diagnose / 持久化登记册） | ✅ 完成（`feat/r0-quality-infra`） |
+| A0 现状核对（E1–E7 / G1–G3 / FE-P0，证据表见 §2） | ✅ 完成（2026-09-08） |
 | R0.7 数据 epoch 机制 | ⏳ 并入本文 W4 |
 | P5G.2 Electron 桌面版 | ⏸ 推迟（门禁见 W5） |
 | P5G.3 支撑页面 | ⏸ 按 C / E 批次拆分；复习提醒可先在 Web 交付 |
@@ -103,6 +105,7 @@
 | F6 | rAF 自适应打字机 + 单调 Simple→Rich markdown 分级渲染 | ChatPage 管线 |
 | F8–F10 | 过程可视化升级：工具卡规则表（动词短语+chips+disclosure，测试对账）、工具组双时钟、thinking 预览/waiting 三点分离 | ProcessFoldBlock |
 | F11 | ask_user 卡流序分段渲染 + 原位 resolved + 多题 tab（联动 E4） | artifacts/ |
+| F12 | question 未答时接管 composer（编号问卷 + 键盘），answered 由 fold 派生（联动 E4） | ChatPage composer |
 | F13 | Quiz 流式卡：逐题出现 + chip 导航 + turnId 隔离 | PracticePage |
 | F17 | Playwright mock SSE fixture（确定性事件串重放） | e2e/ |
 | H-a | 消息操作条（悬停 复制/重答）+ 用户消息编辑重发 | ChatPage；openhanako MessageFooterActions |
@@ -153,7 +156,7 @@ P5G.3 的产品能力不再整体等待 Electron：Roadmap、复习提醒和部�
 | A3 阅读与导入 | E2、E7、E8、E16 | 新建路径可理解；划线可回链；导入进度与失败可操作；新概念可定位 |
 | B1 检索基线 | G4 的 FTS-only 基线、G5 | 有真实资料评测集和可重复指标；扫描页 / 目录失败不静默 |
 | B2 可选向量检索 | G1-G3，再完成 G4 hybrid 对比 | 未配置时 FTS 正常；云端发送边界明确；签名、重建、限流和中断可恢复；数据证明 hybrid 有收益 |
-| C1 前端正确性 | FE-P0、F2、F11、F17、H-c | SSE 不丢帧；滚动不抢用户；交互卡可测；错误反馈统一 |
+| C1 前端正确性 | FE-P0、F2、F11、F12、F17、H-c | SSE 不丢帧；滚动不抢用户；交互卡可测；错误反馈统一 |
 | C2 体验增强 | 其余 FE-P1；只选当前用户高频路径实施 | 至少一次桌面、窄屏和移动端真实流程验收；不新增主导航 |
 | D 运行时底座 | W4 中被上层需求实际阻塞的条目 | 每项由明确故障或发布门槛驱动，不以参考项目完整度为目标 |
 | E 桌面发布 | W5 | A1-A3、B1-B2、C1 通过；安装、升级、卸载、备份恢复和崩溃诊断可验收 |
@@ -207,7 +210,7 @@ P5G.3 的产品能力不再整体等待 Electron：Roadmap、复习提醒和部�
 | 决策 | 内容 | 依据 |
 |---|---|---|
 | RAG embedding | 向量库不动（qdrant 本地）；不内置 ONNX 模型（fastembed 搁置，+70~110MB 与 512 token 截断风险记录在案）；embedding 走用户自配 API（SiliconFlow bge-m3 免费标推荐）+ Ollama 可选离线档；fts_only 是一等公民形态不是降级 | 调研报告 ch10 |
-| 桌面版推迟 | P5G.2 门禁化；先 R1/R2 主体；sidecar/server-info/契约测试三结论必须吸收 | PRE_DESKTOP + 本次确认 |
+| 桌面版推迟 | P5G.2 门禁化；先 W3/W4（原 R1/R2）主体；sidecar/server-info/契约测试三结论必须吸收 | PRE_DESKTOP + 本次确认 |
 | 教学闭环哲学 | 模型管教学、引擎管算术；推进由已掌握内容计算，绝不用 stage counter | DeepTutor 对照 + Bobodan 证据门禁既有实践 |
 | 动效体系 | 三档 token（120/160/220ms）+ 两条缓动；应用内减动效 = OS 级语义；不为动画引 motion 库 | DESIGN.md §11 + 2026-08-28 体验轮 |
 | 测试政策 | 风险驱动分层；LLM 单缝 ScriptedProvider；浏览器只留冒烟；契约测试优先 | tests/README.md |
