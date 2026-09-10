@@ -57,7 +57,7 @@
 |---|---|---|---|
 | E1 | 会话内操作失败静默 → 全局错误位 + 可见反馈 | web/backend + ChatPage | 体验审查 P0-1 |
 | E2 | 新建资料库路径体验：默认路径预填 + 目的解释 | LibrarySetupDialog | 体验审查 P0-2 |
-| E3 | 错题变式死路回退链：无 chunk → 按概念重出 → 原题重练 + 失败原因上屏 | quiz_service | 体验审查 P0-3 |
+| E3 | 错题变式死路回退链：无 chunk → 按概念重出 → 原题重练 + 失败原因上屏（A0：后端三级回退已存在，只做前端上屏） | quiz_service | 体验审查 P0-3 |
 | E4 | **ask_user 交互卡 + 交互生命周期持久化**（registered→awaiting→answered→graded，断线可恢复） | SSE 事件 + interactions 表 + 前端卡（联动 F11/F12） | D6；报告 P0-1 |
 | E5 | **出题三阶段流式管线**：Explore→Plan→逐题生成，每题就绪即渲染；explanation 随题入库 | quiz_service | D8/D9；报告 P0-2 |
 | E6 | **掌握度引擎纯函数化**：近 5 次加权 + 置信帽 {1:0.5,2:0.8} + 知识四分类 + next_objective 优先级（挂起问题>到期复习>第一个未掌握点）；agent 每轮先读引擎 | learning/ 新增 engine.py | D1/D2/D3；报告 P0-3；体验审查 P1-5 余项 |
@@ -67,7 +67,7 @@
 | E10 | Socratic persona 技能（翻译 PERSONA.md + 优先级裁决：persona 管风格流程、不碰证据门禁） | skills/ 新增 | D10 |
 | E11 | AgentLoop 单循环契约：无工具轮=finish、探索预算 + 3 轮结算期、截断续写 | core/agent_loop.py | D4 |
 | E12 | prompt 具名块字节稳定 + KB seed 预检索进末尾 user 消息 | core/agent_loop.py | D5/D13 |
-| E13 | 出题卡防绕过三道防线：服务端注入参数 / 纯文本收尾重定向 / 卡片数据从持久化重绑定 | Practice artifacts | D7 |
+| E13 | 出题卡防绕过三道防线：服务端注入参数 / 纯文本收尾重定向 / 卡片数据从持久化重绑定（A0：重绑定已存在，缺前两道） | Practice artifacts | D7 |
 | E14 | 「问 AI」复用练习辅导会话，不再污染会话列表 | PracticePage | 体验审查 P1-9 |
 | E15 | 简答三态判分与"学习中"映射核对（AnswerResult.verdict 已有三态，核对批改链路与展示一致性） | quiz_service | 体验审查 P1-10；O10 |
 | E16 | 新确认概念返回坐标 + 前端高亮数秒 | concept_service + KnowledgeMap | 体验审查 P1-12 |
@@ -147,7 +147,7 @@ P5G.3 的产品能力不再整体等待 Electron：Roadmap、复习提醒和部�
 
 | 批次 | 范围 | 完成标准 |
 |---|---|---|
-| A0 现状核对（当前） | 逐项核对 E1-E7、G1-G3 与 FE-P0，标记已存在、部分存在和真实缺口 | 每项有代码 / 测试证据；删除重复或已被替代的任务 |
+| A0 现状核对（完成） | 逐项核对 E1-E7、G1-G3 与 FE-P0，标记已存在、部分存在和真实缺口 | 每项有代码 / 测试证据；删除重复或已被替代的任务 → 结果见下方「A0 核对结果」 |
 | A1 学习闭环正确性 | E1、E3、E4、E13、E15 | 错误可见；交互可恢复；练习卡不可绕过；三态判分前后端一致 |
 | A2 学习推进 | E5、E6、E9、E14 | 题目可逐步就绪；掌握度由纯函数计算；复习状态清楚；题内问 AI 不污染会话列表 |
 | A3 阅读与导入 | E2、E7、E8、E16 | 新建路径可理解；划线可回链；导入进度与失败可操作；新概念可定位 |
@@ -158,7 +158,35 @@ P5G.3 的产品能力不再整体等待 Electron：Roadmap、复习提醒和部�
 | D 运行时底座 | W4 中被上层需求实际阻塞的条目 | 每项由明确故障或发布门槛驱动，不以参考项目完整度为目标 |
 | E 桌面发布 | W5 | A1-A3、B1-B2、C1 通过；安装、升级、卸载、备份恢复和崩溃诊断可验收 |
 
-当前焦点是 A0。A0 完成前不应并行实现 A1 与 B2，因为现有代码已经包含部分确认状态、提取状态和检索记录，直接照路线开发可能造成重复实现。
+### A0 核对结果（2026-09-08 完成）
+
+核对方式：逐项在代码与测试中查找产物。结论为「部分存在」的条目只补缺口，不再重写已有实现；结论为「后端已存在」的条目从批次中收缩为收尾项。
+
+| 条目 | 核对结论 | 证据 | 批次内应做的部分 |
+|---|---|---|---|
+| E1 | 部分存在 | `ChatPage.tsx` 已有局部 `error` state + `ErrorNotice` + `toErrorMessage` + `BlockErrorBoundary` | 补 App 级全局错误位，收敛剩余静默 catch |
+| E2 | 部分存在 | `LibrarySetupDialog.tsx` create 模式已预填 `~/Documents/Bobodan` | 补「目的解释」文案 |
+| E3 | 后端已存在 | `service/quiz_service.py` `generate_wrong_answer_variant`：chunk → `concept_fallback` → `replay` 三级回退并返回 `mode` | 只做前端「失败原因上屏」+ 回归测试 |
+| E4 | 未开始（真实缺口） | 全仓 `.py` 无 `ask_user` / `interaction`；可复用同类模式 `memory_confirmation` artifact 与 `/api/chat/memory/proposals/{id}/confirm` | 全量实施 |
+| E5 | 未开始 | `quiz_service` 仅单发 `generate_questions`，无 plan / 逐题阶段 | 全量实施 |
+| E6 | 未开始 | 无 `learning/engine.py`（现有 progress / workflow / scheduler / store / schema / path） | 全量实施 |
+| E7 | 未开始 | Reader / Library 仅有跳转用 `highlightedChunk`，无用户划线锚存储与笔记同步 | 全量实施 |
+| G1 | 未开始 | `rag/embedding_service.py` 仅为 Ollama 薄封装，无协议或适配器 | 全量实施 |
+| G2 | 未开始 | `rag/` 无签名、维度校验或 429 退避 | 全量实施 |
+| G3 | 未开始 | `rag/` 无心跳 / 无进度守卫 | 全量实施 |
+| F1 | 未开始 | 无 `foldEvent`；归约逻辑仍在 `useChatStream` hook 内 | 全量实施 |
+| F3 | 部分存在 | `lib/api.ts` 的 `ChatStreamEvent` union 是事件名唯一起源；`api.test.ts` 已覆盖解析、去重与坏帧 | 补「订阅表派生 + 漏订阅对账测试」 |
+| F7 | 部分存在 | `useStickyBottomScroll.ts` 已有 rAF τ=85ms、>720px 瞬移、用户干预取消、ResizeObserver | 补单写者、`overflow-anchor:none`、MutationObserver 合帧、手势释放、「用户消息才回底」 |
+| F14 | 部分存在 | `styles.css` 的 `--font-ui` / `--font-reading` 已显式点名 CJK 字体 | 补语义 token 契约测试与 serif 正文 prose |
+
+顺带核对（属 A1 范围，提前确认）：
+
+| 条目 | 核对结论 | 证据 | 应做的部分 |
+|---|---|---|---|
+| E13 | 部分存在 | `practice_ready` artifact（`tools/quiz_tools.py`）、按持久化重绑定（`web/backend/routers/chat.py`）、persist-once 测试（`tests/test_web_backend.py`）已存在 | 补「服务端注入参数」与「纯文本收尾重定向」两道防线 |
+| E15 | 部分存在 | `quiz/evaluator.py` 已产出 `correct / partial / incorrect` 三态 | 只需核对批改链路与前端展示一致性 |
+
+当前焦点是 A1。A0 已确认现有代码包含部分实现，因此 A1 的 E3 收缩为前端收尾、E13 / E15 收缩为补缺口与核对，只有 E1（全局错误位）和 E4（交互生命周期）是实际新增实现；不要把 A0 判定为「已存在」的部分重写一遍。
 
 排序原则：学习闭环正确性 > 可恢复性 > 检索质量证据 > 界面质感 > 通用运行时能力 > 发布包装。任何条目开工前先对齐 `PROJECT_GUIDE.md` 的产品边界四问。
 
