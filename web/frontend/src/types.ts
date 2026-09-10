@@ -718,6 +718,8 @@ export interface AskUserArtifact {
   type: "ask_user";
   artifact_id: string;
   status: "registered" | "awaiting_input" | "answered" | "graded";
+  /** "answered" | "skipped_by_user" | "skipped_by_next_message" | "expired". */
+  closure?: string;
   questions: AskUserQuestion[];
   answers?: Array<{ id: string; answer: string }>;
   outcome?: {

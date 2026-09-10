@@ -1766,3 +1766,120 @@ def test_web_chat_exposes_only_confirmable_memory_tool():
     assert "memory_save" not in _WEB_TOOL_NAMES
     assert "memory_daily_save" not in _WEB_TOOL_NAMES
     assert "memory_promote" not in _WEB_TOOL_NAMES
+
+
+# ---------------------------------------------------------------------------
+# E4 — ask_user pause / resume over the HTTP contract
+# ---------------------------------------------------------------------------
+
+
+def _e4_runtime(client, captured):
+    """Runtime + fake run_stream that records the kwargs the router resolved."""
+    from types import SimpleNamespace
+
+    runtime = SimpleNamespace(
+        workspace=str(client.workspace), skills_prompt=None, memory_prompt=None,
+        create_provider=lambda _name, model=None: object(), refresh_memory=lambda: None,
+        create_trace=lambda _session_id: object(),
+    )
+
+    def fake_run_stream(**kwargs):
+        captured.append(kwargs)
+        if kwargs.get("user_input"):
+            kwargs["session"].add_message("user", kwargs["user_input"])
+        yield {"type": "assistant_delta", "content": "ok"}
+        yield {"type": "assistant_done", "content": "ok", "termination_reason": "final_answer"}
+
+    return runtime, fake_run_stream
+
+
+def _first_session_id(response_text: str) -> str:
+    return response_text.split('"chat_session_id": "', 1)[1].split('"', 1)[0]
+
+
+def test_resume_run_fills_the_paused_tool_call(backend_client, monkeypatch):
+    from service.interaction_service import InteractionService
+
+    captured: list[dict] = []
+    runtime, fake = _e4_runtime(backend_client, captured)
+    monkeypatch.setattr("web.backend.routers.chat.get_runtime_context", lambda: runtime)
+    monkeypatch.setattr("web.backend.routers.chat.AgentService.run_stream", fake)
+
+    first = backend_client.post("/api/chat/runs", json={"message": "帮我安排学习路线"})
+    session_id = _first_session_id(first.text)
+
+    service = InteractionService(str(backend_client.workspace))
+    service.register("i1", chat_session_id=session_id, questions=[{"id": "q1", "prompt": "目标？"}])
+    service.attach_tool_call("i1", "call_001")
+    service.answer("i1", [{"id": "q1", "answer": "求职面试"}])
+
+    resumed = backend_client.post("/api/chat/runs", json={
+        "chat_session_id": session_id, "resume_interaction_id": "i1",
+    })
+
+    assert resumed.status_code == 200
+    kwargs = captured[-1]
+    # The paused call is filled in; no new user message is introduced.
+    assert kwargs["resume_tool_call_id"] == "call_001"
+    assert kwargs["user_input"] == ""
+    assert "求职面试" in kwargs["resume_tool_content"]
+    assert "Do not stop with an acknowledgement" in kwargs["resume_tool_content"]
+
+
+def test_resume_rejects_unknown_or_unbound_interactions(backend_client, monkeypatch):
+    from service.interaction_service import InteractionService
+
+    captured: list[dict] = []
+    runtime, fake = _e4_runtime(backend_client, captured)
+    monkeypatch.setattr("web.backend.routers.chat.get_runtime_context", lambda: runtime)
+    monkeypatch.setattr("web.backend.routers.chat.AgentService.run_stream", fake)
+
+    first = backend_client.post("/api/chat/runs", json={"message": "帮我安排学习路线"})
+    session_id = _first_session_id(first.text)
+
+    unknown = backend_client.post("/api/chat/runs", json={
+        "chat_session_id": session_id, "resume_interaction_id": "nope",
+    })
+    assert unknown.status_code == 404
+    assert unknown.json()["error"]["code"] == "interaction_not_found"
+
+    service = InteractionService(str(backend_client.workspace))
+    service.register("i2", chat_session_id=session_id, questions=[{"id": "q", "prompt": "?"}])
+    unbound = backend_client.post("/api/chat/runs", json={
+        "chat_session_id": session_id, "resume_interaction_id": "i2",
+    })
+    assert unbound.status_code == 409
+    assert unbound.json()["error"]["code"] == "interaction_not_resumable"
+
+
+def test_a_new_message_closes_the_pending_question(backend_client, monkeypatch):
+    """Action boundary: the session moving on fills the dangling tool_call."""
+    from service.interaction_service import InteractionService
+
+    captured: list[dict] = []
+    runtime, fake = _e4_runtime(backend_client, captured)
+    monkeypatch.setattr("web.backend.routers.chat.get_runtime_context", lambda: runtime)
+    monkeypatch.setattr("web.backend.routers.chat.AgentService.run_stream", fake)
+
+    first = backend_client.post("/api/chat/runs", json={"message": "先问我几个问题"})
+    session_id = _first_session_id(first.text)
+
+    service = InteractionService(str(backend_client.workspace))
+    service.register("i3", chat_session_id=session_id, questions=[{"id": "q", "prompt": "?"}])
+    service.attach_tool_call("i3", "call_003")
+
+    again = backend_client.post("/api/chat/runs", json={
+        "chat_session_id": session_id, "message": "算了，先讲讲图论",
+    })
+
+    assert again.status_code == 200
+    stored = service.get("i3")
+    assert stored["status"] == "graded"
+    assert stored["closure"] == "skipped_by_next_message"
+    # The dangling call was filled in before the provider request.
+    tool_messages = [
+        m for m in captured[-1]["session"].messages
+        if m.get("role") == "tool" and m.get("tool_call_id") == "call_003"
+    ]
+    assert tool_messages
+

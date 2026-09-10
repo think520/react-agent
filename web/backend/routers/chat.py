@@ -197,6 +197,8 @@ def _public_interaction(record: dict[str, Any]) -> dict[str, Any]:
         "type": "ask_user",
         "artifact_id": record["interaction_id"],
         "status": record["status"],
+        # The card must be able to tell "the user answered" from "it was skipped".
+        "closure": record.get("closure") or "",
         "questions": [
             {key: value for key, value in question.items() if key != "answer"}
             for question in record.get("questions") or []

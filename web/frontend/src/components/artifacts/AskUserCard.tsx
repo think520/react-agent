@@ -15,13 +15,17 @@ export function AskUserCard({ artifact, busy, onAnswer }: {
   const [draft, setDraft] = useState<Record<string, string>>({});
   const resolved = artifact.status === "answered" || artifact.status === "graded";
   const answersById = new Map((artifact.answers || []).map((item) => [item.id, item.answer]));
+  // A closed interaction is not necessarily an answered one: the session moving
+  // on (or the data-hygiene window) skips it, and the card must say so instead
+  // of rendering empty answers as if the user had chosen.
+  const skipped = resolved && Boolean(artifact.closure) && artifact.closure !== "answered";
 
   if (resolved) {
-    return <section className="ask-user-card resolved">
-      <header><span><CircleHelp size={15} />需要你选择</span><strong>已回答</strong></header>
+    return <section className={["ask-user-card", "resolved", skipped ? "skipped" : ""].filter(Boolean).join(" ")}>
+      <header><span><CircleHelp size={15} />需要你选择</span><strong>{skipped ? "没有作答，已跳过" : "已回答"}</strong></header>
       <div className="ask-user-summary">
         {artifact.questions.map((question) => (
-          <div key={question.id}><small>{question.prompt}</small><p>{answersById.get(question.id) || "—"}</p></div>
+          <div key={question.id}><small>{question.prompt}</small><p>{answersById.get(question.id) || (skipped ? "未回答" : "—")}</p></div>
         ))}
       </div>
     </section>;
