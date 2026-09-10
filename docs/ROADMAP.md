@@ -196,11 +196,13 @@ P5G.3 的产品能力不再整体等待 Electron：Roadmap、复习提醒和部�
 |---|---|---|
 | E1 | 已验证 | 新增 `noticeStore` + `NoticeCenter`（AppShell 全局挂载，跨页可见）；ChatPage 操作失败改走全局位，本地 `error` 只留会话加载与流式失败；AppShell 首次配置保存的静默 catch 已修；`noticeStore.test.ts` |
 | E3 | 已验证 | `wrongAnswerFallbackNotice` 把后端 `mode` 映射为可见原因并接到全局提示位（导航后仍可见）；`wrongAnswerMode.test.ts`；后端三级回退链 A0 已确认存在 |
-| E4 | 已验证 | `service/interaction_service.py`（interactions 表 + registered→awaiting_input→answered→graded + 确定性判分 + 幂等）；`tools/ask_user.py`；`POST /api/chat/interactions/{id}/answer`；会话详情按持久化状态原位回填（断线/重启可恢复）；前端 `AskUserCard`；`test_e4_interactions.py` + `AskUserCard.test.tsx` |
+| E4 | 已验证（2026-09-10 补齐） | 首轮只交付了"持久化 + 恢复"，**漏了契约里的"暂停 + 回传"**，且注入 bug 让记录写进了错误的工作区（应答端点 404）。补齐后：`tools/ask_user.py` 声明 `workspace`/`chat_session_id` 由 `execute_tool` 注入（`core/agent_loop.py` 把 `tool_call_id` 戳进暂停载荷）；`ToolResult.pause_for_user` 让本轮以 `termination_reason="paused"` 干净结束并**故意不写 tool result**；`run_stream(resume_tool_call_id=...)` 把答案**回填成那条 tool 消息**再续跑（跳过 prompt/记忆重注入）；回填带继续指令；`/api/chat/runs` 接受 `resume_interaction_id`；新用户消息先用合成 tool result 关闭挂起（保证 provider 消息合法）；会话里最多一个 open interaction，7 天窗口只做数据清理。测试：`test_e4_interactions.py`（含走真实 `execute_tool` 的注入回归）、`test_e4_pause_resume.py`、`AskUserCard.test.tsx` |
 | E13 | 已验证 | 防线①：web 白名单移除 `quiz_start`/`quiz_submit`，练习只能经服务端绑定的 `practice_ready` 卡片；防线②：`InlineQuestionPolicy` 检测纯文本选项收尾并重定向到 `question_generate`；防线③：卡片数据从持久化重绑定，`ask_user` 同样剥离正确答案；`test_e13_inline_question.py` |
 | E15 | 已验证 | `quiz_attempts.verdict` 列 + 迁移；`partial` 映射为「学习中」（1 天间隔、ease 不惩罚）；逐题回顾显示三态；`test_e15_partial_verdict.py` |
 
 分支验证：Python `1396 passed`、Vitest `57 passed`、前端 lint 与生产构建通过。
+
+**E4 补齐轮（2026-09-10，`feat/e4-interaction-flow`）**：承接上面的口径问题——A1 把 E4 标成"已验证"时，契约的"暂停/回传"一半并不存在。补齐轮按参考项目的三家机制对比（见 `REFERENCE_PROJECTS.md` 案例 1）选了 **D+B**：挂起 tool result + 回合边界续跑 + 新助手消息。验证：Python `1402 passed`、Vitest `57 passed`、lint/tsc/生产构建通过。
 
 当前焦点是 A2（E5、E6、E9、E14）。A0/A1 已确认的基础设施——全局错误位、交互生命周期、练习卡服务端绑定——在 A2 与后续批次中应复用，不要另起一套。
 

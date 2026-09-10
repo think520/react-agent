@@ -73,14 +73,22 @@ def test_open_list_is_scoped_to_the_session(tmp_path):
     assert [item["interaction_id"] for item in service.list_open("c1")] == ["i1"]
 
 
-def test_ask_user_registers_and_never_leaks_the_answer(tmp_path):
-    class FakeSession:
-        workspace_root = str(tmp_path)
-        session_id = "chat-1"
+def test_ask_user_lands_in_the_session_workspace(tmp_path):
+    """Regression: register through the REAL execute_tool injection path.
 
-    result = ask_user(
-        [{"id": "q1", "prompt": "选一个", "options": ["甲", "乙"], "answer": "甲"}],
-        session=FakeSession(),
+    The first version declared ``session``, which execute_tool never passes to
+    a tool. The record then landed in the project workspace (``.``) with an
+    empty chat_session_id, so the answer endpoint -- which resolves the active
+    library -- could not find it and answered 404.
+    """
+    from core.session import Session
+    from tools.base import execute_tool
+
+    session = Session.new(str(tmp_path))
+    result = execute_tool(
+        "ask_user",
+        {"questions": [{"id": "q1", "prompt": "选一个", "options": ["甲", "乙"], "answer": "甲"}]},
+        session,
     )
 
     assert result.ok is True
@@ -89,10 +97,10 @@ def test_ask_user_registers_and_never_leaks_the_answer(tmp_path):
     assert artifact["status"] == STATUS_AWAITING
     assert "answer" not in artifact["questions"][0]
 
-    stored = InteractionService(str(tmp_path)).get(artifact["artifact_id"])
+    # The same workspace the answer endpoint resolves must hold the record.
+    stored = InteractionService(session.workspace_root).get(artifact["artifact_id"])
     assert stored is not None
-    assert stored["chat_session_id"] == "chat-1"
-    # The correct option lives only in the server-side record, for grading.
+    assert stored["chat_session_id"] == session.session_id  # the injected id
     assert stored["questions"][0]["answer"] == "甲"
 
 
@@ -121,3 +129,25 @@ def test_web_agent_can_ask_the_user():
     from web.backend.routers.chat import _WEB_TOOL_NAMES
 
     assert "ask_user" in _WEB_TOOL_NAMES
+
+
+def test_expiry_window_closes_orphan_rows_without_touching_open_ones(tmp_path):
+    """The window is data hygiene: it never decides whether a card is answerable."""
+    import sqlite3
+
+    service = InteractionService(str(tmp_path))
+    service.register("old", chat_session_id="c1", questions=[{"id": "q", "prompt": "?"}])
+    service.register("new", chat_session_id="c1", questions=[{"id": "q", "prompt": "?"}])
+    assert service.get("new")["expires_at"]  # every registration records the window
+
+    conn = sqlite3.connect(service.db_path)
+    conn.execute(
+        "UPDATE interactions SET expires_at = '2000-01-01T00:00:00+00:00' WHERE interaction_id = 'old'"
+    )
+    conn.commit()
+    conn.close()
+
+    assert service.expire_stale("c1") == 1
+    assert service.get("old")["closure"] == "expired"
+    # The fresh one is untouched and still answerable.
+    assert [row["interaction_id"] for row in service.list_open("c1")] == ["new"]

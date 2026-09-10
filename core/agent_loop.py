@@ -216,8 +216,20 @@ class AgentLoop:
                 final_response = event.get("content", "")
         return final_response
 
-    def run_stream(self, user_input: str) -> Iterator[dict]:
-        """Run one turn and yield UI-friendly progress events."""
+    def run_stream(
+        self,
+        user_input: str,
+        *,
+        resume_tool_call_id: str | None = None,
+        resume_tool_content: str = "",
+    ) -> Iterator[dict]:
+        """Run one turn and yield UI-friendly progress events.
+
+        E4 resume: when resume_tool_call_id is set the turn continues from a
+        previously paused ask_user call instead of starting a new user message.
+        The answer is filled in as that call's tool result, so the model sees
+        it in-protocol and the transcript keeps no synthetic user message.
+        """
         final_response = ""
         request_message = None
         guard_messages: list[dict] = []
@@ -226,27 +238,32 @@ class AgentLoop:
         guard_retry_count = 0
         usage_records: list[dict] = []
         try:
-            self._remove_legacy_base_prompt()
-            self._inject_base_prompt()
-            self._inject_skills_prompt()
-            self._inject_mcp_prompt()
-            if self.request_prompt:
-                # Dynamic tail is marked with the cache boundary (AG-3.2).
-                request_message = {"role": "system", "content": mark_dynamic_tail(self.request_prompt)}
-                self.session.messages.append(request_message)
-            # before_turn hooks (memory injection, review reminders) — AG-2.1.
-            turn_injection_texts = list(
-                before_turn_results(session=self.session, user_input=user_input)
-            )
-            if self.memory_injector is not None:
-                injected = self.memory_injector.before_turn(self.session, user_input)
-                if injected:
-                    turn_injection_texts.append(injected)
-            for injection in turn_injection_texts:
-                message = {"role": "system", "content": injection}
-                self.session.messages.append(message)
-                turn_injections.append(message)
-            self.session.add_message("user", user_input)
+            if resume_tool_call_id is None:
+                self._remove_legacy_base_prompt()
+                self._inject_base_prompt()
+                self._inject_skills_prompt()
+                self._inject_mcp_prompt()
+                if self.request_prompt:
+                    # Dynamic tail is marked with the cache boundary (AG-3.2).
+                    request_message = {"role": "system", "content": mark_dynamic_tail(self.request_prompt)}
+                    self.session.messages.append(request_message)
+                # before_turn hooks (memory injection, review reminders) — AG-2.1.
+                turn_injection_texts = list(
+                    before_turn_results(session=self.session, user_input=user_input)
+                )
+                if self.memory_injector is not None:
+                    injected = self.memory_injector.before_turn(self.session, user_input)
+                    if injected:
+                        turn_injection_texts.append(injected)
+                for injection in turn_injection_texts:
+                    message = {"role": "system", "content": injection}
+                    self.session.messages.append(message)
+                    turn_injections.append(message)
+                self.session.add_message("user", user_input)
+            else:
+                # Prompts and injections are already persisted from the paused
+                # turn; re-running them would duplicate the dynamic tail.
+                self.session.add_tool_message(resume_tool_call_id, resume_tool_content)
 
             for iteration in range(self.max_iterations):
                 response, response_deltas = yield from self._complete_with_events(
@@ -266,9 +283,24 @@ class AgentLoop:
                     tool_calls_data = [tc.to_dict() for tc in response.tool_calls]
                     self.session.add_message_with_tool_calls("assistant", response.content, tool_calls_data)
 
-                    terminate_turn = yield from self._execute_tool_calls(
+                    terminate_turn, pause_payload = yield from self._execute_tool_calls(
                         response.tool_calls, tool_history
                     )
+                    if pause_payload:
+                        # E4: the pending question IS this turn's final artefact.
+                        # The turn ends cleanly, leaving the tool_call unanswered;
+                        # the web layer resumes it once the user answers.
+                        pause_event = {
+                            "type": "assistant_done",
+                            "content": final_response,
+                            "termination_reason": "paused",
+                            "usage_records": usage_records,
+                            "pause": pause_payload,
+                        }
+                        yield pause_event
+                        if self.trace_writer:
+                            self.trace_writer.write(pause_event)
+                        return final_response
                     if terminate_turn:
                         fallback = "本轮操作被安全策略终止。"
                         final_response = fallback
@@ -434,6 +466,7 @@ class AgentLoop:
                 results[i] = self._run_single_tool(tc, args, args_parse_error=err)
 
         terminate = False
+        pause_payload: dict | None = None
         for i, (tc, args, _err) in enumerate(parsed):
             result, elapsed, term = results[i]
             terminate = terminate or term
@@ -444,7 +477,13 @@ class AgentLoop:
                     "data": result.data,
                 })
                 self._sync_session_state(tc.name, result)
-                self.session.add_tool_message(tc.id, result.content)
+                if result.pause_for_user:
+                    # E4: deliberately leave this tool_call without a result.
+                    # Only the loop knows the call id, so stamp it here; the web
+                    # layer persists it and the resume fills this exact call.
+                    pause_payload = {**result.pause_for_user, "tool_call_id": tc.id}
+                else:
+                    self.session.add_tool_message(tc.id, result.content)
                 logger.info(f"[AgentLoop] tool result for id={tc.id!r}: {result.content[:200]!r}")
                 for display_event in result.data.get("display_events", []):
                     yield {
@@ -484,7 +523,7 @@ class AgentLoop:
                 yield fallback_end_event
                 if self.trace_writer:
                     self.trace_writer.write(fallback_end_event)
-        return terminate
+        return terminate, pause_payload
 
     def _run_single_tool(
         self,

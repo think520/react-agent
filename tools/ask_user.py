@@ -10,9 +10,6 @@ import uuid
 from tools.base import ToolResult, register_tool
 
 
-def _get_workspace(session=None) -> str:
-    return getattr(session, "workspace_root", None) or "."
-
 
 def _normalize_questions(raw) -> list[dict]:
     normalized: list[dict] = []
@@ -41,19 +38,30 @@ def _normalize_questions(raw) -> list[dict]:
     return normalized[:5]
 
 
-def ask_user(questions: list[dict], session=None) -> ToolResult:
-    """Ask the user structured questions; the answer arrives in a later turn."""
+def ask_user(
+    questions: list[dict],
+    workspace: str = ".",
+    chat_session_id: str = "",
+) -> ToolResult:
+    """Ask the user structured questions; the answer arrives in a later turn.
+
+    ``workspace`` and ``chat_session_id`` are injected by ``execute_tool`` from
+    the running session, so they must be declared here. ``execute_tool`` only
+    fills parameters a tool names, and it never passes the session object
+    itself -- not declaring them is what put the first version of this tool in
+    the project workspace database with an empty session id.
+    """
     from service.interaction_service import InteractionService
 
     normalized = _normalize_questions(questions)
     if not normalized:
         return ToolResult(ok=False, content="ask_user needs at least one question with a prompt.")
 
-    service = InteractionService(_get_workspace(session))
+    service = InteractionService(workspace)
     interaction_id = uuid.uuid4().hex
     service.register(
         interaction_id,
-        chat_session_id=getattr(session, "session_id", "") or "",
+        chat_session_id=chat_session_id,
         questions=normalized,
     )
     service.mark_awaiting(interaction_id)
@@ -77,6 +85,11 @@ def ask_user(questions: list[dict], session=None) -> ToolResult:
             "不要替用户选择，也不要在本轮继续推进。"
         ),
         artifacts=[artifact],
+        pause_for_user={
+            "interaction_id": interaction_id,
+            "artifact_id": interaction_id,
+            "questions": public_questions,
+        },
     )
 
 

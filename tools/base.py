@@ -23,6 +23,9 @@ class ToolResult:
     content: str  # text sent to LLM
     data: dict = field(default_factory=dict)  # structured data for programmatic use
     artifacts: list[dict] = field(default_factory=list)  # safe structured data for UIs
+    # E4: when set, the chat loop ends this turn after dispatching the tool, and
+    # the run resumes once the user answers. Shape mirrors the ask_user artifact.
+    pause_for_user: dict | None = None
 
 
 def _is_within_workspace(path: str, workspace: str) -> bool:
@@ -115,6 +118,8 @@ def execute_tool(name: str, args: dict, session=None) -> Any:
                 )
             if "research_session_id" in sig.parameters:
                 call_args.setdefault("research_session_id", session.session_id)
+            if "chat_session_id" in sig.parameters:
+                call_args.setdefault("chat_session_id", session.session_id)
         result = func(**call_args)
         # Ensure result is a ToolResult
         if not isinstance(result, ToolResult):

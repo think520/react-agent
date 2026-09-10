@@ -205,6 +205,8 @@ class AgentService:
         allowed_tool_names: set[str] | frozenset[str] | None = None,
         response_guard=None,
         memory_injector=None,
+        resume_tool_call_id: str | None = None,
+        resume_tool_content: str = "",
     ) -> Iterator[dict]:
         """Create an AgentLoop and return its event stream iterator.
 
@@ -229,4 +231,8 @@ class AgentService:
             response_guard=response_guard,
             memory_injector=memory_injector,
         )
-        return agent.run_stream(user_input)
+        return agent.run_stream(
+            user_input,
+            resume_tool_call_id=resume_tool_call_id,
+            resume_tool_content=resume_tool_content,
+        )

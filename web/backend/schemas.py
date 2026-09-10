@@ -26,7 +26,9 @@ class ChatReference(BaseModel):
 
 
 class ChatRunRequest(BaseModel):
-    message: str = Field(..., min_length=1)
+    message: str = Field(default="", max_length=32000)
+    # E4: continue a turn that paused on ask_user instead of starting a new one.
+    resume_interaction_id: str | None = Field(default=None, max_length=64)
     chat_session_id: str | None = None
     provider: str | None = None
     model: str | None = None

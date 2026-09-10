@@ -10,10 +10,10 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from core.db import create_connection
+from core.db import create_connection, ensure_columns
 from knowledge.paths import knowledge_path
 
 DB_FILENAME = "bobodan.db"
@@ -26,6 +26,10 @@ STATUS_GRADED = "graded"
 # A question stays actionable for the user while it is in one of these states.
 _OPEN_STATUSES = (STATUS_REGISTERED, STATUS_AWAITING)
 
+# Data hygiene only: the ACTION boundary (the session moving on) decides whether
+# a card is still answerable. This window just stops orphan rows accumulating.
+DEFAULT_TTL_DAYS = 7
+
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS interactions (
     interaction_id TEXT PRIMARY KEY,
@@ -35,6 +39,9 @@ CREATE TABLE IF NOT EXISTS interactions (
     questions TEXT NOT NULL DEFAULT '[]',
     answers TEXT NOT NULL DEFAULT '[]',
     outcome TEXT NOT NULL DEFAULT '{}',
+    tool_call_id TEXT NOT NULL DEFAULT '',
+    closure TEXT NOT NULL DEFAULT '',
+    expires_at TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL DEFAULT '',
     answered_at TEXT NOT NULL DEFAULT '',
@@ -93,6 +100,9 @@ def _row_to_dict(row: Any) -> dict:
         "questions": json.loads(row["questions"] or "[]"),
         "answers": json.loads(row["answers"] or "[]"),
         "outcome": json.loads(row["outcome"] or "{}"),
+        "tool_call_id": row["tool_call_id"],
+        "closure": row["closure"],
+        "expires_at": row["expires_at"],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
         "answered_at": row["answered_at"],
@@ -115,6 +125,11 @@ class InteractionService:
         conn = self._connect()
         try:
             conn.executescript(_SCHEMA_SQL)
+            ensure_columns(conn, "interactions", {
+                "tool_call_id": "TEXT NOT NULL DEFAULT ''",
+                "closure": "TEXT NOT NULL DEFAULT ''",
+                "expires_at": "TEXT NOT NULL DEFAULT ''",
+            })
             conn.commit()
         finally:
             conn.close()
@@ -129,12 +144,13 @@ class InteractionService:
     ) -> dict:
         self.init_db()
         now = _now_iso()
+        expires_at = (datetime.now(timezone.utc) + timedelta(days=DEFAULT_TTL_DAYS)).isoformat()
         conn = self._connect()
         try:
             conn.execute(
                 """INSERT OR REPLACE INTO interactions
-                   (interaction_id, chat_session_id, library_id, status, questions, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                   (interaction_id, chat_session_id, library_id, status, questions, created_at, updated_at, expires_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     interaction_id,
                     chat_session_id or "",
@@ -143,6 +159,7 @@ class InteractionService:
                     json.dumps(questions or [], ensure_ascii=False),
                     now,
                     now,
+                    expires_at,
                 ),
             )
             conn.commit()
@@ -184,6 +201,7 @@ class InteractionService:
         self._update(
             interaction_id,
             status=STATUS_GRADED,
+            closure="answered",
             answers=json.dumps(answers or [], ensure_ascii=False),
             outcome=json.dumps(outcome, ensure_ascii=False),
             answered_at=now,
@@ -191,8 +209,56 @@ class InteractionService:
         )
         return self.get(interaction_id)
 
+    def attach_tool_call(self, interaction_id: str, tool_call_id: str) -> dict | None:
+        """Bind the paused tool call that this interaction must resume.
+
+        A tool never learns its own tool_call_id -- only the agent loop does -- so
+        the loop stamps it into the pause payload and the web layer records it
+        here. This is what lets the resume fill the right tool message.
+        """
+        if not tool_call_id:
+            return self.get(interaction_id)
+        self._update(interaction_id, tool_call_id=tool_call_id)
+        return self.get(interaction_id)
+
+    def close(self, interaction_id: str, *, closure: str, outcome: dict | None = None) -> dict | None:
+        """Close a pending interaction without an answer (skipped / expired)."""
+        record = self.get(interaction_id)
+        if not record:
+            return None
+        if record["status"] in (STATUS_ANSWERED, STATUS_GRADED):
+            return record
+        self._update(
+            interaction_id,
+            status=STATUS_GRADED,
+            closure=closure,
+            outcome=json.dumps(outcome or {"graded": False, "skipped": True}, ensure_ascii=False),
+            graded_at=_now_iso(),
+        )
+        return self.get(interaction_id)
+
+    def expire_stale(self, chat_session_id: str | None = None) -> int:
+        """Close interactions past the data-hygiene window; returns how many."""
+        now = _now_iso()
+        sql = (
+            "UPDATE interactions SET status = ?, closure = 'expired', graded_at = ?, updated_at = ? "
+            "WHERE status IN (?, ?) AND expires_at != '' AND expires_at < ?"
+        )
+        params: list[Any] = [STATUS_GRADED, now, now, _OPEN_STATUSES[0], _OPEN_STATUSES[1], now]
+        if chat_session_id is not None:
+            sql += " AND chat_session_id = ?"
+            params.append(chat_session_id)
+        conn = self._connect()
+        try:
+            cursor = conn.execute(sql, tuple(params))
+            conn.commit()
+            return int(cursor.rowcount or 0)
+        finally:
+            conn.close()
+
     def list_open(self, chat_session_id: str) -> list[dict]:
         self.init_db()
+        self.expire_stale(chat_session_id)
         conn = self._connect()
         try:
             rows = conn.execute(
