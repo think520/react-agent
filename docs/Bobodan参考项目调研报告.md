@@ -118,7 +118,7 @@
 | D3 | 知识类型四分类 + 类型化门禁 | Practice/Review | 题目/知识点加 `kind` 字段；concept 类走 Feynman 讲解定性判定而非对错 | `deeptutor/learning/models.py` L24-28、`policy.py` L32-45 |
 | D4 | 单循环契约（无工具轮=答案） | `core/agent_loop.py` | 循环加探索预算 + 3 轮结算 + 强制无工具收尾；流式文本用 `call_role` 元数据区分 narration/finish | `deeptutor/agents/chat/agent_loop.py` |
 | D5 | prompt 具名块 + KB seed 进末尾 user 消息 | `core/agent_loop.py` 的 prompt 组装 | system 拆具名块且全 turn 字节稳定；检索结果拼 `[Knowledge Base Context]` 到末尾 user 消息 + 「不够就继续检索」——省 token 且缓存友好 | `deeptutor/agents/chat/prompt_blocks.py` |
-| D6 | ask_user 暂停/恢复 + 交互状态持久化 | Chat/Practice | 交互生命周期 registered→awaiting_input→answered→graded 落 SQLite；断线后可恢复作答 | `deeptutor/tools/ask_user.py`、`learning/models.py` L193-224 |
+| D6 | ask_user 暂停/恢复 + 交互状态持久化 | Chat/Practice | 交互生命周期 registered→awaiting_input→answered→graded 落 SQLite；断线后可恢复作答。**Bobodan 已落地（E4，2026-09-10）**：DeepTutor / OpenMAIC / openhanako 三家机制对比与最终选择见 [`REFERENCE_PROJECTS.md`](REFERENCE_PROJECTS.md) 案例 1 | `deeptutor/tools/ask_user.py`、`learning/models.py` L193-224 |
 | D7 | 防模型绕过三道防线 | Practice 出题卡 | ① 服务端注入关键参数；② 纯文本 A/B/C 收尾检测重定向；③ 卡片数据从持久化状态重绑定 + 剥离 "(Recommended)" | `deeptutor/capabilities/mastery/loop.py` L39-241 |
 | D8 | 出题三阶段流式管线 | `service/quiz_service.py` | Explore→Plan→逐题生成；每题就绪即经 SSE 渲染；每题带 explanation 入错题库 | `deeptutor/agents/question/pipeline.py` |
 | D9 | 题库/错题库按名寻址 + explanation 随题入库 | quiz SQLite | 类目按名字建；错题必带 explanation（复习时唯一解释）；工具错误返回可执行句子 | `deeptutor/tools/question_bank.py` |

@@ -61,12 +61,12 @@
 | E1 | 会话内操作失败静默 → 全局错误位 + 可见反馈 | web/backend + ChatPage | 体验审查 P0-1 |
 | E2 | 新建资料库路径体验：默认路径预填 + 目的解释 | LibrarySetupDialog | 体验审查 P0-2 |
 | E3 | 错题变式死路回退链：无 chunk → 按概念重出 → 原题重练 + 失败原因上屏（A0：后端三级回退已存在，只做前端上屏） | quiz_service | 体验审查 P0-3 |
-| E4 | **ask_user 交互卡 + 交互生命周期持久化**（registered→awaiting→answered→graded，断线可恢复） | SSE 事件 + interactions 表 + 前端卡（联动 F11/F12） | D6；报告 P0-1 |
-| E5 | **出题三阶段流式管线**：Explore→Plan→逐题生成，每题就绪即渲染；explanation 随题入库 | quiz_service | D8/D9；报告 P0-2 |
+| E4 | **ask_user 交互卡 + 交互生命周期持久化**（registered→awaiting→answered→graded，断线可恢复）——**已交付（A1 + 2026-09-10 补齐轮）**；剩余 UI 细化见 F11/F12 | SSE 事件 + interactions 表 + 前端卡 | D6；报告 P0-1 |
+| E5 | **出题三阶段流式管线**：Explore→Plan→逐题生成，每题就绪即渲染；explanation 随题入库（**口径**：这里的"入库"就是题库 D1 的入库，见 `QUESTION_BANK_DESIGN.md`） | quiz_service | D8/D9；报告 P0-2 |
 | E6 | **掌握度引擎纯函数化**：近 5 次加权 + 置信帽 {1:0.5,2:0.8} + 知识四分类 + next_objective 优先级（挂起问题>到期复习>第一个未掌握点）；agent 每轮先读引擎 | learning/ 新增 engine.py | D1/D2/D3；报告 P0-3；体验审查 P1-5 余项 |
 | E7 | **划线最小闭环**：chunk 级划线（四元组锚）+ 托管区块同步到笔记 + ↩ 反链 flash 定位 | Reader + notes 服务 | Q1/Q2/Q3；报告 P0-4 |
-| E8 | 导入进度 + 失败清单 + 取消 + 拖拽热区 | kb import 前后端 | 体验审查 P1-8 |
-| E9 | 到期复习变式化 + 状态中文化 + "上次 X 天前" | learning_service + ReviewPage | 体验审查 P1-6/P2 |
+| E8 | 导入**流程**：进度 + 失败清单 + 取消 + 拖拽热区（边界见 E17，勿与其重复） | kb import 前后端 | 体验审查 P1-8 |
+| E9 | 到期复习变式化 + 状态中文化 + "上次 X 天前"（**变式复用 E3 已交付的通道**，不要新建生成器） | learning_service + ReviewPage | 体验审查 P1-6/P2 |
 | E10 | Socratic persona 技能（翻译 PERSONA.md + 优先级裁决：persona 管风格流程、不碰证据门禁） | skills/ 新增 | D10 |
 | E11 | AgentLoop 单循环契约：无工具轮=finish、探索预算 + 3 轮结算期、截断续写 | core/agent_loop.py | D4 |
 | E12 | prompt 具名块字节稳定 + KB seed 预检索进末尾 user 消息 | core/agent_loop.py | D5/D13 |
@@ -75,6 +75,7 @@
 | E15 | 简答三态判分与"学习中"映射核对（AnswerResult.verdict 已有三态，核对批改链路与展示一致性） | quiz_service | 体验审查 P1-10；O10 |
 | E16 | 新确认概念返回坐标 + 前端高亮数秒 | concept_service + KnowledgeMap | 体验审查 P1-12 |
 | E17 | **资料库文件树：按真实文件夹呈现与建立资料库**（详见下方设计记录） | Library 前后端 + 受沙盒保护的资料库文件 API | 2026-09-10 设计确认（用户 E2E 反馈） |
+| E18 | **题库**：浏览 / 筛选 / 收藏 / 一键练 / 对话引用（设计已定稿：D1–D9，见 [`QUESTION_BANK_DESIGN.md`](QUESTION_BANK_DESIGN.md)） | quiz store + 练习页视图 + 复习页 + Chat 工具 | 2026-09-10 立项设计 |
 
 #### E17 设计记录（2026-09-10）
 
@@ -91,7 +92,7 @@
 **已定决策**：
 
 1. **树建在真实文件系统上**（不是建在索引上）：浏览资料库文件夹本身，索引元数据（提取状态、chunk 数、是否 AI 生成页）作为徽章叠加。理由：Obsidian 的 vault 就是文件；与 `CLAUDE.md`「原始资料是事实来源」一致；同时天然消除"生成页与源文件并排"的困惑。
-2. 写操作范围（建议）：**只读浏览 + 拖拽/导入到指定文件夹 + 新建文件夹**。
+2. 写操作范围（建议）：**只读浏览 + 选择目标文件夹导入 + 新建文件夹**。**与 E8 的边界**：E8 负责导入**流程**（进度 / 失败清单 / 取消 / 拖拽热区），E17 负责**目标位置**（选文件夹 / 新建文件夹）；拖拽落点解析归 E8，落点确定之后的落库位置归 E17。
 
 **硬约束（决定了什么不能顺手做）**：
 
@@ -135,8 +136,8 @@
 | F2 | narration/finish 元数据协议：过程文本靠标记事件从答案剔除，前端零启发式 | useChatStream |
 | F6 | rAF 自适应打字机 + 单调 Simple→Rich markdown 分级渲染 | ChatPage 管线 |
 | F8–F10 | 过程可视化升级：工具卡规则表（动词短语+chips+disclosure，测试对账）、工具组双时钟、thinking 预览/waiting 三点分离 | ProcessFoldBlock |
-| F11 | ask_user 卡流序分段渲染 + 原位 resolved + 多题 tab（联动 E4） | artifacts/ |
-| F12 | question 未答时接管 composer（编号问卷 + 键盘），answered 由 fold 派生（联动 E4） | ChatPage composer |
+| F11 | ask_user 卡**剩余**部分：多题 tab + 自动跳题 + Other 草稿（**E4 已交付**：流序渲染 + 原位 resolved，勿重复实现） | artifacts/ |
+| F12 | question 未答时接管 composer（编号问卷 + 键盘），answered 由 fold 派生（**E4 已交付**：答案经 tool result 回填、不产生用户气泡） | ChatPage composer |
 | F13 | Quiz 流式卡：逐题出现 + chip 导航 + turnId 隔离 | PracticePage |
 | F17 | Playwright mock SSE fixture（确定性事件串重放） | e2e/ |
 | H-a | 消息操作条（悬停 复制/重答）+ 用户消息编辑重发 | ChatPage；openhanako MessageFooterActions |
@@ -187,7 +188,7 @@ P5G.3 的产品能力不再整体等待 Electron：Roadmap、复习提醒和部�
 | A3 阅读与导入 | E2、E7、E8、E16 | 新建路径可理解；划线可回链；导入进度与失败可操作；新概念可定位 |
 | B1 检索基线 | G4 的 FTS-only 基线、G5 | 有真实资料评测集和可重复指标；扫描页 / 目录失败不静默 |
 | B2 可选向量检索 | G1-G3，再完成 G4 hybrid 对比 | 未配置时 FTS 正常；云端发送边界明确；签名、重建、限流和中断可恢复；数据证明 hybrid 有收益 |
-| C1 前端正确性 | FE-P0、F2、F11、F12、F17、H-c | SSE 不丢帧；滚动不抢用户；交互卡可测；错误反馈统一 |
+| C1 前端正确性 | FE-P0、F2、F11（剩余部分）、F12、F17、H-c | SSE 不丢帧；滚动不抢用户；交互卡可测；错误反馈统一。**注意**：F11/F12 只做 E4 未覆盖的部分；PracticePage 会被 E13 / F13 / E18 同时触及，批次内排开 |
 | C2 体验增强 | 其余 FE-P1；只选当前用户高频路径实施 | 至少一次桌面、窄屏和移动端真实流程验收；不新增主导航 |
 | D 运行时底座 | W4 中被上层需求实际阻塞的条目 | 每项由明确故障或发布门槛驱动，不以参考项目完整度为目标 |
 | E 桌面发布 | W5 | A1-A3、B1-B2、C1 通过；安装、升级、卸载、备份恢复和崩溃诊断可验收 |

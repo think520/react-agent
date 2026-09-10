@@ -55,6 +55,10 @@
 - 刷新根 README、文档索引与审查记录，使产品说明与当前运行时一致。
 - 验证结果：Python `1160 passed`（2 条既有 warning），前端 lint 与生产构建通过，Vitest `19 passed`，`git diff --check` 通过。
 
+- **后续路线调整**: 下一阶段改为 P5E“用户主动触发的 LLM Wiki”。资料导入只建立原文索引，用户要求整理后先生成变更计划，确认后才写入可互链、可回到原文、可撤销的 Wiki；可信联网顺延到 P5F，发布收尾顺延到 P5G。
+- **侧栏品牌头像**: 左上角恢复使用正式主头像 `bobodan-avatar-64.png`，不再把低频 `friendly` 表情图作为固定品牌入口。
+- **Docs cleanup**: 新增 `docs/README.md` 作为文档索引，新增 `docs/DESIGN.md` 作为长期视觉设计参考；将 `docs/OPENAI_AGENT_CODEX_REFERENCE_FOR_BOBODAN.md` 纳入当前工程边界参考；将已实现或历史详细设计移入 `docs/archive/`，当前执行入口收敛到 `docs/NEXT_STEPS_EXECUTION_PLAN.md`。
+- **REPL UI 改进**: thinking 动效增加实时计时器（`⠋ thinking · 3.2s`）。工具调用显示改为 Claude Code 风格（`▸ tool_name(args)` → `✓ preview`），消除多余空白行。thinking 动效在工具执行期间保持可见。
 ### 修复
 - Wiki 默认区分“知识页 / 资料索引 / 个人笔记”，资料索引不再与概念页混排或显示为 `obsidian_note`；新生成的资料索引限制为短摘要、学习地图和关键结论，不再逐章复刻原文，已有页面可通过“AI 更新当前页”生成需确认的更新计划。耗时与 Token 估算改用同 Provider、同模型的真实请求样本并显示可信度，完成计划展示本轮实际用量、Provider 缓存和 Bobodan 本地缓存。
 - Wiki 取消现在会在每次模型请求前重新检查停止标记，不再继续执行同一批次内尚未发出的请求；刷新过的旧会话即使 artifact 与 plan 状态不一致，也会继续轮询并收敛为“已取消”。缺少 `summary / changes` 的中断记录按空计划安全显示，不再导致整个 Chat 页面白屏。
@@ -69,6 +73,11 @@
 - Chat 处理状态改为正文流内的 Bobodan `thinking / reading / writing / ready` 图片状态；只展示工具、资料和任务进度，不展示模型原始思维链。
 - 用户偏好升级为 schema v3；验证：Python `1102 passed`、Vitest `5 passed`、TypeScript 与生产构建通过、Playwright 多视口 `57 passed`。
 
+- **Review 状态字体与滚动条**: `到期 / 错题 / 薄弱点` 使用 Luo 短标签强调；全局滚动条改为透明轨道与暖灰细滑块，并修复右侧资料名称撑宽面板造成的横向滚动条。
+- **复习出题错误继承当前资料范围**: Review 现在按知识点关联并复用历史题目 ID，不再把用户当前选择的无关资料范围套到历史复习项上；只有没有历史题时才回退到重新生成，避免无资料报错和检索跑偏。
+- **Trace per-run 文件碰撞**: `TraceWriter` 文件名增加微秒时间戳和短 run suffix，同一 session 在同一秒内连续 run 不再写入同一个 JSONL；`list_traces()` 兼容旧秒级文件名。
+- **Workflow 手动掌握度联动**: `ReviewScheduler.mark_manual(..., "mastered")` 后会触发 `PlanWorkflowTracker.check_plan_completion()`，手动标记已掌握后今日任务和计划状态会同步更新。
+- **LearningStore SQLite 文件锁**: `LearningStore._conn()` 改为真正关闭连接的 context manager，避免 Windows 上临时 workspace 或后续 Web runtime 遇到 `bobodan.db` 文件锁。
 ### 新增
 - **P5E.6 知识地图产品重置**: 将混合 Wiki 重置为以概念关系和原文定位为核心的知识地图。
   - 新增 `graph/concept_store.py`：SQLite 概念图谱后端（concepts、relationships、evidence、concept_candidates、concept_extraction_runs、concept_positions 六表），支持候选审查、位置持久化和图状态快照。
@@ -353,19 +362,6 @@
   - `tools/wiki_tools.py`: 注册 `wiki_ingest`（编译源文件）、`wiki_lint`（健康检查）两个 Agent 工具。
   - `cli/repl.py`: 新增 `/wiki init`、`/wiki ingest`、`/wiki lint`、`/wiki status` 命令。
   - `tests/test_wiki.py`: 23 个测试覆盖 schema、index、lint、compiler、REPL 命令。
-
-### 修复
-- **Review 状态字体与滚动条**: `到期 / 错题 / 薄弱点` 使用 Luo 短标签强调；全局滚动条改为透明轨道与暖灰细滑块，并修复右侧资料名称撑宽面板造成的横向滚动条。
-- **复习出题错误继承当前资料范围**: Review 现在按知识点关联并复用历史题目 ID，不再把用户当前选择的无关资料范围套到历史复习项上；只有没有历史题时才回退到重新生成，避免无资料报错和检索跑偏。
-- **Trace per-run 文件碰撞**: `TraceWriter` 文件名增加微秒时间戳和短 run suffix，同一 session 在同一秒内连续 run 不再写入同一个 JSONL；`list_traces()` 兼容旧秒级文件名。
-- **Workflow 手动掌握度联动**: `ReviewScheduler.mark_manual(..., "mastered")` 后会触发 `PlanWorkflowTracker.check_plan_completion()`，手动标记已掌握后今日任务和计划状态会同步更新。
-- **LearningStore SQLite 文件锁**: `LearningStore._conn()` 改为真正关闭连接的 context manager，避免 Windows 上临时 workspace 或后续 Web runtime 遇到 `bobodan.db` 文件锁。
-
-### 变更
-- **后续路线调整**: 下一阶段改为 P5E“用户主动触发的 LLM Wiki”。资料导入只建立原文索引，用户要求整理后先生成变更计划，确认后才写入可互链、可回到原文、可撤销的 Wiki；可信联网顺延到 P5F，发布收尾顺延到 P5G。
-- **侧栏品牌头像**: 左上角恢复使用正式主头像 `bobodan-avatar-64.png`，不再把低频 `friendly` 表情图作为固定品牌入口。
-- **Docs cleanup**: 新增 `docs/README.md` 作为文档索引，新增 `docs/DESIGN.md` 作为长期视觉设计参考；将 `docs/OPENAI_AGENT_CODEX_REFERENCE_FOR_BOBODAN.md` 纳入当前工程边界参考；将已实现或历史详细设计移入 `docs/archive/`，当前执行入口收敛到 `docs/NEXT_STEPS_EXECUTION_PLAN.md`。
-- **REPL UI 改进**: thinking 动效增加实时计时器（`⠋ thinking · 3.2s`）。工具调用显示改为 Claude Code 风格（`▸ tool_name(args)` → `✓ preview`），消除多余空白行。thinking 动效在工具执行期间保持可见。
 
 ## [0.12.0] - 2026-05-20
 
