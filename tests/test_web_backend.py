@@ -1882,4 +1882,3 @@ def test_a_new_message_closes_the_pending_question(backend_client, monkeypatch):
         if m.get("role") == "tool" and m.get("tool_call_id") == "call_003"
     ]
     assert tool_messages
-
