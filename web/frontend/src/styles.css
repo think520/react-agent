@@ -1144,6 +1144,9 @@ kbd { color: var(--faint); font-family: inherit; font-size: 10px; }
 .ask-user-question input { width: 100%; min-height: 34px; border: 1px solid var(--border-strong); border-radius: 7px; padding: 0 10px; background: var(--paper); color: var(--ink); font-family: inherit; font-size: 13px; }
 .ask-user-card footer { display: flex; justify-content: flex-end; }
 .ask-user-card.resolved { background: transparent; }
+.ask-user-card.skipped { border-style: dashed; }
+.ask-user-card.skipped header strong { color: var(--faint); }
+.ask-user-card.skipped .ask-user-summary p { color: var(--faint); font-style: italic; }
 .ask-user-summary { display: grid; gap: 8px; }
 .ask-user-summary small { display: block; color: var(--faint); }
 .ask-user-summary p { margin: 2px 0 0; color: var(--ink); font-family: var(--font-reading); font-size: 13.5px; }
