@@ -958,7 +958,22 @@ export function ChatPage() {
       </div>}
       {mentionOpen && <div className="mention-palette" role="listbox" aria-label="引用资料或会话">
         <div className="mention-tabs" role="tablist"><button type="button" role="tab" aria-selected={effectiveMentionTab === "document"} className={effectiveMentionTab === "document" ? "active" : ""} onMouseDown={(event) => event.preventDefault()} onClick={() => switchMentionTab("document")}><FileText size={14} />资料</button><button type="button" role="tab" aria-selected={effectiveMentionTab === "session"} className={effectiveMentionTab === "session" ? "active" : ""} onMouseDown={(event) => event.preventDefault()} onClick={() => switchMentionTab("session")}><MessageCircle size={14} />会话</button><small>Tab 切换 · Enter 引用</small></div>
-        <div className="mention-list">{mentionItems.map((item, index) => <button type="button" role="option" aria-selected={index === mentionIndex} className={index === mentionIndex ? "active" : ""} key={`${item.type}:${item.id}`} onMouseDown={(event) => event.preventDefault()} onClick={() => chooseMention(item)}><span>{item.type === "document" ? <FileText size={15} /> : <MessageCircle size={15} />}</span><div><strong>{item.title}</strong><small>{item.subtitle}</small></div></button>)}</div>
+        <div className="mention-list">{mentionItems.map((item, index) => {
+          const alreadySelected = references.some((reference) => reference.type === item.type && reference.id === item.id);
+          return <button
+            type="button"
+            role="option"
+            aria-selected={index === mentionIndex}
+            key={`${item.type}:${item.id}`}
+            className={[index === mentionIndex ? "active" : "", alreadySelected ? "selected" : ""].filter(Boolean).join(" ") || undefined}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => chooseMention(item)}
+          >
+            <span>{item.type === "document" ? <FileText size={15} /> : <MessageCircle size={15} />}</span>
+            <div><strong>{item.title}</strong><small>{item.subtitle}</small></div>
+            {alreadySelected && <i className="mention-selected">已引用</i>}
+          </button>;
+        })}</div>
       </div>}
       <div className="composer">
         {references.length > 0 && <div className="composer-references">{references.map((reference) => <span key={`${reference.type}:${reference.id}`}><button type="button" onClick={() => openReference(reference)}>{reference.type === "document" ? <FileText size={12} /> : <MessageCircle size={12} />}{reference.title}</button><button type="button" aria-label={`移除引用 ${reference.title}`} onClick={() => removeReference(reference)}><X size={12} /></button></span>)}</div>}

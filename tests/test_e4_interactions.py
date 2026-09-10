@@ -129,3 +129,26 @@ def test_web_agent_can_ask_the_user():
     from web.backend.routers.chat import _WEB_TOOL_NAMES
 
     assert "ask_user" in _WEB_TOOL_NAMES
+
+
+def test_expiry_window_closes_orphan_rows_without_touching_open_ones(tmp_path):
+    """The window is data hygiene: it never decides whether a card is answerable."""
+    import sqlite3
+
+    service = InteractionService(str(tmp_path))
+    service.register("old", chat_session_id="c1", questions=[{"id": "q", "prompt": "?"}])
+    service.register("new", chat_session_id="c1", questions=[{"id": "q", "prompt": "?"}])
+    assert service.get("new")["expires_at"]  # every registration records the window
+
+    conn = sqlite3.connect(service.db_path)
+    conn.execute(
+        "UPDATE interactions SET expires_at = '2000-01-01T00:00:00+00:00' WHERE interaction_id = 'old'"
+    )
+    conn.commit()
+    conn.close()
+
+    assert service.expire_stale("c1") == 1
+    assert service.get("old")["closure"] == "expired"
+    # The fresh one is untouched and still answerable.
+    assert [row["interaction_id"] for row in service.list_open("c1")] == ["new"]
+

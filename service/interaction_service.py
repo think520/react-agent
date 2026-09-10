@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from core.db import create_connection, ensure_columns
@@ -25,6 +25,10 @@ STATUS_GRADED = "graded"
 
 # A question stays actionable for the user while it is in one of these states.
 _OPEN_STATUSES = (STATUS_REGISTERED, STATUS_AWAITING)
+
+# Data hygiene only: the ACTION boundary (the session moving on) decides whether
+# a card is still answerable. This window just stops orphan rows accumulating.
+DEFAULT_TTL_DAYS = 7
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS interactions (
@@ -140,12 +144,13 @@ class InteractionService:
     ) -> dict:
         self.init_db()
         now = _now_iso()
+        expires_at = (datetime.now(timezone.utc) + timedelta(days=DEFAULT_TTL_DAYS)).isoformat()
         conn = self._connect()
         try:
             conn.execute(
                 """INSERT OR REPLACE INTO interactions
-                   (interaction_id, chat_session_id, library_id, status, questions, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                   (interaction_id, chat_session_id, library_id, status, questions, created_at, updated_at, expires_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     interaction_id,
                     chat_session_id or "",
@@ -154,6 +159,7 @@ class InteractionService:
                     json.dumps(questions or [], ensure_ascii=False),
                     now,
                     now,
+                    expires_at,
                 ),
             )
             conn.commit()
@@ -231,8 +237,28 @@ class InteractionService:
         )
         return self.get(interaction_id)
 
+    def expire_stale(self, chat_session_id: str | None = None) -> int:
+        """Close interactions past the data-hygiene window; returns how many."""
+        now = _now_iso()
+        sql = (
+            "UPDATE interactions SET status = ?, closure = 'expired', graded_at = ?, updated_at = ? "
+            "WHERE status IN (?, ?) AND expires_at != '' AND expires_at < ?"
+        )
+        params: list[Any] = [STATUS_GRADED, now, now, _OPEN_STATUSES[0], _OPEN_STATUSES[1], now]
+        if chat_session_id is not None:
+            sql += " AND chat_session_id = ?"
+            params.append(chat_session_id)
+        conn = self._connect()
+        try:
+            cursor = conn.execute(sql, tuple(params))
+            conn.commit()
+            return int(cursor.rowcount or 0)
+        finally:
+            conn.close()
+
     def list_open(self, chat_session_id: str) -> list[dict]:
         self.init_db()
+        self.expire_stale(chat_session_id)
         conn = self._connect()
         try:
             rows = conn.execute(

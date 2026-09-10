@@ -891,6 +891,10 @@ kbd { color: var(--faint); font-family: inherit; font-size: 10px; }
 .mention-tabs button:hover { background: var(--blue-wash); color: var(--blue); }
 .mention-tabs small { margin-left: auto; color: var(--faint); font-size: 9px; }
 .mention-list { max-height: 280px; overflow-y: auto; padding: 5px; }
+/* Chat: mark references already attached to the composer (picker feedback). */
+.mention-list button.selected { background: var(--blue-wash); }
+.mention-list button.selected strong { color: var(--blue); }
+.mention-selected { margin-left: auto; flex: 0 0 auto; border: 1px solid rgba(27,54,93,0.22); border-radius: 5px; padding: 1px 6px; color: var(--blue); font-size: 10px; font-style: normal; }
 .mention-list > button { display: grid; width: 100%; min-height: 48px; grid-template-columns: 29px minmax(0,1fr); align-items: center; gap: 9px; border: 0; border-radius: 6px; padding: 6px 8px; background: transparent; color: var(--muted); text-align: left; }
 .mention-list > button:hover, .mention-list > button.active { background: var(--blue-wash); color: var(--blue); }
 .mention-list > button > span { display: grid; width: 28px; height: 30px; place-items: center; border: 1px solid var(--border); border-radius: 5px; background: var(--paper-soft); }
