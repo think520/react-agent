@@ -74,6 +74,36 @@
 | E14 | 「问 AI」复用练习辅导会话，不再污染会话列表 | PracticePage | 体验审查 P1-9 |
 | E15 | 简答三态判分与"学习中"映射核对（AnswerResult.verdict 已有三态，核对批改链路与展示一致性） | quiz_service | 体验审查 P1-10；O10 |
 | E16 | 新确认概念返回坐标 + 前端高亮数秒 | concept_service + KnowledgeMap | 体验审查 P1-12 |
+| E17 | **资料库文件树：按真实文件夹呈现与建立资料库**（详见下方设计记录） | Library 前后端 + 受沙盒保护的资料库文件 API | 2026-09-10 设计确认（用户 E2E 反馈） |
+
+#### E17 设计记录（2026-09-10）
+
+**问题**（用户实测）：Library 把资料拍平成一行行，看不出文件在哪；同名资料出现两行。
+
+- `documents` 表**有 `path`**（实测三层：`ai-agents-from-zero/`、`…/参考资料-2-LangChain入门/10-rag/docloads/assets/`、`raw/notes/`、`wiki/{sources,concepts,entities}/`），但 API 的 `DocumentSummary`（`web/frontend/src/types.ts:91-114`）**不返回任何路径字段** → 前端只能拍平。
+- 实测该库 70 份 = **48 `course_document`（真实资料）+ 22 `obsidian_note`（AI 生成页）**；生成页住在 `wiki/*` 子目录，却与源文件并排显示 → 被误读成重复索引。**根因是"把生成物当资料展示"，不是索引 bug。**
+
+**参考做法**（见 `REFERENCE_PROJECTS.md`）：
+
+- DeepTutor 的 `obsidian` **连接型 KB**：KB 只是指向用户文件夹的**指针**，**完全不建索引**，由 capability 直接导航真实文件（`deeptutor/knowledge/kb_types.py:9-11`）。
+- openhanako 的 **Desk**：native root dir，文件按**原始路径**附加而非 upload（`desktop/src/react/MainContent.tsx:121-136`、`deskBasePath`/`deskFiles`）。
+
+**已定决策**：
+
+1. **树建在真实文件系统上**（不是建在索引上）：浏览资料库文件夹本身，索引元数据（提取状态、chunk 数、是否 AI 生成页）作为徽章叠加。理由：Obsidian 的 vault 就是文件；与 `CLAUDE.md`「原始资料是事实来源」一致；同时天然消除"生成页与源文件并排"的困惑。
+2. 写操作范围（建议）：**只读浏览 + 拖拽/导入到指定文件夹 + 新建文件夹**。
+
+**硬约束（决定了什么不能顺手做）**：
+
+> `document_id = _stable_hash(source)`（`obsidian/sync.py:281`），即**资料身份由路径派生**；概念证据、题目 `source_ids`、wiki `sources` 都引用它。**重命名/移动文件会改变身份并打断证据链。** 因此重命名/移动必须先设计"身份迁移"（内容型稳定 ID，或迁移 + 重新关联），**不得与展示层改造同期实施**。
+
+**未决（实施前需定）**：
+
+- 生成物在树里的归属：`wiki/` 作为普通子文件夹，还是单独的「AI 整理」区（决定用户会不会再次把它当资料）。
+- 是否需要「仅已索引」筛选（未索引文件在树上可见但不可检索，需要一眼可辨）。
+- 现有能力复用：编辑 `PUT /documents/{id}/content`、版本与回滚、AI 编辑提案、删除（**归档**到 `.bobodan/archive/raw/`）都已经存在，不要重做。
+
+**归属批次**：与 A3（阅读与导入，E2/E7/E8/E16）同期或紧随其后。
 
 ### W2 检索与 RAG（第十章决策落地）
 
