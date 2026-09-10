@@ -9,6 +9,7 @@ import { AttributionBadges, BrandIllustration, ErrorNotice, IconButton, LoadingS
 import { WikiPlanCard } from "../components/WikiPlanCard";
 import { ModelSelect } from "../components/ModelSelect";
 import { DropdownSelect } from "../components/DropdownSelect";
+import { AskUserCard } from "../components/artifacts/AskUserCard";
 import { KnowledgeContextCard } from "../components/artifacts/KnowledgeContextCard";
 import { MemoryConfirmationCard } from "../components/artifacts/MemoryConfirmationCard";
 import { PracticeReadyCard } from "../components/artifacts/PracticeReadyCard";
@@ -30,7 +31,7 @@ import { looksLikeSettingsChange } from "../lib/settingsIntent";
 import { useHandoffStore } from "../stores/handoffStore";
 import { notifyError } from "../stores/noticeStore";
 import { useUiStore } from "../stores/uiStore";
-import type { ChatArtifact, ChatReference, KnowledgeContextArtifact, MemoryConfirmationArtifact, PersonalizationRef, PracticeReadyArtifact, RunSummaryArtifact, SettingsChangeArtifact, WebCandidatesArtifact, WebConsentArtifact, WebEvidenceArtifact, WikiFocusArtifact, WikiPlanArtifact, WikiResultArtifact } from "../types";
+import type { AskUserArtifact, ChatArtifact, ChatReference, KnowledgeContextArtifact, MemoryConfirmationArtifact, PersonalizationRef, PracticeReadyArtifact, RunSummaryArtifact, SettingsChangeArtifact, WebCandidatesArtifact, WebConsentArtifact, WebEvidenceArtifact, WikiFocusArtifact, WikiPlanArtifact, WikiResultArtifact } from "../types";
 
 interface SlashItem {
   value: string;
@@ -739,6 +740,20 @@ export function ChatPage() {
     }
   }
 
+  async function resolveInteraction(artifact: AskUserArtifact, answers: Array<{ id: string; answer: string }>) {
+    if (!sessionId) return;
+    setSending(true);
+    try {
+      await api.answerInteraction(artifact.artifact_id, sessionId, answers);
+      // The session detail re-projects the persisted lifecycle onto the card.
+      await refreshChatSession(sessionId);
+    } catch (reason) {
+      setError(toErrorMessage(reason, "回答没有保存成功。"));
+    } finally {
+      setSending(false);
+    }
+  }
+
   async function resolveMemoryProposal(artifact: MemoryConfirmationArtifact, action: "confirm" | "reject") {
     if (!sessionId) return;
     setSending(true);
@@ -863,6 +878,8 @@ export function ChatPage() {
         />;
       case "web_evidence":
         return <WebEvidenceCard key={artifact.artifact_id} artifact={artifact} />;
+      case "ask_user":
+        return <AskUserCard key={artifact.artifact_id} artifact={artifact} busy={sending} onAnswer={(item, answers) => void resolveInteraction(item, answers)} />;
       case "practice_ready":
         return <PracticeReadyCard key={artifact.artifact_id} artifact={artifact} starting={practiceStarting === artifact.artifact_id} onStart={(item) => void startPreparedPractice(item)} />;
       case "wiki_focus":

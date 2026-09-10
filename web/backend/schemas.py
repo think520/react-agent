@@ -53,6 +53,16 @@ class PracticeArtifactStartRequest(BaseModel):
     chat_session_id: str = Field(..., min_length=1, max_length=64)
 
 
+class InteractionAnswer(BaseModel):
+    id: str = Field(..., min_length=1, max_length=64)
+    answer: str = Field(default="", max_length=2000)
+
+
+class InteractionAnswerRequest(BaseModel):
+    chat_session_id: str = Field(..., min_length=1, max_length=64)
+    answers: list[InteractionAnswer] = Field(default_factory=list)
+
+
 class MemoryProposalResolutionRequest(BaseModel):
     chat_session_id: str = Field(..., min_length=1, max_length=64)
     warning_acknowledged: bool = False

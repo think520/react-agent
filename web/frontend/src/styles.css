@@ -1126,6 +1126,24 @@ kbd { color: var(--faint); font-family: inherit; font-size: 10px; }
 [data-motion="reduced"] .notice { animation: none; }
 @media (max-width: 767px) { .notice-center { right: 10px; bottom: 62px; left: 10px; width: auto; } }
 
+/* E4: ask_user interaction card. */
+.ask-user-card { display: grid; gap: 12px; border: 1px solid var(--border-strong); border-radius: 8px; margin: 16px 0; padding: 14px 16px; background: var(--paper-soft); }
+.ask-user-card header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.ask-user-card header span { display: inline-flex; align-items: center; gap: 6px; color: var(--blue); font-size: 12px; font-weight: 700; }
+.ask-user-card header strong { color: var(--muted); font-size: 11px; font-weight: 500; }
+.ask-user-questions { display: grid; gap: 12px; }
+.ask-user-question p { margin: 0 0 8px; color: var(--ink); font-family: var(--font-reading); font-size: 14px; line-height: 1.7; }
+.ask-user-options { display: flex; flex-wrap: wrap; gap: 7px; }
+.ask-user-options button { min-height: 32px; border: 1px solid var(--border-strong); border-radius: 7px; padding: 0 11px; background: var(--paper); color: var(--muted); font-size: 12.5px; cursor: pointer; }
+.ask-user-options button:hover { border-color: rgba(27,54,93,0.28); color: var(--blue); }
+.ask-user-options button.active { border-color: var(--blue); background: var(--blue-wash); color: var(--blue); }
+.ask-user-question input { width: 100%; min-height: 34px; border: 1px solid var(--border-strong); border-radius: 7px; padding: 0 10px; background: var(--paper); color: var(--ink); font-family: inherit; font-size: 13px; }
+.ask-user-card footer { display: flex; justify-content: flex-end; }
+.ask-user-card.resolved { background: transparent; }
+.ask-user-summary { display: grid; gap: 8px; }
+.ask-user-summary small { display: block; color: var(--faint); }
+.ask-user-summary p { margin: 2px 0 0; color: var(--ink); font-family: var(--font-reading); font-size: 13.5px; }
+
 .empty-state { display: grid; max-width: 560px; min-height: 430px; place-content: center; justify-items: center; margin: 0 auto; color: var(--faint); text-align: center; }
 .empty-state.compact { min-height: 260px; }
 .empty-state h2 { margin: 14px 0 6px; color: var(--blue); font-family: var(--font-reading); font-size: 25px; font-weight: 400; }

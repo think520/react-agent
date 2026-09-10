@@ -22,6 +22,7 @@ from service.agent_service import AgentService
 from core.skills import build_skills_system_prompt, find_skill_by_name
 from web.backend.capabilities import WEB_SKILL_NAMES
 from service.concept_service import ConceptService
+from service.interaction_service import InteractionService
 from service.evidence_policy import (
     CombinedResponsePolicy,
     ConceptMapPolicy,
@@ -50,7 +51,8 @@ from web.backend.errors import APIError
 from web.backend.events import to_web_events
 from web.backend.schemas import (
     ChatRunRequest, ChatSessionProviderRequest, ChatSessionUpdateRequest,
-    MemoryProposalResolutionRequest, PracticeArtifactStartRequest,
+    InteractionAnswerRequest, MemoryProposalResolutionRequest,
+    PracticeArtifactStartRequest,
 )
 from web.backend.schemas import (
     WikiCheckpointRestoreRequest,
@@ -81,6 +83,7 @@ _WEB_TOOL_NAMES = frozenset({
     "learning_progress",
     "learning_review",
     "request_memory_confirmation",
+    "ask_user",
     "request_web_search",
     "web_research",
 })
@@ -143,7 +146,22 @@ def _session_summary(summary: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _session_detail(session: Session) -> dict[str, Any]:
+def _public_interaction(record: dict[str, Any]) -> dict[str, Any]:
+    """Interaction payload for the client; the correct option is stripped."""
+    return {
+        "type": "ask_user",
+        "artifact_id": record["interaction_id"],
+        "status": record["status"],
+        "questions": [
+            {key: value for key, value in question.items() if key != "answer"}
+            for question in record.get("questions") or []
+        ],
+        "answers": record.get("answers") or [],
+        "outcome": record.get("outcome") or {},
+    }
+
+
+def _session_detail(session: Session, workspace: str | None = None) -> dict[str, Any]:
     messages = []
     for message in session.messages:
         role = message.get("role")
@@ -165,6 +183,16 @@ def _session_detail(session: Session) -> dict[str, Any]:
             if isinstance(message.get("personalization"), list):
                 item["personalization"] = message["personalization"]
             messages.append(item)
+    if workspace:
+        # E4 recovery: overlay the persisted lifecycle onto the cards already in
+        # the transcript, so a reload shows answered/graded state in place.
+        interactions = InteractionService(workspace)
+        for message in messages:
+            for artifact in message.get("artifacts") or []:
+                if artifact.get("type") == "ask_user":
+                    record = interactions.get(str(artifact.get("artifact_id") or ""))
+                    if record:
+                        artifact.update(_public_interaction(record))
     return {
         "chat_session_id": session.session_id,
         "name": session.name,
@@ -694,7 +722,7 @@ def get_session(chat_session_id: str, request: Request) -> dict:
     result = AgentService.load_session(chat_session_id, get_session_save_dir(get_config(), get_request_workspace(request)))
     if not result["ok"]:
         raise APIError(404, "session_not_found", result["error"])
-    return _session_detail(result["session"])
+    return _session_detail(result["session"], get_request_workspace(request))
 
 
 @router.patch("/sessions/{chat_session_id}")
@@ -852,6 +880,26 @@ def start_practice_artifact(artifact_id: str, body: PracticeArtifactStartRequest
         "chat_session_id": session.session_id,
         "artifact": artifact,
         "practice_session_id": result["session_id"],
+    }
+
+
+@router.post("/interactions/{interaction_id}/answer")
+def answer_interaction(
+    interaction_id: str,
+    body: InteractionAnswerRequest,
+    request: Request,
+) -> dict:
+    """Record the user's answers to an ask_user card and complete its lifecycle."""
+    workspace = get_request_workspace(request)
+    record = InteractionService(workspace).answer(
+        interaction_id,
+        [item.model_dump() for item in body.answers],
+    )
+    if not record:
+        raise APIError(404, "interaction_not_found", "这个交互已经不存在了，请重新提问。")
+    return {
+        "chat_session_id": body.chat_session_id,
+        "artifact": _public_interaction(record),
     }
 
 

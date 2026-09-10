@@ -706,8 +706,30 @@ export interface RunSummaryArtifact {
   operations: RunSummaryOperation[];
 }
 
+export interface AskUserQuestion {
+  id: string;
+  prompt: string;
+  options?: string[];
+  multi_select?: boolean;
+}
+
+/** E4: a question the agent asked; its lifecycle is persisted server-side. */
+export interface AskUserArtifact {
+  type: "ask_user";
+  artifact_id: string;
+  status: "registered" | "awaiting_input" | "answered" | "graded";
+  questions: AskUserQuestion[];
+  answers?: Array<{ id: string; answer: string }>;
+  outcome?: {
+    graded?: boolean;
+    correct?: number;
+    total?: number;
+    results?: Array<{ id: string; correct: boolean }>;
+  };
+}
+
 export type WebArtifact = WebConsentArtifact | WebCandidatesArtifact | WebEvidenceArtifact;
-export type ChatArtifact = WikiArtifact | SettingsChangeArtifact | WebArtifact | PracticeReadyArtifact | MemoryConfirmationArtifact | KnowledgeContextArtifact | RunSummaryArtifact;
+export type ChatArtifact = WikiArtifact | SettingsChangeArtifact | WebArtifact | PracticeReadyArtifact | MemoryConfirmationArtifact | KnowledgeContextArtifact | RunSummaryArtifact | AskUserArtifact;
 
 // ------------------------------------------------------------------
 // Knowledge Map — P5E.6

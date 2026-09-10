@@ -408,6 +408,11 @@ export const api = {
   })),
   abandonPractice: (id: number) => request(`/api/quiz/sessions/${id}`, { method: "DELETE" }),
   reviewQueue: () => request<ReviewQueue>("/api/learning/review-queue"),
+  answerInteraction: (interactionId: string, chatSessionId: string, answers: Array<{ id: string; answer: string }>) =>
+    request<{ chat_session_id: string; artifact: ChatArtifact }>(
+      "/api/chat/interactions/" + encodeURIComponent(interactionId) + "/answer",
+      json({ chat_session_id: chatSessionId, answers }),
+    ),
   conceptMastery: (concept: string) => request<{
     concept: string;
     status?: string;
