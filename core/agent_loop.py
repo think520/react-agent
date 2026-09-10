@@ -479,9 +479,9 @@ class AgentLoop:
                 self._sync_session_state(tc.name, result)
                 if result.pause_for_user:
                     # E4: deliberately leave this tool_call without a result.
-                    # The answer is filled in when the user replies and the
-                    # turn resumes (run_stream(resume_tool_call_id=...)).
-                    pause_payload = result.pause_for_user
+                    # Only the loop knows the call id, so stamp it here; the web
+                    # layer persists it and the resume fills this exact call.
+                    pause_payload = {**result.pause_for_user, "tool_call_id": tc.id}
                 else:
                     self.session.add_tool_message(tc.id, result.content)
                 logger.info(f"[AgentLoop] tool result for id={tc.id!r}: {result.content[:200]!r}")

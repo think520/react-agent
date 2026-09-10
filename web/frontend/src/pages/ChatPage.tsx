@@ -740,18 +740,55 @@ export function ChatPage() {
     }
   }
 
-  async function resolveInteraction(artifact: AskUserArtifact, answers: Array<{ id: string; answer: string }>) {
+  async function sendResume(interactionId: string) {
     if (!sessionId) return;
+    const controller = new AbortController();
+    abortRef.current = controller;
     setSending(true);
+    // Decision B: the continuation is a new assistant message, not a user
+    // bubble -- the answers are carried as the paused tool call's result.
+    setMessages((current) => [...current, { role: "assistant", content: "", pending: true }]);
     try {
-      await api.answerInteraction(artifact.artifact_id, sessionId, answers);
-      // The session detail re-projects the persisted lifecycle onto the card.
+      const profile = useUiStore.getState().learningProfile;
+      const [sendProvider, sendModel] = (selectedProvider || settings?.default_provider || "").split("::");
+      await streamChat("", sessionId, selectedDocumentIds, {
+        ...profile,
+        memoryEnabled: settings?.preferences.memory.enabled ?? true,
+        provider: sendProvider || undefined,
+        model: sendModel || undefined,
+        references: [],
+        strictDocumentScope,
+        resumeInteractionId: interactionId,
+      }, (streamEvent) => handleStreamEvent(streamEvent, {
+        getSessionId: () => sessionId,
+      }), controller.signal);
+      settleLastMessage();
+      setStatus("");
       await refreshChatSession(sessionId);
     } catch (reason) {
-      setError(toErrorMessage(reason, "回答没有保存成功。"));
+      if (reason instanceof DOMException && reason.name === "AbortError") {
+        setStatus("");
+        settleLastMessage(false, true);
+        return;
+      }
+      setInlineError(toErrorMessage(reason, "继续回答失败，请重新发送。"));
+      settleLastMessage(true);
     } finally {
+      abortRef.current = null;
       setSending(false);
     }
+  }
+
+  async function resolveInteraction(artifact: AskUserArtifact, answers: Array<{ id: string; answer: string }>) {
+    if (!sessionId) return;
+    try {
+      await api.answerInteraction(artifact.artifact_id, sessionId, answers);
+    } catch (reason) {
+      setError(toErrorMessage(reason, "回答没有保存成功。"));
+      return;
+    }
+    // E4: the paused turn continues with these answers as its tool result.
+    await sendResume(artifact.artifact_id);
   }
 
   async function resolveMemoryProposal(artifact: MemoryConfirmationArtifact, action: "confirm" | "reject") {

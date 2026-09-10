@@ -601,6 +601,8 @@ export async function streamChat(
     model?: string;
     references?: ChatReference[];
     strictDocumentScope?: boolean;
+    /** E4: continue a paused ask_user turn instead of sending a new message. */
+    resumeInteractionId?: string;
   },
   onEvent: (event: ChatStreamEvent) => void,
   signal?: AbortSignal,
@@ -608,6 +610,7 @@ export async function streamChat(
   const response = await fetch("/api/chat/runs", {
     ...json({
       message,
+      resume_interaction_id: preferences.resumeInteractionId || null,
       chat_session_id: chatSessionId || null,
       document_ids: preferences.strictDocumentScope ? documentIds : [],
       preferred_document_ids: preferences.strictDocumentScope ? [] : documentIds,

@@ -146,6 +146,51 @@ def _session_summary(summary: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+CONTINUE_DIRECTIVE = (
+    "[ask_user resolved. Continue the user's original request using these answers. "
+    "Do not stop with an acknowledgement.]"
+)
+
+
+def _resume_content(record: dict[str, Any]) -> str:
+    """Render the user's answers as the ask_user tool result (E4)."""
+    prompts = {
+        str(question.get("id") or ""): str(question.get("prompt") or "").strip()
+        for question in record.get("questions") or []
+    }
+    lines = ["[用户回答]"]
+    for answer in record.get("answers") or []:
+        question_id = str(answer.get("id") or "")
+        text = str(answer.get("answer") or "").strip()
+        lines.append("- " + (prompts.get(question_id) or question_id) + " -> " + (text or "（未填写）"))
+    if len(lines) == 1:
+        lines.append("- 用户没有给出具体选项。")
+    lines.append("")
+    lines.append(CONTINUE_DIRECTIVE)
+    return "\n".join(lines)
+
+
+def _close_open_interactions(session: Session, workspace: str) -> list[str]:
+    """Close pending ask_user calls before a new user message (E4).
+
+    A paused turn deliberately leaves its tool_call unanswered. A new user
+    message must fill that call in, otherwise the next provider request carries
+    an assistant(tool_calls) with no matching tool message and is rejected.
+    """
+    service = InteractionService(workspace)
+    closed: list[str] = []
+    for record in service.list_open(session.session_id):
+        tool_call_id = str(record.get("tool_call_id") or "")
+        if tool_call_id:
+            session.add_tool_message(
+                tool_call_id,
+                "[用户没有回答这个问题，先跳过；可以稍后再问。]",
+            )
+        service.close(str(record["interaction_id"]), closure="skipped_by_next_message")
+        closed.append(str(record["interaction_id"]))
+    return closed
+
+
 def _public_interaction(record: dict[str, Any]) -> dict[str, Any]:
     """Interaction payload for the client; the correct option is stripped."""
     return {
@@ -1341,6 +1386,19 @@ def replay_stream(stream_id: str, after_seq: int = 0) -> StreamingResponse:
 
 @router.post("/runs")
 def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
+    if not body.message.strip() and not body.resume_interaction_id:
+        # Keep the same envelope the pydantic handler produces so clients see a
+        # stable invalid_request with the offending field.
+        raise APIError(
+            422,
+            "invalid_request",
+            "Request validation failed.",
+            details=[{
+                "field": "message",
+                "message": "message is required unless resume_interaction_id is set",
+                "type": "value_error",
+            }],
+        )
     config = get_config()
     workspace = get_request_workspace(request)
     library_id = get_request_library_id(request)
@@ -1349,6 +1407,17 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
     search_preferences = preferences.get("search") or {}
     search_permission = search_preferences.get("permission", "ask")
     session = _load_or_create_session(body.chat_session_id, config, workspace, library_id)
+    # E4: a resume continues a paused ask_user turn; a fresh message must first
+    # close any pending question so the provider never sees a dangling tool_call.
+    resume_record: dict[str, Any] | None = None
+    if body.resume_interaction_id:
+        resume_record = InteractionService(workspace).get(body.resume_interaction_id)
+        if not resume_record or resume_record.get("chat_session_id") != session.session_id:
+            raise APIError(404, "interaction_not_found", "这个交互已经不存在了，请重新提问。")
+        if not resume_record.get("tool_call_id"):
+            raise APIError(409, "interaction_not_resumable", "这次交互没有可续跑的工具调用。")
+    else:
+        _close_open_interactions(session, workspace)
     provider_name, preference_model = parse_provider_ref(
         body.provider
         or session.provider_name
@@ -1513,6 +1582,8 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
                 request_prompt=request_prompt,
                 response_guard=response_guard,
                 memory_injector=memory_injector,
+                resume_tool_call_id=(resume_record or {}).get("tool_call_id") or None,
+                resume_tool_content=_resume_content(resume_record) if resume_record else "",
             )
             termination_reason = "final_answer"
             for event in events:
@@ -1525,6 +1596,12 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
                     run_operations.append(_run_summary_operation(event, body.message))
                 if event.get("type") == "assistant_done":
                     termination_reason = event.get("termination_reason", "final_answer")
+                    pause = event.get("pause") or {}
+                    if pause.get("interaction_id") and pause.get("tool_call_id"):
+                        # E4: bind the paused call so the answer can resume it.
+                        InteractionService(workspace).attach_tool_call(
+                            str(pause["interaction_id"]), str(pause["tool_call_id"])
+                        )
                     for usage_record in event.get("usage_records") or []:
                         UsageService().record(
                             SimpleNamespace(**usage_record),
