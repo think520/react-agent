@@ -1,28 +1,35 @@
 # Bobodan 文档
 
-文档已经收敛，日常只读一个主入口：
+文档已收敛：**路线看一个文件，产品边界和视觉规则各看一个文件**。
 
-| 文档 | 用途 |
-|---|---|
-| [`../README.md`](../README.md) | 用户入口：当前能力、快速开始、运行方式和验证命令 |
-| [`PROJECT_GUIDE.md`](PROJECT_GUIDE.md) | 项目主指南：产品定位、当前阶段、下一步、功能分层、架构边界 |
-| [`DESIGN.md`](DESIGN.md) | Web / TUI / 官网视觉硬约束，界面设计开工前必须先读 |
-| [`rag_design.md`](rag_design.md) | RAG v2 详细设计 |
-| [`MCP.md`](MCP.md) | MCP 客户端使用说明 |
-| [`tools/skills.md`](tools/skills.md) | Skills 系统说明 |
-| [`project_review_2026-07-26.md`](project_review_2026-07-26.md) | 2026-07-26 项目审查、问题证据与整改追踪 |
-| [`knowledge_map_reliability_editing_design_2026-07-27.md`](knowledge_map_reliability_editing_design_2026-07-27.md) | 知识地图提取可靠性、布局、用户 CRUD 与跨文档联动增量设计 |
-| [`experience_review_2026-08-01.md`](experience_review_2026-08-01.md) | 2026-08-01 用户体验深度审查：真实旅程、问题分级、修复清单与计划书缺口 |
-| [`../CHANGELOG.md`](../CHANGELOG.md) | 版本与未发布变更记录 |
+当前主线（2026-09-08）：先完成学习闭环的正确性与恢复，再评测并接入可选向量检索，最后进入桌面发布。除非任务明确涉及历史迁移，否则不要从 `archive/` 恢复旧路线。
+
+## 当前文档集
+
+| 文档 | 用途 | 什么时候读 |
+|---|---|---|
+| [`../README.md`](../README.md) | 用户入口：能力、快速开始、验证命令 | 想跑起来 |
+| [`PROJECT_GUIDE.md`](PROJECT_GUIDE.md) | 产品定位、当前成熟度、架构边界、发布门槛和编码纪律 | 任何开发工作前，必读 |
+| [`ROADMAP.md`](ROADMAP.md) | **唯一执行路线：当前批次、后续批次、门禁、已拍板决策、明确不做** | 排期、开工、对齐方向时 |
+| [`DESIGN.md`](DESIGN.md) | 视觉、交互、可访问性和页面验收硬约束 | 任何界面工作前，必读 |
+| [`Bobodan参考项目调研报告.md`](Bobodan参考项目调研报告.md) | DeepTutor / OpenMAIC / qiaomu 专项调研：ROADMAP 各条目的机制精讲与源码索引（活文档，随借鉴进度回读） | 实施某条路线条目前 |
+| [`rag_design.md`](rag_design.md) | RAG 架构真相源（存储/解析/检索/RRF/配置） | 改 RAG 时 |
+| [`MCP.md`](MCP.md) / [`tools/skills.md`](tools/skills.md) | MCP 与 Skills 使用说明 | 配置扩展能力时 |
 
 使用规则：
 
-- 想知道项目是什么、现在到哪、下一步做什么：看 `PROJECT_GUIDE.md`。
-- 想做 Web UI、页面、组件、原型或任何视觉设计：先看 `PROJECT_GUIDE.md`，再必须看 `DESIGN.md`。
-- 想改 RAG：看 `rag_design.md`。
-- 想配置 MCP：看 `MCP.md`。
-- 想改 skills：看 `tools/skills.md`。
-- 想核对本轮审查发现了什么、哪些已经整改：看 `project_review_2026-07-26.md`。
-- 想快速启动项目：看根目录 `README.md`；想看版本变化：看根目录 `CHANGELOG.md`。
+- 想知道**做什么、不做什么、为什么**：`ROADMAP.md`。
+- 想知道**当前做到哪里、能不能做、边界在哪**：`PROJECT_GUIDE.md`。
+- 想画界面：`PROJECT_GUIDE.md` → `DESIGN.md`。
+- 实施借鉴条目（D/O/Q/F 编号）：先读 `Bobodan参考项目调研报告.md` 对应章节再动手。
+- 版本变化：根目录 `CHANGELOG.md`。
 
-旧的产品计划、架构计划、阶段计划和历史调研已从当前文档集中移除，避免 AI 和人读到过时方向。
+权威关系：
+
+- 路线和优先级以 `ROADMAP.md` 为准。
+- 产品边界、技术真相和发布门槛以 `PROJECT_GUIDE.md` 为准。
+- 视觉 token、交互规则和可访问性以 `DESIGN.md` 为准。
+- RAG 的存储、解析、检索和配置以 `rag_design.md` 为准；它不能单独改变产品优先级。
+- 调研报告只提供论据和实现参考，不产生新的排期；若与路线图冲突，以路线图为准。
+
+已完成或被取代的历史文档（任务书、审查报告、被合并的路线）在 [`archive/`](archive/)，不再维护，仅供考古。

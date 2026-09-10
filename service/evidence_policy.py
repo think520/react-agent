@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -127,6 +128,56 @@ class ConceptMapPolicy:
         return EvidenceDecision(
             allow=False,
             fallback_content="我还没有完成所需的知识地图查询，因此不能可靠回答这次图谱问题。请稍后重试。",
+        )
+
+
+class InlineQuestionPolicy:
+    """E13 defense 2: practice must arrive as the server-bound card.
+
+    A model that does not call question_generate may try to end the turn with
+    "A./B./C." options in plain chat. Those options are not bound to a persisted
+    question set or its sources, so the turn is redirected back to the tool path
+    instead of showing unbound questions.
+    """
+
+    max_retries = 1
+
+    _OPTION_LINE = re.compile(r"(?m)^\s*(?:[-*]\s*)?([A-Da-dＡ-Ｄａ-ｄ])[.、,，)）:：]\s*\S")
+
+    @classmethod
+    def looks_like_inline_question(cls, response_text: str) -> bool:
+        """True when the text presents at least two lettered options."""
+        labels = {match.group(1) for match in cls._OPTION_LINE.finditer(response_text)}
+        return len(labels) >= 2
+
+    def validate(
+        self,
+        tool_history: list[dict[str, Any]],
+        response_text: str,
+        retry_count: int,
+    ) -> EvidenceDecision:
+        if not self.looks_like_inline_question(response_text):
+            return EvidenceDecision(allow=True)
+        if any(
+            record.get("name") == "question_generate" and record.get("ok")
+            for record in tool_history
+        ):
+            return EvidenceDecision(allow=True)
+        if retry_count < self.max_retries:
+            return EvidenceDecision(
+                allow=False,
+                correction_prompt=(
+                    "Do not deliver practice questions as plain text options in chat. "
+                    "Call question_generate so Bobodan builds the practice-ready card; "
+                    "the questions, their sources and the session are bound server-side."
+                ),
+            )
+        return EvidenceDecision(
+            allow=False,
+            fallback_content=(
+                "这次没能生成可用的练习卡，所以我没有把题目直接发出来。"
+                "请再说明一次要练习的主题，我会重新准备。"
+            ),
         )
 
 

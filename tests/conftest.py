@@ -8,8 +8,20 @@ real user home, so route the catalog to a throwaway directory.
 import os
 import tempfile
 
+import pytest
+
 _ISOLATED_HOME = tempfile.mkdtemp(prefix="bobodan-test-home-")
 
 
 def pytest_configure(config):
     os.environ.setdefault("BOBODAN_HOME", _ISOLATED_HOME)
+
+
+@pytest.fixture
+def scripted_provider():
+    """Canonical fake LLM (R0.3). New tests must use this seam instead of
+    declaring local FakeProvider classes — see tests/README.md."""
+    from tests.llm_fake import ScriptedProvider
+
+    provider = ScriptedProvider()
+    yield provider

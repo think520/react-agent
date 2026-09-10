@@ -1,23 +1,29 @@
 # Bobodan Full RAG Design
 
-> 实现状态（2026-07-27）：RAG v2 已是唯一正常运行检索链路。SQLite `knowledge.db` 是元数据和 FTS truth source，Qdrant 是可选语义索引；旧 `rag_index*.json`、`rag/vector_store.py`、`rag/embeddings.py` 和旧 chunker 已退出 runtime。本文保留最初设计背景，但以下章节以当前实现边界为准。
+> 实现状态（2026-09-08）：RAG v2 已是唯一正常运行检索链路。SQLite `knowledge.db` 是元数据和 FTS truth source，Qdrant 是尚未启用的可选语义索引；旧 `rag_index*.json`、`rag/vector_store.py`、`rag/embeddings.py` 和旧 chunker 已退出 runtime。本文保留最初设计背景，但以下章节以当前实现边界为准。
+>
+> **Embedding 决策与实际状态（2026-09-08）**：用户自配 API embedding（SiliconFlow bge-m3 免费标推荐 / DashScope / OpenAI 兼容）、签名版本化、批次维度校验、索引心跳守卫与召回评测集已在 `ROADMAP.md` W2 / B2 立项，**尚未实现**。当前 `EmbeddingService` 仍只适配用户本机已安装的 Ollama；向量腿尚未在真实资料库运行，`fts_only` 是一等公民形态而非降级。Qdrant 保持本地可选索引。完整论证见 `Bobodan参考项目调研报告.md` 第十章。
 
-## 1. 目标
+## 1. 目标与当前可用形态
+
+本节先记录完整 RAG 的设计目标；当前实现以 FTS5 为稳定基线，向量检索是可选增强。实际运行时，`hybrid` 始终包含 SQLite FTS5；只有 Ollama 可用且对应向量已成功索引时，才会额外执行 Qdrant 向量检索并做 RRF 融合。没有可用 embedding 时，系统仍以 FTS-only 继续工作。
 
 Bobodan 的知识库检索升级为完整 RAG 基础设施，支持四种检索方式：
 
-1. **向量检索**：语义相似度检索（Qdrant + Ollama embedding）。
+1. **向量检索（设计目标）**：语义相似度检索（当前仅接入 Qdrant + 可选 Ollama；B2 将升级为可配置 embedding provider）。
 2. **FTS5 检索**：关键词、术语、原文匹配（SQLite FTS5 / BM25）。
 3. **目录索引检索**：文档级路由，根据标题、摘要、关键词 + chunk 聚合判断相关文档。
 4. **grep/rg 检索**：在候选文档中做精确文本搜索，返回原文上下文。
 
-默认检索模式：
+目标检索流程：
 
 ```text
 Vector + FTS5 -> RRF 融合排序 -> chunk-level results
 Directory Index -> 文档级路由 -> document-level results
 directory_grep -> Directory 选文档 -> grep 搜原文 -> evidence results
 ```
+
+当前 `auto` 路由仍按查询意图选择 `hybrid`、`directory` 或 `directory_grep`；`hybrid` 中的向量腿不可用时自动退化为 FTS5-only，不影响其余两种检索方式。
 
 本设计是完整知识库检索层，为 CLI、tools、FastAPI 和 React Web UI 共用。
 
@@ -54,11 +60,11 @@ directory_grep -> Directory 选文档 -> grep 搜原文 -> evidence results
 | 元数据数据库 | SQLite | documents、chunks、directory entries、retrieval logs |
 | 全文检索 | SQLite FTS5 | BM25/rank 关键词检索 |
 | 向量数据库 | Qdrant | dense vector search（HNSW 索引） |
-| embedding 模型 | Ollama `qwen3-embedding:0.6b` | 本地语义向量 |
+| embedding 模型 | 当前：用户本机 Ollama；规划：用户配置的 OpenAI 兼容 provider，Ollama 改为可选离线档 | 语义向量 |
 | 精确搜索 | `rg` 优先，Python fallback | 原文定位和上下文扩展 |
 | 融合排序 | RRF | 合并 Vector 和 FTS5 排名 |
-| 多格式解析 | python-docx / python-pptx / pymupdf | PDF/Word/PPT 统一解析 |
-| API | FastAPI | 给未来 Web UI 使用 |
+| 多格式解析 | python-docx / python-pptx / pypdf | PDF/Word/PPT 统一解析 |
+| API | FastAPI | CLI、Web 和本地服务共用 |
 
 参考：
 
@@ -172,7 +178,9 @@ CREATE TABLE retrieval_runs (
 );
 ```
 
-### 4.2 Qdrant
+### 4.2 Qdrant（可选向量索引）
+
+以下是 Qdrant 的目标存储结构与当前可用边界。SQLite 元数据和 FTS5 不依赖 Qdrant；只有 embedding 服务可用并完成索引时，Qdrant 才会参与检索。
 
 使用 Qdrant local persistent 模式：
 
@@ -258,6 +266,8 @@ PDF / PPT / Word / Markdown / TXT
   SQLite + Qdrant
 ```
 
+图中的 Qdrant 是条件分支：SQLite + FTS5 是每次同步都会生成的基础索引，Qdrant 仅在 embedding 可用时写入。
+
 ```python
 @dataclass
 class SourceSection:
@@ -276,7 +286,7 @@ class SourceSection:
 |---|---|---|
 | Markdown | 按 `#`/`##`/`###` heading 切 | 内置 |
 | Word (.docx) | 按 Heading 1/2/3 样式切 | `python-docx` |
-| PDF | 按 page 提取，尝试识别标题 | `pymupdf` |
+| PDF | 按 page 提取，尝试识别标题 | `pypdf` |
 | PPT (.pptx) | 按 slide 提取，按章节合并 | `python-pptx` |
 | TXT | 按段落 fallback | 内置 |
 
@@ -427,6 +437,8 @@ class RetrievalResult:
 
 ### 6.2 Vector Retriever
 
+> 当前实现只接入 Ollama。用户自配 API provider、embedding 签名与断点续传属于 `ROADMAP.md` B2，以下「目标形态」不得当作已上线能力。
+
 用途：
 
 - 语义问题："解释一下……"
@@ -436,11 +448,11 @@ class RetrievalResult:
 数据来源：
 
 - Qdrant collection `bobodan_chunks`
-- embedding 来自 Ollama
+- 当前 embedding 来自用户本机已安装的 Ollama；未配置或不可用时不启用向量检索
 
 失败降级：
 
-- Ollama 不可用时，vector retriever 返回空。
+- Ollama 不可用时，vector retriever 返回空，检索继续走 FTS5 / directory / grep。
 - 其他 retriever 继续工作。
 
 结果校验：
@@ -914,6 +926,8 @@ RAG = 原文证据和文档检索层
 
 ## 11. 配置
 
+下面是**当前配置形态**。`embedding_backend`、`ollama_url` 和 `ollama_model` 仍对应现有 Ollama 适配器；用户自配 API embedding 的 provider 配置字段由 B2 实施时确定，不能提前写入 `config.yaml` 视为生效。
+
 ```yaml
 rag:
   embedding_backend: auto
@@ -948,7 +962,7 @@ rag:
       max_slides_per_chunk: 3
 
   retrieval:
-    default_mode: hybrid
+    default_mode: hybrid       # FTS5 + 可用时的向量检索；无 embedding 时即 FTS-only
     rrf:
       k: 60
       weights:
@@ -968,7 +982,9 @@ rag:
     max_context_chars: 6000
 ```
 
-## 12. 文件规划
+## 12. 文件规划与实现边界
+
+本节保留 RAG v2 立项时的文件拆分，用于解释模块职责；其中当前已存在的模块以仓库为准。B2 的 API embedding、签名、心跳和评测将按 `ROADMAP.md` 新增或调整文件，不以本节旧清单为承诺。
 
 新增：
 
@@ -1024,6 +1040,8 @@ rag/chunker.py                   # 旧无 heading 切块器
 `rag_index*.json` 文件可以继续留在用户目录作为历史迁移 / 排查资料，但代码不再为它们保留 reader 或 fallback。
 
 ## 13. 迁移策略
+
+以下是当前索引迁移与重建约束。涉及用户自配 API embedding 的迁移、签名不匹配和断点续传，按 `ROADMAP.md` B2 的验收定义实施。
 
 ### 13.1 旧索引处理
 
@@ -1111,14 +1129,18 @@ full sync 完全重建 SQLite + Qdrant：
 
 ### 13.6 Orchestrator Cache
 
-`rag/retriever.py` 按“workspace 绝对路径 + RAG 配置”缓存 RetrievalOrchestrator、SQLite store 和 embedding / vector 依赖，避免每次搜索重复 DDL、连接初始化和 Ollama probe。
+`rag/retriever.py` 按“workspace 绝对路径 + RAG 配置”缓存 RetrievalOrchestrator、SQLite store 和 embedding / vector 依赖，避免每次搜索重复 DDL、连接初始化和当前 Ollama probe。
 
 - 缓存是进程内、有界 LRU，不是第二份数据真相源。
 - 每个缓存项有独立重入锁，保护共享 SQLite 连接和本地 Qdrant 客户端。
 - sync、reindex、delete 或 reset 改变索引后，必须调用 `clear_retrieval_cache(workspace)`。
 - 淘汰 / 清空缓存时显式关闭 SQLite 连接。
 
-## 14. 测试计划
+## 14. 已有测试与后续验证
+
+RAG v2 的 SQLite、Qdrant、解析、检索、路由和服务契约已有回归覆盖。下列清单既保留已实现链路的关键回归，也列出 B1/B2 完成时需要补齐的评测；向量评测通过前，不能宣称混合检索优于 FTS-only。
+
+其中 Qdrant、RRF 和解析器测试验证的是可选组件的契约与故障降级，不代表每个用户工作区都已建立向量索引；真实资料集上的语义召回质量、API embedding provider、签名/维度校验和断点续传仍属于 B1/B2 门槛。
 
 1. SQLite store
    - 建库
@@ -1209,15 +1231,17 @@ pytest tests/test_kb_service.py tests/test_knowledge_tools.py -v
 pytest
 ```
 
-## 15. 完成标准
+## 15. 当前完成标准与未来门槛
+
+以下前半部分描述已落地 RAG v2 的稳定约束；涉及真实语义向量召回、用户 API embedding 和 Ollama 以外 provider 的条目属于 B1/B2 验收门槛。
 
 完成后应满足：
 
-- `obsidian_sync` 后生成 SQLite + Qdrant 索引，不生成或更新旧 JSON 索引（历史文件可以原地保留）。
-- `rag_search` 默认走 hybrid（auto mode）。
+- `obsidian_sync` 后生成 SQLite 索引；配置并成功获得 embedding 时才生成 Qdrant 索引，不生成或更新旧 JSON 索引（历史文件可以原地保留）。
+- `rag_search` 默认走 auto 路由；向量不可用时返回 `fts_only` 语义的检索状态。
 - exact keyword 查询由 FTS5 命中。
 - 不带空格的中文短语可以由 CJK 2-gram FTS 命中，英文术语检索不退化。
-- semantic 查询由 Qdrant vector 命中。
+- 语义查询由 Qdrant vector 命中的目标，需在 B2 以真实资料评测集验证。
 - "在哪里提到"类问题走 directory_grep。
 - "哪些文档"类问题走 directory。
 - hybrid 无结果时 auto 模式 fallback 到 directory_grep。
@@ -1225,7 +1249,7 @@ pytest
 - PDF/PPT/Word 能正确解析并索引，引用带页码/slide 号。
 - Qdrant 失败时 FTS5/directory/grep 仍可用。
 - Qdrant 残留旧数据由 SQLite hydrate 过滤。
-- 没有 Ollama 时，FTS5 / directory / grep 仍可用。
+- 没有 Ollama 时，FTS5 / directory / grep 仍可用；B2 后同样适用于未配置任何 embedding provider 的场景。
 - 没有 `rg` 时，Python fallback 仍可用。
 - CLI、tool、KBService、FastAPI 都使用同一套检索逻辑（Orchestrator）。
 - 同一 workspace 的重复检索复用有界 Orchestrator 缓存；索引变更后缓存明确失效。
@@ -1236,7 +1260,7 @@ pytest
 
 本阶段不做：
 
-- React Web UI。
+- 不另建独立于现有 Library / Chat 的 RAG 页面；检索状态通过既有产品界面呈现。
 - LLM query router。
 - LLM 生成 directory summary。
 - 多用户权限。

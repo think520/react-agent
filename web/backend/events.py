@@ -30,6 +30,7 @@ _TOOL_STATUS = {
     "request_web_search": "正在确认是否需要联网补充",
     "web_research": "正在搜索并读取网页资料",
     "request_memory_confirmation": "正在整理需要你确认的记忆",
+    "ask_user": "正在准备需要你选择的问题",
 }
 
 _TOOL_COMPLETED_STATUS = {
@@ -39,6 +40,7 @@ _TOOL_COMPLETED_STATUS = {
     "web_research": "网页证据已经准备好",
     "request_web_search": "等待你确认是否联网",
     "request_memory_confirmation": "等待你确认是否记住",
+    "ask_user": "等待你做出选择",
 }
 
 
@@ -80,7 +82,7 @@ def to_web_events(event: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
                 web_events.append((artifact_type, artifact))
             elif artifact_type == "knowledge_context":
                 web_events.append(("chat_artifact", {"artifact": artifact}))
-            elif artifact_type in {"web_consent", "web_candidates", "web_evidence", "practice_ready", "memory_confirmation"}:
+            elif artifact_type in {"web_consent", "web_candidates", "web_evidence", "practice_ready", "memory_confirmation", "ask_user"}:
                 web_events.append(("chat_artifact", {"artifact": artifact}))
         return web_events
 

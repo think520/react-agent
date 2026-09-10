@@ -1,13 +1,13 @@
 # MCP (Model Context Protocol) 用户文档
 
-> 实现版本：v0.1（feature/mcp-client 分支）
+> 当前状态（2026-09-08）：Bobodan 提供可选的 MCP client 能力。默认配置关闭；启用后，REPL 会按配置连接 MCP server 并注册其 tools。本文描述当前实现，不以某个开发分支或固定工具数量作为版本依据。
 > 协议规范：https://modelcontextprotocol.io/
 
 ## 1. 什么是 MCP
 
 MCP 是一个让 LLM agent 接入外部工具的开放协议。MCP server 暴露一组可调用的 tools，agent 可以像调用内置函数一样调用它们。
 
-Bobodan 作为 MCP **客户端**（不支持作为 server），把配置的 MCP server 暴露的 tools 注入到自己的 agent loop 中，跟 23 个内置工具无缝集成。
+Bobodan 作为 MCP **客户端**（不支持作为 server），把配置的 MCP server 暴露的 tools 注册到 REPL 的工具目录中。MCP 是高级扩展能力，不是普通学习流程的前置条件。
 
 ## 2. 快速开始
 
@@ -45,7 +45,7 @@ mcp:
 .venv\Scripts\python.exe agent.py
 ```
 
-启动面板会显示：
+启用并成功连接 server 后，启动面板会显示类似：
 
 ```
 mcp           1/1 connected, 12 tools
@@ -123,12 +123,14 @@ headers:
 ## 6. 安全模型
 
 Bobodan 用的是 **trust-first** 模型：
-- 用户在 config.yaml 里配置的 server = 完全信任
-- 所有 MCP tools 自动可用，跟内置工具一样调度
+- 用户在 config.yaml 里配置并启用的 server = 连接层信任
+- 主 REPL 可以调度已注册的 MCP tools；工具数量和名称完全由 server 返回，不能假定固定数量
 - 失败隔离：单个 server 出问题不影响其他 server 和内置功能
 - 不做 per-tool approval gate
 
-如果需要更严格的权限控制，先看 [`PROJECT_GUIDE.md`](PROJECT_GUIDE.md) 的功能分层和架构边界；MCP 默认应作为高级能力隐藏，不进入学习主流程。
+specialist 子 Agent 有单独的工具过滤边界：默认 `allow_mcp: false`；即使设为 `true`，也必须在 `allowed_tools` 中逐个写出 MCP tool 名称，不能通过 `*` 或 `all` 放开。MCP server 的连接层信任不等于所有 Agent 自动获得 MCP 权限。
+
+如果需要更严格的用户确认流程，先看 [`PROJECT_GUIDE.md`](PROJECT_GUIDE.md) 的功能分层和架构边界；MCP 默认应作为高级能力隐藏，不进入学习主流程。
 
 ## 7. 故障排查
 
@@ -172,14 +174,14 @@ config.yaml **会**进入 git（不像 .env），所以不要把 token 写明文
 
 ### 改 config 后不生效
 
-改完 config.yaml 后要 `/mcp reload` 才会重新读（但 tool schema 要等下次 REPL 启动才更新，因为 AgentLoop 在启动时快照 tools）。
+改完 config.yaml 后可用 `/mcp reload` 重新读取配置并 diff / 重连 server。当前 AgentLoop 在构造时快照 tool schema；如果新增、删除或改变 server tools，仍需 `/exit` 后重新启动 REPL 才会进入当前 AgentLoop。
 
 ## 8. 架构概览
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  Bobodan REPL / AgentLoop                                   │
-│  tools_schema = static_tools + mcp_tools    ← 每 turn 拉取  │
+│  tools_schema = static_tools + mcp_tools    ← AgentLoop 构造时快照 │
 │  mcp_prompt = "## MCP Servers\n- ..."        ← 注入 system prompt
 │  execute_tool("amap-maps__maps_geo", args)                  │
 │         ↓                                                    │
@@ -202,8 +204,8 @@ config.yaml **会**进入 git（不像 .env），所以不要把 token 写明文
 
 ## 9. 已知限制
 
-- **只支持 tools 原语**：resources 和 prompts 是 Phase 2
-- **Trust-first 安全模型**：per-tool approval gate 是 Phase 2
+- **只支持 tools 原语**：resources 和 prompts 尚未实现；是否排入未来计划以 `ROADMAP.md` 为准
+- **Trust-first 安全模型**：per-tool approval gate 尚未实现；是否排入未来计划以 `ROADMAP.md` 为准
 - **tools_schema 启动时快照**：改 config 加新 tool 后要 `/exit` 重新启动 REPL 才生效
 - **不支持作为 MCP server**：只做 client，不暴露 Bobodan 给外部 client
 - **stdio 子进程 stderr**：被捕获到 Python logger（DEBUG 级别），不直接展示给用户
@@ -221,5 +223,5 @@ config.yaml **会**进入 git（不像 .env），所以不要把 token 写明文
 | `mcp_client/prompt.py` | system prompt 软提示段 |
 | `mcp_client/transport_*.py` | 三种 transport 实现 |
 | `tools/mcp.py` | REPL 集成入口（register_mcp_tools） |
-| `tests/test_mcp_*.py` | 54 个测试 |
+| `tests/test_mcp_*.py` | MCP 配置、传输、工具目录、AgentLoop 与 REPL 回归测试 |
 | `docs/PROJECT_GUIDE.md` | 当前产品定位、功能分层和架构边界 |

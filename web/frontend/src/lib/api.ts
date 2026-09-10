@@ -408,6 +408,11 @@ export const api = {
   })),
   abandonPractice: (id: number) => request(`/api/quiz/sessions/${id}`, { method: "DELETE" }),
   reviewQueue: () => request<ReviewQueue>("/api/learning/review-queue"),
+  answerInteraction: (interactionId: string, chatSessionId: string, answers: Array<{ id: string; answer: string }>) =>
+    request<{ chat_session_id: string; artifact: ChatArtifact }>(
+      "/api/chat/interactions/" + encodeURIComponent(interactionId) + "/answer",
+      json({ chat_session_id: chatSessionId, answers }),
+    ),
   conceptMastery: (concept: string) => request<{
     concept: string;
     status?: string;
@@ -415,7 +420,7 @@ export const api = {
     review_count?: number;
     next_review?: string | null;
   }>(`/api/learning/progress?concept=${encodeURIComponent(concept)}`),
-  generateWrongAnswerVariant: (attemptId: number) => request<{ question_id: number; question: Question }>(
+  generateWrongAnswerVariant: (attemptId: number) => request<{ question_id: number; question: Question; mode?: string }>(
     "/api/quiz/wrong/variant",
     json({ attempt_id: attemptId }),
   ),

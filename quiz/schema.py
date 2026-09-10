@@ -39,5 +39,7 @@ class QuizAttempt:
     question_id: int = 0
     user_answer: str = ""
     is_correct: bool = False
+    # "correct" | "partial" | "incorrect"; empty on legacy rows.
+    verdict: str = ""
     feedback: str = ""
     answered_at: str = ""

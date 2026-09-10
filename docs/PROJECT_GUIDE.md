@@ -1,6 +1,11 @@
 # Bobodan 项目指南
 
-这份文档是 Bobodan 后续给人和 AI 看的唯一主入口。想知道产品是什么、当前到哪一步、下一步做什么、哪些功能该隐藏、代码边界怎么守，先读这里。
+这份文档是 Bobodan 后续给人和 AI 看的产品与架构主入口。想知道产品是什么、当前到哪一步、哪些功能该隐藏、代码边界怎么守，先读这里；具体排期只看 [`ROADMAP.md`](ROADMAP.md)，视觉和交互硬约束只看 [`DESIGN.md`](DESIGN.md)。
+
+> 当前阶段（2026-09-08）：A0 现状核对与 A1 学习闭环正确性均已完成——会话内失败可见、
+> 人工交互具备持久化生命周期（`ask_user`）、练习卡由服务端绑定、简答三态判分前后端一致（证据见 `ROADMAP.md` §2）。
+> 下一步是 A2 学习推进（E5 / E6 / E9 / E14）；向量检索仍是可选增强，Windows 桌面发布尚未启动。
+> 本文中的“已完成”表示阶段验收已通过，不代表后续体验轮不再发现问题。
 
 ## 1. 产品定位
 
@@ -8,7 +13,7 @@ Bobodan 是一个 **ChatGPT / Gemini 形态的个人学习 AI**。
 
 用户从一个对话主页开始提问、上传资料、询问课程、生成练习和安排复习；系统在背后调用本地知识库、RAG、题库、掌握度、记忆和 Obsidian 能力，把每次对话沉淀成可追踪的学习进度。
 
-它不是知识库后台，也不是通用 Agent 平台。
+它不是知识库后台，也不是通用 Agent 平台。知识地图、Wiki 维护和 Workbench 都是辅助能力，不能反过来成为普通用户的前置流程。
 
 更准确地说：
 
@@ -26,7 +31,7 @@ Web 第一屏应该是 AI 对话主页，而不是 dashboard。
 
 不要临时发明一套新颜色，也不要做通用 SaaS dashboard 风格、紫色 AI 渐变风格或高密度后台风格。若实现中需要新增 token，必须从 `docs/DESIGN.md` 的色彩系统延展。
 
-推荐结构：
+推荐结构（右侧只在有真实上下文时展开，空状态可收起）：
 
 ```text
 左侧：会话 / 课程 / 最近学习
@@ -83,7 +88,7 @@ Bobodan 不照抄任何单一产品。它吸收这些产品的功能骨架，再
 
 OpenHanako 与 Bobodan 都受到 Kami 纸面美学影响，适合作为 Web 工作区结构参考，但产品目标不同：OpenHanako 是通用私人 Agent，Bobodan 必须保持学习助手定位。
 
-第一优先级，进入 P5D：
+以下是 P5D 阶段的首要借鉴项，现已成为既有工作区结构；当前优先级以 [`ROADMAP.md`](ROADMAP.md) 为准：
 
 | 借鉴点 | Bobodan 的实现方式 |
 |---|---|
@@ -94,7 +99,7 @@ OpenHanako 与 Bobodan 都受到 Kami 纸面美学影响，适合作为 Web 工�
 | Composer | 支持附件、资料范围、引用选中文字和短学习动作；模型、工具和推理等级保持低视觉权重 |
 | 纸面设计系统 | 使用本地字体、暖纸 Token、轻纹理、小圆角、细分隔和短时动效；以 `docs/DESIGN.md` 为唯一色彩与排版标准 |
 
-第二优先级，在 P5F.1 / P5G 或学习闭环稳定后补：
+以下是当时列为 P5F.1 / P5G 或学习闭环稳定后再补的事项；是否继续实施及其顺序以 [`ROADMAP.md`](ROADMAP.md) 为准：
 
 - 会话正文搜索、归档与恢复。
 - 可查看和管理的学习记忆，明确区分用户画像、长期目标、课程进度、错题薄弱点和临时上下文。
@@ -397,11 +402,11 @@ Memory 与个人学习知识库共同沉淀：
 
 Bobodan 已经完成“学习 Agent 引擎”“Web 产品化基础”“本地学习闭环 Web MVP”“便携文件夹资料库”“Web UI 系统体验与设置中心”“可信联网资料扩展”“个人学习知识库”和“知识地图”主体流程。旧 Wiki 整理能力保留在高级维护 / 历史整理边界，不再作为资料导入、Chat 检索或日常阅读的必经层。普通用户可以在浏览器中切换多个本地资料库，完成资料学习、个性化设置、用户确认式网页研究，以及可查看、确认、编辑和删除的长期个人知识沉淀。
 
-现有技术路线不需要推倒重来。Python + FastAPI + SQLite / Qdrant + React Web UI 仍然适合本地优先的个人学习助手。P5C 已整理 Web 产品合约，P5D 已完成 Library → Chat → Practice → Review，P5E.1 已把测试工作区升级为通用文件夹资料库，P5E.3 已补齐用户偏好与设置中心，P5F 已补齐可信联网候选、证据快照和网页来源练习，P5F.1 已补齐确定性学习事件、候选确认和已确认个人知识，P5E.6 已实施知识地图产品重置。2026-07-26 审查整改进一步退役了旧 memory、JSON RAG、JSON / Neo4j graph 和 Wiki compiler 的正常运行路径。下一步进入 P5G 发布收尾。
+现有技术路线不需要推倒重来。Python + FastAPI + SQLite / Qdrant + React Web UI 仍然适合本地优先的个人学习助手。P5C 已整理 Web 产品合约，P5D 已完成 Library → Chat → Practice → Review，P5E.1 已把测试工作区升级为通用文件夹资料库，P5E.3 已补齐用户偏好与设置中心，P5F 已补齐可信联网候选、证据快照和网页来源练习，P5F.1 已补齐确定性学习事件、候选确认和已确认个人知识，P5E.6 已实施知识地图产品重置。2026-07-26 审查整改进一步退役了旧 memory、JSON RAG、JSON / Neo4j graph 和 Wiki compiler 的正常运行路径。当前先按 `ROADMAP.md` A0-A3 核对和收尾，再进入桌面发布门禁。
 
 一句话结论：
 
-> 本地资料、可信联网证据与个人学习知识库已经形成闭环；知识地图已落地，下一步解决文档漏读可见性和 Windows 桌面发布。
+> 本地资料、可信联网证据与个人学习知识库已经形成闭环；知识地图已落地，下一步先核对并补齐学习闭环、导入与检索的真实缺口，再进入 Windows 桌面发布。
 
 ### 3.2 当前成熟度
 
@@ -465,11 +470,11 @@ P5F.1 已补齐：
 - 只有已确认知识和确定性掌握度摘要进入 Chat、Practice 和 Review；界面显示可展开的“个性化依据”。
 - 设置中心“记忆与数据”可管理已确认知识、候选、学习记录与旧记忆迁移，并支持置顶、编辑、删除和 Markdown 导出。
 
-仍待 P5G 解决：
+当前仍待解决：
 
-- PDF、DOCX 和 PPTX 只能读取已有文本层；扫描页、图片文字和零 chunk 资料需要可见的提取报告，不能继续静默消失。
-- 项目尚无发布许可证、第三方声明、隐私说明、SBOM 和安装包校验，需要先完成发布合规并移除 PyMuPDF 许可风险。
-- 开发期仍是 Vite + FastAPI 两个进程；FastAPI 静态托管、`bobodan web`、PyInstaller sidecar 和 Electron 安装包尚未实现。
+- PDF、DOCX 和 PPTX 只能读取已有文本层；扫描页、图片文字和零 chunk 资料虽然已有部分状态与测试，仍需按 `ROADMAP.md` A0 核对用户是否能看到完整、可操作的提取报告。
+- 发布许可证、第三方声明和隐私说明已存在；SBOM、安装包校验、字体分发条款和最终依赖许可证仍需在桌面发布前统一验收。
+- FastAPI 静态托管和 `python agent.py web` 单进程 Web 已实现；PyInstaller sidecar、Electron 安装包、升级和卸载契约尚未实现。
 - MCP / specialist 不进入首发 Workbench；只有请求级 ToolContext 和发布安全边界稳定后才重新评估。
 
 ### 3.3.1 2026-07-26 审查整改边界
@@ -501,6 +506,8 @@ P5F.1 已补齐：
 
 ## 4. 推荐技术路线与执行计划
 
+> 历史阶段记录说明：本章的 P5C-P5G 保留已完成阶段的产品决策、实现边界和验收证据，便于理解现有架构；它们不构成当前排期，也不应从中恢复已被取代的方案。当前工作批次、优先级和完成状态只以 [`ROADMAP.md`](ROADMAP.md) 为准。
+
 ### 4.1 目标架构
 
 ```text
@@ -526,10 +533,10 @@ Agent / RAG / Quiz / Learning / Memory
 ### 4.2 技术选择
 
 - 前端：React + TypeScript + Vite。
-- UI：Tailwind CSS + shadcn/ui 基础组件，强制映射 `docs/DESIGN.md` tokens。
+- UI：Tailwind CSS 与现有本地组件样式，所有颜色、字体、间距和动效必须映射 `docs/DESIGN.md` tokens；不为获得组件而引入整套 UI 主题。
 - 路由：React Router。
 - 数据请求：第一版使用原生 `fetch`；POST 流式回答使用 `ReadableStream` 解析 SSE frame，不使用原生 `EventSource`。
-- 状态：服务端数据留在 API / domain；前端先用 React state + 小型 context，不提前引入复杂全局状态框架。
+- 状态：服务端数据留在 API / domain；前端使用局部 React state 与已有的小型 Zustand UI store，禁止把学习业务真相复制到全局 store。
 - 开发模式：Vite dev server + FastAPI，Vite proxy `/api`。
 - 发布模式：Vite production build 由 FastAPI 托管静态文件，一个本地进程启动。
 - 运行边界：默认只绑定 `127.0.0.1`，按单用户本地应用设计，本阶段不做登录和多租户。
@@ -811,7 +818,9 @@ Wiki 页面统一为五类：
 
 P5E.1 主体流程与可靠性收尾已经完成：`source_roots` 使用资料库内相对路径，并能在重新打开已移动资料库时修复旧绝对路径；旧文件夹迁移在同步成功后才激活，失败会恢复迁移前的注册表和活动资料库。P5E.2 已在此基础上完成 Wiki 写入可靠性增强。
 
-#### 桌面端资料进库设计（2026-08-12 确认，等待实现）
+#### 桌面端资料进库设计（2026-08-12 历史规划）
+
+> 本节保留当时的产品设计和架构约束。其尚未交付的内容必须先映射到 [`ROADMAP.md`](ROADMAP.md) 的当前批次后再实施，不能把“等待实现”直接当作当前排期。
 
 > 决策来源：针对"安装桌面端后直接往文件夹放资料，agent 识别并初始化"的逐项追问；借鉴 OpenHanako（`~/.hanako` 点目录 + `~/Desktop/OH-WorkSpace` 工作区 + chokidar 增量监听）。本小节是 P5E.1 的增量规格，冲突处以本文为准。
 
@@ -919,7 +928,7 @@ P5F 收尾修正进一步补齐：
 - Web 搜索失败不会阻塞本地资料问答与练习。
 - 不允许把搜索摘要或 AI 常识伪装成用户资料。
 
-验收结果：Python `1102 passed`；Vitest `5 passed`；TypeScript 与生产构建通过；Playwright 桌面、窄屏和移动端 `57 passed`。下一步进入 P5F.1。
+验收结果：Python `1102 passed`；Vitest `5 passed`；TypeScript 与生产构建通过；Playwright 桌面、窄屏和移动端 `57 passed`。这条记录属于历史阶段；后续工作按 [`ROADMAP.md`](ROADMAP.md) 的当前批次推进。
 
 ### P5F.1：个人学习知识库（完成）
 
@@ -1045,7 +1054,7 @@ P5E.6 不在本阶段做：复杂全图一次性可视化、导入即自动概�
 6. **`tests/test_concept_store.py`** + **`tests/test_concept_service.py`** — 覆盖 DDL、CRUD、候选压制、图状态、子图邻居、服务层验证和 LLM 提取 mock。
 7. **旧图谱迁移** — “设置 → 记忆与数据”惰性检测 `graph_store.json`，展示 Concept / Memory / 关系与风险预览；用户选择后导入候选，校验完成才归档源文件。旧 JSON / Neo4j 图不再参与同步、Agent 工具或 Library 状态统计。
 
-### P5G：文档完整性、Windows 桌面发布与支撑页面
+### P5G：文档完整性、Windows 桌面发布与支撑页面（历史阶段记录）
 
 P5G 不先堆叠新页面。执行顺序固定为：
 
@@ -1055,11 +1064,13 @@ P5E.5 Wiki 易用性、手写编辑与 AI 成本控制（完成）
 → P5G.0 文档提取完整性与发布合规（完成）
 → P5G.1 单进程本地 Web（完成）
 → P5G.4 模型供应商管理（Provider Catalog，完成）
-→ P5G.2 Windows Electron 桌面版
+→ R0 质量与调试基建（完成，2026-08-28，分支 feat/r0-quality-infra）
+→ P5G.2 Windows Electron 桌面版（推迟：先推进 docs/ROADMAP.md 的 W1–W4 主体）
 → P5G.3 支撑页面与体验收尾
 ```
 
-与 P5G 并行存在一条整机优化工作流（Agent 运行时、前端体验、资料协作），详见 `docs/AGENT_OPTIMIZATION_PLAN.md`：其中 AG-0 / FE-1 / LB-1.1 为纯增量改动，可与 P5G 并行；会话格式变更（AG-1）等 P5G 验收后才启动。该工作流不改变本节 P5G 的执行顺序与验收条件。
+当前唯一路线文档是 **[`ROADMAP.md`](ROADMAP.md)**（合并了 openhanako 研究路线 R0-R3、DeepTutor/OpenMAIC/qiaomu 调研借鉴清单、整机优化计划遗留与 2026-08-01 体验审查未决项；已完成的部分归档于 [`archive/`](archive/)）。
+P5G.2 启动前必须吸收其 W5 门禁与研究结论：sidecar 独立进程、server-info 握手、契约测试替代浏览器 e2e。
 
 首发版本不集成 OCR。Bobodan 只处理文档已有文本层，并明确告诉用户哪些页面、幻灯片或图片没有形成可检索文字。OCR 不是技术上永久禁止，而是保留为未来可选组件；当前不加入引擎、模型、下载入口或安装包依赖。
 
@@ -1154,7 +1165,7 @@ P5G 总体验收：
 
 ### P5G 补充规划（2026-08-01 体验审查补充）
 
-以下五项在 2026-08-01 体验审查（`docs/experience_review_2026-08-01.md`）中被确认为计划缺口：P5G 章节原有条目停留在功能名级别，缺少桌面本地产品发布所需的落地细节；均不属于"本轮明确不做"范围，进入 P5G 执行时一并落地。
+以下五项在 2026-08-01 体验审查（[`archive/experience_review_2026-08-01.md`](archive/experience_review_2026-08-01.md)）中被确认为计划缺口：P5G 章节原有条目停留在功能名级别，缺少桌面本地产品发布所需的落地细节；当前已并入 [`ROADMAP.md`](ROADMAP.md) 的发布门禁和相关工作批次，不能脱离该路线单独恢复执行。
 
 1. **数据备份 / 恢复专项**：明确备份对象清单（资料库、`personal-knowledge.db`、`usage.db`、`research.db`、`preferences.json`）、备份格式与 SQLite WAL 一致性方法、手动 / 自动触发、校验与恢复 UI、失败恢复验证。这是本地优先产品用户信任的根基。
 2. **复习提醒交付机制**：指定 Windows 系统通知或托盘常驻方案；Electron 不常驻时提醒无法送达，Review 闭环缺最后一环。
@@ -1765,27 +1776,7 @@ MVP 必须跑通：
 
 ### 5.21 下一阶段实现顺序
 
-实现顺序以第 4 章为唯一执行路线，本节不再维护第二份重复计划。
-
-```text
-P5C 产品化基础（完成）
-→ P5D 本地学习闭环 Web MVP（完成）
-→ P5E 用户主动触发的 LLM Wiki（完成）
-→ P5E.1 文件夹资料库与持久化 Wiki 工作流（完成）
-→ P5E.2 Wiki 可靠性增强（完成）
-→ P5E.3 Web UI 系统体验与设置中心（完成）
-→ P5F 可信资料扩展（完成）
-→ P5F.1 个人学习知识库（完成）
-→ P5E.4 全库 Wiki 编排与覆盖系统（完成）
-→ P5E.5 Wiki 易用性、手写编辑与 AI 成本控制（完成）
-→ P5E.6 知识地图产品重置（完成）
-→ P5G.0 文档提取完整性与发布合规（完成）
-→ P5G.1 单进程本地 Web（完成）
-→ P5G.2 Windows Electron 桌面版
-→ P5G.3 支撑页面与体验收尾
-```
-
-P5C 是进入前端开发前的硬门槛。任何阶段都不能只交付静态占位页；进入下一阶段前，当前阶段的验收条件必须成立。
+P5C-P5G 的历史顺序已在第 4 章保留，避免在练习系统决策中维护第二份路线。后续实现只按 [`ROADMAP.md`](ROADMAP.md) 的 A0-A3、B、C、D、E 批次推进；每项必须满足该路线图的完成定义，不能只交付静态占位页。
 
 ## 6. 功能分层
 
@@ -2007,12 +1998,13 @@ Obsidian vault：
 
 日常只需要读本文。需要深入时再看：
 
+- `docs/ROADMAP.md`：**统一路线图**——现在做什么、接下来做什么、已拍板决策、明确不做。
 - `docs/DESIGN.md`：Web / TUI / 官网视觉硬约束。任何界面设计开工前必须先读。
-- `docs/AGENT_OPTIMIZATION_PLAN.md`：整机优化计划书（Agent 运行时 / 前端体验 / 资料协作），与 P5G 并行的工作流，排期与验收门禁以该文档为准。
+- `docs/Bobodan参考项目调研报告.md`：DeepTutor / OpenMAIC / qiaomu 借鉴机制精讲与源码索引（ROADMAP 条目的论据）。
 - `docs/rag_design.md`：RAG v2 详细设计。
-- `docs/knowledge_map_design.md` 与 `docs/knowledge_map_reliability_editing_design_2026-07-27.md`：知识地图产品与可靠性设计。
 - `docs/MCP.md`：MCP 客户端使用。
 - `docs/tools/skills.md`：Skills 系统说明。
+- `docs/archive/`：已完成任务书与历史审查报告，仅供考古。
 
 ## 11. 最终结论
 

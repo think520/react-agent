@@ -9,6 +9,7 @@ import { AttributionBadges, BrandIllustration, ErrorNotice, IconButton, LoadingS
 import { WikiPlanCard } from "../components/WikiPlanCard";
 import { ModelSelect } from "../components/ModelSelect";
 import { DropdownSelect } from "../components/DropdownSelect";
+import { AskUserCard } from "../components/artifacts/AskUserCard";
 import { KnowledgeContextCard } from "../components/artifacts/KnowledgeContextCard";
 import { MemoryConfirmationCard } from "../components/artifacts/MemoryConfirmationCard";
 import { PracticeReadyCard } from "../components/artifacts/PracticeReadyCard";
@@ -28,8 +29,9 @@ import { toErrorMessage } from "../lib/errors";
 import { parseMentionDraft } from "../lib/mention";
 import { looksLikeSettingsChange } from "../lib/settingsIntent";
 import { useHandoffStore } from "../stores/handoffStore";
+import { notifyError } from "../stores/noticeStore";
 import { useUiStore } from "../stores/uiStore";
-import type { ChatArtifact, ChatReference, KnowledgeContextArtifact, MemoryConfirmationArtifact, PersonalizationRef, PracticeReadyArtifact, RunSummaryArtifact, SettingsChangeArtifact, WebCandidatesArtifact, WebConsentArtifact, WebEvidenceArtifact, WikiFocusArtifact, WikiPlanArtifact, WikiResultArtifact } from "../types";
+import type { AskUserArtifact, ChatArtifact, ChatReference, KnowledgeContextArtifact, MemoryConfirmationArtifact, PersonalizationRef, PracticeReadyArtifact, RunSummaryArtifact, SettingsChangeArtifact, WebCandidatesArtifact, WebConsentArtifact, WebEvidenceArtifact, WikiFocusArtifact, WikiPlanArtifact, WikiResultArtifact } from "../types";
 
 interface SlashItem {
   value: string;
@@ -183,7 +185,11 @@ export function ChatPage() {
   const [loading, setLoading] = useState(Boolean(sessionId));
   const [sending, setSending] = useState(false);
   const [practiceStarting, setPracticeStarting] = useState("");
-  const [error, setError] = useState("");
+  const [error, setInlineError] = useState("");
+  // E1: operation failures are reported to the app-level surface so they stay
+  // visible even when the card, dialog or panel that triggered them is gone.
+  // `error` (above) keeps only page-level failures: session load and stream fail.
+  const setError = (message: string) => notifyError(message);
   const [paletteIndex, setPaletteIndex] = useState(0);
   const [paletteDismissed, setPaletteDismissed] = useState(false);
   const [wikiPlanLoading, setWikiPlanLoading] = useState(false);
@@ -245,7 +251,7 @@ export function ChatPage() {
         if (latestKnowledgeContext) receiveKnowledgeContextRef.current(latestKnowledgeContext.context);
         else clearKnowledgeContextRef.current();
       })
-      .catch((reason: Error) => { if (!cancelled) setError(reason.message); })
+      .catch((reason: Error) => { if (!cancelled) setInlineError(reason.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [sessionId, settings?.default_provider, setMessages, resolveModelRef]);
@@ -410,7 +416,7 @@ export function ChatPage() {
         settleLastMessage(false, true);
         return;
       }
-      setError(toErrorMessage(reason, "本轮回答失败，请重新发送。"));
+      setInlineError(toErrorMessage(reason, "本轮回答失败，请重新发送。"));
       setStatus("");
       settleLastMessage(true);
     } finally {
@@ -734,6 +740,20 @@ export function ChatPage() {
     }
   }
 
+  async function resolveInteraction(artifact: AskUserArtifact, answers: Array<{ id: string; answer: string }>) {
+    if (!sessionId) return;
+    setSending(true);
+    try {
+      await api.answerInteraction(artifact.artifact_id, sessionId, answers);
+      // The session detail re-projects the persisted lifecycle onto the card.
+      await refreshChatSession(sessionId);
+    } catch (reason) {
+      setError(toErrorMessage(reason, "回答没有保存成功。"));
+    } finally {
+      setSending(false);
+    }
+  }
+
   async function resolveMemoryProposal(artifact: MemoryConfirmationArtifact, action: "confirm" | "reject") {
     if (!sessionId) return;
     setSending(true);
@@ -858,6 +878,8 @@ export function ChatPage() {
         />;
       case "web_evidence":
         return <WebEvidenceCard key={artifact.artifact_id} artifact={artifact} />;
+      case "ask_user":
+        return <AskUserCard key={artifact.artifact_id} artifact={artifact} busy={sending} onAnswer={(item, answers) => void resolveInteraction(item, answers)} />;
       case "practice_ready":
         return <PracticeReadyCard key={artifact.artifact_id} artifact={artifact} starting={practiceStarting === artifact.artifact_id} onStart={(item) => void startPreparedPractice(item)} />;
       case "wiki_focus":
@@ -1026,7 +1048,6 @@ export function ChatPage() {
           </div>
         )}
       </div>
-      {messages.length > 0 && error && <ErrorNotice message={error} />}
       {messages.length > 0 && composer}
     </section>
   );

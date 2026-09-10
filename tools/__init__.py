@@ -6,6 +6,7 @@ from .obsidian_tool import obsidian_sync
 from .rag_search import rag_search
 from .concept_map import concept_map_query, concept_map_status
 from .memory_tools import request_memory_confirmation
+from .ask_user import ask_user
 from .knowledge_status import knowledge_status
 from .quiz_tools import question_generate, quiz_start, quiz_submit
 from .learning_tools import learning_path, learning_progress, learning_review
@@ -17,7 +18,7 @@ __all__ = ["TOOL_REGISTRY", "get_tools_schema", "execute_tool", "ToolResult",
            "read_file", "write_file", "list_dir", "change_dir", "stat_path",
            "http_request", "obsidian_sync", "rag_search",
            "concept_map_query", "concept_map_status",
-           "request_memory_confirmation",
+           "request_memory_confirmation", "ask_user",
            "knowledge_status", "question_generate", "quiz_start", "quiz_submit",
            "learning_path", "learning_progress", "learning_review",
            "wiki_lint",

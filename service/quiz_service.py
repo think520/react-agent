@@ -291,6 +291,7 @@ class QuizService:
             question_id=question_id,
             user_answer=answer,
             is_correct=is_correct,
+            verdict=verdict,
             feedback=feedback,
             answered_at=datetime.now(timezone.utc).isoformat(),
         )
@@ -324,6 +325,7 @@ class QuizService:
                 question_concepts=question.concepts,
                 is_correct=is_correct,
                 feedback=feedback,
+                verdict=verdict,
             )
             mastery_changes = [
                 {
@@ -414,6 +416,7 @@ class QuizService:
                 "question_id": attempt.question_id,
                 "user_answer": attempt.user_answer,
                 "is_correct": attempt.is_correct,
+                "verdict": attempt.verdict,
                 "feedback": attempt.feedback,
                 "answered_at": attempt.answered_at,
             }

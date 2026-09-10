@@ -331,7 +331,7 @@ npm test -- --run
 npm run test:e2e
 ```
 
-当前发布形态是 Vite + FastAPI 两个开发进程；Windows 桌面安装包尚未完成，移动端不是本项目当前发布验收目标。
+开发模式使用 Vite + FastAPI 两个进程；发布模式使用 `python agent.py web` 启动单进程本地 Web。Windows 桌面安装包尚未完成，移动端不是本项目当前发布验收目标。
 
 <a id="docs"></a>
 

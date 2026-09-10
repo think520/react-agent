@@ -7,6 +7,15 @@
 ## [未发布]
 
 ### 变更
+- **文档体系收敛（2026-09-03）**：新增统一路线图 `docs/ROADMAP.md`——合并 openhanako 前置路线（R0-R3）、参考项目调研报告借鉴清单（DeepTutor D1-D13 / OpenMAIC O1-O10 / qiaomu Q1-Q10 / 前端 F1-F18）、整机优化计划遗留、2026-08-01 体验审查未决项与 P5G.2/3 剩余，按 W1 学习闭环 / W2 检索与 RAG / W3 前端第二批 / W4 运行时底座 / W5 发布通道五个工作流组织，附执行波次、已拍板决策与合并后的明确不做清单。7 份已完成或被取代的文档（任务书 / 审查报告 / 旧路线 / 知识地图设计）移入 `docs/archive/`；`docs/README.md` 重写为 6 份活跃文档索引；`rag_design.md` 顶部加 embedding 决策更新横幅（用户自配 API 取代 Ollama 假设，详见调研报告第十章）。调研报告保留为活文档（ROADMAP 条目的论据与源码索引）。
+- **R0 质量与调试基建（2026-08-28，分支 `feat/r0-quality-infra`，依据 `docs/PRE_DESKTOP_ROADMAP.md`）**：借鉴 openhanako v0.450 的测试与调试实践，正面解决"桌面版前难调试难测试"。
+  - **测试策略成文**（`tests/README.md`）：风险驱动分层 + keep/delete 规则（删锁文案、删 mock 私有字段、删环境依赖的间歇失败用例），LLM 测试必须走单缝。
+  - **ScriptedProvider**（`tests/llm_fake.py`）：唯一认可的 LLM 测试替身——脚本化文本/工具调用/错误注入、分块流式、请求全量记录；`scripted_provider` fixture 统一注入，替代散装 FakeProvider。
+  - **e2e 收缩**：删除 13 条分支前就长期失败的浏览器用例（业务契约已由 Python 路由测试等价覆盖）；新增 3 条三视口冒烟（启动与主路由渲染 / composer 与斜杠面板 / 设置打开与 Esc 关闭）；移动端仿真无法点击 100dvh 设置页下半区的用例按政策跳过（桌面/窄屏覆盖）。结果：45 用例从 12 条永久失败变为全绿。
+  - **一键开发栈**（`scripts/dev.py`）：随机空闲端口 + 健康轮询 + `~/.bobodan-dev` 隔离数据目录（`--fresh` 可清空）+ `server-info.json` 握手文件 + `BOBODAN_API_URL` 注入 Vite 代理 + 双进程联动回收；真实用户数据零接触。
+  - **`agent.py diagnose`**：只读脱敏健康报告（运行时/供应商目录不含密钥/资料库注册表与存储计数/日志指针），各节失败软着陆，可直接粘贴到 issue；3 个测试钉住脱敏与容错契约。
+  - **持久化登记册**（`core/persistence_registry.py` + tripwire 测试）：21 个存储全部登记 owner/scope/rebuildable/purpose；源码出现未登记存储文件名即测试失败，登记项失去引用同样失败。
+  - 验证：全量 pytest 见下方记录、vitest/lint/build 通过、`dev.py` 与 `diagnose` 真实启动冒烟通过。
 - **前端体验与动效体系优化轮（2026-08-27，分支 `refactor/perf-2026-08`）**：全面审查后的交互层收敛，六个提交。
   - **弹窗基元**：新增 `ui/Modal`——统一 backdrop 与 220ms 入场、模块级层级栈（嵌套管理器只关最顶层，修复供应商/记忆管理器叠加在设置页时一次 Esc 两层同关的竞态）、焦点陷阱与焦点归还；`ConfirmDialog + useConfirm()` 替换全部 10 处原生 `window.confirm` 破坏性确认。
   - **动效收敛**：时长归一到 `--dur-fast/base/slow` 三档 token、缓动只剩两条 token 曲线；去重 `spin` 关键帧；删除零消费的 Collapse/SlideIn/AnimatedList；Bobodan 处理状态图不再按状态重挂载（预加载四态图消除闪烁）；mention 面板与其余弹出菜单共用 menu-enter 入场。
