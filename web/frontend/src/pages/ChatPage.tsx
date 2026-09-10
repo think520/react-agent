@@ -28,6 +28,7 @@ import { toErrorMessage } from "../lib/errors";
 import { parseMentionDraft } from "../lib/mention";
 import { looksLikeSettingsChange } from "../lib/settingsIntent";
 import { useHandoffStore } from "../stores/handoffStore";
+import { notifyError } from "../stores/noticeStore";
 import { useUiStore } from "../stores/uiStore";
 import type { ChatArtifact, ChatReference, KnowledgeContextArtifact, MemoryConfirmationArtifact, PersonalizationRef, PracticeReadyArtifact, RunSummaryArtifact, SettingsChangeArtifact, WebCandidatesArtifact, WebConsentArtifact, WebEvidenceArtifact, WikiFocusArtifact, WikiPlanArtifact, WikiResultArtifact } from "../types";
 
@@ -183,7 +184,11 @@ export function ChatPage() {
   const [loading, setLoading] = useState(Boolean(sessionId));
   const [sending, setSending] = useState(false);
   const [practiceStarting, setPracticeStarting] = useState("");
-  const [error, setError] = useState("");
+  const [error, setInlineError] = useState("");
+  // E1: operation failures are reported to the app-level surface so they stay
+  // visible even when the card, dialog or panel that triggered them is gone.
+  // `error` (above) keeps only page-level failures: session load and stream fail.
+  const setError = (message: string) => notifyError(message);
   const [paletteIndex, setPaletteIndex] = useState(0);
   const [paletteDismissed, setPaletteDismissed] = useState(false);
   const [wikiPlanLoading, setWikiPlanLoading] = useState(false);
@@ -245,7 +250,7 @@ export function ChatPage() {
         if (latestKnowledgeContext) receiveKnowledgeContextRef.current(latestKnowledgeContext.context);
         else clearKnowledgeContextRef.current();
       })
-      .catch((reason: Error) => { if (!cancelled) setError(reason.message); })
+      .catch((reason: Error) => { if (!cancelled) setInlineError(reason.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [sessionId, settings?.default_provider, setMessages, resolveModelRef]);
@@ -410,7 +415,7 @@ export function ChatPage() {
         settleLastMessage(false, true);
         return;
       }
-      setError(toErrorMessage(reason, "本轮回答失败，请重新发送。"));
+      setInlineError(toErrorMessage(reason, "本轮回答失败，请重新发送。"));
       setStatus("");
       settleLastMessage(true);
     } finally {
@@ -1026,7 +1031,6 @@ export function ChatPage() {
           </div>
         )}
       </div>
-      {messages.length > 0 && error && <ErrorNotice message={error} />}
       {messages.length > 0 && composer}
     </section>
   );

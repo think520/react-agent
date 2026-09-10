@@ -21,6 +21,7 @@ import { NavLink, Outlet, useLocation, useNavigate, useParams, useSearchParams }
 
 import { api, setActiveLibraryId } from "../lib/api";
 import { toErrorMessage } from "../lib/errors";
+import { notifyError } from "../stores/noticeStore";
 import { useUiStore } from "../stores/uiStore";
 import type { Attribution, ChatSessionSummary, DocumentSummary, KnowledgeContext, LibraryMigrationPreview, LibrarySummary, ReviewQueue, SettingsSummary } from "../types";
 import { groupAttributionSources, IconButton, textValue } from "./common";
@@ -30,6 +31,7 @@ import { LibrarySetupDialog, type LibrarySetupMode } from "./LibrarySetupDialog"
 import { SettingsDialog, SettingsUnavailableDialog } from "./SettingsDialog";
 import { ConceptSidebar } from "./ConceptSidebar";
 import { SessionRail } from "./SessionRail";
+import { NoticeCenter } from "./NoticeCenter";
 
 export interface LibrarySetupOptions {
   initialMode?: LibrarySetupMode;
@@ -699,7 +701,7 @@ export function AppShell() {
               user: { display_name: profile.displayName, long_term_goal: profile.learningGoal },
               memory: { enabled: profile.memoryEnabled },
               search: { permission: profile.webEnabled ? "auto" : "ask" },
-            }).then(() => refreshSettings()).catch(() => undefined);
+            }).then(() => refreshSettings()).catch((reason: Error) => notifyError(toErrorMessage(reason, "首次配置没有保存成功，请到设置里检查。")));
           }
           setOnboardingOpen(false);
         }}
@@ -733,6 +735,7 @@ export function AppShell() {
         onClose={closeSettings}
       />}
       {shortcutsOpen && <ShortcutsDialog onClose={() => setShortcutsOpen(false)} />}
+      <NoticeCenter />
     </div>
   );
 }

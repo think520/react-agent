@@ -1112,6 +1112,20 @@ kbd { color: var(--faint); font-family: inherit; font-size: 10px; }
 .error-notice, .success-notice { display: flex; align-items: flex-start; gap: 10px; border: 1px solid rgba(147,77,67,0.2); border-radius: 8px; margin: 16px 0; padding: 12px 14px; background: rgba(147,77,67,0.04); color: var(--danger); font-size: 13px; }
 .error-notice > div { min-width: 0; flex: 1; }.error-notice strong { display: block; }.error-notice p { margin: 2px 0 0; color: var(--muted); line-height: 1.55; }
 .success-notice { border-color: rgba(122,155,118,0.25); background: var(--sage-wash); color: var(--sage-deep); }
+/* App-level notice surface (E1): an operation that fails inside a chat card,
+   dialog or side panel stays visible wherever the user is looking. */
+.notice-center { position: fixed; z-index: 130; right: 18px; bottom: 18px; display: grid; gap: 8px; width: min(360px, calc(100vw - 32px)); }
+.notice { display: flex; align-items: flex-start; gap: 10px; border: 1px solid var(--border-strong); border-radius: 8px; padding: 10px 12px; background: var(--paper); box-shadow: var(--shadow-float); color: var(--muted); font-size: 12.5px; line-height: 1.6; animation: notice-in var(--dur-base) var(--ease-out) both; }
+.notice span { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.notice-error { border-color: rgba(147,77,67,0.3); color: var(--danger); }
+.notice-info { border-color: rgba(27,54,93,0.22); color: var(--blue); }
+.notice-success { border-color: rgba(122,155,118,0.3); color: var(--sage-deep); }
+.notice-dismiss { display: inline-flex; flex: 0 0 auto; width: 22px; height: 22px; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: transparent; color: inherit; cursor: pointer; opacity: 0.75; }
+.notice-dismiss:hover { background: var(--paper-soft); opacity: 1; }
+@keyframes notice-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+[data-motion="reduced"] .notice { animation: none; }
+@media (max-width: 767px) { .notice-center { right: 10px; bottom: 62px; left: 10px; width: auto; } }
+
 .empty-state { display: grid; max-width: 560px; min-height: 430px; place-content: center; justify-items: center; margin: 0 auto; color: var(--faint); text-align: center; }
 .empty-state.compact { min-height: 260px; }
 .empty-state h2 { margin: 14px 0 6px; color: var(--blue); font-family: var(--font-reading); font-size: 25px; font-weight: 400; }
