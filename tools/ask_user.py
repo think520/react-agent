@@ -85,6 +85,11 @@ def ask_user(
             "不要替用户选择，也不要在本轮继续推进。"
         ),
         artifacts=[artifact],
+        pause_for_user={
+            "interaction_id": interaction_id,
+            "artifact_id": interaction_id,
+            "questions": public_questions,
+        },
     )
 
 
