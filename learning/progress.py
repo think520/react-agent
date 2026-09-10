@@ -22,14 +22,14 @@ class ProgressTracker:
         self.store = store
         self.scheduler = scheduler
 
-    def update_from_quiz(self, concepts: list[str], is_correct: bool) -> list[Mastery]:
+    def update_from_quiz(self, concepts: list[str], is_correct: bool, verdict: str | None = None) -> list[Mastery]:
         """Update mastery for each concept based on quiz result.
 
         After updating, auto-checks if any active plan steps are now fully mastered.
         """
         results = []
         for concept in concepts:
-            m = self.scheduler.record_review(concept, is_correct)
+            m = self.scheduler.record_review(concept, is_correct, verdict)
             results.append(m)
 
         # Auto-infer plan step completion

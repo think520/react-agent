@@ -272,8 +272,10 @@ export function PracticePage() {
           <header><span>练习小结</span><h2>这一轮练习已完成</h2><p>答对 {session.progress.correct} / {session.progress.total} 题。{allCorrect ? "全部答对，复习队列没有新增错题。" : "错题和薄弱点已经加入复习队列。"}</p></header>
           {session.attempts.length > 0 && <section className="summary-recap"><h3>逐题回顾</h3>{session.questions.map((question) => {
             const attempt = session.attempts.find((item) => item.question_id === question.id);
-            return <article key={question.id} className={`recap-item ${attempt?.is_correct ? "correct" : ""}`}>
-              <div className="recap-head"><span>{attempt ? (attempt.is_correct ? "答对" : "答错") : "未作答"}</span><p>{question.question}</p></div>
+            // Three-state recap (E15): a partial short answer is not a failure.
+            const recapState = !attempt ? "未作答" : attempt.verdict === "partial" ? "基本正确" : attempt.is_correct ? "答对" : "答错";
+            return <article key={question.id} className={`recap-item ${attempt?.is_correct ? "correct" : attempt?.verdict === "partial" ? "partial" : ""}`}>
+              <div className="recap-head"><span>{recapState}</span><p>{question.question}</p></div>
               {attempt && <small>你的答案：{attempt.user_answer}</small>}
             </article>;
           })}</section>}

@@ -170,6 +170,8 @@ export interface PracticeSession {
     question_id: number;
     user_answer: string;
     is_correct: boolean;
+    /** "correct" | "partial" | "incorrect" — three-state grading (E15). */
+    verdict?: string;
     feedback: string;
   }>;
   progress: {

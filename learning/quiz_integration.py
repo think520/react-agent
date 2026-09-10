@@ -20,6 +20,7 @@ def record_quiz_learning_effect(
     question_concepts: list[str],
     is_correct: bool,
     feedback: str,
+    verdict: str | None = None,
 ) -> list[Mastery]:
     """Record quiz result into mastery tracking.
 
@@ -30,7 +31,7 @@ def record_quiz_learning_effect(
     store = LearningStore(workspace)
     scheduler = ReviewScheduler(store)
     tracker = ProgressTracker(store, scheduler)
-    results = tracker.update_from_quiz(question_concepts, is_correct)
+    results = tracker.update_from_quiz(question_concepts, is_correct, verdict)
 
     logger.info(
         "Quiz learning effect recorded: concepts=%s correct=%s mastery_updated=%d",

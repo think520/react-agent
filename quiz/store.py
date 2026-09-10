@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS quiz_attempts (
     question_id INTEGER NOT NULL REFERENCES questions(id),
     user_answer TEXT NOT NULL,
     is_correct INTEGER NOT NULL DEFAULT 0,
+    verdict TEXT NOT NULL DEFAULT '',
     feedback TEXT NOT NULL DEFAULT '',
     answered_at TEXT NOT NULL
 );
@@ -93,6 +94,7 @@ def _row_to_attempt(row: sqlite3.Row) -> QuizAttempt:
         question_id=row["question_id"],
         user_answer=row["user_answer"],
         is_correct=bool(row["is_correct"]),
+        verdict=str(row["verdict"] or "") if "verdict" in row.keys() else "",
         feedback=row["feedback"],
         answered_at=row["answered_at"],
     )
@@ -141,6 +143,13 @@ class QuizStore:
             if "personalization" not in session_columns:
                 conn.execute(
                     "ALTER TABLE quiz_sessions ADD COLUMN personalization TEXT NOT NULL DEFAULT '[]'"
+                )
+            attempt_columns = {
+                row["name"] for row in conn.execute("PRAGMA table_info(quiz_attempts)").fetchall()
+            }
+            if "verdict" not in attempt_columns:
+                conn.execute(
+                    "ALTER TABLE quiz_attempts ADD COLUMN verdict TEXT NOT NULL DEFAULT ''"
                 )
             conn.execute(
                 """UPDATE quiz_sessions
@@ -339,13 +348,14 @@ class QuizStore:
         try:
             cur = conn.execute(
                 """INSERT INTO quiz_attempts
-                   (session_id, question_id, user_answer, is_correct, feedback, answered_at)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
+                   (session_id, question_id, user_answer, is_correct, verdict, feedback, answered_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
                 (
                     attempt.session_id,
                     attempt.question_id,
                     attempt.user_answer,
                     1 if attempt.is_correct else 0,
+                    attempt.verdict or ("correct" if attempt.is_correct else "incorrect"),
                     attempt.feedback,
                     attempt.answered_at or _now_iso(),
                 ),

@@ -16,8 +16,13 @@ class ReviewScheduler:
     def __init__(self, store: LearningStore):
         self.store = store
 
-    def record_review(self, concept: str, correct: bool) -> Mastery:
-        """Record a review result and update the next review date."""
+    def record_review(self, concept: str, correct: bool, verdict: str | None = None) -> Mastery:
+        """Record a review result and update the next review date.
+
+        ``verdict`` distinguishes a partial short answer from a failure (E15):
+        partial credit keeps the concept in \"learning\" and schedules a near
+        review, instead of resetting it as an error.
+        """
         m = self.store.get_mastery(concept)
         if not m:
             m = Mastery(concept=concept)
@@ -44,6 +49,12 @@ class ReviewScheduler:
             else:
                 m.status = MASTERY_LEARNING
                 m.score = min(1.0, m.score + 0.1)
+        elif verdict == "partial":
+            # Weak evidence: review again soon, do not penalise ease or score.
+            m.consecutive_correct = 0
+            m.interval_days = 1
+            m.status = MASTERY_LEARNING
+            m.next_review = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
         else:
             m.consecutive_correct = 0
             m.interval_days = 1
