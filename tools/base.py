@@ -115,6 +115,8 @@ def execute_tool(name: str, args: dict, session=None) -> Any:
                 )
             if "research_session_id" in sig.parameters:
                 call_args.setdefault("research_session_id", session.session_id)
+            if "chat_session_id" in sig.parameters:
+                call_args.setdefault("chat_session_id", session.session_id)
         result = func(**call_args)
         # Ensure result is a ToolResult
         if not isinstance(result, ToolResult):
