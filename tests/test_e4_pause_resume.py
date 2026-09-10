@@ -123,4 +123,3 @@ def test_resume_content_carries_answers_and_the_continue_directive():
     assert "你系统学算法主要为了什么？" in text
     # Without this directive models tend to reply with a bare acknowledgement.
     assert "Do not stop with an acknowledgement" in text
-

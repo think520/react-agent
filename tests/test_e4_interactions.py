@@ -151,4 +151,3 @@ def test_expiry_window_closes_orphan_rows_without_touching_open_ones(tmp_path):
     assert service.get("old")["closure"] == "expired"
     # The fresh one is untouched and still answerable.
     assert [row["interaction_id"] for row in service.list_open("c1")] == ["new"]
-
