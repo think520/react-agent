@@ -1,17 +1,17 @@
 # Bobodan 统一路线图
 
-> 版本：v1.0（2026-09-03）
+> 版本：v1.1（2026-09-08）
 > 定位：**唯一的"下一步"文档。** 想知道现在做什么、接下来做什么，只看这里。
 > 本文合并了以下来源并取代它们的前瞻部分（原文见 `docs/archive/`）：
-> - `PRE_DESKTOP_ROADMAP.md`（openhanako v0.450 研究 → R0-R3 路线，R0 已完成）
+> - [`archive/PRE_DESKTOP_ROADMAP.md`](archive/PRE_DESKTOP_ROADMAP.md)（openhanako v0.450 研究 → R0-R3 路线，R0 已完成）
 > - `Bobodan参考项目调研报告.md` 第 3-10 章（DeepTutor / OpenMAIC / qiaomu 借鉴清单与 RAG 决策，**该报告保留为活文档**，是本文各条目的详细论据与源码索引）
-> - `AGENT_OPTIMIZATION_PLAN.md` 遗留事项（该计划主体已于 2026-08-13 交付）
-> - `experience_review_2026-08-01.md` 未决项（已核对部分已修复）
+> - [`archive/AGENT_OPTIMIZATION_PLAN.md`](archive/AGENT_OPTIMIZATION_PLAN.md) 遗留事项（该计划主体已于 2026-08-13 交付）
+> - [`archive/experience_review_2026-08-01.md`](archive/experience_review_2026-08-01.md) 未决项（已核对部分已修复）
 > - P5G.2 / P5G.3 剩余（PROJECT_GUIDE §P5G）
 
 ---
 
-## 0. 当前状态快照（2026-09-03）
+## 0. 当前状态快照（2026-09-08）
 
 | 大轮次 | 状态 |
 |---|---|
@@ -23,7 +23,22 @@
 | R0 质量与调试基建（测试策略 / ScriptedProvider / e2e 冒烟化 / dev.py / diagnose / 持久化登记册） | ✅ 完成（`feat/r0-quality-infra`） |
 | R0.7 数据 epoch 机制 | ⏳ 并入本文 W4 |
 | P5G.2 Electron 桌面版 | ⏸ 推迟（门禁见 W5） |
-| P5G.3 支撑页面 | ⏸ 排在 P5G.2 后 |
+| P5G.3 支撑页面 | ⏸ 按 C / E 批次拆分；复习提醒可先在 Web 交付 |
+
+### 状态口径
+
+路线项只使用以下状态，避免把“已有部分代码”误写成“已经交付”：
+
+| 状态 | 含义 |
+|---|---|
+| `待核对` | 需求来自旧审查或调研，开工前必须先核对当前代码与测试，可能已经部分完成 |
+| `未开始` | 已确认仍需要实施，尚无可验收交付 |
+| `进行中` | 已有未完成改动或只完成部分验收 |
+| `已验证` | 行为、测试和用户可见结果均满足验收条件 |
+| `暂缓` | 方向保留，但当前批次不投入 |
+| `取消` | 已被替代或不再符合产品边界 |
+
+本表中的 P5 阶段状态是历史里程碑；W1-W5 是后续工作池。工作池条目在实施前默认视为 `待核对`，不能仅凭路线描述认定代码缺失。每次开工先记录现状证据，完成后至少留下测试、可复现步骤或用户可见结果之一。
 
 贯穿性哲学（三个参考项目与 Bobodan 已有实践同构，**把已走对的路走完**）：
 **模型负责语言，代码负责事实。** 证据门禁、确定性保存 source_ids、纯函数掌握度引擎、fail-closed 解析——一切新增机制都不得动摇这条线。
@@ -33,6 +48,8 @@
 ## 1. 工作流总览
 
 五个工作流，编号 W1–W5。条目保留调研报告的原始编号（D/O/Q/F 前缀），细节与源码索引查 `Bobodan参考项目调研报告.md` 对应章节；体验审查遗留用 E 前缀；openhanako 路线用 H 前缀。
+
+工作流是分类，不代表可以整组同时开工。当前只允许一个主交付批次和一个不互相阻塞的验证批次；新参考项目不能直接向 W1-W5 增项，必须先证明现有能力无法满足用户目标。
 
 ### W1 学习闭环升级（产品核心，最优先）
 
@@ -120,21 +137,40 @@
 2. **release digest 生成器**：双语结构化发布说明作为数据（现在就可给 CHANGELOG 用，将来喂给更新 UI）。
 3. **signed update trains**：签名清单 + pointer 通道 + 暂存激活回滚（研究不实现，桌面版启动时照抄）。
 
-P5G.3 六项（Roadmap 页 / 会话增强 / Memory Browser / 复习自动化←H-R2.1 / 数据保护 / Workbench）与 P5G 补充五项（备份恢复 / 提醒交付 / 升级路径 / 卸载契约 / DPI 与性能预算）按 PROJECT_GUIDE 原验收执行。
+P5G.3 的产品能力不再整体等待 Electron：Roadmap、复习提醒和部分数据保护可在 Web 先交付；Memory Browser、Workbench 和桌面专属的数据恢复入口仍受 E 门禁约束。P5G 补充项（备份恢复 / 提醒交付 / 升级路径 / 卸载契约 / DPI 与性能预算）按 `PROJECT_GUIDE.md` 的发布验收执行。
 
 ---
 
-## 2. 执行波次建议
+## 2. 执行批次
 
-```text
-Wave 1（当前）：W1 的 E1–E7（正确性与闭环核心） + W2 的 G1–G3（embedding 决策落地）
-Wave 2：W1 的 E8–E16 + G4–G5 + W3 FE-P0
-Wave 3：W3 FE-P1/H 系列 + W4 主体（H-R2.1 复习提醒可提前与 E9 同期）
-Wave 4：W3 FE-P2 + W4 底座收尾 + R0.7 epoch
-Wave 5：W5 桌面版（门禁达成后启动 P5G.2）
-```
+大波次已经拆成可独立验收的小批次。每个批次完成后更新状态和证据，再进入下一批；不得把后续批次的“顺手重构”带入当前改动。
 
-排序原则：产品核心闭环 > 检索质量 > 界面质感 > 运行时底座 > 发布包装。任何条目开工前先对齐 PROJECT_GUIDE 的产品边界四问。
+| 批次 | 范围 | 完成标准 |
+|---|---|---|
+| A0 现状核对（当前） | 逐项核对 E1-E7、G1-G3 与 FE-P0，标记已存在、部分存在和真实缺口 | 每项有代码 / 测试证据；删除重复或已被替代的任务 |
+| A1 学习闭环正确性 | E1、E3、E4、E13、E15 | 错误可见；交互可恢复；练习卡不可绕过；三态判分前后端一致 |
+| A2 学习推进 | E5、E6、E9、E14 | 题目可逐步就绪；掌握度由纯函数计算；复习状态清楚；题内问 AI 不污染会话列表 |
+| A3 阅读与导入 | E2、E7、E8、E16 | 新建路径可理解；划线可回链；导入进度与失败可操作；新概念可定位 |
+| B1 检索基线 | G4 的 FTS-only 基线、G5 | 有真实资料评测集和可重复指标；扫描页 / 目录失败不静默 |
+| B2 可选向量检索 | G1-G3，再完成 G4 hybrid 对比 | 未配置时 FTS 正常；云端发送边界明确；签名、重建、限流和中断可恢复；数据证明 hybrid 有收益 |
+| C1 前端正确性 | FE-P0、F2、F11、F17、H-c | SSE 不丢帧；滚动不抢用户；交互卡可测；错误反馈统一 |
+| C2 体验增强 | 其余 FE-P1；只选当前用户高频路径实施 | 至少一次桌面、窄屏和移动端真实流程验收；不新增主导航 |
+| D 运行时底座 | W4 中被上层需求实际阻塞的条目 | 每项由明确故障或发布门槛驱动，不以参考项目完整度为目标 |
+| E 桌面发布 | W5 | A1-A3、B1-B2、C1 通过；安装、升级、卸载、备份恢复和崩溃诊断可验收 |
+
+当前焦点是 A0。A0 完成前不应并行实现 A1 与 B2，因为现有代码已经包含部分确认状态、提取状态和检索记录，直接照路线开发可能造成重复实现。
+
+排序原则：学习闭环正确性 > 可恢复性 > 检索质量证据 > 界面质感 > 通用运行时能力 > 发布包装。任何条目开工前先对齐 `PROJECT_GUIDE.md` 的产品边界四问。
+
+### 单项完成定义
+
+一项路线任务只有同时满足以下条件才能标记为 `已验证`：
+
+1. 用户触发路径、成功结果、失败结果和恢复动作已经明确。
+2. 服务端真相源与前端临时状态的边界明确，没有新增第二套业务状态。
+3. 高风险逻辑有针对性测试；视觉改动至少检查桌面和移动端。
+4. 用户可见文案不泄露内部实现、模型思维链、本地绝对路径或密钥。
+5. `ROADMAP.md`、`PROJECT_GUIDE.md` 或专题真相源已同步，不保留相互矛盾的描述。
 
 ---
 
@@ -162,5 +198,5 @@ Wave 5：W5 桌面版（门禁达成后启动 P5G.2）
 ## 5. 来源索引
 
 - **调研报告**（`Bobodan参考项目调研报告.md`，活文档）：D1–D13 = §3.3、O1–O10 = §4.3、Q1–Q10 = §5.3、F1–F18 = §9.3、RAG 决策 = §10；各条目的机制精讲与源码行号在其对应章节，精读文件优先级见其附录。
-- **归档文档**（`docs/archive/`，已完成或已被本文取代）：`AGENT_OPTIMIZATION_PLAN.md`（遗留已并入 W3/W4）、`PRE_DESKTOP_ROADMAP.md`（R0 完成，R1→W3、R2→W4、R3→W5）、`TASKS_LIBRARY_REWORK.md`（已交付）、`knowledge_map_design.md` 与 `knowledge_map_reliability_editing_design_2026-07-27.md`（P5E.6 已交付，未竟项：跨文档候选/合并候选、evidence_level=cross 前端区分、提取计时 UI 核对 → 择机并入 W1/W3）、`project_review_2026-07-26.md`（B1–B9 已整改）、`experience_review_2026-08-01.md`（未决项已并入 W1/W3）。
+- **归档文档**（`docs/archive/`，已完成或已被本文取代）：[`archive/AGENT_OPTIMIZATION_PLAN.md`](archive/AGENT_OPTIMIZATION_PLAN.md)（遗留已并入 W3/W4）、[`archive/PRE_DESKTOP_ROADMAP.md`](archive/PRE_DESKTOP_ROADMAP.md)（R0 完成，R1→W3、R2→W4、R3→W5）、[`archive/TASKS_LIBRARY_REWORK.md`](archive/TASKS_LIBRARY_REWORK.md)（已交付）、[`archive/knowledge_map_design.md`](archive/knowledge_map_design.md) 与 [`archive/knowledge_map_reliability_editing_design_2026-07-27.md`](archive/knowledge_map_reliability_editing_design_2026-07-27.md)（P5E.6 已交付，未竟项：跨文档候选/合并候选、evidence_level=cross 前端区分、提取计时 UI 核对 → 择机并入 W1/W3）、[`archive/project_review_2026-07-26.md`](archive/project_review_2026-07-26.md)（B1–B9 已整改）、[`archive/experience_review_2026-08-01.md`](archive/experience_review_2026-08-01.md)（未决项已并入 W1/W3）。
 - **仍在体系内**：`PROJECT_GUIDE.md`（产品边界与阶段验收）、`DESIGN.md`（视觉硬约束）、`rag_design.md`（RAG 架构真相源）、`MCP.md`、`tools/skills.md`。

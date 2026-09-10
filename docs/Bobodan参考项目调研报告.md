@@ -12,6 +12,8 @@
 > **2026-09-02 补充**：新增第九章「前端优化设计借鉴」专项调研——DeepTutor 与 OpenMAIC 的前端实现被逐文件深挖（流式渲染、过程可视化、交互卡、设计系统、工程化），全部映射到 Bobodan 的 `web/frontend`。
 >
 > **2026-09-03 补充**：新增第十章「RAG 向量化选型：调研与决策」——现状核查（向量腿从未真正运行过）、八引擎矩阵的取舍依据、三个参考项目 embedding/向量库的实际选型（结论出人意料）、三条 embedding 路线的体积实测，以及最终拍板的落地方案。
+>
+> **使用边界（2026-09-08）**：本文保留调研日的代码快照、机制比较和借鉴编号（D / O / Q / F / G），只作为论据与实现参考。P0 / P1 / P2、FE-P0 / P1 / P2 和第十章的方案均不能直接形成排期；当前工作批次、完成状态和取舍以 [`ROADMAP.md`](ROADMAP.md) 为准，RAG 运行事实以 [`rag_design.md`](rag_design.md) 为准。
 
 ---
 
@@ -40,7 +42,9 @@
 
 ---
 
-## 二、Bobodan 现状基线（借鉴的出发点）
+## 二、Bobodan 现状基线（调研日快照）
+
+本节描述 2026-09-02 调研时的出发点。功能是否已交付或随后调整，须回到 `ROADMAP.md`、`PROJECT_GUIDE.md` 和专题设计文档核对。
 
 已有且不应被借鉴方案动摇的资产：
 
@@ -218,7 +222,7 @@ hl = { id, color, text, block: 1234, occ: 0, pre: "前32字符", post: "后32字
 | Q1 | 划线锚四元组 | Library 阅读器 + Chat 引用 | 划线/引用统一存 `{chunk_id, start/end offset, quote, prefix32, suffix32}`；渲染走「精确 offset → 文本匹配 → 归一化模糊匹配」三级降级 | `src/main.js:8908, 5758-5853` |
 | Q2 | 托管区块同步到笔记 | 笔记 ↔ 资料关联 | 资料阅读页划线自动同步到笔记的「来自本书的摘录」托管区块（heading 边界替换、归一化去重），区块外用户自由书写 | `src/main.js:6819-6890, 6712-6721` |
 | Q3 | ↩ 反链 + flash 落点 | Chat 引用 / 笔记摘录 | 引用点击 → 定位 chunk → 滚动 → 目标段落 flash 2.4s；加载中轮询等待 | `src/main.js:8189-8210` |
-| Q4 | TOC 降级链 | `rag/` PDF 导入 | PyMuPDF outline → heading → 印刷目录文本匹配 → 粗体短段；配噪声过滤 | `src/main.js:5097-5205` |
+| Q4 | TOC 降级链 | `rag/` PDF 导入 | 参考项目的 PyMuPDF outline → heading → 印刷目录文本匹配 → 粗体短段；Bobodan 当前使用 `pypdf`，若实施需按它的能力重新设计 | `src/main.js:5097-5205` |
 | Q5 | 可靠性四件套 | SQLite 写入层 | 串行写队列；写前重读合并（多窗口并发）；快照滚动备份；损坏「备份+锁定，绝不带病覆盖」 | `src/storage.js:14-57` |
 | Q6 | PDF 文本重建启发式 | PDF 解析 | 连字符合并、等宽字体判代码块、CJK 标点修正、扫描页判定降级 | `src/main.js:5270-5732` |
 | Q7 | 阅读进度双层锚 | Library | 显示用 pct、恢复用内容锚（chunk/heading 路径）；翻页/滚动自动存；大跳存历史点可回滚 | `src/main.js:2510-2600, 8700-8732` |
@@ -228,7 +232,9 @@ hl = { id, color, text, block: 1234, occ: 0, pre: "前32字符", post: "后32字
 
 ---
 
-## 六、落地路线图（按优先级）
+## 六、初始借鉴建议（2026-09-02 历史快照）
+
+下表保留原始比较结论，便于追溯每一项的来源；其时间估算和优先级已被 `ROADMAP.md` 的 A–E 批次取代。实施前先核对相应路线项是否已经部分存在，再决定保留、拆分或取消。
 
 ### P0 — 直接增强现有模块，1-2 周级
 
@@ -263,7 +269,7 @@ hl = { id, color, text, block: 1234, occ: 0, pre: "前32字符", post: "后32字
 | 17 | build-personal-skill：从错题/会话提炼个人学习画像技能卡 | OpenMAIC |
 | 18 | 阅读进度历史点、每日目标、streak（宽容设计：昨天读了今天没读不断签） | qiaomu |
 
-> **补充（2026-09-03）**：RAG embedding API 化已拍板为独立决策（见第十章），建议排在 P1-13（签名版本化）之前或同期实施——两者是同一改造的两半。
+> **补充（2026-09-03 历史建议）**：RAG embedding API 化与签名版本化是同一改造的两半。当前已被 `ROADMAP.md` 的 B1 / B2 拆分：先建立 FTS-only 评测基线，再决定是否交付可选向量检索。
 
 ---
 
@@ -383,7 +389,9 @@ OpenMAIC 补一条领域规则：**用户发消息才强制回底，agent 输出
 | F17 | Playwright mock SSE fixture（确定性事件串重放） | `test:e2e` | OpenMAIC |
 | F18 | ProgressRing 准则 + LevelUpCelebration 纸屑（掌握度/复习升级时刻） | ReviewPage/PracticePage | DeepTutor Learning Space |
 
-### 9.4 前端落地优先级
+### 9.4 前端建议映射（调研日快照）
+
+FE-P0 / P1 / P2 是调研时的归类，不是当前执行顺序；当前以 `ROADMAP.md` 的 A0、C1、C2 批次为准。
 
 - **FE-P0（流式正确性）**：F1 fold 重构、F3 订阅表测试、F7 自动滚动升级、F14 CJK 字体栈（半天级）。
 - **FE-P1（体验质感）**：F2 narration 协议、F6 打字机 + markdown 分级、F8-F10 过程可视化升级、F11 交互卡、F17 e2e mock。
@@ -401,6 +409,8 @@ OpenMAIC 补一条领域规则：**用户发消息才强制回底，agent 输出
 ## 十、RAG 向量化选型：调研与决策（2026-09-03）
 
 > 本章回答四个问题：① Bobodan 的 FTS5+Qdrant 现在到底处于什么状态？② 要不要照搬 DeepTutor 的八引擎矩阵？③ 三个参考项目的 embedding 模型/向量库是怎么选的？④ 最终拍板的方案与落地清单。
+>
+> 本章的现场核查仍说明为什么 FTS-only 必须可用；但其中 API embedding 的实现尚未交付。当前 `EmbeddingService` 仅支持 Ollama，B2 的 API provider、签名、重建与评测门槛以 `ROADMAP.md` 和 `rag_design.md` 为准。
 
 ### 10.1 现状核查：向量腿从未真正运行过
 
@@ -462,6 +472,8 @@ DeepTutor 的八引擎（LlamaIndex/PageIndex/GraphRAG/LightRAG/WeKnora/Obsidian
 
 ### 10.5 最终决策（2026-09-03 拍板）
 
+这是一项已确认的**目标方案**，不是已上线能力：当前仍是 FTS5 默认可用、Ollama 为唯一可选 embedding 适配器；用户自配 API embedding 必须通过 B2 的隐私边界、索引安全和真实资料评测验收后才能交付。
+
 1. **向量库不动**：继续 qdrant-client 本地模式（10.3 启示 1）。
 2. **不内置本地 ONNX 模型**：fastembed 路线（方案 A）搁置，体积账与截断风险记录在案，未来若用户调研显示大量零 key 用户再重启。
 3. **embedding = DeepTutor 式用户自配 API**（方案 B 为主）：
@@ -473,7 +485,7 @@ DeepTutor 的八引擎（LlamaIndex/PageIndex/GraphRAG/LightRAG/WeKnora/Obsidian
 6. **隐私边界**：用户主动选择云端向量模型 = 明确授权（与联网研究授权门禁同模式）；Library 持续显示「hybrid · bge-m3（云端）」让边界可见。
 7. **验证闭环**：召回评测集（20~50 对「问题 → 期望 chunk/文档」，真实资料出品）跑 fts_only / vector_only / hybrid 三模式对比 hit@5 与 MRR，结果落 `rag_design.md` 已有的 `retrieval_runs` 表；RRF 权重（vector 是否提到 1.2~1.5）由数据决定。
 
-**决策理由一句话**：Bobodan 活跃用户本来就必须有 LLM key（Chat 是主入口），API embedding 不是新增门槛而是边际动作；免费档 bge-m3 顺带消除了内置小模型的截断问题；放弃 fastembed 换来零打包负担。改造清单四件事：① `rag/embedding_service.py` 泛化为 EmbeddingProvider 协议（OpenAI 兼容适配器 + 保留 Ollama 适配器，约 200-300 行）；② config.yaml / provider.json 加 embedding 槽位与预置模板；③ 设置页「向量模型」选择 + Library 状态卡引导；④ 签名版本化 + 重索引提示。
+**决策理由**：对已配置云端 Provider 的用户，API embedding 可以复用既有账户；但本地 Ollama 和零 key 用户也必须完整使用 FTS-only 检索，不能把云端 key 当作产品前提。免费档 bge-m3 可在用户明确选择后降低接入门槛；不内置 fastembed 则避免安装包体积和截断风险。实现仍需完成四件事：① `rag/embedding_service.py` 泛化为 EmbeddingProvider 协议（OpenAI 兼容适配器 + 保留 Ollama 适配器）；② config.yaml / provider.json 加 embedding 槽位与预置模板；③ 设置页「向量模型」选择 + Library 状态卡引导；④ 签名版本化 + 重索引提示。
 
 ---
 

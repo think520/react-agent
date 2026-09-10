@@ -6,6 +6,10 @@ Skills 是 Bobodan 的扩展指令系统。每个 skill 是一组针对特定任
 
 ```text
 skills/
+  aihot/
+    SKILL.md
+  course-learning/
+    SKILL.md
   study-loop/
     SKILL.md
   exam-prep/
@@ -65,3 +69,5 @@ Skills 是内部任务策略，不是一等产品入口。
 | `obsidian-workspace` | Obsidian / 本地知识库工作区管理 |
 | `course-learning` | 课程学习问答 |
 | `aihot` | AI 热点信息 |
+
+目录发现边界：CLI/runtime 会扫描 `skills/` 下所有包含合法 `SKILL.md` 的目录，因此当前共发现上表五个 skill。Web 设置和 Chat 只开放 `course-learning`、`exam-prep`、`study-loop` 三个经过白名单筛选的学习 skill；`obsidian-workspace` 与 `aihot` 不进入 Web 主流程。
