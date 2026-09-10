@@ -493,5 +493,3 @@ test("practice asks before web fallback and keeps the topic", async ({ page }) =
   await expect(page).toHaveURL(/\/practice\/10/);
   await expect(page.getByText(/已将“langchian”按“LangChain”理解/)).toBeVisible();
 });
-
-
