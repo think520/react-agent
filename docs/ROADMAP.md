@@ -23,6 +23,7 @@
 | Library 重构 + 图谱编辑 + 体验轮（Modal/动效/品牌/增量图谱） | ✅ 完成 |
 | R0 质量与调试基建（测试策略 / ScriptedProvider / e2e 冒烟化 / dev.py / diagnose / 持久化登记册） | ✅ 完成（`feat/r0-quality-infra`） |
 | A0 现状核对（E1–E7 / G1–G3 / FE-P0，证据表见 §2） | ✅ 完成（2026-09-08） |
+| A1 学习闭环正确性（E1 / E3 / E4 / E13 / E15） | ✅ 完成（2026-09-08，交付记录见 §2） |
 | R0.7 数据 epoch 机制 | ⏳ 并入本文 W4 |
 | P5G.2 Electron 桌面版 | ⏸ 推迟（门禁见 W5） |
 | P5G.3 支撑页面 | ⏸ 按 C / E 批次拆分；复习提醒可先在 Web 交付 |
@@ -151,7 +152,7 @@ P5G.3 的产品能力不再整体等待 Electron：Roadmap、复习提醒和部�
 | 批次 | 范围 | 完成标准 |
 |---|---|---|
 | A0 现状核对（完成） | 逐项核对 E1-E7、G1-G3 与 FE-P0，标记已存在、部分存在和真实缺口 | 每项有代码 / 测试证据；删除重复或已被替代的任务 → 结果见下方「A0 核对结果」 |
-| A1 学习闭环正确性 | E1、E3、E4、E13、E15 | 错误可见；交互可恢复；练习卡不可绕过；三态判分前后端一致 |
+| A1 学习闭环正确性（完成） | E1、E3、E4、E13、E15 | 错误可见；交互可恢复；练习卡不可绕过；三态判分前后端一致 |
 | A2 学习推进 | E5、E6、E9、E14 | 题目可逐步就绪；掌握度由纯函数计算；复习状态清楚；题内问 AI 不污染会话列表 |
 | A3 阅读与导入 | E2、E7、E8、E16 | 新建路径可理解；划线可回链；导入进度与失败可操作；新概念可定位 |
 | B1 检索基线 | G4 的 FTS-only 基线、G5 | 有真实资料评测集和可重复指标；扫描页 / 目录失败不静默 |
@@ -189,7 +190,19 @@ P5G.3 的产品能力不再整体等待 Electron：Roadmap、复习提醒和部�
 | E13 | 部分存在 | `practice_ready` artifact（`tools/quiz_tools.py`）、按持久化重绑定（`web/backend/routers/chat.py`）、persist-once 测试（`tests/test_web_backend.py`）已存在 | 补「服务端注入参数」与「纯文本收尾重定向」两道防线 |
 | E15 | 部分存在 | `quiz/evaluator.py` 已产出 `correct / partial / incorrect` 三态 | 只需核对批改链路与前端展示一致性 |
 
-当前焦点是 A1。A0 已确认现有代码包含部分实现，因此 A1 的 E3 收缩为前端收尾、E13 / E15 收缩为补缺口与核对，只有 E1（全局错误位）和 E4（交互生命周期）是实际新增实现；不要把 A0 判定为「已存在」的部分重写一遍。
+### A1 交付记录（2026-09-08 完成）
+
+| 条目 | 状态 | 证据 |
+|---|---|---|
+| E1 | 已验证 | 新增 `noticeStore` + `NoticeCenter`（AppShell 全局挂载，跨页可见）；ChatPage 操作失败改走全局位，本地 `error` 只留会话加载与流式失败；AppShell 首次配置保存的静默 catch 已修；`noticeStore.test.ts` |
+| E3 | 已验证 | `wrongAnswerFallbackNotice` 把后端 `mode` 映射为可见原因并接到全局提示位（导航后仍可见）；`wrongAnswerMode.test.ts`；后端三级回退链 A0 已确认存在 |
+| E4 | 已验证 | `service/interaction_service.py`（interactions 表 + registered→awaiting_input→answered→graded + 确定性判分 + 幂等）；`tools/ask_user.py`；`POST /api/chat/interactions/{id}/answer`；会话详情按持久化状态原位回填（断线/重启可恢复）；前端 `AskUserCard`；`test_e4_interactions.py` + `AskUserCard.test.tsx` |
+| E13 | 已验证 | 防线①：web 白名单移除 `quiz_start`/`quiz_submit`，练习只能经服务端绑定的 `practice_ready` 卡片；防线②：`InlineQuestionPolicy` 检测纯文本选项收尾并重定向到 `question_generate`；防线③：卡片数据从持久化重绑定，`ask_user` 同样剥离正确答案；`test_e13_inline_question.py` |
+| E15 | 已验证 | `quiz_attempts.verdict` 列 + 迁移；`partial` 映射为「学习中」（1 天间隔、ease 不惩罚）；逐题回顾显示三态；`test_e15_partial_verdict.py` |
+
+分支验证：Python `1396 passed`、Vitest `57 passed`、前端 lint 与生产构建通过。
+
+当前焦点是 A2（E5、E6、E9、E14）。A0/A1 已确认的基础设施——全局错误位、交互生命周期、练习卡服务端绑定——在 A2 与后续批次中应复用，不要另起一套。
 
 排序原则：学习闭环正确性 > 可恢复性 > 检索质量证据 > 界面质感 > 通用运行时能力 > 发布包装。任何条目开工前先对齐 `PROJECT_GUIDE.md` 的产品边界四问。
 
