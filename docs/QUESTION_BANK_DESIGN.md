@@ -1,0 +1,81 @@
+# 题库（Question Bank）立项设计
+
+> 状态：**设计中**（2026-09-10 立项）。本文只做设计，不含实现。
+> 排期与批次以 [`ROADMAP.md`](ROADMAP.md) 为准；设计定稿后再立工作项（预计 E18）。
+
+---
+
+## 0. 背景与诉求
+
+用户实测反馈（2026-09-10）：
+
+- 「做过的题不能看，也不能收藏，没有题库」；
+- 「有了题库对话感觉就可以联动了」。
+
+**一个刺眼的现状**：`web/frontend/src/pages/PracticePage.tsx:248` 的文案已经写着「留空时会从现有题库与资料重点中选择」——**UI 在承诺一个并不存在的东西**。
+
+---
+
+## 1. 现状（代码证据）
+
+| 事实 | 位置 |
+|---|---|
+| 题目**已持久化**：`questions` 表（type / options / answer / explanation / concepts / difficulty / source / attribution_kind / sources） | `quiz/store.py:13` |
+| 练习会话按 id 引用题目：`quiz_sessions.question_ids` | `quiz/store.py:28` |
+| 作答记录：`quiz_attempts`（含 `verdict`、`feedback`、`is_correct`） | `quiz/store.py:39` |
+| 错题本已存在（但只是"错题列表"，不是可组织的题库） | `service/quiz_service.py` `get_wrong_answer_book` |
+| **没有题库 / 分类 / 收藏 的任何概念** | 前端全仓搜 `题库|收藏|bookmark` 仅命中上述那一句文案 |
+
+结论：**原料已经有了**（每道生成的题都落库、有稳定 id、可被会话引用），缺的是「可浏览 / 可组织 / 可收藏 / 可被对话引用」这一层。
+
+---
+
+## 2. 参考调研（2026-09-10）
+
+### 2.1 本地可读源码（价值最高）
+
+**DeepTutor `deeptutor/tools/question_bank.py`** —— 与 Bobodan 最同构的题库设计：
+
+- 题库 = `notebook_entries` 表，定位是「**该学习者已作答的题**」；与 notes **明确分开**：notes 是用户留存的散文，bank entries 是**有正确答案的判分题**。
+- **一个工具、五个动作**（刻意保持短序列「先看，再归档」）：
+  - `overview`：计数 + 已有分类名（无需 id，天然的第一步）；
+  - `list`：按过滤列出，每条前缀 id；
+  - `organize`：按**分类名**归档，不存在则创建——**刻意按名字寻址**："学习者说的是『我的错题集』，不是 category 7"，且两步 create+file 会多一个让模型掉链子的地方；
+  - `unfile`：移出分类；`bookmark`：星标/取消。
+- 过滤：`all / wrong / bookmarked / uncategorized`。
+- 上限：list 默认 20、最大 100；一次最多 200 个 id；分类名 ≤ 100 字；题目预览 160 字、答案预览 60 字（**列表是"一次决策的工作集"，不是倾倒**）。
+- **动机原文**："Before this tool existed the agent had no way to touch the bank, so \"file my wrong answers into my new question set\" landed in a notebook instead: the only writable surface it could see." → **agent 没有题库工具时，用户的"整理错题"会落进笔记**。这正是 Bobodan 当前的风险。
+- 错误一律 `ok=False` + 可行动句子，从不抛异常。
+
+**OpenMAIC**：题目被当作**可编辑内容**（`components/edit/surfaces/quiz/`、`lib/chat/quiz-results-for-store-state.ts`、还能导出到视频），说明题目可以是"资产"而不只是"记录"。
+
+### 2.2 开源与标准（网络检索）
+
+| 项目 / 标准 | 可借鉴 | 链接 |
+|---|---|---|
+| **Moodle Question bank**（GPL） | 最成熟的"开源题库"形态：分类 + 标签 + **版本** + 共享题库 + 随机抽题 | <https://docs.moodle.org/4x/en/Question_bank> |
+| **1EdTech QTI 3.0** | 题库**互操作标准**（外部题库导入/导出的事实标准） | <https://www.1edtech.org/standards/qti/index> |
+| **open-spaced-repetition / FSRS** | 现代间隔重复调度（SM-2 的后继，Anki 已内置） | <https://github.com/open-spaced-repetition/fsrs-rs> |
+| `zavora-ai/mcp-assessment` | 把题库做成 **MCP server**（6 种题型 + 课程对齐）→ "题库作为一种 agent 能力" | <https://github.com/zavora-ai/mcp-assessment> |
+| SurveyKing / bkquiz / questra | 更偏问卷与小测验，参考价值低 | — |
+
+> 注：Moodle 文档站与 `raw.githubusercontent.com` 在本机抓取被拦（403 / DNS 策略），以上为检索结果与本地源码交叉印证，**未逐字核对原文页面**。
+
+---
+
+## 3. 待决决策（逐条确认）
+
+| # | 决策 | 状态 |
+|---|---|---|
+| D1 | 题库**边界**：收哪些题 | 待定 |
+| D2 | **组织方式**：分类 / 标签 / 课程 / 概念 | 待定 |
+| D3 | **收藏**语义 | 待定 |
+| D4 | 与**对话**的联动（agent 工具 / 引用某题） | 待定 |
+| D5 | 与**复习、掌握度**的关系 | 待定 |
+| D6 | **UI 位置**与导航归属 | 待定 |
+| D7 | 导入导出 / 标准（QTI 等） | 待定 |
+| D8 | 数据模型与迁移 | 待定 |
+
+## 4. 已定决策
+
+（随设计推进逐条补齐，每条附来源与理由。）
