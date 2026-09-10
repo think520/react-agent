@@ -22,7 +22,12 @@ from service.agent_service import AgentService
 from core.skills import build_skills_system_prompt, find_skill_by_name
 from web.backend.capabilities import WEB_SKILL_NAMES
 from service.concept_service import ConceptService
-from service.evidence_policy import CombinedResponsePolicy, ConceptMapPolicy, LocalEvidencePolicy
+from service.evidence_policy import (
+    CombinedResponsePolicy,
+    ConceptMapPolicy,
+    InlineQuestionPolicy,
+    LocalEvidencePolicy,
+)
 from service.kb_service import KBService
 from service.memory_service import MemoryService
 from service.quiz_service import QuizService
@@ -67,8 +72,11 @@ _WEB_TOOL_NAMES = frozenset({
     "concept_map_query",
     "concept_map_status",
     "question_generate",
-    "quiz_start",
-    "quiz_submit",
+    # E13 defense 1: quiz_start/quiz_submit are deliberately NOT exposed to the
+    # web agent. quiz_start echoes the question text back to the model, which
+    # lets it deliver a practice as unbound chat text. The only web path to a
+    # practice is the persisted practice_ready artifact, whose question set and
+    # session are injected server-side (/api/chat/practice/{artifact_id}/start).
     "learning_path",
     "learning_progress",
     "learning_review",
@@ -374,6 +382,28 @@ def _requires_local_evidence(
     if any(phrase in normalized for phrase in map_only_phrases):
         return False
     return has_document_scope
+
+
+def _requests_practice(message: str) -> bool:
+    """True when the user is asking for questions/a quiz in this turn."""
+    normalized = message.lower()
+    practice_phrases = (
+        "出题",
+        "道题",
+        "出几道",
+        "练几道",
+        "练习",
+        "做题",
+        "测验",
+        "小测",
+        "考考我",
+        "测测我",
+        "quiz",
+        "practice",
+        "test me",
+        "generate questions",
+    )
+    return any(phrase in normalized for phrase in practice_phrases)
 
 
 def _required_concept_map_operation(message: str) -> str | None:
@@ -1370,6 +1400,8 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
         has_document_scope=bool(document_ids or preferred_document_ids),
     ):
         response_policies.append(LocalEvidencePolicy())
+    if _requests_practice(body.message):
+        response_policies.append(InlineQuestionPolicy())
     required_graph_operation = _required_concept_map_operation(body.message)
     if required_graph_operation:
         response_policies.append(ConceptMapPolicy(required_graph_operation))
