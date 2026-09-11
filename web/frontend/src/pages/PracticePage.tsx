@@ -283,7 +283,7 @@ export function PracticePage() {
               {attempt && <small>你的答案：{attempt.user_answer}</small>}
             </article>;
           })}</section>}
-          <footer className="practice-summary-actions"><button className="primary-button" onClick={() => navigate("/review")}><CheckCircle2 size={17} />查看复习建议</button><button className="quiet-button" onClick={() => navigate("/practice")}>再练一轮</button></footer>
+          <footer className="practice-summary-actions"><button className="primary-button" onClick={() => navigate("/review")}><CheckCircle2 size={17} />查看复习建议</button><button className="quiet-button" onClick={() => navigate("/practice/bank")}>在题库中查看</button><button className="quiet-button" onClick={() => navigate("/practice")}>再练一轮</button></footer>
         </div>
       </div></section>
     );
