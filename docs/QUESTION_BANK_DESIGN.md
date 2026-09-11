@@ -151,7 +151,7 @@ agent 拿到三类动作：
 - questions **加 1 列**做收藏（bookmarked_at，空串=未收藏）；
 - **新增 2 张小表**承载命名练习集：question_sets(id, name, created_at) 与 question_set_items(set_id, question_id, position)，**只存 id，不复制题面**；
 - **「错题 / 未作答 / 已作答」全部派生**（join quiz_attempts 判断），**不物化**；
-- 迁移沿用 core/db.py 的 ensure_columns（与 E15 的 verdict 列同款）。
+- 迁移沿用 `quiz/store.py::_ensure_db` 的幂等 PRAGMA 迁移（与 E15 的 verdict 列同款；`core/db.py` 的 `ensure_columns` 是同类助手，但题库这条线此前未使用，本次不为迁移单独重构）。
 
 理由：题在 questions、作答在 quiz_attempts，「状态」是查询结果，永远不会与事实失同步（该库现状：17 题、每题恰好一次作答，状态本来就能推出）。迁移最小且可回滚，现有题目零迁移。C（物化 wrong_count / last_verdict 等）一旦漏更新就是永久不一致，而题库量级不值得为速度付此代价；B 是第二份真相；D 是提前泛化（标签已被 D2 否掉、QTI 已被 D7 排后）。本次不触碰 document_id / source 的路径派生（属 E17）。
 
