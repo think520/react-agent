@@ -550,6 +550,115 @@ class QuizService:
         analysis = reviewer.get_weakness_analysis()
         return _ok(analysis=analysis)
 
+    # --- Question bank (E18) ---
+
+    _BANK_FILTER_STATES = (
+        "all",
+        "unanswered",
+        "correct",
+        "partial",
+        "incorrect",
+        "bookmarked",
+    )
+
+    @staticmethod
+    def _bank_item_public(item: dict) -> dict[str, Any]:
+        public = {
+            "id": item["id"],
+            "type": item["type"],
+            "type_label": _TYPE_LABELS.get(item["type"], item["type"]),
+            "question": item["question"],
+            "options": item["options"],
+            "concepts": item["concepts"],
+            "difficulty": item["difficulty"],
+            "source": item["source"],
+            "created_at": item["created_at"],
+            "state": item["state"],
+            "bookmarked": item["bookmarked"],
+            "bookmarked_at": item["bookmarked_at"],
+            "attribution": {
+                "kind": item["attribution_kind"],
+                "sources": item["sources"],
+            },
+            "last_attempt": item["last_attempt"],
+        }
+        # The store only exposes the reference answer for questions the learner
+        # already answered, so forwarding it cannot turn the bank into an answer
+        # sheet for unanswered questions.
+        if "answer" in item:
+            public["answer"] = item["answer"]
+            public["explanation"] = item["explanation"]
+        return public
+
+    def _normalize_bank_state(self, state: str | None) -> str:
+        normalized = (state or "all").strip().lower()
+        return normalized if normalized in self._BANK_FILTER_STATES else "all"
+
+    def get_bank(
+        self,
+        *,
+        state: str | None = None,
+        qtype: str | None = None,
+        course: str | None = None,
+        concept: str | None = None,
+        query: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        store = QuizStore(self.workspace)
+        normalized = self._normalize_bank_state(state)
+        bounded_limit = max(1, min(int(limit or 50), 200))
+        bounded_offset = max(0, int(offset or 0))
+        filters = {
+            "state": normalized,
+            "qtype": qtype,
+            "course": course,
+            "concept": concept,
+            "query": query,
+        }
+        items = store.list_bank_questions(
+            **filters, limit=bounded_limit, offset=bounded_offset
+        )
+        return _ok(
+            items=[self._bank_item_public(item) for item in items],
+            total=store.count_bank_questions(**filters),
+            overview=store.bank_overview(),
+            state=normalized,
+            limit=bounded_limit,
+            offset=bounded_offset,
+        )
+
+    def bookmark_question(self, question_id: int, bookmarked: bool = True) -> dict[str, Any]:
+        store = QuizStore(self.workspace)
+        if not store.set_bookmark(question_id, bookmarked):
+            return _err("题目不存在。", code="question_not_found")
+        return _ok(question_id=question_id, bookmarked=bool(bookmarked))
+
+    def start_bank_practice(
+        self,
+        question_ids: list[int] | None = None,
+        *,
+        state: str | None = None,
+        course: str | None = None,
+        concept: str | None = None,
+        limit: int = 5,
+    ) -> dict[str, Any]:
+        store = QuizStore(self.workspace)
+        ids = [int(item) for item in (question_ids or []) if int(item) > 0][:15]
+        if not ids:
+            ids = [
+                item["id"]
+                for item in store.list_bank_questions(
+                    state=self._normalize_bank_state(state),
+                    course=course,
+                    concept=concept,
+                    limit=max(1, min(int(limit or 5), 15)),
+                )
+            ]
+        if not ids:
+            return _err("题库中没有符合条件的题目。", code="bank_empty")
+        return self.start_quiz(count=len(ids), question_ids=ids, origin="practice")
+
     # --- Stats ---
 
     def get_stats(self) -> dict[str, Any]:

@@ -1565,6 +1565,110 @@ def test_quiz_recovery_and_abandon_contracts(backend_client, monkeypatch):
     assert backend_client.delete("/api/quiz/sessions/7").json()["status"] == "abandoned"
 
 
+def _seed_question_bank(client):
+    """Seed the client workspace with bank data through the real store."""
+    from quiz.schema import Question, QuizAttempt
+    from quiz.store import QuizStore
+
+    store = QuizStore(str(client.workspace))
+    wrong_id = store.add_question(Question(
+        question="未掌握的题", answer="秘密答案", explanation="因为所以",
+        concepts=["图论"], source="course-a",
+    ))
+    kept_id = store.add_question(Question(
+        question="已答对的题", answer="A", concepts=["代数"], source="course-b",
+    ))
+    unanswered_id = store.add_question(Question(
+        question="还没做过的题", answer="隐藏答案", source="course-a",
+    ))
+    session = store.create_session([wrong_id, kept_id])
+    store.record_attempt(QuizAttempt(
+        session_id=session.id, question_id=wrong_id, user_answer="乱答",
+        is_correct=False, verdict="incorrect", feedback="再想想",
+    ))
+    store.record_attempt(QuizAttempt(
+        session_id=session.id, question_id=kept_id, user_answer="A",
+        is_correct=True, verdict="correct",
+    ))
+    store.set_bookmark(wrong_id)
+    return {"wrong": wrong_id, "kept": kept_id, "unanswered": unanswered_id}
+
+
+def test_quiz_bank_contract(backend_client):
+    ids = _seed_question_bank(backend_client)
+
+    payload = backend_client.get("/api/quiz/bank").json()
+    assert payload["total"] == 3
+    assert payload["overview"]["incorrect"] == 1
+    assert payload["overview"]["bookmarked"] == 1
+    by_id = {item["id"]: item for item in payload["items"]}
+    assert by_id[ids["wrong"]]["state"] == "incorrect"
+    assert by_id[ids["wrong"]]["bookmarked"] is True
+    assert by_id[ids["wrong"]]["last_attempt"]["user_answer"] == "乱答"
+    assert by_id[ids["wrong"]]["answer"] == "秘密答案"
+    assert by_id[ids["kept"]]["state"] == "correct"
+    assert by_id[ids["unanswered"]]["state"] == "unanswered"
+    # An unanswered question must not leak its reference answer.
+    assert "answer" not in by_id[ids["unanswered"]]
+    assert "explanation" not in by_id[ids["unanswered"]]
+
+    wrong_only = backend_client.get("/api/quiz/bank?state=incorrect").json()
+    assert [item["id"] for item in wrong_only["items"]] == [ids["wrong"]]
+    assert backend_client.get("/api/quiz/bank?state=bookmarked").json()["total"] == 1
+    assert backend_client.get("/api/quiz/bank?q=图论").json()["total"] == 1
+    assert backend_client.get("/api/quiz/bank?course=course-a").json()["total"] == 2
+
+
+def test_quiz_bank_bookmark_contract(backend_client):
+    ids = _seed_question_bank(backend_client)
+
+    marked = backend_client.post("/api/quiz/bank/bookmark", json={
+        "question_id": ids["unanswered"], "bookmarked": True,
+    })
+    assert marked.status_code == 200
+    assert marked.json()["bookmarked"] is True
+    assert backend_client.get("/api/quiz/bank?state=bookmarked").json()["total"] == 2
+
+    cleared = backend_client.post("/api/quiz/bank/bookmark", json={
+        "question_id": ids["wrong"], "bookmarked": False,
+    })
+    assert cleared.json()["bookmarked"] is False
+    assert backend_client.get("/api/quiz/bank?state=bookmarked").json()["total"] == 1
+
+    missing = backend_client.post("/api/quiz/bank/bookmark", json={
+        "question_id": 9999, "bookmarked": True,
+    })
+    assert missing.status_code == 404
+    assert missing.json()["error"]["code"] == "question_not_found"
+
+
+def test_quiz_bank_practice_contract(backend_client):
+    ids = _seed_question_bank(backend_client)
+
+    created = backend_client.post("/api/quiz/bank/practice", json={
+        "question_ids": [ids["wrong"], ids["kept"]], "state": "all",
+    }).json()
+    assert created["question_ids"] == [ids["wrong"], ids["kept"]]
+    assert backend_client.get(
+        f"/api/quiz/sessions/{created['practice_session_id']}"
+    ).json()["status"] == "active"
+
+    by_state = backend_client.post("/api/quiz/bank/practice", json={
+        "question_ids": [], "state": "unanswered",
+    }).json()
+    assert by_state["question_ids"] == [ids["unanswered"]]
+
+
+def test_quiz_bank_practice_rejects_empty_selection(backend_client):
+    _seed_question_bank(backend_client)
+    # Nothing in the seeded bank is "partial", so the filter resolves to no ids.
+    response = backend_client.post("/api/quiz/bank/practice", json={
+        "question_ids": [], "state": "partial",
+    })
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "bank_empty"
+
+
 def test_review_queue_contract(backend_client, monkeypatch):
     monkeypatch.setattr(
         "web.backend.routers.learning.LearningService.get_review_queue",
