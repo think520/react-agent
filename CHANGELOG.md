@@ -7,6 +7,15 @@
 ## [未发布]
 
 ### 变更
+- **题库 MVP（E18 S1–S5，2026-09-10，分支 `feat/e18-question-bank`）**：把「每道生成的题都已经落库」接成用户能看见、能收藏、能重练的题库，兑现 `PracticePage` 里那句长期失真的「留空时会从现有题库与资料重点中选择」。设计依据 `docs/QUESTION_BANK_DESIGN.md`（D1–D9）。
+  - **数据层**：`questions` 新增 `bookmarked_at`（沿用 `_ensure_db` 的 PRAGMA 迁移，幂等，现有题目零迁移）；新增 `list_bank_questions` / `count_bank_questions` / `bank_overview` / `set_bookmark`。状态**全部派生**——用 `MAX(id)` 子查询取最近一次作答，不物化任何状态列。未作答的题在列表与工具输出里都**不返回答案与解析**，题库不会变成答案表。
+  - **错题语义收敛（有意为之的用户可见变更）**：`get_wrong_answers` 从「所有答错的尝试」改为「最近一次仍答错」，`partial` 不再算错（与 E15 三态判分对齐），`get_weakness_analysis` 同步排除 `partial`。答错后重练答对的题会同时从错题本和题库的错题筛选里消失；复习调度（SM-2）不受影响。
+  - **接口**：`GET /api/quiz/bank`（状态 / 题型 / 资料 / 概念 / 关键字筛选 + 分页 + overview）、`POST /api/quiz/bank/bookmark`（幂等）、`POST /api/quiz/bank/practice`（按题目 id 或按当前筛选起练）。
+  - **练习页题库视图**：新增 `/practice/bank`（静态段注册在 `practice/:practiceSessionId` 之前；作为 Practice 的一个视图，不新增一级导航）：状态筛选带计数、关键字搜索、概念筛选、分页、收藏、单题重练与「重练前 5 道」；未作答的题不显示参考答案。
+  - **复习衔接**：复习页与题库共用同一个「错题」定义，两页互有入口。
+  - **Agent 工具**：`tools/question_bank.py` 提供 `bank_overview` / `bank_list` / `bank_bookmark`，只声明 `workspace`（`execute_tool` 只注入工具声明过的参数），只读 + 收藏、**不含起练**，因此不会重新打开 E13 已封堵的「聊天文本练习」通道。
+  - **本轮未做**：命名练习集（D8 的两张小表）、S6 联网搜题、S7 导出与备份、题库行内「问 AI」引用某题；均记录在 `QUESTION_BANK_DESIGN.md` §5 与 `ROADMAP.md`。
+  - 验证：Python `1424 passed`（+19：数据层 9、路由契约 4、复习交叉 2、工具 4）、Vitest `57 passed`、前端 lint 与生产构建通过、Playwright `56 passed / 1 skipped`（新增 `e2e/question-bank.spec.ts`，三视口各 2 条）。
 - **文档体系收敛（2026-09-03）**：新增统一路线图 `docs/ROADMAP.md`——合并 openhanako 前置路线（R0-R3）、参考项目调研报告借鉴清单（DeepTutor D1-D13 / OpenMAIC O1-O10 / qiaomu Q1-Q10 / 前端 F1-F18）、整机优化计划遗留、2026-08-01 体验审查未决项与 P5G.2/3 剩余，按 W1 学习闭环 / W2 检索与 RAG / W3 前端第二批 / W4 运行时底座 / W5 发布通道五个工作流组织，附执行波次、已拍板决策与合并后的明确不做清单。7 份已完成或被取代的文档（任务书 / 审查报告 / 旧路线 / 知识地图设计）移入 `docs/archive/`；`docs/README.md` 重写为 6 份活跃文档索引；`rag_design.md` 顶部加 embedding 决策更新横幅（用户自配 API 取代 Ollama 假设，详见调研报告第十章）。调研报告保留为活文档（ROADMAP 条目的论据与源码索引）。
 - **R0 质量与调试基建（2026-08-28，分支 `feat/r0-quality-infra`，依据 `docs/PRE_DESKTOP_ROADMAP.md`）**：借鉴 openhanako v0.450 的测试与调试实践，正面解决"桌面版前难调试难测试"。
   - **测试策略成文**（`tests/README.md`）：风险驱动分层 + keep/delete 规则（删锁文案、删 mock 私有字段、删环境依赖的间歇失败用例），LLM 测试必须走单缝。

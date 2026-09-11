@@ -65,19 +65,80 @@ def generate_questions(body: GenerateQuestionsRequest, request: Request) -> dict
 
 @router.post("/sessions")
 def start_quiz(body: StartQuizRequest, request: Request) -> dict:
-    result = unwrap_service_result(_service(request).start_quiz(
+    return _start_practice_payload(unwrap_service_result(_service(request).start_quiz(
         count=body.count,
         course=body.course,
         question_type=body.question_type,
         question_ids=body.question_ids,
         origin=body.origin,
         personalization=body.personalization,
-    ))
+    )))
+
+
+class BankBookmarkRequest(BaseModel):
+    question_id: int = Field(..., ge=1)
+    bookmarked: bool = True
+
+
+class BankPracticeRequest(BaseModel):
+    question_ids: list[int] = Field(default_factory=list, max_length=15)
+    state: str = Field(
+        default="all",
+        pattern="^(all|unanswered|correct|partial|incorrect|bookmarked)$",
+    )
+    course: str | None = None
+    concept: str | None = None
+    limit: int = Field(default=5, ge=1, le=15)
+
+
+def _start_practice_payload(result: dict) -> dict:
     return {
         "practice_session_id": result["session_id"],
         "question_ids": result["question_ids"],
         "questions": result["questions"],
     }
+
+
+@router.get("/bank")
+def bank(
+    request: Request,
+    state: str = "all",
+    qtype: str | None = None,
+    course: str | None = None,
+    concept: str | None = None,
+    q: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> dict:
+    return unwrap_service_result(_service(request).get_bank(
+        state=state,
+        qtype=qtype,
+        course=course,
+        concept=concept,
+        query=q,
+        limit=limit,
+        offset=offset,
+    ))
+
+
+@router.post("/bank/bookmark")
+def bank_bookmark(body: BankBookmarkRequest, request: Request) -> dict:
+    return unwrap_service_result(
+        _service(request).bookmark_question(body.question_id, body.bookmarked)
+    )
+
+
+@router.post("/bank/practice")
+def bank_practice(body: BankPracticeRequest, request: Request) -> dict:
+    return _start_practice_payload(unwrap_service_result(
+        _service(request).start_bank_practice(
+            body.question_ids,
+            state=body.state,
+            course=body.course,
+            concept=body.concept,
+            limit=body.limit,
+        )
+    ))
 
 
 @router.get("/sessions/active")

@@ -9,6 +9,7 @@ from .memory_tools import request_memory_confirmation
 from .ask_user import ask_user
 from .knowledge_status import knowledge_status
 from .quiz_tools import question_generate, quiz_start, quiz_submit
+from .question_bank import bank_overview, bank_list, bank_bookmark
 from .learning_tools import learning_path, learning_progress, learning_review
 from .wiki_tools import wiki_lint
 from .obsidian_export import obsidian_export_plan, obsidian_export_quiz_summary
@@ -20,6 +21,7 @@ __all__ = ["TOOL_REGISTRY", "get_tools_schema", "execute_tool", "ToolResult",
            "concept_map_query", "concept_map_status",
            "request_memory_confirmation", "ask_user",
            "knowledge_status", "question_generate", "quiz_start", "quiz_submit",
+           "bank_overview", "bank_list", "bank_bookmark",
            "learning_path", "learning_progress", "learning_review",
            "wiki_lint",
            "obsidian_export_plan", "obsidian_export_quiz_summary",

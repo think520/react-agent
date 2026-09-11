@@ -31,6 +31,9 @@ _TOOL_STATUS = {
     "web_research": "正在搜索并读取网页资料",
     "request_memory_confirmation": "正在整理需要你确认的记忆",
     "ask_user": "正在准备需要你选择的问题",
+    "bank_overview": "正在整理题库概览",
+    "bank_list": "正在翻看题库",
+    "bank_bookmark": "正在更新题目收藏",
 }
 
 _TOOL_COMPLETED_STATUS = {
@@ -41,6 +44,9 @@ _TOOL_COMPLETED_STATUS = {
     "request_web_search": "等待你确认是否联网",
     "request_memory_confirmation": "等待你确认是否记住",
     "ask_user": "等待你做出选择",
+    "bank_overview": "题库概览已经整理好",
+    "bank_list": "题库内容已经读取",
+    "bank_bookmark": "题目收藏已经更新",
 }
 
 

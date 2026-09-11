@@ -5,7 +5,7 @@ import pytest
 
 from learning.schema import LearningPlan, Mastery
 from learning.store import LearningStore
-from quiz.schema import Question
+from quiz.schema import Question, QuizAttempt
 from quiz.store import QuizStore
 from service.learning_service import LearningService
 
@@ -121,6 +121,45 @@ def test_get_review_queue_aggregates_learning_and_quiz_data(store, svc, monkeypa
     assert result["due_concepts"][0]["question_ids"] == [question_id]
     assert result["wrong_answers"] == [{"question_id": 1}]
     assert result["weaknesses"] == [{"concept": "A", "question_ids": [question_id]}]
+
+
+def test_review_queue_wrong_answers_match_the_bank(store, svc):
+    """E18/D5: "wrong" means the same thing in Review and in the question bank."""
+    quiz_store = QuizStore(svc.workspace)
+    qid = quiz_store.add_question(Question(
+        question="贪心算法成立的条件？", answer="最优子结构", concepts=["贪心"],
+    ))
+    session = quiz_store.create_session([qid])
+    quiz_store.record_attempt(QuizAttempt(
+        session_id=session.id, question_id=qid, user_answer="不知道",
+        is_correct=False, verdict="incorrect",
+    ))
+
+    queue = svc.get_review_queue()
+    assert [entry["question_id"] for entry in queue["wrong_answers"]] == [qid]
+    assert [item["id"] for item in quiz_store.list_bank_questions(state="incorrect")] == [qid]
+
+    # Recovering the question removes it from both views at once.
+    quiz_store.record_attempt(QuizAttempt(
+        session_id=session.id, question_id=qid, user_answer="最优子结构",
+        is_correct=True, verdict="correct",
+    ))
+    assert svc.get_review_queue()["wrong_answers"] == []
+    assert quiz_store.list_bank_questions(state="incorrect") == []
+
+
+def test_review_queue_ignores_partial_answers(store, svc):
+    """E15/E18: a partial short answer is progress, not a wrong answer."""
+    quiz_store = QuizStore(svc.workspace)
+    qid = quiz_store.add_question(Question(question="解释 RRF", answer="倒数排名融合"))
+    session = quiz_store.create_session([qid])
+    quiz_store.record_attempt(QuizAttempt(
+        session_id=session.id, question_id=qid, user_answer="把排名倒数相加",
+        is_correct=False, verdict="partial",
+    ))
+
+    assert svc.get_review_queue()["wrong_answers"] == []
+    assert [item["state"] for item in quiz_store.list_bank_questions()] == ["partial"]
 
 
 # --- mark_mastery ---

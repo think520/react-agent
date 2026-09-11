@@ -10,6 +10,7 @@ import type {
   PracticeSession,
   PracticeReadyArtifact,
   Question,
+  QuestionBank,
   ReviewQueue,
   SettingsSummary,
   RuntimeStatus,
@@ -407,6 +408,37 @@ export const api = {
     answer,
   })),
   abandonPractice: (id: number) => request(`/api/quiz/sessions/${id}`, { method: "DELETE" }),
+  questionBank: (params: {
+    state?: string;
+    qtype?: string;
+    course?: string;
+    concept?: string;
+    query?: string;
+    limit?: number;
+    offset?: number;
+  } = {}) => {
+    const search = new URLSearchParams();
+    if (params.state && params.state !== "all") search.set("state", params.state);
+    if (params.qtype) search.set("qtype", params.qtype);
+    if (params.course) search.set("course", params.course);
+    if (params.concept) search.set("concept", params.concept);
+    if (params.query) search.set("q", params.query);
+    if (params.limit) search.set("limit", String(params.limit));
+    if (params.offset) search.set("offset", String(params.offset));
+    const suffix = search.toString();
+    return request<QuestionBank>(`/api/quiz/bank${suffix ? `?${suffix}` : ""}`);
+  },
+  bookmarkQuestion: (questionId: number, bookmarked: boolean) => request<{ question_id: number; bookmarked: boolean }>(
+    "/api/quiz/bank/bookmark",
+    json({ question_id: questionId, bookmarked }),
+  ),
+  startBankPractice: (questionIds: number[] = [], state = "all", limit = 5) => request<{
+    practice_session_id: number;
+    questions: Question[];
+  }>(
+    "/api/quiz/bank/practice",
+    json({ question_ids: questionIds, state, limit }),
+  ),
   reviewQueue: () => request<ReviewQueue>("/api/learning/review-queue"),
   answerInteraction: (interactionId: string, chatSessionId: string, answers: Array<{ id: string; answer: string }>) =>
     request<{ chat_session_id: string; artifact: ChatArtifact }>(

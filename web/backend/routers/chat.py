@@ -74,6 +74,11 @@ _WEB_TOOL_NAMES = frozenset({
     "concept_map_query",
     "concept_map_status",
     "question_generate",
+    # E18/D4: the bank is read + bookmark only. It never starts a practice, so it
+    # cannot become the unbound chat-text path that E13 closed.
+    "bank_overview",
+    "bank_list",
+    "bank_bookmark",
     # E13 defense 1: quiz_start/quiz_submit are deliberately NOT exposed to the
     # web agent. quiz_start echoes the question text back to the model, which
     # lets it deliver a practice as unbound chat text. The only web path to a

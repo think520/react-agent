@@ -240,6 +240,10 @@ export function PracticePage() {
       {confirmElement}
       <div className="page-container practice-start">
         <header className="page-heading"><div><span>Practice</span><h2>开始一轮练习</h2><p>默认生成 5 题，题目和批改结果会回流到掌握度与今日复习。</p></div></header>
+        <nav className="wiki-view-tabs practice-view-tabs" aria-label="练习视图">
+          <button type="button" className="active" aria-current="page">开始练习</button>
+          <button type="button" onClick={() => navigate("/practice/bank")}>题库</button>
+        </nav>
         {error && <ErrorNotice message={error} />}
         <form className="practice-create" onSubmit={(event) => void createPractice(event)}>
           <label htmlFor="practice-topic">想练习什么？</label>
@@ -279,7 +283,7 @@ export function PracticePage() {
               {attempt && <small>你的答案：{attempt.user_answer}</small>}
             </article>;
           })}</section>}
-          <footer className="practice-summary-actions"><button className="primary-button" onClick={() => navigate("/review")}><CheckCircle2 size={17} />查看复习建议</button><button className="quiet-button" onClick={() => navigate("/practice")}>再练一轮</button></footer>
+          <footer className="practice-summary-actions"><button className="primary-button" onClick={() => navigate("/review")}><CheckCircle2 size={17} />查看复习建议</button><button className="quiet-button" onClick={() => navigate("/practice/bank")}>在题库中查看</button><button className="quiet-button" onClick={() => navigate("/practice")}>再练一轮</button></footer>
         </div>
       </div></section>
     );
