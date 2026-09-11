@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from pydantic import BaseModel, Field
 
 from service.quiz_service import QuizService
@@ -102,7 +102,12 @@ def _start_practice_payload(result: dict) -> dict:
 @router.get("/bank")
 def bank(
     request: Request,
-    state: str = "all",
+    # Validated, not silently normalised: a typo must not quietly return a
+    # different result set than the one that was asked for.
+    state: str = Query(
+        default="all",
+        pattern="^(all|unanswered|correct|partial|incorrect|bookmarked)$",
+    ),
     qtype: str | None = None,
     course: str | None = None,
     concept: str | None = None,

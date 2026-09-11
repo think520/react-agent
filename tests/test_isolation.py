@@ -2,7 +2,11 @@
 
 import os
 
-from web.backend.deps import get_workspace
+import pytest
+
+pytest.importorskip("fastapi")
+
+from web.backend.deps import get_workspace  # noqa: E402
 
 
 def test_workspace_is_isolated_from_the_repository():

@@ -214,7 +214,7 @@ agent 拿到三类动作：
 
 ## 9. 交付后的实测口径（2026-09-10）
 
-- 「错题」在**复习队列**与**题库筛选**里由同一个谓词定义：该题**最近一次**作答的 verdict 为 `incorrect`（`quiz/store.py` 的 `_WRONG_VERDICT_SQL` + `MAX(id)` 子查询）。`partial` 不算错。
+- 「错题」在**复习队列**与**题库筛选**里由同一个谓词定义（`quiz/store.py` 的 `_WRONG_VERDICT_SQL` + `MAX(id)` 子查询）：该题**最近一次作答不是「通过」**——`verdict = 'incorrect'`、E15 之前的旧行（`verdict = ''` 且 `is_correct = 0`），以及任何**未识别**的 verdict。`partial` 不算错。之所以把 `incorrect` 写成**兜底桶**而不是只匹配 `verdict = 'incorrect'`：四个派生状态必须永远把题库分完，否则会出现「界面上标着答错、错题筛选却找不到、计数也对不上」的行；`tests/test_quiz.py` 的 `test_bank_states_partition_every_question` 与 `test_bank_unknown_verdict_falls_into_the_wrong_bucket` 钉住这条不变量。
 - **这是本次唯一有意的用户可见语义变更**：以前「错题本」收的是*所有*答错过的尝试，现在只收*最近一次仍答错*的题——重练答对后会从错题里消失。复习调度（SM-2）不受影响。
 - 未作答的题在题库列表与 `bank_list` 工具里都**不返回 `answer` / `explanation`**，所以题库不会变成答案表。
 

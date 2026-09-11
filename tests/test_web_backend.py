@@ -1617,6 +1617,8 @@ def test_quiz_bank_contract(backend_client):
     assert backend_client.get("/api/quiz/bank?state=bookmarked").json()["total"] == 1
     assert backend_client.get("/api/quiz/bank?q=图论").json()["total"] == 1
     assert backend_client.get("/api/quiz/bank?course=course-a").json()["total"] == 2
+    # A state typo is rejected instead of silently listing the whole bank.
+    assert backend_client.get("/api/quiz/bank?state=nonsense").status_code == 422
 
 
 def test_quiz_bank_bookmark_contract(backend_client):

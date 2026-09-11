@@ -58,16 +58,26 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-# E18/D5: a question is "wrong" only while its *latest* verdict is incorrect.
-# "partial" is deliberately not a wrong answer (E15), and rows written before the
-# verdict column existed fall back to is_correct. Both aliases below are "qa".
-_WRONG_VERDICT_SQL = "(qa.verdict = 'incorrect' OR (qa.verdict = '' AND qa.is_correct = 0))"
-
-_BANK_STATES = ("unanswered", "correct", "partial", "incorrect")
+# E18/D5: a question counts as "wrong" while its *latest* answer is not a pass.
+# "partial" is deliberately not a wrong answer (E15), rows written before the
+# verdict column existed fall back to is_correct, and an unrecognised verdict
+# lands here too — so the four derived states always partition the bank instead
+# of leaving an answered row that no filter and no count can reach. The alias in
+# the fragment below is "qa".
+_WRONG_VERDICT_SQL = (
+    "qa.id IS NOT NULL"
+    " AND qa.verdict <> 'partial'"
+    " AND NOT (qa.verdict = 'correct' OR (qa.verdict = '' AND qa.is_correct = 1))"
+)
 
 
 def _bank_state(row: sqlite3.Row) -> str:
-    """Derive the bank state from the latest attempt; never materialized."""
+    """Derive the bank state from the latest attempt; never materialized.
+
+    "incorrect" is the fallback bucket, so it has to stay in step with the
+    wrong-answer SQL fragment: an answered question always lands in exactly one
+    of the four states, and the counts keep summing to the bank total.
+    """
     if row["attempt_id"] is None:
         return "unanswered"
     verdict = str(row["verdict"] or "")

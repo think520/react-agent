@@ -441,6 +441,54 @@ def test_bank_overview_counts(tmp_path):
     assert overview["by_concept"][0] == {"concept": "alpha", "count": 2}
 
 
+def test_bank_states_partition_every_question(tmp_path):
+    """The four derived states must always add up to the bank total."""
+    store = QuizStore(str(tmp_path))
+    ids = [
+        store.add_question(Question(question=f"Q{index}", answer="A", concepts=["alpha"]))
+        for index in range(5)
+    ]
+    _answer(store, ids[0], correct=True)
+    _answer(store, ids[1], correct=False, verdict="partial")
+    _answer(store, ids[2], correct=False, verdict="incorrect")
+    # wrong once, then answered correctly
+    _answer(store, ids[3], correct=False)
+    _answer(store, ids[3], correct=True)
+
+    overview = store.bank_overview()
+    states = ("unanswered", "correct", "partial", "incorrect")
+    assert overview["total"] == 5
+    assert sum(overview[key] for key in states) == overview["total"]
+
+    counted = {key: 0 for key in states}
+    for item in store.list_bank_questions(limit=50):
+        counted[item["state"]] += 1
+    assert counted == {key: overview[key] for key in states}
+
+
+def test_bank_unknown_verdict_falls_into_the_wrong_bucket(tmp_path):
+    """A grade that is neither correct nor partial must not become a row that no
+    filter can reach. Simulates a future verdict written straight to the table."""
+    store = QuizStore(str(tmp_path))
+    qid = store.add_question(Question(question="Q1", answer="A"))
+    session = store.create_session([qid])
+    store.record_attempt(QuizAttempt(
+        session_id=session.id, question_id=qid, user_answer="?", is_correct=False,
+    ))
+    conn = sqlite3.connect(store.db_path)
+    conn.execute("UPDATE quiz_attempts SET verdict = 'skipped' WHERE question_id = ?", (qid,))
+    conn.commit()
+    conn.close()
+
+    overview = store.bank_overview()
+    assert overview["incorrect"] == 1
+    assert (overview["unanswered"] + overview["correct"]
+            + overview["partial"] + overview["incorrect"]) == 1
+    assert [item["state"] for item in store.list_bank_questions()] == ["incorrect"]
+    assert [item["id"] for item in store.list_bank_questions(state="incorrect")] == [qid]
+    assert [entry["question_id"] for entry in store.get_wrong_answers()] == [qid]
+
+
 def test_set_bookmark_reports_missing_question(tmp_path):
     store = QuizStore(str(tmp_path))
     qid = store.add_question(Question(question="Q1", answer="A"))

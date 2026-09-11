@@ -11,11 +11,13 @@
   - **数据层**：`questions` 新增 `bookmarked_at`（沿用 `_ensure_db` 的 PRAGMA 迁移，幂等，现有题目零迁移）；新增 `list_bank_questions` / `count_bank_questions` / `bank_overview` / `set_bookmark`。状态**全部派生**——用 `MAX(id)` 子查询取最近一次作答，不物化任何状态列。未作答的题在列表与工具输出里都**不返回答案与解析**，题库不会变成答案表。
   - **错题语义收敛（有意为之的用户可见变更）**：`get_wrong_answers` 从「所有答错的尝试」改为「最近一次仍答错」，`partial` 不再算错（与 E15 三态判分对齐），`get_weakness_analysis` 同步排除 `partial`。答错后重练答对的题会同时从错题本和题库的错题筛选里消失；复习调度（SM-2）不受影响。
   - **接口**：`GET /api/quiz/bank`（状态 / 题型 / 资料 / 概念 / 关键字筛选 + 分页 + overview）、`POST /api/quiz/bank/bookmark`（幂等）、`POST /api/quiz/bank/practice`（按题目 id 或按当前筛选起练）。
-  - **练习页题库视图**：新增 `/practice/bank`（静态段注册在 `practice/:practiceSessionId` 之前；作为 Practice 的一个视图，不新增一级导航）：状态筛选带计数、关键字搜索、概念筛选、分页、收藏、单题重练与「重练前 5 道」；未作答的题不显示参考答案。
+  - **练习页题库视图**：新增 `/practice/bank`（静态段注册在 `practice/:practiceSessionId` 之前；作为 Practice 的一个视图，不新增一级导航）：状态筛选带计数、关键字搜索、概念筛选、分页、收藏、单题重练与按状态区分的批量重练；未作答的题不显示参考答案。
   - **复习衔接**：复习页与题库共用同一个「错题」定义，两页互有入口。
   - **Agent 工具**：`tools/question_bank.py` 提供 `bank_overview` / `bank_list` / `bank_bookmark`，只声明 `workspace`（`execute_tool` 只注入工具声明过的参数），只读 + 收藏、**不含起练**，因此不会重新打开 E13 已封堵的「聊天文本练习」通道。
   - **本轮未做**：命名练习集（D8 的两张小表）、S6 联网搜题、S7 导出与备份、题库行内「问 AI」引用某题；均记录在 `QUESTION_BANK_DESIGN.md` §5 与 `ROADMAP.md`。
-  - 验证：Python `1424 passed`（+19：数据层 9、路由契约 4、复习交叉 2、工具 4）、Vitest `57 passed`、前端 lint 与生产构建通过、Playwright `56 passed / 1 skipped`（新增 `e2e/question-bank.spec.ts`，三视口各 2 条）。
+  - 验证：Python `1427 passed`（+22）、Vitest `57 passed`、前端 lint 与生产构建通过、Playwright `56 passed / 1 skipped`（新增 `e2e/question-bank.spec.ts`，三视口各 2 条）。
+  - **交付后审查修正**：`incorrect` 改成**兜底桶**——最近一次作答只要不是「通过」就算错题（`verdict = incorrect`、E15 前旧行、以及任何未识别的 verdict）。原来的写法会让一个未识别的 verdict 在界面上标成「答错」，却既进不了错题筛选、也不计入任何计数，四个状态加起来对不上总数；现在四个派生状态永远把题库分完，并有两个不变量测试钉住。`GET /api/quiz/bank` 的 `state` 改为受校验参数，拼错返回 422，而不是静默把整库列出来。题库页在结果集变小（例如在「已收藏」页取消最后一条收藏）时把页码收回有效范围；批量按钮按状态改用对应文案（未作答是「开始做」、答对是「复习」，不再一律叫「重练」）。
+- **测试套件隔离修复（2026-09-11）**：`tests/conftest.py` 现在把 `BOBODAN_WORKSPACE` 一并指向一次性目录（此前只隔离了 `BOBODAN_HOME`）。默认工作区就是当前目录，所以任何没有显式传 workspace 的 store 都会打开开发者的真实 `.knowledge/bobodan.db`——这已经实际发生过一次：套件静默迁移了真实库的结构。对照实验确认因果：去掉这行 pin，跑完全量后真实库会重新出现；加回后全量运行对该路径没有任何连接，并且在把真实库放回原位后，跑前跑后的文件哈希与 mtime 完全一致。新增 `tests/test_isolation.py` 钉住这条边界。
 - **文档体系收敛（2026-09-03）**：新增统一路线图 `docs/ROADMAP.md`——合并 openhanako 前置路线（R0-R3）、参考项目调研报告借鉴清单（DeepTutor D1-D13 / OpenMAIC O1-O10 / qiaomu Q1-Q10 / 前端 F1-F18）、整机优化计划遗留、2026-08-01 体验审查未决项与 P5G.2/3 剩余，按 W1 学习闭环 / W2 检索与 RAG / W3 前端第二批 / W4 运行时底座 / W5 发布通道五个工作流组织，附执行波次、已拍板决策与合并后的明确不做清单。7 份已完成或被取代的文档（任务书 / 审查报告 / 旧路线 / 知识地图设计）移入 `docs/archive/`；`docs/README.md` 重写为 6 份活跃文档索引；`rag_design.md` 顶部加 embedding 决策更新横幅（用户自配 API 取代 Ollama 假设，详见调研报告第十章）。调研报告保留为活文档（ROADMAP 条目的论据与源码索引）。
 - **R0 质量与调试基建（2026-08-28，分支 `feat/r0-quality-infra`，依据 `docs/PRE_DESKTOP_ROADMAP.md`）**：借鉴 openhanako v0.450 的测试与调试实践，正面解决"桌面版前难调试难测试"。
   - **测试策略成文**（`tests/README.md`）：风险驱动分层 + keep/delete 规则（删锁文案、删 mock 私有字段、删环境依赖的间歇失败用例），LLM 测试必须走单缝。
