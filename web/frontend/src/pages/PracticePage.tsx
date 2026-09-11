@@ -240,6 +240,10 @@ export function PracticePage() {
       {confirmElement}
       <div className="page-container practice-start">
         <header className="page-heading"><div><span>Practice</span><h2>开始一轮练习</h2><p>默认生成 5 题，题目和批改结果会回流到掌握度与今日复习。</p></div></header>
+        <nav className="wiki-view-tabs practice-view-tabs" aria-label="练习视图">
+          <button type="button" className="active" aria-current="page">开始练习</button>
+          <button type="button" onClick={() => navigate("/practice/bank")}>题库</button>
+        </nav>
         {error && <ErrorNotice message={error} />}
         <form className="practice-create" onSubmit={(event) => void createPractice(event)}>
           <label htmlFor="practice-topic">想练习什么？</label>

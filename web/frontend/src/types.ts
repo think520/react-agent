@@ -183,6 +183,56 @@ export interface PracticeSession {
   };
 }
 
+export type QuestionBankState = "unanswered" | "correct" | "partial" | "incorrect";
+
+export interface QuestionBankItem {
+  id: number;
+  type: string;
+  type_label: string;
+  question: string;
+  options: string[];
+  concepts: string[];
+  difficulty?: string;
+  source?: string;
+  created_at?: string;
+  /** Derived from the latest attempt; never stored (E18). */
+  state: QuestionBankState;
+  bookmarked: boolean;
+  bookmarked_at?: string;
+  attribution?: Attribution;
+  last_attempt?: {
+    attempt_id: number;
+    user_answer: string;
+    verdict: string;
+    is_correct: boolean;
+    feedback: string;
+    answered_at: string;
+  } | null;
+  /** Only present once the question has been answered, so the bank is not an answer sheet. */
+  answer?: string;
+  explanation?: string;
+}
+
+export interface QuestionBankOverview {
+  total: number;
+  unanswered: number;
+  correct: number;
+  partial: number;
+  incorrect: number;
+  bookmarked: number;
+  by_type: Record<string, number>;
+  by_concept: Array<{ concept: string; count: number }>;
+}
+
+export interface QuestionBank {
+  items: QuestionBankItem[];
+  total: number;
+  overview: QuestionBankOverview;
+  state: string;
+  limit: number;
+  offset: number;
+}
+
 export interface ReviewQueue {
   due_concepts: Array<Record<string, unknown>>;
   wrong_answers: Array<Record<string, unknown>>;

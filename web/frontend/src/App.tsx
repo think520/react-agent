@@ -12,6 +12,7 @@ const LibraryPage = lazy(() => import("./pages/LibraryPage").then((module) => ({
 const ReaderPage = lazy(() => import("./pages/ReaderPage").then((module) => ({ default: module.ReaderPage })));
 const NotesPage = lazy(() => import("./pages/NotesPage").then((module) => ({ default: module.NotesPage })));
 const PracticePage = lazy(() => import("./pages/PracticePage").then((module) => ({ default: module.PracticePage })));
+const QuestionBankPage = lazy(() => import("./pages/QuestionBankPage").then((module) => ({ default: module.QuestionBankPage })));
 const ReviewPage = lazy(() => import("./pages/ReviewPage").then((module) => ({ default: module.ReviewPage })));
 
 function page(element: ReactElement) {
@@ -29,6 +30,8 @@ export default function App() {
             <Route path="chat" element={page(<ChatPage />)} />
             <Route path="chat/:sessionId" element={page(<ChatPage />)} />
             <Route path="practice" element={page(<PracticePage />)} />
+            {/* Static segment first: the bank is a Practice view, not a session. */}
+            <Route path="practice/bank" element={page(<QuestionBankPage />)} />
             <Route path="practice/:practiceSessionId" element={page(<PracticePage />)} />
             <Route path="review" element={page(<ReviewPage />)} />
             <Route path="library" element={page(<LibraryPage />)} />
