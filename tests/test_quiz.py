@@ -290,6 +290,168 @@ def test_get_weakness_analysis(tmp_path):
     assert concepts["algebra"]["wrong_count"] == 1
 
 
+# --- Question bank (E18) ---
+
+def _answer(store, question_id, *, correct=False, verdict="", answer="x"):
+    session = store.create_session([question_id])
+    store.record_attempt(QuizAttempt(
+        session_id=session.id,
+        question_id=question_id,
+        user_answer=answer,
+        is_correct=correct,
+        verdict=verdict or ("correct" if correct else "incorrect"),
+    ))
+
+
+def test_questions_table_gains_bookmarked_at_on_legacy_db(tmp_path):
+    db_path = tmp_path / ".knowledge" / "bobodan.db"
+    db_path.parent.mkdir(parents=True)
+    legacy = sqlite3.connect(db_path)
+    legacy.executescript("""
+        CREATE TABLE questions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            type TEXT NOT NULL,
+            question TEXT NOT NULL,
+            options TEXT NOT NULL DEFAULT '[]',
+            answer TEXT NOT NULL,
+            explanation TEXT NOT NULL DEFAULT '',
+            concepts TEXT NOT NULL DEFAULT '[]',
+            difficulty TEXT NOT NULL DEFAULT 'medium',
+            source TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL
+        );
+        INSERT INTO questions (type, question, answer, created_at)
+        VALUES ('short_answer', 'legacy', 'A', '2024-01-01T00:00:00+00:00');
+    """)
+    legacy.commit()
+    legacy.close()
+
+    items = QuizStore(str(tmp_path)).list_bank_questions()
+    assert len(items) == 1
+    assert items[0]["bookmarked"] is False
+    assert items[0]["state"] == "unanswered"
+
+
+def test_bank_state_reflects_latest_attempt(tmp_path):
+    store = QuizStore(str(tmp_path))
+    q1 = store.add_question(Question(question="Q1", answer="A"))
+    q2 = store.add_question(Question(question="Q2", answer="A"))
+    q3 = store.add_question(Question(question="Q3", answer="A"))
+    q4 = store.add_question(Question(question="Q4", answer="A"))
+    _answer(store, q1, correct=True)
+    _answer(store, q2, correct=False, verdict="partial")
+    _answer(store, q3, correct=False, verdict="incorrect")
+
+    states = {item["id"]: item["state"] for item in store.list_bank_questions()}
+    assert states == {q1: "correct", q2: "partial", q3: "incorrect", q4: "unanswered"}
+
+
+def test_bank_uses_only_the_latest_attempt(tmp_path):
+    store = QuizStore(str(tmp_path))
+    recovered = store.add_question(Question(question="recovered", answer="A"))
+    regressed = store.add_question(Question(question="regressed", answer="A"))
+    _answer(store, recovered, correct=False)
+    _answer(store, recovered, correct=True)
+    _answer(store, regressed, correct=True)
+    _answer(store, regressed, correct=False)
+
+    states = {item["id"]: item["state"] for item in store.list_bank_questions()}
+    assert states[recovered] == "correct"
+    assert states[regressed] == "incorrect"
+
+
+def test_partial_answer_is_not_a_wrong_answer(tmp_path):
+    store = QuizStore(str(tmp_path))
+    qid = store.add_question(Question(question="Q1", answer="A", concepts=["math"]))
+    _answer(store, qid, correct=False, verdict="partial")
+
+    assert store.get_wrong_answers() == []
+    assert store.bank_overview()["partial"] == 1
+
+
+def test_wrong_answer_book_drops_recovered_questions(tmp_path):
+    store = QuizStore(str(tmp_path))
+    qid = store.add_question(Question(question="Q1", answer="A"))
+    _answer(store, qid, correct=False)
+    assert len(store.get_wrong_answers()) == 1
+    _answer(store, qid, correct=True)
+    assert store.get_wrong_answers() == []
+
+
+def test_bank_hides_answer_until_answered(tmp_path):
+    store = QuizStore(str(tmp_path))
+    qid = store.add_question(Question(question="Q1", answer="secret", explanation="why"))
+
+    item = store.list_bank_questions()[0]
+    assert "answer" not in item
+    assert "explanation" not in item
+
+    _answer(store, qid, correct=False)
+    answered = store.list_bank_questions()[0]
+    assert answered["answer"] == "secret"
+    assert answered["explanation"] == "why"
+    assert answered["last_attempt"]["user_answer"] == "x"
+
+
+def test_bank_filters_and_pagination(tmp_path):
+    store = QuizStore(str(tmp_path))
+    ids = [
+        store.add_question(Question(
+            type="short_answer", question=f"Q{index}", answer="A",
+            source="course-a", concepts=["alpha"],
+        ))
+        for index in range(3)
+    ]
+    other = store.add_question(Question(
+        type="single_choice", question="Other", answer="A",
+        source="course-b", concepts=["beta"],
+    ))
+    _answer(store, ids[0], correct=False)
+    store.set_bookmark(other)
+
+    assert [item["id"] for item in store.list_bank_questions(state="incorrect")] == [ids[0]]
+    assert [item["id"] for item in store.list_bank_questions(state="bookmarked")] == [other]
+    assert store.count_bank_questions() == 4
+    assert store.count_bank_questions(qtype="single_choice") == 1
+    assert store.count_bank_questions(concept="alpha") == 3
+    assert store.count_bank_questions(course="course-a") == 3
+    assert store.count_bank_questions(query="Other") == 1
+    assert len(store.list_bank_questions(limit=2, offset=2)) == 2
+    assert len(store.list_bank_questions(limit=2, offset=3)) == 1
+
+
+def test_bank_overview_counts(tmp_path):
+    store = QuizStore(str(tmp_path))
+    q1 = store.add_question(Question(type="short_answer", question="Q1", answer="A", concepts=["alpha"]))
+    q2 = store.add_question(Question(type="short_answer", question="Q2", answer="A", concepts=["alpha", "beta"]))
+    q3 = store.add_question(Question(type="short_answer", question="Q3", answer="A"))
+    _answer(store, q1, correct=True)
+    _answer(store, q2, correct=False, verdict="partial")
+    _answer(store, q3, correct=False)
+    store.set_bookmark(q1)
+
+    overview = store.bank_overview()
+    assert overview["total"] == 3
+    assert overview["correct"] == 1
+    assert overview["partial"] == 1
+    assert overview["incorrect"] == 1
+    assert overview["unanswered"] == 0
+    assert overview["bookmarked"] == 1
+    assert overview["by_type"] == {"short_answer": 3}
+    assert overview["by_concept"][0] == {"concept": "alpha", "count": 2}
+
+
+def test_set_bookmark_reports_missing_question(tmp_path):
+    store = QuizStore(str(tmp_path))
+    qid = store.add_question(Question(question="Q1", answer="A"))
+
+    assert store.set_bookmark(qid) is True
+    assert store.get_question(qid).bookmarked_at != ""
+    assert store.set_bookmark(qid, False) is True
+    assert store.get_question(qid).bookmarked_at == ""
+    assert store.set_bookmark(9999) is False
+
+
 # --- Evaluator tests ---
 
 def test_evaluator_choice_correct():

@@ -18,6 +18,8 @@ class Question:
     attribution_kind: str = "unverified"
     sources: list[dict] = field(default_factory=list)
     created_at: str = ""
+    # E18: non-empty ISO timestamp means the learner bookmarked this question.
+    bookmarked_at: str = ""
 
 
 @dataclass

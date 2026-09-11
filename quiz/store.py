@@ -22,7 +22,8 @@ CREATE TABLE IF NOT EXISTS questions (
     source TEXT NOT NULL DEFAULT '',
     attribution_kind TEXT NOT NULL DEFAULT 'unverified',
     sources TEXT NOT NULL DEFAULT '[]',
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    bookmarked_at TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS quiz_sessions (
@@ -57,6 +58,26 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+# E18/D5: a question is "wrong" only while its *latest* verdict is incorrect.
+# "partial" is deliberately not a wrong answer (E15), and rows written before the
+# verdict column existed fall back to is_correct. Both aliases below are "qa".
+_WRONG_VERDICT_SQL = "(qa.verdict = 'incorrect' OR (qa.verdict = '' AND qa.is_correct = 0))"
+
+_BANK_STATES = ("unanswered", "correct", "partial", "incorrect")
+
+
+def _bank_state(row: sqlite3.Row) -> str:
+    """Derive the bank state from the latest attempt; never materialized."""
+    if row["attempt_id"] is None:
+        return "unanswered"
+    verdict = str(row["verdict"] or "")
+    if verdict == "partial":
+        return "partial"
+    if verdict == "correct" or (not verdict and bool(row["is_correct"])):
+        return "correct"
+    return "incorrect"
+
+
 def _row_to_question(row: sqlite3.Row) -> Question:
     return Question(
         id=row["id"],
@@ -71,6 +92,7 @@ def _row_to_question(row: sqlite3.Row) -> Question:
         attribution_kind=row["attribution_kind"],
         sources=json.loads(row["sources"]),
         created_at=row["created_at"],
+        bookmarked_at=row["bookmarked_at"] if "bookmarked_at" in row.keys() else "",
     )
 
 
@@ -123,6 +145,10 @@ class QuizStore:
             if "sources" not in question_columns:
                 conn.execute(
                     "ALTER TABLE questions ADD COLUMN sources TEXT NOT NULL DEFAULT '[]'"
+                )
+            if "bookmarked_at" not in question_columns:
+                conn.execute(
+                    "ALTER TABLE questions ADD COLUMN bookmarked_at TEXT NOT NULL DEFAULT ''"
                 )
 
             session_columns = {
@@ -261,6 +287,200 @@ class QuizStore:
         finally:
             conn.close()
 
+    # --- Question bank (E18) ---
+
+    _LATEST_ATTEMPT_JOIN = """
+        LEFT JOIN quiz_attempts qa
+               ON qa.id = (SELECT MAX(inner_attempt.id)
+                             FROM quiz_attempts inner_attempt
+                            WHERE inner_attempt.question_id = q.id)
+    """
+
+    @staticmethod
+    def _bank_filters(
+        *,
+        state: str | None = None,
+        qtype: str | None = None,
+        course: str | None = None,
+        concept: str | None = None,
+        query: str | None = None,
+    ) -> tuple[list[str], list]:
+        clauses = ["1=1"]
+        params: list = []
+        if qtype:
+            clauses.append("q.type = ?")
+            params.append(qtype)
+        if course:
+            clauses.append("q.source LIKE ?")
+            params.append(f"%{course}%")
+        if concept:
+            clauses.append(
+                "EXISTS (SELECT 1 FROM json_each(q.concepts) item WHERE item.value = ?)"
+            )
+            params.append(concept)
+        if query:
+            clauses.append("(q.question LIKE ? OR q.concepts LIKE ?)")
+            params.extend([f"%{query}%", f"%{query}%"])
+        normalized = (state or "").strip().lower()
+        if normalized and normalized != "all":
+            if normalized == "unanswered":
+                clauses.append("qa.id IS NULL")
+            elif normalized == "correct":
+                clauses.append(
+                    "(qa.verdict = 'correct' OR (qa.verdict = '' AND qa.is_correct = 1))"
+                )
+            elif normalized == "partial":
+                clauses.append("qa.verdict = 'partial'")
+            elif normalized == "incorrect":
+                clauses.append(_WRONG_VERDICT_SQL)
+            elif normalized == "bookmarked":
+                clauses.append("q.bookmarked_at <> ''")
+        return clauses, params
+
+    @staticmethod
+    def _bank_item(row: sqlite3.Row) -> dict:
+        state = _bank_state(row)
+        item = {
+            "id": row["id"],
+            "type": row["type"],
+            "question": row["question"],
+            "options": json.loads(row["options"]),
+            "concepts": json.loads(row["concepts"]),
+            "difficulty": row["difficulty"],
+            "source": row["source"],
+            "attribution_kind": row["attribution_kind"],
+            "sources": json.loads(row["sources"]),
+            "created_at": row["created_at"],
+            "bookmarked": bool(row["bookmarked_at"]),
+            "bookmarked_at": row["bookmarked_at"] or "",
+            "state": state,
+            "last_attempt": None,
+        }
+        if row["attempt_id"] is not None:
+            item["last_attempt"] = {
+                "attempt_id": row["attempt_id"],
+                "user_answer": row["user_answer"],
+                "verdict": str(
+                    row["verdict"] or ("correct" if row["is_correct"] else "incorrect")
+                ),
+                "is_correct": bool(row["is_correct"]),
+                "feedback": row["feedback"],
+                "answered_at": row["answered_at"],
+            }
+            # Only answered questions reveal the reference answer; an unanswered
+            # bank must not double as an answer sheet.
+            item["answer"] = row["answer"]
+            item["explanation"] = row["explanation"]
+        return item
+
+    def list_bank_questions(
+        self,
+        *,
+        state: str | None = None,
+        qtype: str | None = None,
+        course: str | None = None,
+        concept: str | None = None,
+        query: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[dict]:
+        clauses, params = self._bank_filters(
+            state=state, qtype=qtype, course=course, concept=concept, query=query
+        )
+        sql = f"""SELECT q.id, q.type, q.question, q.options, q.concepts, q.difficulty,
+                         q.source, q.attribution_kind, q.sources, q.created_at,
+                         q.bookmarked_at, q.answer, q.explanation,
+                         qa.id AS attempt_id, qa.user_answer, qa.verdict, qa.feedback,
+                         qa.answered_at, qa.is_correct
+                    FROM questions q
+                    {self._LATEST_ATTEMPT_JOIN}
+                   WHERE {' AND '.join(clauses)}
+                   ORDER BY q.id DESC
+                   LIMIT ? OFFSET ?"""
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                sql, [*params, max(1, limit), max(0, offset)]
+            ).fetchall()
+            return [self._bank_item(row) for row in rows]
+        finally:
+            conn.close()
+
+    def count_bank_questions(
+        self,
+        *,
+        state: str | None = None,
+        qtype: str | None = None,
+        course: str | None = None,
+        concept: str | None = None,
+        query: str | None = None,
+    ) -> int:
+        clauses, params = self._bank_filters(
+            state=state, qtype=qtype, course=course, concept=concept, query=query
+        )
+        sql = f"""SELECT COUNT(*) AS total
+                    FROM questions q
+                    {self._LATEST_ATTEMPT_JOIN}
+                   WHERE {' AND '.join(clauses)}"""
+        conn = self._connect()
+        try:
+            row = conn.execute(sql, params).fetchone()
+            return int(row["total"]) if row else 0
+        finally:
+            conn.close()
+
+    def bank_overview(self) -> dict:
+        """Counts for the bank header and the agent's bank_overview tool."""
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                f"""SELECT COUNT(*) AS total,
+                           SUM(CASE WHEN qa.id IS NULL THEN 1 ELSE 0 END) AS unanswered,
+                           SUM(CASE WHEN qa.verdict = 'partial' THEN 1 ELSE 0 END) AS partial,
+                           SUM(CASE WHEN qa.verdict = 'correct'
+                                      OR (qa.verdict = '' AND qa.is_correct = 1)
+                                    THEN 1 ELSE 0 END) AS correct,
+                           SUM(CASE WHEN {_WRONG_VERDICT_SQL} THEN 1 ELSE 0 END) AS incorrect,
+                           SUM(CASE WHEN q.bookmarked_at <> '' THEN 1 ELSE 0 END) AS bookmarked
+                      FROM questions q
+                      {self._LATEST_ATTEMPT_JOIN}"""
+            ).fetchone()
+            by_type = {
+                item["type"]: item["cnt"]
+                for item in conn.execute(
+                    "SELECT type, COUNT(*) AS cnt FROM questions GROUP BY type"
+                ).fetchall()
+            }
+            by_concept = [
+                {"concept": item["concept"], "count": item["cnt"]}
+                for item in conn.execute(
+                    """SELECT item.value AS concept, COUNT(*) AS cnt
+                         FROM questions q, json_each(q.concepts) item
+                        GROUP BY item.value
+                        ORDER BY cnt DESC, concept ASC
+                        LIMIT 10"""
+                ).fetchall()
+            ]
+        finally:
+            conn.close()
+        ints = {
+            key: int(row[key] or 0)
+            for key in ("total", "unanswered", "partial", "correct", "incorrect", "bookmarked")
+        }
+        return {**ints, "by_type": by_type, "by_concept": by_concept}
+
+    def set_bookmark(self, question_id: int, bookmarked: bool = True) -> bool:
+        conn = self._connect()
+        try:
+            cur = conn.execute(
+                "UPDATE questions SET bookmarked_at = ? WHERE id = ?",
+                (_now_iso() if bookmarked else "", question_id),
+            )
+            conn.commit()
+            return cur.rowcount > 0
+        finally:
+            conn.close()
+
     # --- Quiz Sessions ---
 
     def create_session(
@@ -384,14 +604,16 @@ class QuizStore:
         conn = self._connect()
         try:
             rows = conn.execute(
-                """SELECT qa.id as attempt_id, qa.user_answer, qa.feedback, qa.answered_at,
-                          q.id as question_id, q.type, q.question, q.options, q.answer,
-                          q.explanation, q.concepts, q.difficulty, q.source
-                   FROM quiz_attempts qa
-                   JOIN questions q ON qa.question_id = q.id
-                   WHERE qa.is_correct = 0
-                   ORDER BY qa.answered_at DESC
-                   LIMIT ?""",
+                f"""SELECT qa.id as attempt_id, qa.user_answer, qa.feedback, qa.answered_at,
+                           q.id as question_id, q.type, q.question, q.options, q.answer,
+                           q.explanation, q.concepts, q.difficulty, q.source
+                    FROM quiz_attempts qa
+                    JOIN questions q ON qa.question_id = q.id
+                    WHERE qa.id = (SELECT MAX(latest.id) FROM quiz_attempts latest
+                                    WHERE latest.question_id = qa.question_id)
+                      AND {_WRONG_VERDICT_SQL}
+                    ORDER BY qa.answered_at DESC
+                    LIMIT ?""",
                 (limit,),
             ).fetchall()
             results = []
@@ -419,12 +641,12 @@ class QuizStore:
         conn = self._connect()
         try:
             row = conn.execute(
-                """SELECT qa.id as attempt_id, qa.user_answer, qa.feedback, qa.answered_at,
-                          q.id as question_id, q.type, q.question, q.options, q.answer,
-                          q.explanation, q.concepts, q.difficulty, q.source
-                   FROM quiz_attempts qa
-                   JOIN questions q ON qa.question_id = q.id
-                   WHERE qa.id = ? AND qa.is_correct = 0""",
+                f"""SELECT qa.id as attempt_id, qa.user_answer, qa.feedback, qa.answered_at,
+                           q.id as question_id, q.type, q.question, q.options, q.answer,
+                           q.explanation, q.concepts, q.difficulty, q.source
+                    FROM quiz_attempts qa
+                    JOIN questions q ON qa.question_id = q.id
+                    WHERE qa.id = ? AND {_WRONG_VERDICT_SQL}""",
                 (attempt_id,),
             ).fetchone()
             if not row:
@@ -451,14 +673,14 @@ class QuizStore:
         conn = self._connect()
         try:
             rows = conn.execute(
-                """SELECT je.value AS concept,
-                          COUNT(*) AS total_attempts,
-                          SUM(CASE WHEN qa.is_correct = 0 THEN 1 ELSE 0 END) AS wrong_count
-                   FROM quiz_attempts qa
-                   JOIN questions q ON qa.question_id = q.id,
-                        json_each(q.concepts) je
-                   GROUP BY je.value
-                   ORDER BY wrong_count DESC"""
+                f"""SELECT je.value AS concept,
+                           COUNT(*) AS total_attempts,
+                           SUM(CASE WHEN {_WRONG_VERDICT_SQL} THEN 1 ELSE 0 END) AS wrong_count
+                    FROM quiz_attempts qa
+                    JOIN questions q ON qa.question_id = q.id,
+                         json_each(q.concepts) je
+                    GROUP BY je.value
+                    ORDER BY wrong_count DESC"""
             ).fetchall()
             return [
                 {
