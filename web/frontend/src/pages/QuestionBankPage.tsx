@@ -18,6 +18,14 @@ const FILTERS: Array<{ key: string; label: string }> = [
   { key: "bookmarked", label: "已收藏" },
 ];
 
+// One bulk action per state: "重练" is only right for the wrong-answer bucket.
+const BULK_ACTIONS: Record<string, string> = {
+  unanswered: "开始做前 5 道未作答的题",
+  incorrect: "重练前 5 道错题",
+  partial: "再练前 5 道基本正确的题",
+  correct: "复习前 5 道答对的题",
+};
+
 const STATE_LABELS: Record<QuestionBankState, string> = {
   unanswered: "未作答",
   correct: "答对",
@@ -64,13 +72,18 @@ export function QuestionBankPage() {
     setLoading(true);
     setError("");
     try {
-      setBank(await api.questionBank({
+      const result = await api.questionBank({
         state,
         concept: concept || undefined,
         query: debouncedQuery || undefined,
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
-      }));
+      });
+      setBank(result);
+      // The current page can fall out of range when the result set shrinks —
+      // e.g. un-bookmarking the last row while filtered on "已收藏".
+      const lastPage = Math.max(0, Math.ceil(result.total / PAGE_SIZE) - 1);
+      if (page > lastPage) setPage(lastPage);
     } catch (reason) {
       setError(toErrorMessage(reason, "无法读取题库。"));
     } finally {
@@ -185,7 +198,7 @@ export function QuestionBankPage() {
         {state !== "all" && state !== "bookmarked" && (bank?.total || 0) > 0 && (
           <div className="bank-bulk">
             <button className="quiet-button" type="button" disabled={starting === "selection"} onClick={() => void practiceSelection()}>
-              <Play size={15} />{starting === "selection" ? "正在准备" : `重练前 5 道${FILTERS.find((filter) => filter.key === state)?.label || ""}`}
+              <Play size={15} />{starting === "selection" ? "正在准备" : (BULK_ACTIONS[state] || "练前 5 道")}
             </button>
           </div>
         )}
