@@ -24,6 +24,7 @@
 | R0 质量与调试基建（测试策略 / ScriptedProvider / e2e 冒烟化 / dev.py / diagnose / 持久化登记册） | ✅ 完成（`feat/r0-quality-infra`） |
 | A0 现状核对（E1–E7 / G1–G3 / FE-P0，证据表见 §2） | ✅ 完成（2026-09-08） |
 | A1 学习闭环正确性（E1 / E3 / E4 / E13 / E15） | ✅ 完成（2026-09-08，交付记录见 §2） |
+| E18 题库 MVP（S1–S5） | ✅ 完成（2026-09-10，交付记录见 §2） |
 | R0.7 数据 epoch 机制 | ⏳ 并入本文 W4 |
 | P5G.2 Electron 桌面版 | ⏸ 推迟（门禁见 W5） |
 | P5G.3 支撑页面 | ⏸ 按 C / E 批次拆分；复习提醒可先在 Web 交付 |
@@ -75,7 +76,7 @@
 | E15 | 简答三态判分与"学习中"映射核对（AnswerResult.verdict 已有三态，核对批改链路与展示一致性） | quiz_service | 体验审查 P1-10；O10 |
 | E16 | 新确认概念返回坐标 + 前端高亮数秒 | concept_service + KnowledgeMap | 体验审查 P1-12 |
 | E17 | **资料库文件树：按真实文件夹呈现与建立资料库**（详见下方设计记录） | Library 前后端 + 受沙盒保护的资料库文件 API | 2026-09-10 设计确认（用户 E2E 反馈） |
-| E18 | **题库**：浏览 / 筛选 / 收藏 / 一键练 / 对话引用（设计已定稿：D1–D9，见 [`QUESTION_BANK_DESIGN.md`](QUESTION_BANK_DESIGN.md)） | quiz store + 练习页视图 + 复习页 + Chat 工具 | 2026-09-10 立项设计 |
+| E18 | **题库**：浏览 / 筛选 / 收藏 / 一键练 / 对话引用（设计 D1–D9 见 [`QUESTION_BANK_DESIGN.md`](QUESTION_BANK_DESIGN.md)）——**S1–S5 已交付（2026-09-10）**；S6 联网搜题、S7 导出/备份、命名练习集与行内「问 AI」引用仍待实施 | quiz store + 练习页视图 + 复习页 + Chat 工具 | 2026-09-10 立项设计 |
 
 #### E17 设计记录（2026-09-10）
 
@@ -235,7 +236,25 @@ P5G.3 的产品能力不再整体等待 Electron：Roadmap、复习提醒和部�
 
 **E4 补齐轮（2026-09-10，`feat/e4-interaction-flow`）**：承接上面的口径问题——A1 把 E4 标成"已验证"时，契约的"暂停/回传"一半并不存在。补齐轮按参考项目的三家机制对比（见 `REFERENCE_PROJECTS.md` 案例 1）选了 **D+B**：挂起 tool result + 回合边界续跑 + 新助手消息。验证：Python `1402 passed`、Vitest `57 passed`、lint/tsc/生产构建通过。
 
-当前焦点是 A2（E5、E6、E9、E14）。A0/A1 已确认的基础设施——全局错误位、交互生命周期、练习卡服务端绑定——在 A2 与后续批次中应复用，不要另起一套。
+### E18 交付记录（2026-09-10 完成）
+
+范围是 `QUESTION_BANK_DESIGN.md` 的实现顺序 **S1–S5**（S6 联网搜题、S7 导出/备份、命名练习集、行内「问 AI」引用按设计留待后续）。E18 是用户 E2E 反馈驱动的独立小批次，不改变 A2 的在途顺序。
+
+| 切片 | 状态 | 证据 |
+|---|---|---|
+| S1 数据层 | 已验证 | `questions.bookmarked_at`（沿用 `_ensure_db` 的 PRAGMA 迁移，幂等）；`list_bank_questions` / `count_bank_questions` / `bank_overview` / `set_bookmark`；状态由**最近一次作答**派生（`MAX(id)` 子查询），**不物化**；未作答题目不返回 `answer`/`explanation`；`tests/test_quiz.py` +9（含旧库迁移、"最新作答胜出"、分页筛选） |
+| S2 服务 + API | 已验证 | `QuizService.get_bank` / `bookmark_question` / `start_bank_practice`；`GET /api/quiz/bank`、`POST /api/quiz/bank/bookmark`、`POST /api/quiz/bank/practice`；`tests/test_web_backend.py` +4 HTTP 契约（404 `question_not_found`、400 `bank_empty`） |
+| S3 练习页视图 | 已验证 | `practice/bank` 静态路由（注册在 `practice/:practiceSessionId` 之前）+ `QuestionBankPage.tsx`：状态筛选、搜索、概念筛选、分页、收藏、一键重练；`e2e/question-bank.spec.ts` 在 desktop / 窄屏 / 移动三档各 2 条 |
+| S4 复习衔接 | 已验证 | 「错题」在复习队列与题库里是同一个谓词：`get_wrong_answers` 改为**只取最近一次判定为 `incorrect`**，`partial` 不算错，`get_weakness_analysis` 同步排除 `partial`；`tests/test_learning_service.py` +2 交叉断言；Review 与练习小结都有进题库的入口 |
+| S5 Chat 工具 | 已验证 | `tools/question_bank.py` 提供 `bank_overview` / `bank_list` / `bank_bookmark`，**只声明 `workspace`**（`execute_tool` 只注入声明过的参数——E4 的 404 就是这个坑）；只读 + 收藏、**不含起练**，因此不构成 E13 已封堵的"聊天文本练习"通道；`tests/test_question_bank_tools.py` +4 |
+
+**有意为之的用户可见语义变更**：错题集从「所有答错的尝试」改为「最近一次仍答错」。答错后重练答对的题会同时从错题本和题库的错题筛选里消失；复习调度引擎不变，仍按 SM-2 独立计算。
+
+**边界**：E18 未触碰 `document_id = _stable_hash(source)` 的路径派生（属 E17），也未改动已有 17 道题的任何数据。
+
+分支验证：Python `1424 passed`、Vitest `57 passed`、前端 lint 与生产构建通过、Playwright `56 passed / 1 skipped`（workers=2）。
+
+当前焦点仍是 A2（E5、E6、E9、E14）。A0/A1/E18 已确认的基础设施——全局错误位、交互生命周期、练习卡服务端绑定、题库真相源——在 A2 与后续批次中应复用，不要另起一套。
 
 排序原则：学习闭环正确性 > 可恢复性 > 检索质量证据 > 界面质感 > 通用运行时能力 > 发布包装。任何条目开工前先对齐 `PROJECT_GUIDE.md` 的产品边界四问。
 
