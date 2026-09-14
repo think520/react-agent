@@ -31,9 +31,13 @@ _PIPELINE_CACHE_LIMIT = 8
 
 
 def _close_pipeline(pipeline: _CachedPipeline) -> None:
+    from rag.qdrant_store import release_shared_qdrant_store
+
     with pipeline.lock:
         pipeline.sqlite.close()
-        pipeline.qdrant.close()
+        # P0-15: the Qdrant client comes from the shared registry; releasing it
+        # here keeps the existing refcount / deferred-close semantics intact.
+        release_shared_qdrant_store(pipeline.qdrant)
 
 
 def clear_retrieval_cache(workspace: str | None = None) -> None:
@@ -56,9 +60,10 @@ def clear_retrieval_cache(workspace: str | None = None) -> None:
                 _close_pipeline(pipeline)
 
 
+
 def _retrieval_pipeline_unlocked(workspace: str, config: dict) -> _CachedPipeline:
     from rag.sqlite_store import KBSQLiteStore
-    from rag.qdrant_store import QdrantStore
+    from rag.qdrant_store import shared_qdrant_store
     from rag.embedding_service import EmbeddingService
     from rag.hybrid import HybridRetriever
     from rag.directory import DirectoryRetriever
@@ -76,7 +81,8 @@ def _retrieval_pipeline_unlocked(workspace: str, config: dict) -> _CachedPipelin
 
     sqlite = KBSQLiteStore(workspace, check_same_thread=False)
     sqlite.init_db()
-    qdrant = QdrantStore(workspace, config)
+    # P0-15: never construct a second local client for the same directory.
+    qdrant = shared_qdrant_store(workspace, config)
     embedding = EmbeddingService(config)
     orchestrator = RetrievalOrchestrator(
         HybridRetriever(sqlite, qdrant, embedding.client, config),

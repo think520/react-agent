@@ -7,6 +7,8 @@ Supports switching to server mode via config.
 from __future__ import annotations
 
 import logging
+import os
+import threading
 import uuid
 from pathlib import Path
 
@@ -31,6 +33,55 @@ def _chunk_id_to_uuid(chunk_id: str) -> str:
     return str(uuid.uuid5(_UUID_NS, chunk_id))
 
 
+# P0-15: Qdrant local mode locks its directory, so two clients for one path in
+# the same process make sync or retrieval fail intermittently. Everything goes
+# through this registry instead of constructing its own store.
+_SHARED_STORES: dict[str, QdrantStore] = {}
+_SHARED_LOCK = threading.Lock()
+
+
+def _store_key(store) -> str:
+    key = getattr(store, "client_key", None)
+    if callable(key):
+        return key()
+    return f"object:{id(store)}"  # test doubles without the method
+
+
+def shared_qdrant_store(workspace: str, config: dict | None = None) -> "QdrantStore":
+    """Return the one Qdrant client for a workspace inside this process."""
+    probe = QdrantStore(workspace, config)
+    key = _store_key(probe)
+    with _SHARED_LOCK:
+        store = _SHARED_STORES.get(key)
+        if store is None:
+            _SHARED_STORES[key] = probe
+            return probe
+        return store
+
+
+def close_shared_qdrant_store(workspace: str, config: dict | None = None) -> None:
+    """Close and forget the shared client for one workspace."""
+    probe = QdrantStore(workspace, config)
+    key = _store_key(probe)
+    with _SHARED_LOCK:
+        store = _SHARED_STORES.pop(key, None)
+    if store is not None:
+        store.close()
+
+
+def release_shared_qdrant_store(store) -> None:
+    """Close a shared client by identity, when its last user lets it go.
+
+    Called from the pipeline teardown path, so the existing refcount /
+    deferred-close semantics keep working: a pinned search must not have the
+    client closed under it.
+    """
+    with _SHARED_LOCK:
+        for key, existing in list(_SHARED_STORES.items()):
+            if existing is store:
+                del _SHARED_STORES[key]
+    store.close()
+
 class QdrantStore:
     """Qdrant vector store for chunk embeddings.
 
@@ -54,6 +105,12 @@ class QdrantStore:
 
         self._client = None
         self._embedding_dim: int | None = None
+
+    def client_key(self) -> str:
+        """Identity of the client this store would open (P0-15)."""
+        if self.mode == "server":
+            return f"server:{self.url}:{self.collection}"
+        return f"local:{os.path.normcase(str(self.local_path))}"
 
     def _get_client(self):
         """Lazy-init Qdrant client."""

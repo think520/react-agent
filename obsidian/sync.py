@@ -298,7 +298,7 @@ def sync_sources(
 
     # ── Step 3: Initialize stores ───────────────────────────────────────
     from rag.sqlite_store import KBSQLiteStore
-    from rag.qdrant_store import QdrantStore
+    from rag.qdrant_store import shared_qdrant_store
     from rag.chunker_v2 import chunk_sections, ChunkingConfig
     from rag.embedding_service import EmbeddingService
 
@@ -314,7 +314,9 @@ def sync_sources(
         min_chars=chunk_cfg_dict.get("min_chars", 400),
     )
 
-    qdrant = QdrantStore(workspace, config)
+    # P0-15: reuse the retrieval pipeline client instead of opening a second one
+    # on the same local directory (qdrant local mode locks it).
+    qdrant = shared_qdrant_store(workspace, config)
     embedding = EmbeddingService(config)
 
     # Initialize Qdrant collection if embedding is available
