@@ -738,6 +738,28 @@ def test_reset_with_dir(svc, workspace):
     assert os.path.exists(legacy_path)
 
 
+def test_reset_clears_the_stale_library_manifest(svc, workspace):
+    """P1-28: reset removed the DBs but left manifest.json behind, so
+    build_library_summary kept reporting files that list_documents no longer
+    had - the two answers contradicted each other."""
+    from knowledge.library import build_library_summary
+
+    knowledge_dir = os.path.join(workspace, ".knowledge")
+    os.makedirs(knowledge_dir, exist_ok=True)
+    with open(os.path.join(knowledge_dir, "manifest.json"), "w", encoding="utf-8") as handle:
+        json.dump({
+            "version": 1,
+            "last_sync": "2026-01-01T00:00:00+00:00",
+            "documents": [{"document_id": "d1", "source": "a.md", "chunks": 3}],
+        }, handle)
+
+    assert build_library_summary(workspace).total_files == 1
+
+    result = svc.reset()
+
+    assert result["ok"]
+    assert build_library_summary(workspace).total_files == 0
+
 # --- sync error cases ---
 
 def test_sync_invalid_mode(svc, workspace):

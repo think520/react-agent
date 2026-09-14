@@ -1677,9 +1677,13 @@ class KBService:
         if os.path.exists(storage_dir):
             # Preserve retired JSON indexes and graph_store.json. They are
             # read-only migration sources and may contain the user's only copy.
+            # P1-28: manifest.json is part of the index too. Leaving it behind
+            # made build_library_summary claim files that list_documents no
+            # longer had. It is derived data, rebuilt by the next sync.
             for filename in (
                 "knowledge.db", "knowledge.db-shm", "knowledge.db-wal", "bobodan.db",
                 "bobodan.db-shm", "bobodan.db-wal", "sync_state.json", "import_report.json",
+                "manifest.json",
             ):
                 path = os.path.join(storage_dir, filename)
                 if os.path.isfile(path):

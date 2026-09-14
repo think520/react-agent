@@ -175,6 +175,9 @@
 - **A4 止血 · P1-21 grep chunk_id 跨进程不稳定（2026-09-14）**：`rag/grep_retriever.py::_matches_to_hits` 用 Python 内置 `hash()` 生成 `grep:<doc>:<8hex>`。`hash()` 对字符串按进程随机加盐，**重启后同一段原文的 id 就变了**，而错题变式正是按 `chunk_id` 回原文定位——表现为「练习里引用得到、重启后找不到」。
   - 复现：新增 `tests/test_grep_chunk_id.py`，用两个不同 `PYTHONHASHSEED` 的子进程各算一次 id 并比对。**修前失败信号**：`grep:doc-1:968c90e5 != grep:doc-1:65b66b45`。
   - 修法：改用 `rag/sqlite_store.py` 里已有的 `_stable_hash`（sha256 前 16 位），id 形态变为 `grep:<doc>:<16hex>`。
+- **A4 止血 · P1-28 `/kb reset` 与 manifest 自相矛盾（2026-09-14）**：`reset` 删了 `knowledge.db` / `bobodan.db` / `sync_state.json` / `import_report.json` / qdrant 目录，唯独没删 `manifest.json`。而 `build_library_summary` 正是从 manifest 读文档列表，于是 reset 之后**「资料总数」还显示 1（连同文件名与 last_sync），而 `list_documents` 是空的**——两个接口互相打脸。
+  - 复现：`tests/test_kb_service.py` 新增一条：写入带一份文档的 manifest，确认 summary 是 1，执行 reset，再确认 summary 归零。**修前失败信号**：`assert 1 == 0`，且 summary 里仍带着 `courses=[CourseSummary(file_count=1)]` 与旧的 `last_sync`。
+  - 修法：把 `manifest.json` 加进 reset 的清理列表。它是派生索引（下次 sync 会重建），与已清理的 `knowledge.db` 同级；用户的研究记录（`research.db`）不在清理范围，这是有意的。
 - **阅读器章节目录关不掉（2026-09-14，用户反馈）**：点章节导轨的 ✕ 之后它会立刻弹回来。原因是关闭动作会在指针底下挂出 64px 的触发带（`.chapter-rail-zone`），而浏览器在光标底下的元素变化时会重算 hover 并补发 `mouseenter`——于是这次的 `setRailOpen(false)` 被它自己引发的事件撤销了，注释里「关闭时触发带不存在」的假设在 Blink 上不成立。改为记住关闭发生的位置，来自**同一坐标**（±8px）的那次 hover 直接忽略，指针离开触发带即解除。回归测试 `e2e/app.spec.ts`「the chapter rail dismisses and does not re-open under the same pointer」先复现（旧代码报 `Expected: 0, Received: 1`）再验证修复，同时钉住「离开后再靠近仍然能唤出」这条正向行为。
 - Wiki 默认区分“知识页 / 资料索引 / 个人笔记”，资料索引不再与概念页混排或显示为 `obsidian_note`；新生成的资料索引限制为短摘要、学习地图和关键结论，不再逐章复刻原文，已有页面可通过“AI 更新当前页”生成需确认的更新计划。耗时与 Token 估算改用同 Provider、同模型的真实请求样本并显示可信度，完成计划展示本轮实际用量、Provider 缓存和 Bobodan 本地缓存。
 - Wiki 取消现在会在每次模型请求前重新检查停止标记，不再继续执行同一批次内尚未发出的请求；刷新过的旧会话即使 artifact 与 plan 状态不一致，也会继续轮询并收敛为“已取消”。缺少 `summary / changes` 的中断记录按空计划安全显示，不再导致整个 Chat 页面白屏。
