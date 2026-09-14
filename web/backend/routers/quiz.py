@@ -253,6 +253,63 @@ def practice_question_set(set_id: int, request: Request, limit: int = 15) -> dic
     ))
 
 
+class RestoreBankRequest(BaseModel):
+    backup: dict
+
+
+def _export_filters(
+    state: str,
+    set_id: int | None,
+    concept: str | None,
+    question_type: str | None,
+    difficulty: str | None,
+    source: str | None,
+    q: str | None,
+) -> dict:
+    return {
+        "state": state,
+        "set_id": set_id,
+        "concept": concept,
+        "qtype": question_type,
+        "difficulty": difficulty,
+        "source": source,
+        "query": q,
+    }
+
+
+@router.get("/export/markdown")
+def export_bank_markdown(
+    request: Request,
+    state: str = Query(
+        default="all",
+        pattern="^(all|unanswered|correct|partial|incorrect|bookmarked)$",
+    ),
+    set_id: int | None = Query(default=None, ge=1),
+    concept: str | None = None,
+    question_type: str | None = Query(
+        default=None, pattern="^(single_choice|true_false|short_answer)$"
+    ),
+    difficulty: str | None = Query(default=None, pattern="^(easy|medium|hard)$"),
+    source: str | None = Query(default=None, max_length=512),
+    q: str | None = Query(default=None, max_length=200),
+    include_third_party: bool = False,
+) -> dict:
+    return unwrap_service_result(_service(request).export_bank_markdown(
+        **_export_filters(state, set_id, concept, question_type, difficulty, source, q),
+        include_third_party=include_third_party,
+    ))
+
+
+@router.get("/export/backup")
+def export_bank_backup(request: Request) -> dict:
+    return unwrap_service_result(_service(request).export_bank_backup())
+
+
+@router.post("/export/restore")
+def restore_bank_backup(body: RestoreBankRequest, request: Request) -> dict:
+    return unwrap_service_result(_service(request).restore_bank_backup(body.backup))
+
+
 @router.get("/sessions/active")
 def active_sessions(request: Request, limit: int = 10) -> dict:
     return unwrap_service_result(_service(request).list_active_sessions(limit=max(1, min(limit, 50))))

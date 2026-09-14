@@ -76,7 +76,7 @@
 | E15 | 简答三态判分与"学习中"映射核对（AnswerResult.verdict 已有三态，核对批改链路与展示一致性） | quiz_service | 体验审查 P1-10；O10 |
 | E16 | 新确认概念返回坐标 + 前端高亮数秒 | concept_service + KnowledgeMap | 体验审查 P1-12 |
 | E17 | **资料库文件树：按真实文件夹呈现与建立资料库**（详见下方设计记录） | Library 前后端 + 受沙盒保护的资料库文件 API | 2026-09-10 设计确认（用户 E2E 反馈） |
-| E18 | **题库**：浏览 / 筛选 / 收藏 / 一键练 / 对话引用（设计 D1–D9 见 [`QUESTION_BANK_DESIGN.md`](QUESTION_BANK_DESIGN.md)）——**S1–S5 已交付（2026-09-10）**；S6 联网搜题、S7 导出/备份、命名练习集与行内「问 AI」引用仍待实施 | quiz store + 练习页视图 + 复习页 + Chat 工具 | 2026-09-10 立项设计 |
+| E18 | **题库**：浏览 / 筛选 / 收藏 / 一键练 / 对话引用 / 命名练习集 / 联网搜题 / 导出与备份（设计 D1–D9 见 [`QUESTION_BANK_DESIGN.md`](QUESTION_BANK_DESIGN.md)）——**S1–S7 全部交付（2026-09-10 立项 + 2026-09-11 收口）**；只剩「联网题新概念进候选」与「资料库整体备份」两件，分别属 D9 的候选钩子与 PROJECT_GUIDE 的数据保护专项 | quiz store + 练习页视图 + 复习页 + Chat 工具 | 2026-09-10 立项设计 |
 
 #### E17 设计记录（2026-09-10）
 
@@ -253,6 +253,22 @@ P5G.3 的产品能力不再整体等待 Electron：Roadmap、复习提醒和部�
 **边界**：E18 未触碰 `document_id = _stable_hash(source)` 的路径派生（属 E17），也未改动已有 17 道题的任何数据。
 
 分支验证：Python `1424 passed`、Vitest `57 passed`、前端 lint 与生产构建通过、Playwright `56 passed / 1 skipped`（workers=2）。
+
+### E18 收口轮（2026-09-11 完成）
+
+首轮 S1–S5 交付后，逐条对照 `QUESTION_BANK_DESIGN.md` §6 的验收条件发现四处「设计写了、实现没有」的缺口，连同 S6 / S7 分五批补齐；每批都有回归测试，UI 改动另有 Playwright 覆盖。
+
+| 批次 | 状态 | 证据 |
+|---|---|---|
+| 第 1 批 筛选轴 + 复习窗口 | 已验证 | `difficulty` / `source` 打通 store → API → UI，题库页加题型 / 难度 / 资料三个下拉与「清除筛选」；批量练不再排除收藏并带上全部筛选；复习页返回题库真实错题总数 `wrong_total`（`get_review_queue` 窗口放宽到 200，路由上限 500），截断时给「在题库中查看全部」。**更正了 S4 被高估的「已交付」**——首版只统一了错题定义、20 条窗口还在 |
+| 第 2 批 引用某一道题 | 已验证 | 题库行「问 AI」把 `question_id` 写进对话草稿；`bank_list(question_id=…)` 按 id 读回同一道题（走题库路径，未作答仍不返回答案）；`GET /api/quiz/bank?question_id=` 同源 |
+| 第 3 批 命名练习集 + 测试隔离 | 已验证 | D8 两张小表（只存 id，有测试钉住列定义）+ 全套 REST + 题库页「练习集」区（按当前筛选建集 / 查看 / 练这集 / 改名 / 删除 / 逐题加入移出），列表新增 `set_id` 视图；agent 按 D4 不碰集合结构。同批查出并修掉：`test_learning.py` 与 `test_repl.py` 用当前目录当工作区，会写入**开发者真实 `.knowledge/bobodan.db`**；`tests/conftest.py` 加了会话结束的 tripwire |
+| 第 4 批 S6 联网搜题 | 已验证 | 出题新增 `mode="search"`：只提取网页上已有的题目、来源页快照 + `attribution_kind=web` + 每条来源标 `third_party`；练习页加「让 Bobodan 出题 / 搜现成的题」切换。搜题模式**没有本地分支**，且有回归测试禁止它调用 `generate_from_query` |
+| 第 5 批 S7 导出与备份 | 已验证 | 题库级备份 / 恢复（`bobodan-question-bank` 带版本号，覆盖题目 / 作答 / 收藏 / 练习集；删除顺序按外键逆序，测试抓出过这个 bug）+ 按筛选 / 练习集导出 Markdown（第三方题目默认排除、显式包含时逐条标注）；题库页加导出 / 备份 / 恢复三个入口 |
+
+验证：Python `1450 passed`、Vitest `57 passed`、前端 lint 与生产构建通过、Playwright `74 passed / 1 skipped`（题库 e2e 由 6 条增至 24 条，覆盖三视口）。测试套件的 tripwire 确认全量运行前后真实工作区库的哈希与 mtime 不变。
+
+**收口后仍不做**：① 联网题的新概念只进候选（D9 的硬边界「不进知识地图」一直成立，缺的是候选钩子）；② 资料库整体备份 / 恢复（PROJECT_GUIDE 的数据保护专项，题库这份届时并入）。
 
 当前焦点仍是 A2（E5、E6、E9、E14）。A0/A1/E18 已确认的基础设施——全局错误位、交互生命周期、练习卡服务端绑定、题库真相源——在 A2 与后续批次中应复用，不要另起一套。
 

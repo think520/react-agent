@@ -1,6 +1,8 @@
 import json
 import os
 import sqlite3
+
+import pytest
 from dataclasses import asdict
 
 from quiz.schema import Question, QuizSession, QuizAttempt, QUESTION_TYPES, DIFFICULTY_LEVELS
@@ -558,6 +560,44 @@ def test_set_bookmark_reports_missing_question(tmp_path):
     assert store.set_bookmark(qid, False) is True
     assert store.get_question(qid).bookmarked_at == ""
     assert store.set_bookmark(9999) is False
+
+
+def test_bank_backup_round_trip_keeps_bookmarks_and_sets(tmp_path):
+    """D7: bookmarks and named sets live only in these tables, so a dump must
+    carry them and a restore must put them back."""
+    store = QuizStore(str(tmp_path))
+    qid = store.add_question(Question(question="Q1", answer="A", concepts=["c"]))
+    session = store.create_session([qid])
+    store.record_attempt(QuizAttempt(
+        session_id=session.id, question_id=qid, user_answer="x",
+        is_correct=False, verdict="incorrect",
+    ))
+    store.set_bookmark(qid)
+    store.create_question_set("我的错题集", [qid])
+
+    dump = store.dump_bank()
+    assert [row["id"] for row in dump["questions"]] == [qid]
+    assert dump["question_set_items"][0]["question_id"] == qid
+
+    restored = QuizStore(str(tmp_path / "restored"))
+    counts = restored.restore_bank(dump)
+    assert counts["questions"] == 1
+    assert restored.get_question(qid).bookmarked_at != ""
+    assert [entry["name"] for entry in restored.list_question_sets()] == ["我的错题集"]
+    assert restored.get_question_set(1)["question_ids"] == [qid]
+    assert [entry["question_id"] for entry in restored.get_wrong_answers()] == [qid]
+
+    # A restore replaces the bank; it is not a merge (see store.restore_bank).
+    restored.add_question(Question(question="本地新增的题", answer="B"))
+    assert restored.count_bank_questions() == 2
+    restored.restore_bank(dump)
+    assert restored.count_bank_questions() == 1
+
+
+def test_restore_bank_rejects_a_malformed_dump(tmp_path):
+    store = QuizStore(str(tmp_path))
+    with pytest.raises(ValueError):
+        store.restore_bank({"questions": []})
 
 
 # --- S6: 搜现成的题（web question extraction） ---

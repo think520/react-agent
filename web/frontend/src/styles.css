@@ -1575,6 +1575,8 @@ kbd { color: var(--faint); font-family: inherit; font-size: 10px; }
 .bank-search input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; font-size: 12px; }
 .bank-search input::placeholder { color: var(--faint); }
 .bank-search .icon-button { width: 22px; height: 22px; }
+.bank-restore { cursor: pointer; }
+.bank-restore input { display: none; }
 .bank-sets { border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; margin-bottom: 16px; background: var(--paper-soft); }
 .bank-sets-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; justify-content: space-between; }
 .bank-sets-head strong { color: var(--blue); font-family: var(--font-reading); font-size: 15px; font-weight: 500; }

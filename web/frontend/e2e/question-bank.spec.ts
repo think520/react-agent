@@ -384,3 +384,53 @@ test("the practice page can search for existing questions instead of authoring t
   expect(bodies[0]).toMatchObject({ mode: "search", query: "RAG 练习" });
   await expect(page.locator(".practice-web-consent")).toContainText("搜现成的题");
 });
+test("the bank exports Markdown and a backup file", async ({ page }) => {
+  await mockShell(page);
+  await mockBank(page);
+  await page.route("**/api/quiz/export/markdown**", (route) => route.fulfill(json({
+    markdown: "---\ntitle: 题库导出\n---\n\n## 错题（1）\n1. **Dijkstra**\n",
+    count: 1,
+    excluded_third_party: 1,
+  })));
+  await page.route("**/api/quiz/export/backup", (route) => route.fulfill(json({
+    backup: { kind: "bobodan-question-bank", schema_version: 1, tables: { questions: [] } },
+  })));
+
+  await page.goto("/practice/bank");
+
+  const markdownDownload = page.waitForEvent("download");
+  await page.getByRole("button", { name: "导出 Markdown" }).click();
+  expect((await markdownDownload).suggestedFilename()).toMatch(/\.md$/);
+  // D9: excluding third-party questions is announced, not silent.
+  await expect(page.locator(".notice-center")).toContainText("第三方");
+
+  const backupDownload = page.waitForEvent("download");
+  await page.getByRole("button", { name: "备份" }).click();
+  expect((await backupDownload).suggestedFilename()).toMatch(/\.json$/);
+});
+
+test("restoring a backup warns before replacing the bank", async ({ page }) => {
+  await mockShell(page);
+  await mockBank(page);
+  const bodies: Array<Record<string, unknown>> = [];
+  await page.route("**/api/quiz/export/restore", async (route) => {
+    bodies.push(JSON.parse(route.request().postData() || "{}"));
+    return route.fulfill(json({ restored: { questions: 4 } }));
+  });
+
+  await page.goto("/practice/bank");
+  await page.locator(".bank-restore input[type=file]").setInputFiles({
+    name: "bank.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify({
+      kind: "bobodan-question-bank", schema_version: 1, tables: {},
+    })),
+  });
+
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("覆盖整个题库");
+  await dialog.getByRole("button", { name: "覆盖题库" }).click();
+
+  await expect.poll(() => bodies.length).toBe(1);
+  expect((bodies[0].backup as Record<string, unknown>).kind).toBe("bobodan-question-bank");
+});

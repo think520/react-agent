@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { ArrowRight, Bookmark, BookmarkCheck, CircleHelp, FolderPlus, Pencil, Play, RefreshCw, Search, Trash2, X } from "lucide-react";
+import { ArrowRight, Bookmark, BookmarkCheck, CircleHelp, Download, FolderPlus, Pencil, Play, RefreshCw, Search, Trash2, Upload, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import { AttributionBadges, EmptyState, ErrorNotice, LoadingState, formatRelativeDate } from "../components/common";
@@ -7,6 +7,7 @@ import { DropdownSelect } from "../components/DropdownSelect";
 import { api } from "../lib/api";
 import { toErrorMessage } from "../lib/errors";
 import { useHandoffStore } from "../stores/handoffStore";
+import { notifyInfo } from "../stores/noticeStore";
 import { useConfirm } from "../ui/Modal";
 import type { QuestionBank, QuestionBankItem, QuestionBankState, QuestionSetSummary } from "../types";
 
@@ -73,6 +74,22 @@ function filterCount(overview: QuestionBank["overview"], key: string) {
   return 0;
 }
 
+/** D7: a local-first product must let the user take their data out and put it back. */
+function todayStamp() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function download(filename: string, content: string, type: string) {
+  const url = URL.createObjectURL(new Blob([content], { type }));
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
 export function QuestionBankPage() {
   const navigate = useNavigate();
   const [state, setState] = useState("all");
@@ -94,6 +111,7 @@ export function QuestionBankPage() {
   const [renamingId, setRenamingId] = useState(0);
   const [renameDraft, setRenameDraft] = useState("");
   const [setsWorking, setSetsWorking] = useState(false);
+  const [transfer, setTransfer] = useState("");
   const { confirm, confirmElement } = useConfirm();
 
   useEffect(() => {
@@ -302,6 +320,70 @@ export function QuestionBankPage() {
     setSetId(item.id);
     setPage(0);
   }
+  async function exportMarkdown() {
+    setTransfer("markdown");
+    setError("");
+    try {
+      const result = await api.exportBankMarkdown({
+        state,
+        setId: setId || undefined,
+        concept: concept || undefined,
+        qtype: qtype || undefined,
+        difficulty: difficulty || undefined,
+        source: source || undefined,
+        query: debouncedQuery || undefined,
+      });
+      download(`bobodan-题库-${todayStamp()}.md`, result.markdown, "text/markdown;charset=utf-8");
+      if (result.excluded_third_party > 0) {
+        notifyInfo(`已排除 ${result.excluded_third_party} 道第三方（联网来源）题目。`);
+      }
+    } catch (reason) {
+      setError(toErrorMessage(reason, "导出失败。"));
+    } finally {
+      setTransfer("");
+    }
+  }
+
+  async function exportBackup() {
+    setTransfer("backup");
+    setError("");
+    try {
+      const result = await api.exportBankBackup();
+      download(
+        `bobodan-题库备份-${todayStamp()}.json`,
+        JSON.stringify(result.backup, null, 2),
+        "application/json",
+      );
+    } catch (reason) {
+      setError(toErrorMessage(reason, "备份失败。"));
+    } finally {
+      setTransfer("");
+    }
+  }
+
+  async function restoreBackup(file: File) {
+    const ok = await confirm({
+      title: "用这个备份覆盖整个题库？",
+      detail: "当前的题目、作答记录、收藏和练习集都会被备份里的内容替换，且不能撤销。",
+      confirmLabel: "覆盖题库",
+      danger: true,
+    });
+    if (!ok) return;
+    setTransfer("restore");
+    setError("");
+    try {
+      const parsed = JSON.parse(await file.text());
+      const result = await api.restoreBankBackup(parsed);
+      await loadSets();
+      await load();
+      notifyInfo(`已恢复 ${result.restored.questions ?? 0} 道题。`);
+    } catch (reason) {
+      setError(toErrorMessage(reason, "恢复失败，请确认这个文件是 Bobodan 题库的备份。"));
+    } finally {
+      setTransfer("");
+    }
+  }
+
   async function toggleBookmark(item: QuestionBankItem) {
     setBusyId(item.id);
     setError("");
@@ -391,7 +473,24 @@ export function QuestionBankPage() {
       <div className="page-container review-container">
         <header className="page-heading">
           <div><span>Practice</span><h2>题库</h2><p>已经生成过的题目都在这里，按最近一次作答的状态归类。</p></div>
-          <button className="quiet-button" type="button" onClick={() => void load()}><RefreshCw size={16} />刷新</button>
+          <div className="heading-actions">
+            <button className="quiet-button" type="button" disabled={transfer === "markdown"} onClick={() => void exportMarkdown()}><Download size={16} />导出 Markdown</button>
+            <button className="quiet-button" type="button" disabled={transfer === "backup"} onClick={() => void exportBackup()}><Download size={16} />备份</button>
+            <label className="quiet-button bank-restore">
+              <Upload size={16} />{transfer === "restore" ? "正在恢复" : "恢复"}
+              <input
+                type="file"
+                accept="application/json,.json"
+                aria-label="选择题库备份文件"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  event.target.value = "";
+                  if (file) void restoreBackup(file);
+                }}
+              />
+            </label>
+            <button className="quiet-button" type="button" onClick={() => void load()}><RefreshCw size={16} />刷新</button>
+          </div>
         </header>
         <nav className="wiki-view-tabs practice-view-tabs" aria-label="练习视图">
           <button type="button" onClick={() => navigate("/practice")}>开始练习</button>

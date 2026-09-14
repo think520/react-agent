@@ -1836,6 +1836,60 @@ def test_quiz_question_search_mode_contract(backend_client, monkeypatch):
     ).status_code == 422
 
 
+def test_quiz_export_and_restore_contract(backend_client):
+    """E18 / D7: Markdown out, backup out, backup back in -- and D9 keeps the
+    third-party question out of the file unless it is asked for."""
+    from quiz.schema import Question
+    from quiz.store import QuizStore
+
+    _seed_question_bank(backend_client)
+    store = QuizStore(str(backend_client.workspace))
+    store.add_question(Question(
+        question="网页上的现成题", answer="B", attribution_kind="web",
+        sources=[{
+            "source_type": "web", "source_id": "s1", "title": "某页练习",
+            "third_party": True,
+        }],
+    ))
+    assert backend_client.get("/api/quiz/bank").json()["total"] == 4
+
+    default_export = backend_client.get("/api/quiz/export/markdown").json()
+    assert default_export["count"] == 3
+    assert default_export["excluded_third_party"] == 1
+    assert "题库导出" in default_export["markdown"]
+    assert "秘密答案" in default_export["markdown"]
+    assert "网页上的现成题" not in default_export["markdown"]
+
+    with_third = backend_client.get(
+        "/api/quiz/export/markdown?include_third_party=true"
+    ).json()
+    assert with_third["count"] == 4
+    assert "网页上的现成题" in with_third["markdown"]
+    assert "第三方题目" in with_third["markdown"]
+
+    backup = backend_client.get("/api/quiz/export/backup").json()["backup"]
+    assert backup["kind"] == "bobodan-question-bank"
+    assert len(backup["tables"]["questions"]) == 4
+
+    # Wipe, then prove the restore really puts the bank back.
+    store.restore_bank({table: [] for table in backup["tables"]})
+    assert backend_client.get("/api/quiz/bank").json()["total"] == 0
+
+    restored = backend_client.post(
+        "/api/quiz/export/restore", json={"backup": backup}
+    )
+    assert restored.status_code == 200
+    assert restored.json()["restored"]["questions"] == 4
+    assert backend_client.get("/api/quiz/bank").json()["total"] == 4
+    assert backend_client.get("/api/quiz/bank?state=bookmarked").json()["total"] == 1
+
+    bad = backend_client.post(
+        "/api/quiz/export/restore", json={"backup": {"kind": "not-ours"}}
+    )
+    assert bad.status_code == 400
+    assert bad.json()["error"]["code"] == "backup_invalid"
+
+
 def test_review_queue_contract(backend_client, monkeypatch):
     monkeypatch.setattr(
         "web.backend.routers.learning.LearningService.get_review_queue",

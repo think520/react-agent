@@ -523,6 +523,34 @@ export const api = {
   startSetPractice: (setId: number, limit = 15) => request<{ practice_session_id: number; questions: Question[] }>(
     `/api/quiz/sets/${setId}/practice?limit=${limit}`, { method: "POST" },
   ),
+  exportBankMarkdown: (params: {
+    state?: string;
+    setId?: number;
+    concept?: string;
+    qtype?: string;
+    difficulty?: string;
+    source?: string;
+    query?: string;
+    includeThirdParty?: boolean;
+  } = {}) => {
+    const search = new URLSearchParams();
+    if (params.state && params.state !== "all") search.set("state", params.state);
+    if (params.setId) search.set("set_id", String(params.setId));
+    if (params.concept) search.set("concept", params.concept);
+    if (params.qtype) search.set("qtype", params.qtype);
+    if (params.difficulty) search.set("difficulty", params.difficulty);
+    if (params.source) search.set("source", params.source);
+    if (params.query) search.set("q", params.query);
+    if (params.includeThirdParty) search.set("include_third_party", "true");
+    const suffix = search.toString();
+    return request<{ markdown: string; count: number; excluded_third_party: number }>(
+      `/api/quiz/export/markdown${suffix ? `?${suffix}` : ""}`,
+    );
+  },
+  exportBankBackup: () => request<{ backup: Record<string, unknown> }>("/api/quiz/export/backup"),
+  restoreBankBackup: (backup: Record<string, unknown>) => request<{ restored: Record<string, number> }>(
+    "/api/quiz/export/restore", json({ backup }),
+  ),
   reviewQueue: () => request<ReviewQueue>("/api/learning/review-queue"),
   answerInteraction: (interactionId: string, chatSessionId: string, answers: Array<{ id: string; answer: string }>) =>
     request<{ chat_session_id: string; artifact: ChatArtifact }>(

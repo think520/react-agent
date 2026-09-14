@@ -747,6 +747,79 @@ class QuizStore:
         finally:
             conn.close()
 
+    # --- Backup / restore (E18 / D7) ---
+
+    # Insertion order: parents first, then the rows that reference them.
+    _BACKUP_ORDER = (
+        "questions", "quiz_sessions", "quiz_attempts", "question_sets", "question_set_items",
+    )
+
+    # Deletion is the exact reverse -- children first -- or the foreign keys fire.
+    _BACKUP_DELETE_ORDER = (
+        "question_set_items", "quiz_attempts", "question_sets", "quiz_sessions", "questions",
+    )
+
+    _BACKUP_COLUMNS = {
+        "questions": (
+            "id", "type", "question", "options", "answer", "explanation", "concepts",
+            "difficulty", "source", "attribution_kind", "sources", "created_at", "bookmarked_at",
+        ),
+        "quiz_sessions": (
+            "id", "question_ids", "started_at", "completed_at", "updated_at", "status",
+            "origin", "personalization",
+        ),
+        "quiz_attempts": (
+            "id", "session_id", "question_id", "user_answer", "is_correct", "verdict",
+            "feedback", "answered_at",
+        ),
+        "question_sets": ("id", "name", "created_at", "updated_at"),
+        "question_set_items": ("set_id", "question_id", "position", "added_at"),
+    }
+
+    def dump_bank(self) -> dict:
+        """Every row of the bank's own tables, so a bookmark or a named set cannot
+        be lost. Answers are included here -- a backup that hid them would not be one."""
+        conn = self._connect()
+        try:
+            dump = {}
+            for table in self._BACKUP_ORDER:
+                columns = ", ".join(self._BACKUP_COLUMNS[table])
+                rows = conn.execute(f"SELECT {columns} FROM {table}").fetchall()
+                dump[table] = [_row_to_dict(row) for row in rows]
+            return dump
+        finally:
+            conn.close()
+
+    def restore_bank(self, payload: dict) -> dict:
+        """Replace the bank with a dump. Destructive by design: a partial merge would
+        leave attempts pointing at questions from another library."""
+        if not isinstance(payload, dict):
+            raise ValueError("备份内容不是一个对象。")
+        for table in self._BACKUP_ORDER:
+            if not isinstance(payload.get(table), list):
+                raise ValueError(f"备份内容缺少 {table} 列表。")
+        conn = self._connect()
+        try:
+            for table in self._BACKUP_DELETE_ORDER:
+                conn.execute(f"DELETE FROM {table}")
+            counts: dict[str, int] = {}
+            for table in self._BACKUP_ORDER:
+                columns = self._BACKUP_COLUMNS[table]
+                placeholders = ", ".join("?" * len(columns))
+                columns_sql = ", ".join(columns)
+                sql = f"INSERT INTO {table} ({columns_sql}) VALUES ({placeholders})"
+                for row in payload[table]:
+                    try:
+                        values = [row.get(column) for column in columns]
+                    except AttributeError as exc:
+                        raise ValueError(f"{table} 里有一行不是对象。") from exc
+                    conn.execute(sql, values)
+                counts[table] = len(payload[table])
+            conn.commit()
+            return counts
+        finally:
+            conn.close()
+
     # --- Quiz Sessions ---
 
     def create_session(

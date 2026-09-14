@@ -859,6 +859,67 @@ class QuizService:
             return _err("这个练习集里还没有题目。", code="question_set_empty")
         return self.start_quiz(count=len(ids), question_ids=ids, origin="practice")
 
+    # --- Export / backup (E18 / D7) ---
+
+    def export_bank_markdown(
+        self,
+        *,
+        state: str | None = None,
+        set_id: int | None = None,
+        concept: str | None = None,
+        qtype: str | None = None,
+        difficulty: str | None = None,
+        source: str | None = None,
+        course: str | None = None,
+        query: str | None = None,
+        include_third_party: bool = False,
+    ) -> dict[str, Any]:
+        """Markdown of whatever the bank is filtered to (D7). Third-party questions
+        are excluded by default because re-distributing them is not ours to do."""
+        from quiz.export import bank_to_markdown, is_third_party
+
+        store = QuizStore(self.workspace)
+        filters = self._bank_filters(
+            state=state, concept=concept, qtype=qtype, difficulty=difficulty,
+            source=source, course=course, query=query,
+        )
+        if set_id is not None:
+            record = store.get_question_set(int(set_id))
+            if not record:
+                return _err("练习集不存在。", code="question_set_not_found")
+            filters["question_ids"] = record["question_ids"]
+        items = [
+            self._bank_item_public(item)
+            for item in store.list_bank_questions(**filters, limit=200)
+        ]
+        third_party = [item for item in items if is_third_party(item)]
+        kept = items if include_third_party else [
+            item for item in items if not is_third_party(item)
+        ]
+        excluded = 0 if include_third_party else len(third_party)
+        return _ok(
+            markdown=bank_to_markdown(
+                kept, include_third_party=include_third_party,
+                excluded_third_party=excluded,
+            ),
+            count=len(kept),
+            excluded_third_party=excluded,
+        )
+
+    def export_bank_backup(self) -> dict[str, Any]:
+        from quiz.export import bank_backup
+
+        return _ok(backup=bank_backup(QuizStore(self.workspace)))
+
+    def restore_bank_backup(self, payload: Any) -> dict[str, Any]:
+        from quiz.export import restore_bank
+
+        try:
+            counts = restore_bank(QuizStore(self.workspace), payload)
+        except ValueError as exc:
+            return _err(str(exc), code="backup_invalid")
+        return _ok(restored=counts)
+
     # --- Stats ---
 
     def get_stats(self) -> dict[str, Any]:
