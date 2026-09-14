@@ -149,7 +149,7 @@
 | H-d | @-mention 升级 inline 徽章（CodeMirror chip） | composer；openhanako |
 | H-e | 文档版本 diff 视图（三栏：版本/版本/行级 diff，回滚前先看） | DocumentEditor；openhanako FileHistoryModal |
 | H-f | motion spring 三档预设 + AnimatedList 布局动画（衔接现有 --dur token 体系）——**三档 spring 预设（CSS `linear()`）已在 2026-09-14 落地（`DESIGN.md` §11 / `styles.css`），`AnimatedList` 布局动画仍待做** | ui/；openhanako |
-| F19 | 页面级规格收敛：字号 / 间距 / 交互四态 / 表面分档，按 Chat → Practice·Review → Library·Reader → 低频页 分批，每批同步下调 `designTokens.test.ts` 的棘轮预算（**批次 1 Chat 已完成，见 §2「设计规格层重写」**） | 各页面 CSS；`DESIGN.md` §5–§7、§16 |
+| F19 | 页面级规格收敛：字号 / 间距 / 交互四态 / 表面分档，按 Chat → Practice·Review → Library·Reader → 低频页 分批，每批同步下调 `designTokens.test.ts` 的棘轮预算（**四批全部完成，字号下限已收口到 0；间距与圆角的存量仍在棘轮上，见 §2「设计规格层重写」**） | 各页面 CSS；`DESIGN.md` §5–§7、§16 |
 
 **FE-P2（锦上添花）**：F4 断线恢复全家桶（Last-Event-ID 重放+caught_up+看门狗+命令 ACK）、F5 乐观负 id 对账、F15 空态三件套组件化、F16 组件外 -state.ts 纯函数模式 + 架构契约测试、F18 ProgressRing/LevelUp 庆祝动效、ContextRing 复习负载环（H）。
 **体验审查 P2 杂项**：slash/@ 可发现性提示、连续复习多条错题、完成页逐题回顾、来源视图按来源分组、设置保存方式统一、流式不抢滚轮（F7 覆盖）、切资料库不强制跳聊天、空态用路由 Link。
@@ -289,11 +289,13 @@ P5G.3 的产品能力不再整体等待 Electron：Roadmap、复习提醒和部�
 | F19 批次 2（Practice·Review 页） | 已验证 | 直击原始抱怨：参考答案 `.answer-feedback small` **原先没有字号**（跟着 `<small>` 缩到 0.8em）且用 `--muted`，现为 14px / `--ink` / 500；小结里的「你的答案」11→13px 并从 `--muted` 提到 `--ink`；批改意见与解析跟随 `var(--body-font-size)`；简答题输入框原先没有字号（继承容器），现 16px 且跟随阅读偏好。另扫尾 practice / review / page-heading 一层 10–11px 标签，圆角与间距全走 token，写死的旧纸色换成 `var(--paper-soft)`。复核：两页可见文本已无低于 12px 的元素。棘轮：<12px 196→195、脱轨圆角 69→65 |
 | 停靠面回调（用户反馈） | 已验证 | 第一版停靠面 `#efeade` 比画布深 9–19/255 且 HSL 饱和度更高（0.35 > 0.29），侧栏与右栏渲染成饱和黄带。改用 Kami 同源三档（`#f0eee6` / `#f5f4ed` / `#faf9f5`），并把「不突兀」变成可执行约束：`designTokens.test.ts` 新增「纸张阶梯」——顺序固定、与画布每个通道差 ≤ 8/255、停靠面必须更灰，对每个纸色主题都跑。实测把 `#efeade` 改回去会同时报出通道超限与饱和度断言 |
 | F19 批次 3（Library·Reader 页） | 已验证 | 资料列表是全站字号最失控的一页：50 行文档每行一个 9px 的状态 chip（`.document-extraction-state`）与 10px 的 meta。chip 9→12、标题 12→14、meta 10→12，阅读器的「资料片段」标记（单页 64 处）与眉标 10→12；表单 / 编辑器一族的 9–11px 辅助文字用一条按选择器前缀限定的脚本（先 dry-run 再 apply）统一提到 12–13px。回归：首次导入流程补「建库弹窗不得有低于 12px 的文字」。棘轮：<12px 195→167、脱轨圆角 65→60 |
+| F19 批次 4（设置 / Wiki / 笔记 / 知识地图） | 已验证 | 设置页全部 8 个分区、Wiki 维护与编辑器、笔记列表与编辑器、知识地图三个视图、共用外壳（连接条 / 错误边界 / 快捷键 / 迁移预览）。用前缀限定的脚本先 dry-run 再 apply（123 条改动）：交互控件 13px、辅助文字 12px |
+| F19 收口（全站字号下限） | 已验证 | 再跑一条「低于 12px 全部提到 12」的脚本，补齐此前未审计到的表面：composer 作用域、@ 提及、斜杠面板、过程折叠、消息引用、右栏上下文、移动端导航，以及多行写法的知识地图 / 侧栏标题。**494 条 `font-size` 声明里低于 12px 的归零**（起点 233）；棘轮转为门禁 0 |
 | 防漂移 | 已验证 | 新增 `web/frontend/src/lib/designTokens.test.ts`：文档 ↔ 代码 token 一致性（含反向检查）+ 四条棘轮（<12px 字号 ≤226、裸 `ease` ≤16、脱轨圆角 ≤73、裸毫秒 ≤5），只允许下调；已实测能抓到人为漂移 |
 
 验证：Python `1450 passed`（tripwire 确认真实工作区库未动）、Vitest `63 passed`、ESLint 与生产构建通过、Playwright `77 passed / 1 skipped`。
 
-**批次 1（Chat 页）已随本轮完成**，见上表末行；其余页面的字号 / 间距 / 交互态收敛仍按 F19 分批（Practice·Review → Library·Reader → 低频页）。暗色主题未做——本轮只把 token 改成可换主题的形状，并补上文档里已预留但一直没实现的 `[data-theme]` 钩子。
+**F19 四个批次（Chat → Practice·Review → Library·Reader → 低频页）全部完成，字号下限已收口到 0**，见上表。仍未做：间距与圆角尚未全量收敛到 token（脱轨圆角 73 → 59，还有存量）；暗色主题——本轮只把 token 改成可换主题的形状，并补上文档里已预留但一直没实现的 `[data-theme]` 钩子。
 
 ### 单项完成定义
 

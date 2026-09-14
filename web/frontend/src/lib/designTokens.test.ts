@@ -84,9 +84,10 @@ describe("DESIGN.md 与 styles.css 的 token 契约", () => {
 });
 
 describe("漂移棘轮（只允许变小）", () => {
-  it("低于 12px 的 font-size 数量不超过预算", () => {
-    // 2026-09-14 骨架层：226；Chat 页：208；Practice·Review：195；Library·Reader：167。每收敛一批就下调。
-    const BUDGET = 167;
+  it("低于 12px 的 font-size 必须是 0（§5 硬下限）", () => {
+    // 2026-09-14 走完整条棘轮：226 → 208 → 195 → 167 → 43 → 0。
+    // 从这一步起这不是预算而是门禁：任何新增的低于 12px 的字号都会直接失败。
+    const BUDGET = 0;
     const sizes = (cssText.match(/font-size:\s*[0-9.]+px/g) ?? []).map((decl: string) =>
       parseFloat(decl.replace(/[^0-9.]/g, "")),
     );

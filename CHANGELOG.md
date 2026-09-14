@@ -42,7 +42,13 @@
     - **回归测试**：`e2e/app.spec.ts` 的首次导入流程补上「建库弹窗内不得有低于 12px 的文字」断言。
     - 棘轮同步下调：<12px 字号 195→**167**、脱轨圆角 65→**60**。实测复核：`/library` 与 `/library/read/*` 两页可见文本**已无低于 12px 的元素**（资料列表 50 行、阅读器 300+ 文本节点）。
     - 验证：Python `1450 passed`、Vitest `69 passed`、ESLint 与生产构建通过、Playwright 全量通过。
-  - **未做**（按约定分批，见 `docs/ROADMAP.md` W3 的 F19）：低频页（设置 / Wiki / 笔记 / 知识地图）的字号 / 间距 / 交互态收敛——设置页是全站小字号最密集的地方；暗色主题（本轮只把 token 改成可换主题的形状）。
+  - **F19 批次 4 · 低频页 + 收口（2026-09-14，F19 完成）**：这一批用**按选择器前缀限定**的脚本做，先 dry-run 打印 123 条改动再 `--apply`；脚本本身也留在流程里，改的是选择器前缀可枚举的面。
+    - **覆盖面**：设置页全部 8 个分区（含 AI 与模型 / 记忆与数据 / Provider / 状态与关于），Wiki 维护与编辑器，笔记列表与编辑器，知识地图（目录视图 / 来源视图 / 力导向参数），以及共用外壳（连接条、错误边界、快捷键面板、迁移预览、onboarding）。
+    - **规则**：交互控件（导航、tab、工具条、预设行、编辑器工具条、快捷键分组）提到 13px；辅助文字（提示、字段说明、徽标、计数、摘要、告警）统一到 12px。
+    - **收口扫尾**：另跑一条只做「低于 12px 全部提到 12」的脚本，把此前没有审计到的表面补齐——composer 作用域、@ 提及列表、斜杠命令面板、过程折叠、消息引用按钮、右栏的上下文关系 / 指标 / 文档 / 下一步，移动端底部导航，以及 5 条写在多行规则里的知识地图与侧栏标题。顺带修掉 `.candidate-badge` 的 9px 圆角与写死的 `#fff`。
+    - **结果：整份 `styles.css` 的 494 条 `font-size` 声明里，低于 12px 的是 0 条**（本轮起点 233 条）。`designTokens.test.ts` 的那条棘轮随之从「预算 167」变成**门禁 0**：此后任何新增的低于 12px 字号都会直接失败。
+    - 验证：Python `1450 passed`、Vitest `69 passed`、ESLint 与生产构建通过、Playwright `80 passed / 1 skipped`——全量在三视口重跑，确认这把扫过 200 条规则的改动没有破坏既有流程。实测复核：chat / practice / bank / library / reader / review / notes / knowledge-map 与设置的全部 8 个分区，可见文本均无低于 12px 的元素。
+  - **F19 未做**：间距与圆角尚未全量收敛到 token（脱轨圆角 73 → 59，仍有存量）；暗色主题只留了可换主题的 token 形状与 `[data-theme]` 钩子。；暗色主题（本轮只把 token 改成可换主题的形状）。
   - 验证：Python `1450 passed`、Vitest `57 → 63 passed`、ESLint 与生产构建通过、Playwright `77 passed / 1 skipped`；`tests/conftest.py` 的 tripwire 确认全量跑前后真实工作区库未变。
 - **题库收口 · 第 1 批（2026-09-11，E18 补齐）**：首轮交付后逐条对照 `QUESTION_BANK_DESIGN.md` §6 的验收条件，发现四处「设计写了、实现没有」的缺口，本批补齐前三处。
   - **筛选轴补全**：`difficulty`（难度）与 `source`（资料，精确匹配）打通 store → service → API → UI；题库页新增题型 / 难度 / 资料三个下拉（复用 `DropdownSelect`），资料列表来自 `bank_overview` 新增的 `by_source`，并补了「清除筛选」。`GET /api/quiz/bank` 的 `qtype` / `difficulty` 改为受校验参数。
