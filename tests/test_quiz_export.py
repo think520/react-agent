@@ -48,6 +48,8 @@ def test_markdown_groups_by_state_and_only_shows_known_answers():
     assert "## 错题（1）" in markdown
     assert "## 未作答（1）" in markdown
     assert "参考答案：贪心" in markdown
+    # The file is read by a person, so it carries the display labels, not keys.
+    assert "本地扩展 · 算法导论" in markdown
     assert "你的答案：动态规划" in markdown
     # The unanswered question must not carry an answer into the file.
     assert markdown.count("参考答案") == 1

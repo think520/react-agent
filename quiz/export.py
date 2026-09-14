@@ -29,6 +29,15 @@ _STATE_LABELS = {
 }
 _STATE_ORDER = ("incorrect", "partial", "unanswered", "correct")
 
+# The Markdown is read by a person, so it uses the same labels as the UI.
+_KIND_LABELS = {
+    "local": "本地资料",
+    "local_extension": "本地扩展",
+    "web": "网页来源",
+    "ai": "AI 补充",
+    "unverified": "待核实",
+}
+
 
 def question_sources(item: dict) -> list[dict]:
     """The source refs of a bank item, wherever they were handed to us from."""
@@ -80,10 +89,11 @@ def _source_label(item: dict) -> str:
         for source in question_sources(item)
     ]
     titles = [title for title in titles if title]
+    label = _KIND_LABELS.get(kind, kind)
     if not titles:
-        return kind or "未标注来源"
+        return label or "未标注来源"
     joined = "、".join(titles[:3])
-    return f"{kind} · {joined}"
+    return f"{label} · {joined}"
 
 
 def _question_block(item: dict, index: int) -> list[str]:
