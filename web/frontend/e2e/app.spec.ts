@@ -69,6 +69,24 @@ test("first upload creates a portable library before indexing the file", async (
   await expect(page.getByRole("heading", { name: "准备导入 1 份资料" })).toBeVisible();
   await page.getByLabel("资料库名称").fill("算法资料");
   await page.getByLabel("保存到这个目录").fill("D:\\Learning");
+
+  // DESIGN.md §5 floors: the setup dialog is form chrome, not fine print
+  // (2026-09-14 Library·Reader batch).
+  const thin = await page.locator(".library-setup-dialog").evaluate((root) => {
+    const out: string[] = [];
+    root.querySelectorAll("*").forEach((el) => {
+      const own = Array.from(el.childNodes)
+        .filter((node) => node.nodeType === 3)
+        .map((node) => (node.textContent || "").trim())
+        .join("");
+      if (!own) return;
+      const size = parseFloat(getComputedStyle(el).fontSize);
+      if (size < 12) out.push(`${el.tagName.toLowerCase()}.${el.className} = ${size}px`);
+    });
+    return out;
+  });
+  expect(thin).toEqual([]);
+
   await page.getByRole("button", { name: "创建并继续导入" }).click();
   await expect(page.getByText("已导入 1 份资料并建立索引。")).toBeVisible();
   await expect(page).toHaveURL(/\/library/);

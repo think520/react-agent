@@ -35,7 +35,14 @@
     - 改成用 Kami 自己的三档：停靠面 `#f0eee6`（Kami 的 inline-code 灰）、画布 `#f5f4ed`（parchment）、抬升面 `#faf9f5`（ivory）。与画布的通道差收到 5–8/255。
     - **把「不突兀」变成可执行约束**：`DESIGN.md` §7 与 `designTokens.test.ts` 新增「纸张阶梯」——三档顺序固定、与画布每个通道差 ≤ 8/255、停靠面必须更灰（HSL 饱和度 ≤ 画布）。同一组断言对每个纸色主题都跑（含 `[data-paper-texture="off"]`，它原先只换了画布与抬升面，停靠面会漂到 11/255，已补上自己的值）。
     - 已实测这组断言真的会咬人：把停靠面改回 `#efeade` 会同时报出 `--paper-sunken` 通道超限与 `expected 0.3469 to be less than or equal to 0.2857`。
-  - **未做**（按约定分批，见 `docs/ROADMAP.md` W3 的 F19）：其余页面的字号 / 间距 / 交互态收敛（Library·Reader / 低频页）；暗色主题（本轮只把 token 改成可换主题的形状）。
+  - **F19 批次 3 · Library·Reader 页（2026-09-14）**：资料列表是整个应用里字号最失控的一页——50 行文档每行都带一个 **9px** 的 `.document-extraction-state`（「尚未提取」×47 / 「已提取」×3）和 **10px** 的 meta 行。
+    - **资料列表**：状态 chip 9→12（`max-width` 70→88、`border-radius: 999px`→`var(--radius-xl)`）、标题 12→14、meta 10→12、行内边距与圆角改走 `--space-*` / `--radius-*`；工具条上下文 10→12、更多菜单 12→13 与浮层 5px 内边距→`var(--space-1)`。
+    - **阅读器**：`section-location`（「资料片段」，单页 64 处）10→12、`reader-topbar-title span`（`COURSE DOCUMENT` 眉标）10→12。
+    - **表单与编辑器一族**：用一条**按选择器前缀限定**的脚本（先 dry-run 打印 23 条改动再 `--apply`）把 `library-setup-dialog` / `library-path-hint` / `library-migration-preview` / `document-editor*` / `document-proposal*` / `reader-related-notes` / `document-bulk-tools` 的 9–11px 辅助文字统一提到 12px，`.library-tabs` / `.reader-tab` / `.chapter-rail` / `.library-switcher` / `.document-search` 提到 13px。
+    - **回归测试**：`e2e/app.spec.ts` 的首次导入流程补上「建库弹窗内不得有低于 12px 的文字」断言。
+    - 棘轮同步下调：<12px 字号 195→**167**、脱轨圆角 65→**60**。实测复核：`/library` 与 `/library/read/*` 两页可见文本**已无低于 12px 的元素**（资料列表 50 行、阅读器 300+ 文本节点）。
+    - 验证：Python `1450 passed`、Vitest `69 passed`、ESLint 与生产构建通过、Playwright 全量通过。
+  - **未做**（按约定分批，见 `docs/ROADMAP.md` W3 的 F19）：低频页（设置 / Wiki / 笔记 / 知识地图）的字号 / 间距 / 交互态收敛——设置页是全站小字号最密集的地方；暗色主题（本轮只把 token 改成可换主题的形状）。
   - 验证：Python `1450 passed`、Vitest `57 → 63 passed`、ESLint 与生产构建通过、Playwright `77 passed / 1 skipped`；`tests/conftest.py` 的 tripwire 确认全量跑前后真实工作区库未变。
 - **题库收口 · 第 1 批（2026-09-11，E18 补齐）**：首轮交付后逐条对照 `QUESTION_BANK_DESIGN.md` §6 的验收条件，发现四处「设计写了、实现没有」的缺口，本批补齐前三处。
   - **筛选轴补全**：`difficulty`（难度）与 `source`（资料，精确匹配）打通 store → service → API → UI；题库页新增题型 / 难度 / 资料三个下拉（复用 `DropdownSelect`），资料列表来自 `bank_overview` 新增的 `by_source`，并补了「清除筛选」。`GET /api/quiz/bank` 的 `qtype` / `difficulty` 改为受校验参数。
