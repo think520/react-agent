@@ -21,7 +21,7 @@ import time
 import uuid
 from typing import Any
 
-from core.db import open_connection
+from core.db import begin_immediate, open_connection
 
 # User-confirmable relationship types (user: prefix = user-defined custom).
 VALID_REL_TYPES = frozenset({"属于", "前置知识", "组成部分", "对比", "应用于", "来源于"})
@@ -187,6 +187,10 @@ class ConceptStore:
         now = time.time()
         cid = concept_id or f"c-{uuid.uuid4().hex[:12]}"
         with self._connect() as con:
+            # P1-14: the name-clash check and the write must be one critical
+            # section, otherwise two concurrent upserts both pass the check and
+            # the loser dies on the unique index instead of answering 409.
+            begin_immediate(con)
             clash = con.execute(
                 "SELECT concept_id FROM concepts "
                 "WHERE name = ? COLLATE NOCASE AND concept_id != ?",

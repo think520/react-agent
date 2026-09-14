@@ -10,15 +10,15 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from core.atomic_io import atomic_write_json, path_lock
+
 
 SCHEMA_VERSION = 4
 
 
 def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(f"{path.suffix}.tmp")
-    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    os.replace(temporary, path)
+    # Shared implementation: temp file + fsync + replace + per-path lock.
+    atomic_write_json(str(path), payload)
 
 
 def _home() -> Path:
@@ -164,6 +164,22 @@ class PreferenceService:
         return value
 
     def patch(
+        self,
+        revision: int,
+        patch: dict[str, Any],
+        available_providers: set[str],
+        available_skills: set[str],
+    ) -> dict[str, Any]:
+        # P1-14: read-revision -> check -> write must be one critical section.
+        # Without the lock two concurrent patches both read the same revision,
+        # both passed the check, both were told the write succeeded, and one
+        # change vanished.
+        with path_lock(str(self.path)):
+            return self._patch_locked(
+                revision, patch, available_providers, available_skills
+            )
+
+    def _patch_locked(
         self,
         revision: int,
         patch: dict[str, Any],

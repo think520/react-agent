@@ -53,6 +53,19 @@ def open_connection(
         connection.close()
 
 
+def begin_immediate(connection: sqlite3.Connection) -> None:
+    """Take the write lock now instead of at the first write (P1-14).
+
+    Read-modify-write needs it up front: with a deferred begin two callers can
+    read the same snapshot, and the loser fails with SQLITE_BUSY_SNAPSHOT at
+    commit time - after all the work is done. Safe to call inside a
+    transaction that is already open.
+    """
+    if connection.in_transaction:
+        return
+    connection.execute("BEGIN IMMEDIATE")
+
+
 def ensure_columns(
     connection: sqlite3.Connection,
     table: str,
