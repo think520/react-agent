@@ -85,8 +85,8 @@ describe("DESIGN.md 与 styles.css 的 token 契约", () => {
 
 describe("漂移棘轮（只允许变小）", () => {
   it("低于 12px 的 font-size 数量不超过预算", () => {
-    // 2026-09-14 骨架层落地：226；Chat 页批次后：208。每收敛一批就下调。
-    const BUDGET = 208;
+    // 2026-09-14 骨架层：226；Chat 页：208；Practice·Review 页：195。每收敛一批就下调。
+    const BUDGET = 195;
     const sizes = (cssText.match(/font-size:\s*[0-9.]+px/g) ?? []).map((decl: string) =>
       parseFloat(decl.replace(/[^0-9.]/g, "")),
     );
@@ -107,8 +107,8 @@ describe("漂移棘轮（只允许变小）", () => {
   });
 
   it("不在 §7 刻度上的 border-radius 数量不超过预算", () => {
-    // 2026-09-14：73；Chat 页批次后：69。刻度只允许 6 / 8 / 12 / 16，其余进棘轮。
-    const BUDGET = 69;
+    // 2026-09-14：73；Chat 页：69；Practice·Review 页：65。刻度只允许 6 / 8 / 12 / 16，其余进棘轮。
+    const BUDGET = 65;
     const scale = new Set([0, 6, 8, 12, 16]);
     const offScale = (cssText.match(/border-radius:\s*([0-9]+)px/g) ?? [])
       .map((match: string) => parseInt(match.replace(/\D+/g, ""), 10))

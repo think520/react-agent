@@ -23,7 +23,15 @@
     - **回归测试**：`e2e/interaction.spec.ts` 新增「每一个 Chat 文案都在字号下限之上」——同一会话的**未作答卡与已作答两种状态**都逐节点扫描（低于 12px 就把元素与像素值列出来）、选项 chip ≥13、气泡与答案正文 ≥16、把 `--body-font-size` 调到 18px 后正文跟着变、宽视口下编排器工具条不溢出。三视口通过。
     - 棘轮同步下调：<12px 字号 226→**208**、裸 `ease` 16→**15**、脱轨圆角 73→**69**、裸毫秒 5→**4**。
     - 验证：Python `1450 passed`、Vitest `63 passed`、ESLint 与生产构建通过、Playwright 全量通过。
-  - **未做**（按约定分批，见 `docs/ROADMAP.md` W3 的 F19）：其余页面的字号 / 间距 / 交互态收敛（Practice·Review / Library·Reader / 低频页）；暗色主题（本轮只把 token 改成可换主题的形状）。
+  - **F19 批次 2 · Practice·Review 页（2026-09-14）**：这一批直接对着用户的原始抱怨做——「题目周围有许多空白、题目显示太单调太淡、我的答案和参考答案都是浅色细字」。
+    - **答案不再又浅又小**：练习结果里 `.answer-feedback small`（参考答案）原先**没有字号**、只知道继承 `<small>` 的 0.8em，颜色还是 `--muted`；现在 14px / `--ink` / 500 字重。小结里 `.recap-item small`（你的答案）11px `--muted` → 13px `--ink` 500；`.answer-feedback p`（批改意见与解析）改为跟随 `var(--body-font-size)`；判定标签 `.answer-feedback > div` 15px/700。
+    - **输入与选项**：简答题 `.short-answer` 原先没有字号（继承容器），现在 16px 且跟随阅读偏好，圆角与内边距走 token；选项文字 14px → `var(--body-font-size)`，选项徽标 12→13px，选项行补 hover / 选中抬升与四态过渡。
+    - **字号下限扫尾**：`.practice-header span` 11→12、`.practice-summary header span` 10→12、`.review-summary span` 11→12、`.review-kind` 11→12、`.review-row p` 11→12、`.review-more` 11→12、`.resume-row small` 10→12、`.practice-ai-drawer` 头部与上下文 10→12、`.page-heading` 眉标 11→12 与说明 14→15。
+    - **密度与层级**：`.question-sheet` 内边距 30px→`var(--space-6)`、圆角 8→`var(--radius-lg)`；题目下间距 25→`var(--space-5)`；练习容器 34/30→`var(--space-6)/var(--space-5)`；小结与回顾的 gap / padding / 圆角全部改走 `--space-*` / `--radius-*`；`.practice-ai-drawer` 写死的旧纸色 `rgba(247,245,239,.98)` 换成 `var(--paper-soft)`；`.practice-mode button` 的 15px 胶囊改为 `var(--radius-xl)`。
+    - **回归测试**：`e2e/app.spec.ts` 的判断题流程补上结果区字号断言（判定 ≥15 / 正文 ≥16 / 参考答案 ≥13）。
+    - 棘轮同步下调：<12px 字号 208→**195**、脱轨圆角 69→**65**，裸 `ease` 与裸毫秒不变。实测复核：`/practice/11` 与 `/review` 两页的可见文本**已经没有低于 12px 的元素**。
+    - 验证：Python `1450 passed`、Vitest `63 passed`、ESLint 与生产构建通过、Playwright 全量通过。
+  - **未做**（按约定分批，见 `docs/ROADMAP.md` W3 的 F19）：其余页面的字号 / 间距 / 交互态收敛（Library·Reader / 低频页）；暗色主题（本轮只把 token 改成可换主题的形状）。
   - 验证：Python `1450 passed`、Vitest `57 → 63 passed`、ESLint 与生产构建通过、Playwright `77 passed / 1 skipped`；`tests/conftest.py` 的 tripwire 确认全量跑前后真实工作区库未变。
 - **题库收口 · 第 1 批（2026-09-11，E18 补齐）**：首轮交付后逐条对照 `QUESTION_BANK_DESIGN.md` §6 的验收条件，发现四处「设计写了、实现没有」的缺口，本批补齐前三处。
   - **筛选轴补全**：`difficulty`（难度）与 `source`（资料，精确匹配）打通 store → service → API → UI；题库页新增题型 / 难度 / 资料三个下拉（复用 `DropdownSelect`），资料列表来自 `bank_overview` 新增的 `by_source`，并补了「清除筛选」。`GET /api/quiz/bank` 的 `qtype` / `difficulty` 改为受校验参数。

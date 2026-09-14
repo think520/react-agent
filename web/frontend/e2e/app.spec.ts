@@ -424,6 +424,19 @@ test("true-false practice uses explicit choices and submits a normalized answer"
   await expect(page.getByRole("radio", { name: /错误/ })).toBeChecked();
   await page.getByRole("button", { name: /提交答案/ }).click();
   expect(submittedAnswer).toBe("false");
+
+  // DESIGN.md §5: the verdict, the feedback and the reference answer are text
+  // the learner actually reads, so none of them may be light and thin small
+  // print (2026-09-14 Practice/Review batch).
+  await expect(page.locator(".answer-feedback")).toBeVisible();
+  const graded = await page.locator(".answer-feedback").evaluate((box) => ({
+    label: parseFloat(getComputedStyle(box.querySelector("strong")!).fontSize),
+    body: parseFloat(getComputedStyle(box.querySelector("p")!).fontSize),
+    answer: parseFloat(getComputedStyle(box.querySelector("small")!).fontSize),
+  }));
+  expect(graded.label).toBeGreaterThanOrEqual(15);
+  expect(graded.body).toBeGreaterThanOrEqual(16);
+  expect(graded.answer).toBeGreaterThanOrEqual(13);
 });
 
 test("reduced motion preserves toggle state and Skills controls stay readable", async ({ page }, testInfo) => {
