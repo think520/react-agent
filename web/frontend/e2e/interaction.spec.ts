@@ -160,3 +160,59 @@ test("a skipped card says it was skipped instead of claiming an answer", async (
   await expect(card).toContainText("未回答");
   await expect(card).not.toContainText("已回答");
 });
+test("every chat label sits at or above the reading floors", async ({ page }) => {
+  await mockShell(page);
+  // The paused card shows the option chips; the answered one shows the bubble
+  // and the answer. Both states have to hold the floors.
+  let session: typeof SESSION_PAUSED = SESSION_PAUSED;
+  await page.route("**/api/chat/sessions/s1", (route) => route.fulfill(json(session)));
+
+  // DESIGN.md §5 floors: helper text >= 12px, and nothing inside a message
+  // may sit under it. This is the ratchet for the 2026-09-14 chat pass, which
+  // found 8.8px timestamps and 9-11px metadata in run summaries and chips.
+  const under12 = () =>
+    page.locator(".conversation").evaluate((root) => {
+      const out: string[] = [];
+      root.querySelectorAll("*").forEach((el) => {
+        const own = Array.from(el.childNodes)
+          .filter((node) => node.nodeType === 3)
+          .map((node) => (node.textContent || "").trim())
+          .join("");
+        if (!own) return;
+        const size = parseFloat(getComputedStyle(el).fontSize);
+        if (size < 12) out.push(`${el.tagName.toLowerCase()}.${el.className} = ${size}px`);
+      });
+      return out;
+    });
+
+  await page.goto("/chat/s1");
+  await expect(page.locator(".ask-user-card")).toBeVisible();
+  await expect(page.locator(".user-message")).toHaveCount(1);
+  expect(await under12()).toEqual([]);
+
+  // Option chips are UI labels, not helper text.
+  const option = await page.locator(".ask-user-options button").first().evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+  expect(option).toBeGreaterThanOrEqual(13);
+
+  // Resolved in place, followed by the answer body.
+  session = SESSION_ANSWERED;
+  await page.reload();
+  await expect(page.locator(".ask-user-card")).toContainText("已回答");
+  expect(await under12()).toEqual([]);
+
+  const bubble = await page.locator(".user-message").first().evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+  expect(bubble).toBeGreaterThanOrEqual(16);
+  const prose = await page.locator(".answer-prose").first().evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+  expect(prose).toBeGreaterThanOrEqual(16);
+
+  // The reading size is the user preference, not a hard-coded pixel value.
+  await page.evaluate(() => document.documentElement.style.setProperty("--body-font-size", "18px"));
+  const bumped = await page.locator(".answer-prose").first().evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+  expect(bumped).toBe(18);
+
+  // Raising the labels must not push the composer toolbar out of its box.
+  if ((page.viewportSize()?.width ?? 0) >= 1280) {
+    const overflow = await page.locator(".composer-toolbar").evaluate((el) => el.scrollWidth - el.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(1);
+  }
+});

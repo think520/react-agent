@@ -85,8 +85,8 @@ describe("DESIGN.md 与 styles.css 的 token 契约", () => {
 
 describe("漂移棘轮（只允许变小）", () => {
   it("低于 12px 的 font-size 数量不超过预算", () => {
-    // 2026-09-14 骨架层落地后：226。每收敛一批就下调。
-    const BUDGET = 226;
+    // 2026-09-14 骨架层落地：226；Chat 页批次后：208。每收敛一批就下调。
+    const BUDGET = 208;
     const sizes = (cssText.match(/font-size:\s*[0-9.]+px/g) ?? []).map((decl: string) =>
       parseFloat(decl.replace(/[^0-9.]/g, "")),
     );
@@ -97,8 +97,8 @@ describe("漂移棘轮（只允许变小）", () => {
   });
 
   it("用裸 ease 关键字的过渡数量不超过预算", () => {
-    // 2026-09-14：16。缓动必须走 var(--ease-*) / var(--spring-*)。
-    const BUDGET = 16;
+    // 2026-09-14：16；Chat 页批次后：15。缓动必须走 var(--ease-*) / var(--spring-*)。
+    const BUDGET = 15;
     const lines = cssText.split(/\r?\n/);
     const bare = lines.filter(
       (line: string) => /transition\s*:|animation\s*:/.test(line) && /(?<!-)\bease\b/.test(line),
@@ -107,8 +107,8 @@ describe("漂移棘轮（只允许变小）", () => {
   });
 
   it("不在 §7 刻度上的 border-radius 数量不超过预算", () => {
-    // 2026-09-14：73。刻度只允许 6 / 8 / 12 / 16，其余进棘轮。
-    const BUDGET = 73;
+    // 2026-09-14：73；Chat 页批次后：69。刻度只允许 6 / 8 / 12 / 16，其余进棘轮。
+    const BUDGET = 69;
     const scale = new Set([0, 6, 8, 12, 16]);
     const offScale = (cssText.match(/border-radius:\s*([0-9]+)px/g) ?? [])
       .map((match: string) => parseInt(match.replace(/\D+/g, ""), 10))
@@ -117,8 +117,8 @@ describe("漂移棘轮（只允许变小）", () => {
   });
 
   it("过渡里的裸毫秒值数量不超过预算", () => {
-    // 2026-09-14：5。时长必须走 var(--dur-*)。
-    const BUDGET = 5;
+    // 2026-09-14：5；Chat 页批次后：4。时长必须走 var(--dur-*)。
+    const BUDGET = 4;
     const rootEnd = cssText.indexOf("\n}", cssText.indexOf(":root {"));
     const body = cssText.slice(rootEnd);
     const bare = body.split(/\r?\n/).filter(

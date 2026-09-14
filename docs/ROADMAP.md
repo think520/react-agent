@@ -149,7 +149,7 @@
 | H-d | @-mention 升级 inline 徽章（CodeMirror chip） | composer；openhanako |
 | H-e | 文档版本 diff 视图（三栏：版本/版本/行级 diff，回滚前先看） | DocumentEditor；openhanako FileHistoryModal |
 | H-f | motion spring 三档预设 + AnimatedList 布局动画（衔接现有 --dur token 体系）——**三档 spring 预设（CSS `linear()`）已在 2026-09-14 落地（`DESIGN.md` §11 / `styles.css`），`AnimatedList` 布局动画仍待做** | ui/；openhanako |
-| F19 | 页面级规格收敛：字号 / 间距 / 交互四态 / 表面分档，按 Chat → Practice·Review → Library·Reader → 低频页 分批，每批同步下调 `designTokens.test.ts` 的棘轮预算 | 各页面 CSS；`DESIGN.md` §5–§7、§16 |
+| F19 | 页面级规格收敛：字号 / 间距 / 交互四态 / 表面分档，按 Chat → Practice·Review → Library·Reader → 低频页 分批，每批同步下调 `designTokens.test.ts` 的棘轮预算（**批次 1 Chat 已完成，见 §2「设计规格层重写」**） | 各页面 CSS；`DESIGN.md` §5–§7、§16 |
 
 **FE-P2（锦上添花）**：F4 断线恢复全家桶（Last-Event-ID 重放+caught_up+看门狗+命令 ACK）、F5 乐观负 id 对账、F15 空态三件套组件化、F16 组件外 -state.ts 纯函数模式 + 架构契约测试、F18 ProgressRing/LevelUp 庆祝动效、ContextRing 复习负载环（H）。
 **体验审查 P2 杂项**：slash/@ 可发现性提示、连续复习多条错题、完成页逐题回顾、来源视图按来源分组、设置保存方式统一、流式不抢滚轮（F7 覆盖）、切资料库不强制跳聊天、空态用路由 Link。
@@ -285,11 +285,12 @@ P5G.3 的产品能力不再整体等待 Electron：Roadmap、复习提醒和部�
 |---|---|---|
 | 规格层（`DESIGN.md`） | 已验证 | §4 颜色改**面积预算**（墨蓝不限、sage/clay 每屏 ≤1 整块、petal ≤2% 视口且须列调用点）；§4 token 表换成代码真实命名并成为唯一真相源；§5 字号下限（辅助 ≥12 / 标签 ≥13 / 正文 16–18）成硬约束；§6 新增间距刻度 4/8/12/16/24/32/48；§7 纸色三档拉开 + `--paper-sunken`、`--shadow-lift`、圆角 6/8/12/16、边框三档；§11 三档 spring（CSS `linear()`，不引 motion 库）+ `scale` 0.96–1.02 与 ≤220ms 布局动画；§14 拆「底线 / 配额」；新增 §16 组件规格与交互四态 |
 | 骨架层（`styles.css`） | 已验证 | 侧栏 / 右栏改 `--paper-sunken`（三级结构第一次显形）、顶栏与右栏 tab active 走 `--shadow-lift`、导航与按钮补 hover 抬升与 spring 按压、圆角与间距开始走 token、shell 一层 10 处 10–11px 标签提到 12px、`--muted` / `--faint` 加深（正文对比度同时改善） |
+| F19 批次 1（Chat 页） | 已验证 | 起点是实测的 8.8px 时间戳、9–11px 的 chip 与来源元数据、10px 的编排器下拉、12.5px 的选项 chip。收敛后 **Chat 页再无低于 12px 的文本**（71 个文本节点逐个取计算样式）：字号改走 §5 下限、间距与圆角改走 `--space-*` / `--radius-*`、`.assistant-message` 48→32 与 `.user-message-wrap` 34→24 收紧行距、下拉菜单的旧纸色写死值换成 `var(--paper-soft)`、chip 与菜单补齐 hover/按压/选中四态。回归：`e2e/interaction.spec.ts` 新增逐节点字号下限断言（未作答卡与已作答两态、三视口）。棘轮：<12px 226→208、裸 `ease` 16→15、脱轨圆角 73→69、裸毫秒 5→4 |
 | 防漂移 | 已验证 | 新增 `web/frontend/src/lib/designTokens.test.ts`：文档 ↔ 代码 token 一致性（含反向检查）+ 四条棘轮（<12px 字号 ≤226、裸 `ease` ≤16、脱轨圆角 ≤73、裸毫秒 ≤5），只允许下调；已实测能抓到人为漂移 |
 
 验证：Python `1450 passed`（tripwire 确认真实工作区库未动）、Vitest `63 passed`、ESLint 与生产构建通过、Playwright `77 passed / 1 skipped`。
 
-**未做**：其余页面的字号 / 间距 / 交互态收敛（F19 分批）；暗色主题——本轮只把 token 改成可换主题的形状，并补上文档里已预留但一直没实现的 `[data-theme]` 钩子。
+**批次 1（Chat 页）已随本轮完成**，见上表末行；其余页面的字号 / 间距 / 交互态收敛仍按 F19 分批（Practice·Review → Library·Reader → 低频页）。暗色主题未做——本轮只把 token 改成可换主题的形状，并补上文档里已预留但一直没实现的 `[data-theme]` 钩子。
 
 ### 单项完成定义
 

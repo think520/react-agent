@@ -16,7 +16,14 @@
   - **§14 拆成「底线」与「配额」**，新增 **§16 组件规格与交互四态**：静置 / hover / active / focus-visible / disabled 四态表 + 逐组件规格表（页面容器、停靠栏、顶栏、卡片、列表行、主次要按钮、图标按钮、输入框、chip、状态块、浮层、弹窗抽屉）。
   - **骨架层落地**：侧栏与右栏改用 `--paper-sunken`（三级结构第一次显形）、顶栏与右栏 tab 的 active 走 `--shadow-lift`、导航与按钮补 hover 抬升与 spring 按压、圆角与间距开始引用 token、shell 一层 10 处 10–11px 标签提到 12px、`--muted` / `--faint` 拉开并加深（正文对比度同时改善）。
   - **防漂移**：新增 `web/frontend/src/lib/designTokens.test.ts` ——文档 ↔ 代码 token 一致性（含「代码里属于规格命名空间的 token 必须写进文档」的反向检查）+ 三条棘轮（<12px 字号 ≤226、裸 `ease` ≤16、不在 §7 刻度上的圆角 ≤73、过渡里的裸毫秒 ≤5），只允许下调。已实测：故意把文档里的 `--paper` 改成 `#f5f4ee`，测试精确报出 `--paper: 文档 #f5f4ee / 代码 #f5f4ed`。
-  - **未做**（按约定分批，见 `docs/ROADMAP.md` W3 的 F19）：其余页面的字号 / 间距 / 交互态收敛；暗色主题（本轮只把 token 改成可换主题的形状）。
+  - **F19 批次 1 · Chat 页（2026-09-14）**：按新规格收敛 Chat 面。实测起点：一条消息里塞着 8.8px 的时间戳（`<small>` 在 11px 的 `.run-summary` 里按 0.8em 缩）、9–11px 的 `personalization-chip` 与来源 chip、10px 的编排器下拉与输入提示、12.5px 的选项 chip。
+    - **字号**：`.run-summary` 11→12、`personalization-chip` 9/10/11→12、`.source-chip` 11→12、`.composer-hint` 10→12、选项 chip 12.5→13、下拉触发器 10→13（菜单项 11→13、分组标题 9→12、`.dropdown-item small` 9→12）；正文侧 `.user-message` 15→16、`practice-ready-card p` 12→13、`.answer-prose table` 14→`var(--body-font-size)`。实测结果：**Chat 页正文与辅助文字最小 12px，不再有低于下限的元素**（审计脚本对 71 个文本节点逐个取计算样式）。
+    - **密度**：`.assistant-message` 48→32、`.user-message-wrap` 34→24、`.conversation` 内边距 44/30→32/24、`.source-row` 18→16、`answer-actions` 14→16，全部改走 `--space-*`；圆角全部改走 `--radius-*`（含原先 4px/7px 的越轨值），`.dropdown-panel` 那处写死的旧纸色 `rgba(247,245,239,.98)` 换成 `var(--paper-soft)`。
+    - **交互态**：`.source-chip` 的 `ease` 换成 `var(--ease-out)`，按压改用 `var(--spring-micro)`；下拉触发器/菜单项补 transition，选项 chip 选中态补 `--shadow-lift`。
+    - **回归测试**：`e2e/interaction.spec.ts` 新增「每一个 Chat 文案都在字号下限之上」——同一会话的**未作答卡与已作答两种状态**都逐节点扫描（低于 12px 就把元素与像素值列出来）、选项 chip ≥13、气泡与答案正文 ≥16、把 `--body-font-size` 调到 18px 后正文跟着变、宽视口下编排器工具条不溢出。三视口通过。
+    - 棘轮同步下调：<12px 字号 226→**208**、裸 `ease` 16→**15**、脱轨圆角 73→**69**、裸毫秒 5→**4**。
+    - 验证：Python `1450 passed`、Vitest `63 passed`、ESLint 与生产构建通过、Playwright 全量通过。
+  - **未做**（按约定分批，见 `docs/ROADMAP.md` W3 的 F19）：其余页面的字号 / 间距 / 交互态收敛（Practice·Review / Library·Reader / 低频页）；暗色主题（本轮只把 token 改成可换主题的形状）。
   - 验证：Python `1450 passed`、Vitest `57 → 63 passed`、ESLint 与生产构建通过、Playwright `77 passed / 1 skipped`；`tests/conftest.py` 的 tripwire 确认全量跑前后真实工作区库未变。
 - **题库收口 · 第 1 批（2026-09-11，E18 补齐）**：首轮交付后逐条对照 `QUESTION_BANK_DESIGN.md` §6 的验收条件，发现四处「设计写了、实现没有」的缺口，本批补齐前三处。
   - **筛选轴补全**：`difficulty`（难度）与 `source`（资料，精确匹配）打通 store → service → API → UI；题库页新增题型 / 难度 / 资料三个下拉（复用 `DropdownSelect`），资料列表来自 `bank_overview` 新增的 `by_source`，并补了「清除筛选」。`GET /api/quiz/bank` 的 `qtype` / `difficulty` 改为受校验参数。
