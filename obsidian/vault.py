@@ -23,8 +23,13 @@ def _hash_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def scan_vault(vault_path: str) -> list[ScannedNote]:
-    """Scan a vault directory and parse all Markdown notes."""
+def scan_vault(vault_path: str, errors: list[str] | None = None) -> list[ScannedNote]:
+    """Scan a vault directory and parse all Markdown notes.
+
+    P0-12: unreadable directories and files are reported through `errors`
+    rather than disappearing, because the sync treats a source it cannot see
+    as deleted.
+    """
     notes: list[ScannedNote] = []
     vault_path = os.path.abspath(vault_path)
     portable_library = os.path.isfile(os.path.join(vault_path, "BOBODAN_LIBRARY.yaml"))
@@ -46,7 +51,11 @@ def scan_vault(vault_path: str) -> list[ScannedNote]:
         except (OSError, json.JSONDecodeError):
             pass
 
-    for root, dirs, files in os.walk(vault_path):
+    def _on_error(exc: OSError) -> None:
+        if errors is not None:
+            errors.append(f"{getattr(exc, 'filename', vault_path)}: {exc}")
+
+    for root, dirs, files in os.walk(vault_path, onerror=_on_error):
         dirs[:] = [
             name for name in dirs
             if name not in SKIP_DIRS
@@ -67,6 +76,10 @@ def scan_vault(vault_path: str) -> list[ScannedNote]:
             except UnicodeDecodeError:
                 with open(abs_path, "r", encoding="utf-8-sig") as f:
                     content = f.read()
+            except OSError as exc:
+                if errors is not None:
+                    errors.append(f"{rel_path}: {exc}")
+                continue
 
             parsed = parse_markdown_note(content, rel_path)
             notes.append(

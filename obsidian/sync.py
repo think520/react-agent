@@ -15,6 +15,7 @@ import logging
 import os
 from dataclasses import dataclass, field
 
+from core.atomic_io import atomic_write_json
 from knowledge.documents import DocumentRecord, build_document_records
 from knowledge.import_report import ImportReport, save_import_report
 from knowledge.manifest import save_manifest
@@ -77,9 +78,49 @@ def _load_state(workspace: str) -> dict:
         return json.load(f)
 
 
-def _save_state(workspace: str, files: dict) -> None:
-    with open(_state_path(workspace), "w", encoding="utf-8") as f:
-        json.dump({"version": 1, "files": files}, f, ensure_ascii=False, indent=2)
+def _save_state(workspace: str, files: dict, missing: dict | None = None) -> None:
+    state = {"version": 1, "files": files}
+    if missing:
+        # P0-12: remember how often a source has been missing so a single
+        # failed scan cannot trigger deletion.
+        state["missing"] = missing
+    atomic_write_json(_state_path(workspace), state)
+
+
+# P0-12: consecutive scans that must miss a source before it is deleted.
+DELETION_CONFIRMATIONS = 2
+
+
+def _resolve_deletions(
+    old_state: dict,
+    new_state: dict,
+    previous_missing: dict,
+    *,
+    scan_failed: bool,
+) -> tuple[list[str], dict[str, int]]:
+    """Decide which sources are really gone (P0-12).
+
+    A network share that blinks, a permission change or an unreadable
+    directory all make files vanish from `new_state`, and the delete branch
+    cascades through documents, chunks, vectors and concept evidence. So a
+    source must be missing in DELETION_CONFIRMATIONS consecutive scans, and a
+    scan that reported errors never deletes anything.
+    """
+    deleted: list[str] = []
+    pending: dict[str, int] = {}
+    for source in old_state:
+        if source in new_state:
+            continue
+        seen = int(previous_missing.get(source, 0) or 0)
+        if scan_failed:
+            pending[source] = seen
+            continue
+        count = seen + 1
+        if count >= DELETION_CONFIRMATIONS:
+            deleted.append(source)
+        else:
+            pending[source] = count
+    return sorted(deleted), pending
 
 
 def _stable_hash(text: str) -> str:
@@ -87,11 +128,24 @@ def _stable_hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
-def _scan_course_files(root_dir: str) -> list[tuple[str, str, str]]:
-    """Return supported course files as (relative source, path, content hash)."""
+def _scan_course_files(
+    root_dir: str,
+    errors: list[str] | None = None,
+) -> list[tuple[str, str, str]]:
+    """Return supported course files as (relative source, path, content hash).
+
+    P0-12: unreadable directories and files are recorded in `errors` instead of
+    being swallowed, because a file that only *looks* absent must never be
+    treated as deleted.
+    """
     root_dir = os.path.abspath(root_dir)
     files = []
-    for root, dirs, filenames in os.walk(root_dir):
+
+    def _on_error(exc: OSError) -> None:
+        if errors is not None:
+            errors.append(f"{getattr(exc, 'filename', root_dir)}: {exc}")
+
+    for root, dirs, filenames in os.walk(root_dir, onerror=_on_error):
         dirs[:] = [
             name for name in dirs
             if name not in _COURSE_SKIP_DIRS and not name.startswith(".")
@@ -103,8 +157,13 @@ def _scan_course_files(root_dir: str) -> list[tuple[str, str, str]]:
             relative = os.path.relpath(path, root_dir).replace(os.sep, "/")
             if os.path.basename(os.path.normpath(root_dir)) == "raw" and relative == "README.md":
                 continue
-            with open(path, "rb") as handle:
-                content_hash = hashlib.sha256(handle.read()).hexdigest()
+            try:
+                with open(path, "rb") as handle:
+                    content_hash = hashlib.sha256(handle.read()).hexdigest()
+            except OSError as exc:
+                if errors is not None:
+                    errors.append(f"{relative}: {exc}")
+                continue
             source = relative
             files.append((source, path, content_hash))
     return sorted(files, key=lambda item: item[0].casefold())
@@ -114,7 +173,10 @@ def _course_prefix(root_dir: str, default: str) -> str:
     return "managed" if os.path.basename(os.path.normpath(root_dir)) == "sources" else default
 
 
-def _scan_library_root(root_dir: str) -> list[tuple[str, str, str]]:
+def _scan_library_root(
+    root_dir: str,
+    errors: list[str] | None = None,
+) -> list[tuple[str, str, str]]:
     """Scan a portable library root for materials of every supported format.
 
     The whole folder is the user-facing "throw files in here" directory
@@ -130,7 +192,12 @@ def _scan_library_root(root_dir: str) -> list[tuple[str, str, str]]:
     """
     root_dir = os.path.abspath(root_dir)
     files: list[tuple[str, str, str]] = []
-    for root, dirs, filenames in os.walk(root_dir):
+
+    def _on_error(exc: OSError) -> None:
+        if errors is not None:
+            errors.append(f"{getattr(exc, 'filename', root_dir)}: {exc}")
+
+    for root, dirs, filenames in os.walk(root_dir, onerror=_on_error):
         dirs[:] = [
             name for name in dirs
             if name not in _LIBRARY_INTERNAL_DIRS and not name.startswith(".")
@@ -151,8 +218,13 @@ def _scan_library_root(root_dir: str) -> list[tuple[str, str, str]]:
                 continue
             if relative == "README.md":
                 continue
-            with open(path, "rb") as handle:
-                content_hash = hashlib.sha256(handle.read()).hexdigest()
+            try:
+                with open(path, "rb") as handle:
+                    content_hash = hashlib.sha256(handle.read()).hexdigest()
+            except OSError as exc:
+                if errors is not None:
+                    errors.append(f"{relative}: {exc}")
+                continue
             files.append((relative, path, content_hash))
     return sorted(files, key=lambda item: item[0].casefold())
 
@@ -168,13 +240,20 @@ def sync_sources(
     """Parse source files, rebuild RAG index (SQLite + Qdrant), and sync graph."""
     config = config or {}
     knowledge_dir = _knowledge_dir(workspace)
-    old_state = _load_state(workspace).get("files", {})
+    state = _load_state(workspace)
+    old_state = state.get("files", {})
+    previous_missing = state.get("missing", {}) or {}
     new_state: dict[str, str] = {}
     errors: list[dict] = []
+    # P0-12: anything the scan could not read lands here, and any error
+    # suppresses deletion for this run (absence is not evidence when the scan
+    # itself is incomplete).
+    scan_errors: list[str] = []
 
     # ── Step 1: Scan vault ──────────────────────────────────────────────
     from .vault import scan_vault
-    notes = scan_vault(vault_path)
+
+    notes = scan_vault(vault_path, errors=scan_errors)
 
     # ── Step 2: Determine which files changed ───────────────────────────
     changed_sources: list[tuple[str, str, str, str]] = []  # (source, abs_path, content_hash, kind)
@@ -201,13 +280,21 @@ def sync_sources(
         # markdown-inclusive course scan.
         portable_root = os.path.isfile(os.path.join(root_dir, "BOBODAN_LIBRARY.yaml"))
         scanner = _scan_library_root if portable_root else _scan_course_files
-        for relative_source, path, content_hash in scanner(root_dir):
+        for relative_source, path, content_hash in scanner(root_dir, scan_errors):
             source = f"{prefix}/{relative_source}"
             new_state[source] = content_hash
             if mode == "full" or old_state.get(source) != content_hash:
                 changed_sources.append((source, path, content_hash, "course_document"))
 
-    deleted_sources = [s for s in old_state if s not in new_state]
+    # P0-12: confirm deletions across scans and never delete on a failed scan.
+    deleted_sources, pending_missing = _resolve_deletions(
+        old_state,
+        new_state,
+        previous_missing,
+        scan_failed=bool(scan_errors),
+    )
+    for scan_error in scan_errors[:5]:
+        errors.append({"source": "", "error": f"扫描不完整：{scan_error}"})
 
     # ── Step 3: Initialize stores ───────────────────────────────────────
     from rag.sqlite_store import KBSQLiteStore
@@ -435,7 +522,7 @@ def sync_sources(
     graph_store_path = None
 
     # ── Step 7: Save state ──────────────────────────────────────────────
-    _save_state(workspace, new_state)
+    _save_state(workspace, new_state, pending_missing)
 
     updated_files = len(changed_sources) + len(deleted_sources)
     if mode == "full":
