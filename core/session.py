@@ -5,6 +5,8 @@ from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from typing import Optional
 
+from core.atomic_io import atomic_write_json
+
 
 @dataclass
 class Session:
@@ -109,8 +111,11 @@ class Session:
         self._trim_messages()
 
     def save_to_file(self, path: str) -> None:
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(asdict(self), f, ensure_ascii=False, indent=2)
+        # P1-8: temp file + fsync + replace under a per-path lock. A bare
+        # open(path, "w") could be observed half-written (two tabs, or a crash
+        # mid-save); preferences and the library registry already used the
+        # atomic pattern, the session file was the last bare JSON write left.
+        atomic_write_json(path, asdict(self))
 
     @staticmethod
     def load_from_file(path: str) -> "Session":

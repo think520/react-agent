@@ -23,6 +23,7 @@ import os
 from datetime import datetime, timezone
 from typing import Any
 
+from core.atomic_io import atomic_write_json, atomic_write_text
 from service._result import err as _err, ok as _ok
 
 EDITABLE_KINDS = frozenset({"md", "txt", "markdown", "course_document", "obsidian_note"})
@@ -236,8 +237,7 @@ class DocumentEditService:
         })
         # Keep only the last MAX_VERSIONS snapshots + manifest entries.
         versions = versions[-MAX_VERSIONS:]
-        with open(manifest_path, "w", encoding="utf-8") as handle:
-            json.dump({"versions": versions}, handle, ensure_ascii=False, indent=2)
+        atomic_write_json(manifest_path, {"versions": versions})
         self._prune_old_snapshots(doc_dir, {v["id"] for v in versions})
 
     @staticmethod
@@ -254,5 +254,6 @@ class DocumentEditService:
         directory = os.path.dirname(path)
         if directory and not os.path.isdir(directory):
             os.makedirs(directory, exist_ok=True)
-        with open(path, "w", encoding="utf-8") as handle:
-            handle.write(content)
+        # P0-13: raw/ is the immutable evidence layer, so a failed write must not
+        # truncate the user original - temp file, fsync, replace.
+        atomic_write_text(path, content)

@@ -312,7 +312,7 @@ P5G.3 的产品能力不再整体等待 Electron：Roadmap、复习提醒和部�
 | 中文 token 估算 | P0-7 | `core/token_budget.py` 唯一估算器：宽字符 ≥ `0x2E80` 记 1.2/字（实测 1.16），其余保留历史 1/4（实测 1/6，偏高即安全） | 已验证 |
 | 删概念 500 | P0-11 | 在 store 层一个事务里先删关系与其证据、再删布局位置、最后删概念（对所有调用方生效） | 已验证 |
 | 删除确认 | P0-12 | 连续两轮未扫到才判删，扫描异常不判删 | 待做 |
-| 原子写地基 | P0-13 + P1-8 | 公共原子写模块（temp + fsync + replace，Windows 退避），会话 / 原文 / manifest 统一 | 待做 |
+| 原子写地基 | P0-13 + P1-8 | 新增 `core/atomic_io.py`（temp + fsync + replace + Windows `PermissionError` 退避 + 每次路径锁 + workspace 跨进程锁），会话 / 原文 / 版本 manifest 统一走它 | 已验证 |
 | Qdrant 生命周期 | P0-15 | client 收敛到检索缓存管线唯一持有，`sync` 复用 | 待做 |
 | 读改写串行化 | P1-14 | 一律 `BEGIN IMMEDIATE` | 待做 |
 | chunk_id 稳定性 | P1-21 | grep 命中 id 改用 `_stable_hash`，并加跨进程回归测试 | 已验证 |
