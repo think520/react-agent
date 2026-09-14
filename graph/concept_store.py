@@ -267,7 +267,28 @@ class ConceptStore:
         return [_row_to_concept(r) for r in rows]
 
     def delete_concept(self, concept_id: str) -> bool:
+        """Delete a concept and everything that only exists because of it.
+
+        P0-11: `relationships.from_id/to_id` reference concepts without an
+        ON DELETE action while `PRAGMA foreign_keys` is ON, so deleting a
+        concept that appeared in any relationship raised FOREIGN KEY
+        constraint failed and the API answered 500. Doing it here (not in the
+        service) keeps every caller — API, wiki flows, tests — on one path.
+
+        P1-27: `concept_positions` has no foreign key at all, so its rows used
+        to outlive the concept.
+        """
         with self._connect() as con:
+            # evidence rows cascade from the relationship (rel_id FK), so
+            # removing the relationship is enough for both tables.
+            con.execute(
+                "DELETE FROM relationships WHERE from_id = ? OR to_id = ?",
+                (concept_id, concept_id),
+            )
+            con.execute(
+                "DELETE FROM concept_positions WHERE concept_id = ?",
+                (concept_id,),
+            )
             cur = con.execute(
                 "DELETE FROM concepts WHERE concept_id = ?", (concept_id,)
             )

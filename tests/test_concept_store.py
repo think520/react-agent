@@ -159,6 +159,39 @@ def test_relationships_for_concept_both_directions(store):
     assert len(rels_b) == 1
 
 
+def test_delete_concept_with_relationships(store):
+    """P0-11: a concept that appears in any relationship could not be deleted.
+
+    `relationships.from_id/to_id` reference `concepts(concept_id)` without an
+    ON DELETE action, `PRAGMA foreign_keys` is ON, so deleting such a concept
+    raised FOREIGN KEY constraint failed -> the API answered 500.
+    """
+    a = store.upsert_concept(name="概念甲", level="core")
+    b = store.upsert_concept(name="概念乙", level="core")
+    rel = store.upsert_relationship(from_id=a["concept_id"], to_id=b["concept_id"], rel_type="对比")
+
+    assert store.delete_concept(a["concept_id"]) is True
+
+    # the relationship goes with it, and the other concept survives
+    assert store.get_relationship(rel["rel_id"]) is None
+    assert store.relationships_for_concept(b["concept_id"]) == []
+    assert store.get_concept(b["concept_id"]) is not None
+
+
+def test_delete_concept_drops_its_layout_position(store):
+    """P1-27: the layout row used to survive the concept (no FK on it)."""
+    a = store.upsert_concept(name="待删概念", level="core")
+    store.save_positions([{"concept_id": a["concept_id"], "x": 12.0, "y": 34.0}])
+
+    assert store.delete_concept(a["concept_id"]) is True
+
+    with store._connect() as con:
+        rows = con.execute(
+            "SELECT COUNT(*) FROM concept_positions WHERE concept_id = ?",
+            (a["concept_id"],),
+        ).fetchone()
+    assert rows[0] == 0
+
 def test_delete_relationship(store):
     a, b = _two_concepts(store)
     rel = store.upsert_relationship(from_id=a["concept_id"], to_id=b["concept_id"], rel_type="对比")
