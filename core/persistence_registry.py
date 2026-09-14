@@ -30,6 +30,13 @@ STORES: dict[str, dict[str, Any]] = {
         "rebuildable": True,  # re-indexed from original materials
         "purpose": "RAG truth source: documents, chunks, FTS index, retrieval records",
     },
+    "events.db": {
+        "owner": "core/event_log.py",
+        "scope": "library",
+        "format": "sqlite",
+        "rebuildable": True,  # reconnect log; losing it only costs a re-render
+        "purpose": "Append-only SSE event log for reconnect replay (P1-17)",
+    },
     "bobodan.db": {
         "owner": "memory/personal_store.py",
         "scope": "library",

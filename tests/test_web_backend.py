@@ -72,9 +72,10 @@ def test_health_endpoint(backend_client):
 
 
 def test_stream_replay_endpoint_returns_frames_after_cursor(backend_client):
-    from web.backend.sse import get_default_stream_store
+    # P1-17: the endpoint reads the workspace-bound, persisted store.
+    from web.backend.sse import get_stream_store
 
-    store = get_default_stream_store()
+    store = get_stream_store(backend_client.workspace)
     stream_id = "replay-test-stream"
     store.clear(stream_id)
     store.append(stream_id, "message_delta", {"content": "hello"})
@@ -90,6 +91,24 @@ def test_stream_replay_endpoint_returns_frames_after_cursor(backend_client):
     assert '"seq": 1' not in body
     assert stream_id in body
 
+
+def test_replay_survives_a_store_restart(backend_client):
+    """P1-17: the frames used to live in a process-local buffer that every run
+    cleared in its finally, so a reconnect could never replay anything."""
+    from web.backend import sse
+
+    stream_id = "restart-test-stream"
+    store = sse.get_stream_store(backend_client.workspace)
+    store.append(stream_id, "run_started", {"run_id": "r1"})
+    store.append(stream_id, "message_delta", {"content": "半句"})
+
+    # simulate a fresh process for this workspace
+    sse._stores.clear()
+
+    response = backend_client.get(f"/api/chat/streams/{stream_id}/replay")
+    assert response.status_code == 200
+    assert "半句" in response.text
+    assert "\"seq\": 2" in response.text
 
 def test_stream_replay_endpoint_empty_when_unknown(backend_client):
     response = backend_client.get("/api/chat/streams/does-not-exist/replay")

@@ -63,7 +63,7 @@ from web.backend.schemas import (
     WikiPlanApplyRequest,
     WikiPlanRecoveryRequest,
 )
-from web.backend.sse import StreamEmitter, encode_sse, get_default_stream_store, iterate_on_stream_lane
+from web.backend.sse import StreamEmitter, encode_sse, get_stream_store, iterate_on_stream_lane
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -1374,16 +1374,22 @@ def restore_chat_wiki_checkpoint(
 
 
 @router.get("/streams/{stream_id}/replay")
-def replay_stream(stream_id: str, after_seq: int = 0) -> StreamingResponse:
+def replay_stream(stream_id: str, request: Request, after_seq: int = 0) -> StreamingResponse:
     """Replay buffered SSE frames for a stream after a sequence cursor.
 
     Used by the client on reconnect (AG-0.3): it resumes from streamId + seq
     without re-rendering already-consumed events.
     """
-    store = get_default_stream_store()
+    store = get_stream_store(get_request_workspace(request))
+    # `Last-Event-ID` is what an EventSource sends on reconnect; the fetch-based
+    # client passes after_seq explicitly. Honour whichever is further ahead.
+    header_cursor = request.headers.get("last-event-id", "")
+    cursor = after_seq
+    if header_cursor.strip().isdigit():
+        cursor = max(cursor, int(header_cursor.strip()))
 
     def frames():
-        for frame in store.replay(stream_id, after_seq):
+        for frame in store.replay(stream_id, cursor):
             yield encode_sse(
                 frame["event"],
                 {**frame["data"], "seq": frame["seq"], "stream_id": stream_id},
@@ -1518,7 +1524,11 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
     )
     run_id = str(uuid.uuid4())
     stream_id = str(uuid.uuid4())
-    emitter = StreamEmitter(get_default_stream_store(), stream_id)
+    # P1-17: a workspace-bound store persists frames, so a reconnect - even
+    # after the run ended or the server restarted - can still replay them.
+    stream_store = get_stream_store(workspace)
+    stream_store.prune()  # retention replaces the old clear-on-finish
+    emitter = StreamEmitter(stream_store, stream_id)
     response_policies = []
     if _requires_local_evidence(
         body.message,
@@ -1647,7 +1657,6 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
                             "message": "The conversation could not be saved.",
                         },
                     })
-                    emitter.clear()
                     return
 
             yield emitter.emit("run_completed", {
@@ -1671,8 +1680,10 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
                 persist_session()
             except Exception:
                 logger.exception("Failed to persist chat session after stream interruption")
-            # Turn ended: clear the replay buffer so it cannot grow forever.
-            emitter.clear()
+            # P1-17: deliberately do NOT clear here. The old code wiped the log
+            # at the end of every turn - including on disconnect - which is the
+            # opposite of what replay needs. Growth is bounded by the retention
+            # policy applied when the next run starts (stream_store.prune()).
 
     # Pump the blocking producer on the dedicated SSE lane: without it,
     # Starlette borrows a shared request-pool thread per blocked next() and

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 from collections import deque
 from collections.abc import AsyncIterator, Iterator
@@ -114,19 +115,30 @@ class StreamBuffer:
 
 
 class StreamStore:
-    """Thread-safe map of stream_id -> StreamBuffer (AG-0.3)."""
+    """Thread-safe map of stream_id -> StreamBuffer (AG-0.3).
 
-    def __init__(self) -> None:
+    P1-17: when an EventLog is attached the events are persisted and the store
+    reads them back from there. The in-memory buffer then plays no part - which
+    is deliberate, because a buffer that keeps its own counter would hand out
+    seq numbers that disagree with the log after a restart.
+    """
+
+    def __init__(self, log: Any = None) -> None:
         self._lock = threading.RLock()
         self._buffers: dict[str, StreamBuffer] = {}
+        self._log = log
 
     def append(self, stream_id: str, event: str, data: Any) -> int:
         with self._lock:
+            if self._log is not None:
+                return self._log.append(stream_id, event, data)
             buffer = self._buffers.setdefault(stream_id, StreamBuffer())
             return buffer.append(event, data)
 
     def replay(self, stream_id: str, after_seq: int = 0) -> list[dict]:
         with self._lock:
+            if self._log is not None:
+                return self._log.read_after(stream_id, after_seq)
             buffer = self._buffers.get(stream_id)
             if buffer is None:
                 return []
@@ -135,10 +147,22 @@ class StreamStore:
     def clear(self, stream_id: str) -> None:
         with self._lock:
             self._buffers.pop(stream_id, None)
+        if self._log is not None:
+            self._log.clear(stream_id)
+
+    def prune(self) -> int:
+        """Apply the retention policy (P1-17 replaced clear-on-finish with it)."""
+        if self._log is None:
+            return 0
+        return self._log.prune()
 
     def has(self, stream_id: str) -> bool:
         with self._lock:
-            return stream_id in self._buffers
+            if stream_id in self._buffers:
+                return True
+        if self._log is not None:
+            return self._log.max_seq(stream_id) > 0
+        return False
 
 
 class StreamEmitter:
@@ -157,8 +181,29 @@ class StreamEmitter:
 
 
 _default_store = StreamStore()
+_stores: dict[str, StreamStore] = {}
+_stores_lock = threading.Lock()
 
 
 def get_default_stream_store() -> StreamStore:
     """Return the process-wide stream store used for reconnect replay."""
     return _default_store
+
+
+def get_stream_store(workspace: str | None = None) -> StreamStore:
+    """Store for one workspace; with a workspace its events are persisted.
+
+    P1-17: the reconnect path is only real if the frames outlive the run and
+    the process, so production callers pass the workspace.
+    """
+    if not workspace:
+        return _default_store
+    key = os.path.normcase(os.path.abspath(workspace))
+    with _stores_lock:
+        store = _stores.get(key)
+        if store is None:
+            from core.event_log import EventLog
+
+            store = StreamStore(log=EventLog(workspace))
+            _stores[key] = store
+        return store
