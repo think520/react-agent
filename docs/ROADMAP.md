@@ -315,7 +315,7 @@ P5G.3 的产品能力不再整体等待 Electron：Roadmap、复习提醒和部�
 | 原子写地基 | P0-13 + P1-8 | 公共原子写模块（temp + fsync + replace，Windows 退避），会话 / 原文 / manifest 统一 | 待做 |
 | Qdrant 生命周期 | P0-15 | client 收敛到检索缓存管线唯一持有，`sync` 复用 | 待做 |
 | 读改写串行化 | P1-14 | 一律 `BEGIN IMMEDIATE` | 待做 |
-| chunk_id 稳定性 | P1-21 | Python `hash()` → `_stable_hash` | 待做 |
+| chunk_id 稳定性 | P1-21 | grep 命中 id 改用 `_stable_hash`，并加跨进程回归测试 | 已验证 |
 | reset 一致性 | P1-28 | `/kb reset` 清理 `manifest.json` | 待做 |
 
 #### 批次二 · 接线（已定方案，批次一完成后开始）

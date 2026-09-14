@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from rag.schema import RetrievalHit, DocumentHit
+from rag.sqlite_store import _stable_hash
 
 logger = logging.getLogger(__name__)
 
@@ -345,7 +346,9 @@ def _matches_to_hits(
     hits = []
     for m in matches:
         hits.append(RetrievalHit(
-            chunk_id=f"grep:{m.document_id}:{hash(m.match_context) & 0xFFFFFFFF:08x}",
+            # P1-21: `hash()` is salted per process, so these ids used to change
+            # on every restart and wrong-answer variants lost their source lookup.
+            chunk_id=f"grep:{m.document_id}:{_stable_hash(m.match_context)}",
             document_id=m.document_id,
             source=m.source,
             text=m.text,

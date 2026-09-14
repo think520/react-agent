@@ -172,6 +172,9 @@
 - **A4 止血 · P0-11 删概念 500（2026-09-14）**：`relationships.from_id/to_id` 引用 `concepts(concept_id)` 却没有 `ON DELETE` 动作，而 `PRAGMA foreign_keys` 是开的（实测确认为 1），于是**只要这个概念在关系里出现过**（确认过候选、手建过关系必然如此）删除就会抛 `FOREIGN KEY constraint failed`，`service/concept_service.py::delete_concept` 没有 try/except，用户侧就是 500——概念删不掉。有意思的是同一张 schema 里 `evidence.rel_id` 写了 `ON DELETE CASCADE`，说明作者会用级联，只是漏了这两处。
   - 复现：`tests/test_concept_store.py` 新增两条（删带关系的概念、删概念同时清理布局位置）。**修前失败信号**：`sqlite3.IntegrityError: FOREIGN KEY constraint failed`（用原始 SQL 探针复现，确认 `foreign_keys = 1`）。
   - 修法：在 `ConceptStore.delete_concept` 里一个事务内先删关系（其 evidence 由已有的 `rel_id` 级联带走）、再删无外键的 `concept_positions`、最后删概念。放在 store 而不是 service，是为了让 API、Wiki 流程与测试走同一条路径。
+- **A4 止血 · P1-21 grep chunk_id 跨进程不稳定（2026-09-14）**：`rag/grep_retriever.py::_matches_to_hits` 用 Python 内置 `hash()` 生成 `grep:<doc>:<8hex>`。`hash()` 对字符串按进程随机加盐，**重启后同一段原文的 id 就变了**，而错题变式正是按 `chunk_id` 回原文定位——表现为「练习里引用得到、重启后找不到」。
+  - 复现：新增 `tests/test_grep_chunk_id.py`，用两个不同 `PYTHONHASHSEED` 的子进程各算一次 id 并比对。**修前失败信号**：`grep:doc-1:968c90e5 != grep:doc-1:65b66b45`。
+  - 修法：改用 `rag/sqlite_store.py` 里已有的 `_stable_hash`（sha256 前 16 位），id 形态变为 `grep:<doc>:<16hex>`。
 - **阅读器章节目录关不掉（2026-09-14，用户反馈）**：点章节导轨的 ✕ 之后它会立刻弹回来。原因是关闭动作会在指针底下挂出 64px 的触发带（`.chapter-rail-zone`），而浏览器在光标底下的元素变化时会重算 hover 并补发 `mouseenter`——于是这次的 `setRailOpen(false)` 被它自己引发的事件撤销了，注释里「关闭时触发带不存在」的假设在 Blink 上不成立。改为记住关闭发生的位置，来自**同一坐标**（±8px）的那次 hover 直接忽略，指针离开触发带即解除。回归测试 `e2e/app.spec.ts`「the chapter rail dismisses and does not re-open under the same pointer」先复现（旧代码报 `Expected: 0, Received: 1`）再验证修复，同时钉住「离开后再靠近仍然能唤出」这条正向行为。
 - Wiki 默认区分“知识页 / 资料索引 / 个人笔记”，资料索引不再与概念页混排或显示为 `obsidian_note`；新生成的资料索引限制为短摘要、学习地图和关键结论，不再逐章复刻原文，已有页面可通过“AI 更新当前页”生成需确认的更新计划。耗时与 Token 估算改用同 Provider、同模型的真实请求样本并显示可信度，完成计划展示本轮实际用量、Provider 缓存和 Bobodan 本地缓存。
 - Wiki 取消现在会在每次模型请求前重新检查停止标记，不再继续执行同一批次内尚未发出的请求；刷新过的旧会话即使 artifact 与 plan 状态不一致，也会继续轮询并收敛为“已取消”。缺少 `summary / changes` 的中断记录按空计划安全显示，不再导致整个 Chat 页面白屏。
