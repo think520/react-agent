@@ -12,9 +12,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.token_budget import estimate_tokens  # P0-7: one shared estimator
+
 DEFAULT_TOKEN_BUDGET = 1500
-# Coarse CJK/latin-mixed heuristic: ~1 token per 4 characters.
-CHARS_PER_TOKEN = 4
 
 _MARKER = "<!-- bobodan:confirmed-personal-knowledge -->"
 _PREFIX = (
@@ -22,13 +22,6 @@ _PREFIX = (
     "mastery summaries. Use them only when relevant, never override source "
     "evidence, and do not reveal internal identifiers."
 )
-
-
-def estimate_tokens(text: str) -> int:
-    """Rough token estimate for budget checks (not a real tokenizer)."""
-    if not text:
-        return 0
-    return max(1, (len(text) + CHARS_PER_TOKEN - 1) // CHARS_PER_TOKEN)
 
 
 class MemoryInjector:
@@ -41,10 +34,6 @@ class MemoryInjector:
     ) -> None:
         self.workspace = workspace
         self.token_budget = max(1, token_budget)
-
-    @property
-    def _char_budget(self) -> int:
-        return self.token_budget * CHARS_PER_TOKEN
 
     def retrieve(self, query: str) -> tuple[str, list[dict[str, Any]]]:
         """Return (content, references) within the token budget."""
@@ -64,10 +53,11 @@ class MemoryInjector:
         used = 0
         for item in selected:
             line = f"- [{item['scope']}/{item['kind']}] {item['title']}: {item['content']}"
-            if used + len(line) > self._char_budget:
+            line_tokens = estimate_tokens(line)
+            if used + line_tokens > self.token_budget:
                 break
             lines.append(line)
-            used += len(line)
+            used += line_tokens
             refs.append({
                 "id": item["id"], "title": item["title"], "scope": item["scope"],
                 "kind": item["kind"], "content": item["content"],
@@ -102,10 +92,11 @@ class MemoryInjector:
                 lines.append("掌握度摘要：")
             for item in ranked:
                 line = f"- {item.concept}: {item.status}, {round(item.score * 100)}%"
-                if used + len(line) > self._char_budget:
+                line_tokens = estimate_tokens(line)
+                if used + line_tokens > self.token_budget:
                     break
                 lines.append(line)
-                used += len(line)
+                used += line_tokens
                 refs.append({
                     "id": f"mastery:{item.concept}",
                     "title": item.concept,

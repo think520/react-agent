@@ -12,9 +12,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Sequence
 
+from core.token_budget import estimate_tokens  # P0-7: one shared estimator
+
 DEFAULT_OUTPUT_RESERVE = 16384
 DEFAULT_TAIL_MESSAGES = 12
-CHARS_PER_TOKEN = 4
 
 CHECKPOINT_MARKER = "<!-- bobodan:checkpoint -->"
 
@@ -27,12 +28,6 @@ SUMMARIZER_PROMPT = "\n".join([
     "下一步: <the concrete next step>",
     "Keep it under 400 tokens and do not invent facts.",
 ])
-
-
-def estimate_tokens(text: str) -> int:
-    if not text:
-        return 0
-    return max(1, (len(text) + CHARS_PER_TOKEN - 1) // CHARS_PER_TOKEN)
 
 
 def estimate_messages_tokens(messages: Sequence[dict]) -> int:

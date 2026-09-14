@@ -10,6 +10,23 @@ from core.session_compactor import (
 )
 
 
+def test_estimate_tokens_counts_cjk_conservatively():
+    """P0-7: `len // 4` under-counted Chinese by roughly 4x.
+
+    Measured on this project own corpus with cl100k_base: 25 Chinese
+    characters are 29 tokens, 54 ASCII characters are 9. The old formula
+    returned 6 for the Chinese sample, so `should_compact` fired late and a
+    1500-token memory budget admitted several thousand tokens.
+    """
+    chinese = "大模型训练依赖的算力、GPU 集群与并行计算示意图"
+    estimate = estimate_tokens(chinese)
+    assert estimate >= len(chinese), (estimate, len(chinese))
+    assert estimate <= len(chinese) * 2, (estimate, len(chinese))
+
+    ascii_text = "the model training depends on compute and gpu clusters"
+    ascii_estimate = estimate_tokens(ascii_text)
+    assert ascii_estimate <= len(ascii_text) // 3, (ascii_estimate, len(ascii_text))
+
 def test_estimate_tokens():
     assert estimate_tokens("") == 0
     assert estimate_tokens("abcd") == 1
