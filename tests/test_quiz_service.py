@@ -1,5 +1,7 @@
 """Tests for QuizService — service layer for question generation, quiz sessions, and review."""
 
+import json
+
 import pytest
 
 from quiz.store import QuizStore
@@ -95,6 +97,99 @@ def test_generate_questions_requests_web_consent_when_local_evidence_is_missing(
     assert result["status"] == "web_consent_required"
     assert result["query"] == "LangChain"
     assert result["suggested_query"] == "LangChain"
+
+
+def _patch_llm(monkeypatch, provider):
+    import service.quiz_service as quiz_service_module
+
+    monkeypatch.setattr(quiz_service_module, "_get_llm_provider", lambda config=None: provider)
+
+
+class _FakeResearch:
+    """Stands in for ResearchService: one immutable snapshot, no new search."""
+
+    def __init__(self, workspace):
+        self.workspace = workspace
+
+    def evidence(self, research_id):
+        return {
+            "content": "[Web source 1: 某课程练习]\n第 1 题：Dijkstra 采用什么策略？",
+            "sources": [{
+                "source_type": "web", "source_id": "snap-1", "title": "某课程练习",
+                "url": "https://example.com/quiz", "snapshot_id": "snap-1",
+            }],
+        }
+
+    def auto_research(self, *args, **kwargs):
+        raise AssertionError("a research id was given; no new search may start")
+
+
+def test_search_mode_extracts_web_questions_and_never_authors(tmp_path, monkeypatch, scripted_provider):
+    """S6 / D9: mode="search" reads existing questions instead of writing new ones."""
+    import service.research_service as research_module
+    from quiz.generator import QuestionGenerator
+    from quiz.store import QuizStore
+    from service.quiz_service import QuizService
+
+    scripted_provider.queue(json.dumps([{
+        "type": "single_choice",
+        "question": "Dijkstra 算法采用什么策略？",
+        "options": ["A. 分治法", "B. 贪心策略"],
+        "answer": "B",
+        "concepts": ["Dijkstra 算法"],
+        "difficulty": "easy",
+        "source_ids": ["S1"],
+    }], ensure_ascii=False))
+    _patch_llm(monkeypatch, scripted_provider)
+    monkeypatch.setattr(research_module, "ResearchService", _FakeResearch)
+
+    def no_authoring(self, *args, **kwargs):
+        raise AssertionError("search mode must not call generate_from_query")
+
+    monkeypatch.setattr(QuestionGenerator, "generate_from_query", no_authoring)
+
+    result = QuizService(str(tmp_path)).generate_questions(
+        "RAG 练习题", mode="search", web_research_id="r1", memory_enabled=False,
+    )
+
+    assert result["ok"], result
+    assert result["mode"] == "search"
+    assert result["count"] == 1
+    stored = QuizStore(str(tmp_path)).get_question(result["question_ids"][0])
+    assert stored.attribution_kind == "web"
+    assert stored.sources[0]["third_party"] is True
+
+
+def test_search_mode_asks_for_web_consent_before_searching(tmp_path, monkeypatch, scripted_provider):
+    import service.research_service as research_module
+    from service.quiz_service import QuizService
+
+    _patch_llm(monkeypatch, scripted_provider)
+    monkeypatch.setattr(research_module, "ResearchService", _FakeResearch)
+
+    result = QuizService(str(tmp_path)).generate_questions(
+        "RAG 练习题", mode="search", search_permission="ask", memory_enabled=False,
+    )
+
+    assert result["status"] == "web_consent_required"
+    assert "搜现成" in result["reason"]
+
+
+def test_search_mode_reports_a_page_without_questions(tmp_path, monkeypatch, scripted_provider):
+    import service.research_service as research_module
+    from service.quiz_service import QuizService
+
+    scripted_provider.queue("[]")
+    _patch_llm(monkeypatch, scripted_provider)
+    monkeypatch.setattr(research_module, "ResearchService", _FakeResearch)
+
+    result = QuizService(str(tmp_path)).generate_questions(
+        "RAG 练习题", mode="search", web_research_id="r1", memory_enabled=False,
+    )
+
+    assert not result["ok"]
+    assert result["code"] == "no_web_questions"
+    assert "没有找到现成的题目" in result["error"]
 
 
 # --- start_quiz ---

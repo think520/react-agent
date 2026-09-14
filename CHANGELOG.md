@@ -26,6 +26,13 @@
   - 按 D4，**agent 依旧不碰集合结构**（三个只读 / 收藏工具不变），集合的建改只在 UI 侧。
   - **测试隔离加固**（同批发现）：`tests/test_learning.py` 的两次 `generate_path` 与 `tests/test_repl.py` 全模块都把「当前目录」当工作区，会打开并迁移**开发者的真实 `.knowledge/bobodan.db`**——本轮新增题集建表让这个泄漏第一次产生了实际写入。修掉三处（显式传 `tmp_path` / 模块级 `monkeypatch.chdir`），并在 `tests/conftest.py` 加**会话结束的 tripwire**：跑完比对真实库的大小与 mtime，被动过就让这次运行失败并说明原因。此后全量跑的前后哈希与 mtime 完全一致。
   - 验证：Python `1437 passed`、Vitest `57 passed`、lint 与构建通过、Playwright `65 passed / 1 skipped`（题库 e2e 增至 15 条，新增三视口「按筛选建集 → 查看 → 练这集」）。
+- **题库收口 · 第 4 批（2026-09-11，S6 联网搜题）**：D9 的第三类来源——「搜现成的题」。
+  - 出题接口新增 `mode` 开关（`generate` / `search`）。`search` **只提取网页上已经存在的题目**（教材练习、课程测验、文档里的练习题），照原样保留题面与选项，不自己编写；页面里没有现成题就返回 `no_web_questions`，**不凑数、也不退回本地出题**——这条有回归测试钉住：搜题模式下 `generate_from_query` 一旦被调用就直接失败。
+  - 「搜题没有本地分支」是刻意的：`search` 存在的理由就是「别人已有的题」，而不是「本地资料能生成什么」。因此它先要联网同意（沿用既有 `web_consent_required` 流程，文案改为解释两种模式的区别）。
+  - 证据链与 D9 一致：来源页仍是不可变快照、`attribution_kind="web"`；每条来源额外标 `third_party: true`，这就是导出时区分「模型写的」与「页面本来就有的」的依据（第 5 批使用）。前端沿用现成的 `AttributionBadges` → `WebSourceBadge`：显示「网页来源」、可点回原文、可查看当时保存的引用片段。
+  - 练习页新增「让 Bobodan 出题 / 搜现成的题」切换，并说明两者区别；搜题模式下没写主题会给出明确提示。
+  - **未做**：把联网题的新概念注册成概念候选（D9 的硬边界「不进知识地图」本来就成立——没有任何路径把题目概念写进图谱；缺的是「只进候选」那半句的钩子），已在设计文档 §5 标注。
+  - 验证：Python `1444 passed`、Vitest `57 passed`、lint 与构建通过、Playwright `68 passed / 1 skipped`（题库 e2e 增至 18 条，新增三视口「练习页切到搜题模式 → 请求带 mode=search」）。
 - **题库 MVP（E18 S1–S5，2026-09-10，分支 `feat/e18-question-bank`）**：把「每道生成的题都已经落库」接成用户能看见、能收藏、能重练的题库，兑现 `PracticePage` 里那句长期失真的「留空时会从现有题库与资料重点中选择」。设计依据 `docs/QUESTION_BANK_DESIGN.md`（D1–D9）。
   - **数据层**：`questions` 新增 `bookmarked_at`（沿用 `_ensure_db` 的 PRAGMA 迁移，幂等，现有题目零迁移）；新增 `list_bank_questions` / `count_bank_questions` / `bank_overview` / `set_bookmark`。状态**全部派生**——用 `MAX(id)` 子查询取最近一次作答，不物化任何状态列。未作答的题在列表与工具输出里都**不返回答案与解析**，题库不会变成答案表。
   - **错题语义收敛（有意为之的用户可见变更）**：`get_wrong_answers` 从「所有答错的尝试」改为「最近一次仍答错」，`partial` 不再算错（与 E15 三态判分对齐），`get_weakness_analysis` 同步排除 `partial`。答错后重练答对的题会同时从错题本和题库的错题筛选里消失；复习调度（SM-2）不受影响。

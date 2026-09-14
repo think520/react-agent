@@ -66,6 +66,41 @@ QUESTION_GENERATION_PROMPT = """你是一个题目生成器。根据以下课程
   }}
 ]"""
 
+# S6 (D9): the third source of bank questions -- extract questions that already
+# exist on the page instead of authoring new ones. Returning an empty array is a
+# valid, visible outcome: the page simply had no ready-made questions.
+WEB_QUESTION_EXTRACTION_PROMPT = """你是一个题目提取器。下面是联网读到的网页正文。
+
+你的任务：**只提取这些网页上已经存在的题目**（教材练习、课程测验、博客/文档里的练习题等），
+照原样保留题面与选项，**不要自己编写新题**，**不要改写题面**。
+
+规则：
+1. 只收真正成形的题目；正文里的知识点陈述、小标题、代码注释都不算题
+2. 原文给了答案就照抄；原文没给就根据同一页内容推断，并在 explanation 里写明「答案由原文推断」
+3. 保留原文的题型：single_choice（单选，options 用 "A. xxx" 形式）、true_false、short_answer
+4. 每道题标注 concepts（原文出现的概念名）与 difficulty（easy/medium/hard）
+5. 每道题提供 source_ids，只能选下面实际出现的来源编号
+6. 所有内容用中文；原文是英文时题面也保持原文语言
+
+最多提取 {count} 道。**如果这些网页里没有现成的题目，就返回空数组 []**，不要凑数。
+
+网页正文：
+{material}
+
+严格按以下 JSON 数组格式输出，不要添加 markdown 代码块或其他文字：
+[
+  {{
+    "type": "single_choice",
+    "question": "Dijkstra 算法采用什么策略？",
+    "options": ["A. 分治法", "B. 贪心策略", "C. 动态规划", "D. 回溯法"],
+    "answer": "B",
+    "explanation": "原文第 2 节给出的答案。",
+    "concepts": ["Dijkstra 算法"],
+    "difficulty": "easy",
+    "source_ids": ["S1"]
+  }}
+]"""
+
 
 def _parse_json_from_llm(text: str) -> list[dict]:
     """Extract and parse a JSON array from an LLM response."""
@@ -263,6 +298,45 @@ class QuestionGenerator:
                 source=selected_sources[0]["title"] if selected_sources else "",
                 attribution_kind="web" if selected_sources else "unverified",
                 sources=selected_sources,
+                created_at=datetime.now(timezone.utc).isoformat(),
+            ))
+        return questions[:count]
+
+    def extract_questions_from_web_evidence(
+        self,
+        evidence_content: str,
+        sources: list[dict],
+        count: int = 5,
+    ) -> list[Question]:
+        """S6: pull the questions a page already contains, rather than writing new ones."""
+        if not evidence_content or not sources:
+            return []
+        source_refs = {f"S{index}": source for index, source in enumerate(sources, 1)}
+        material = evidence_content
+        for index in range(len(sources), 0, -1):
+            material = material.replace(f"[Web source {index}:", f"[来源 S{index}:")
+        prompt = WEB_QUESTION_EXTRACTION_PROMPT.format(count=count, material=material)
+        response = self.llm.complete([{"role": "user", "content": prompt}])
+        questions = []
+        for item in _parse_json_from_llm(response.content or ""):
+            if not _validate_question(item):
+                continue
+            selected_sources = [
+                source_refs[value] for value in item.get("source_ids", []) if value in source_refs
+            ]
+            if not selected_sources:
+                selected_sources = list(source_refs.values())[:1]
+            # D9: the question text belongs to the page, not to Bobodan. The marker
+            # travels with the source refs so export can exclude or label it later.
+            # D9 keeps attribution_kind="web" here too, same as a web-grounded question.
+            marked_sources = [dict(source, third_party=True) for source in selected_sources]
+            questions.append(Question(
+                type=item["type"], question=item["question"], options=item.get("options", []),
+                answer=item["answer"], explanation=item.get("explanation", ""),
+                concepts=item.get("concepts", []), difficulty=item.get("difficulty", "medium"),
+                source=marked_sources[0]["title"] if marked_sources else "",
+                attribution_kind="web" if marked_sources else "unverified",
+                sources=marked_sources,
                 created_at=datetime.now(timezone.utc).isoformat(),
             ))
         return questions[:count]

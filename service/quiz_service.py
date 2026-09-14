@@ -74,7 +74,12 @@ class QuizService:
         search_provider: str = "auto",
         jina_fallback: bool = True,
         memory_enabled: bool = True,
+        mode: str = "generate",
     ) -> dict[str, Any]:
+        """``mode="generate"`` authors new questions; ``mode="search"`` extracts the
+        questions a page already contains (S6 / D9). Search has no local branch —
+        it exists precisely because authored questions are not existing ones."""
+        searching = mode == "search"
         try:
             llm = _get_llm_provider(self.config)
         except Exception as e:
@@ -91,6 +96,13 @@ class QuizService:
                 personalization = context.get("references", [])
             except Exception as exc:
                 logger.warning("Could not load question personalization: %s", exc)
+        def from_web(evidence_content: str, sources: list[dict]) -> list[Question]:
+            if searching:
+                return generator.extract_questions_from_web_evidence(
+                    evidence_content, sources, count=count
+                )
+            return generator.generate_from_web_evidence(evidence_content, sources, count=count)
+
         web_attempted = False
         active_web_research_id = web_research_id
         if active_web_research_id:
@@ -99,7 +111,10 @@ class QuizService:
                 evidence = ResearchService(self.workspace).evidence(active_web_research_id)
             except FileNotFoundError:
                 return _err("选中的网页证据不存在或已失效。")
-            questions = generator.generate_from_web_evidence(evidence["content"], evidence["sources"], count=count)
+            questions = from_web(evidence["content"], evidence["sources"])
+        elif searching:
+            questions = []
+            generator.failure_kind = "no_evidence"
         else:
             questions = generator.generate_from_query(
                 query,
@@ -124,22 +139,28 @@ class QuizService:
                     research = None
                 if research and research.get("sources"):
                     active_web_research_id = research["research_id"]
-                    questions = generator.generate_from_web_evidence(
-                        research["content"],
-                        research["sources"],
-                        count=count,
-                    )
+                    questions = from_web(research["content"], research["sources"])
             else:
                 return _ok(
                     status="web_consent_required",
                     query=generator.resolved_query or query,
-                    reason="当前资料库中没有找到足够的相关内容。确认后可以联网读取公开资料并据此出题。",
+                    reason=(
+                        "搜现成的题必须联网读取公开资料。确认后 Bobodan 会搜索并只提取"
+                        "页面上已经存在的题目，不会自己编写。"
+                        if searching else
+                        "当前资料库中没有找到足够的相关内容。确认后可以联网读取公开资料并据此出题。"
+                    ),
                     suggested_query=(generator.resolved_query if generator.resolved_query != query else None),
                 )
 
         if not questions:
             if generator.failure_kind == "invalid_model_output":
                 return _err("模型没有返回可用的题目格式。已自动重试一次，请稍后再试。")
+            if searching:
+                return _err(
+                    "这些网页里没有找到现成的题目。可以换个主题，或改用「让 Bobodan 出题」。",
+                    code="no_web_questions",
+                )
             if web_attempted:
                 return _err("本地资料不足，联网来源也暂时没有返回可用于出题的正文。请调整主题或稍后重试。")
             return _err(
@@ -182,6 +203,7 @@ class QuizService:
             resolved_query=generator.resolved_query or query,
             web_research_id=active_web_research_id,
             personalization=personalization,
+            mode="search" if searching else "generate",
         )
 
     # --- Quiz session ---

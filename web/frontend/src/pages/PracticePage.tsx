@@ -76,6 +76,9 @@ export function PracticePage() {
   const { confirm, confirmElement } = useConfirm();
   const [error, setError] = useState("");
   const [webConsent, setWebConsent] = useState<WebPracticeConsent | null>(null);
+  // S6 / D9: 出题 vs 搜现成的题 are two different promises; the mode travels with
+  // every generate call so the server never has to guess.
+  const [mode, setMode] = useState<"generate" | "search">("generate");
   const [resolution, setResolution] = useState<{ original: string; resolved: string } | null>(null);
   const [aiOpen, setAiOpen] = useState(false);
   const [aiQuestion, setAiQuestion] = useState("给我一个不直接揭示答案的提示。");
@@ -139,8 +142,14 @@ export function PracticePage() {
     try {
       const scopeTopic = selectedDocuments.map((document) => document.title || document.source).join("、");
       const query = topic.trim() || scopeTopic;
+      if (mode === "search" && !query) {
+        setError("搜现成的题需要先写明主题，或者先选一份资料作为范围。");
+        return;
+      }
       const generated = query
-        ? await api.generateQuestions(query, undefined, selectedDocumentIds, webResearchId || undefined, webConfirmed)
+        ? await api.generateQuestions(
+            query, undefined, selectedDocumentIds, webResearchId || undefined, webConfirmed, mode,
+          )
         : null;
       if (generated?.status === "web_consent_required") {
         setWebConsent({
@@ -246,10 +255,16 @@ export function PracticePage() {
         </nav>
         {error && <ErrorNotice message={error} />}
         <form className="practice-create" onSubmit={(event) => void createPractice(event)}>
+          <div className="practice-mode" role="tablist" aria-label="出题方式">
+            <button type="button" role="tab" aria-selected={mode === "generate"} className={mode === "generate" ? "active" : ""} onClick={() => { setMode("generate"); setWebConsent(null); }}>让 Bobodan 出题</button>
+            <button type="button" role="tab" aria-selected={mode === "search"} className={mode === "search" ? "active" : ""} onClick={() => { setMode("search"); setWebConsent(null); }}>搜现成的题</button>
+          </div>
           <label htmlFor="practice-topic">想练习什么？</label>
           {working && <BrandIllustration state="writing" size={64} />}
-          <div><input id="practice-topic" value={topic} onChange={(event) => { setTopic(event.target.value); setWebConsent(null); }} placeholder="例如：Dijkstra 的贪心证明" /><button className="primary-button" disabled={working}><Play size={16} />{working ? "正在准备" : "生成 5 题"}</button></div>
-          <small>留空时会从现有题库与资料重点中选择。</small>
+          <div><input id="practice-topic" value={topic} onChange={(event) => { setTopic(event.target.value); setWebConsent(null); }} placeholder="例如：Dijkstra 的贪心证明" /><button className="primary-button" disabled={working}><Play size={16} />{working ? "正在准备" : mode === "search" ? "联网搜题" : "生成 5 题"}</button></div>
+          <small>{mode === "search"
+            ? "只提取网页上已经存在的题目，不自己编写；来源页会存成快照，可以点回原文。"
+            : "留空时会从现有题库与资料重点中选择。"}</small>
           {selectedDocuments.length > 0 && <div className="practice-scope"><BookOpen size={15} /><span>当前范围：{selectedDocuments.map((document) => document.title || document.source).slice(0, 3).join("、")}{selectedDocuments.length > 3 ? ` 等 ${selectedDocuments.length} 份` : ""}</span></div>}
           {webConsent && <section className="practice-web-consent">
             <BrandIllustration state="reading" size={54} />

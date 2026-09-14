@@ -5,6 +5,7 @@ from dataclasses import asdict
 
 from quiz.schema import Question, QuizSession, QuizAttempt, QUESTION_TYPES, DIFFICULTY_LEVELS
 from quiz.store import QuizStore
+from quiz.generator import QuestionGenerator
 from quiz.evaluator import QuizEvaluator
 from quiz.review import QuizReviewer
 
@@ -557,6 +558,56 @@ def test_set_bookmark_reports_missing_question(tmp_path):
     assert store.set_bookmark(qid, False) is True
     assert store.get_question(qid).bookmarked_at == ""
     assert store.set_bookmark(9999) is False
+
+
+# --- S6: 搜现成的题（web question extraction） ---
+
+def _web_sources():
+    return [{
+        "source_type": "web", "source_id": "snap-1", "title": "某课程练习",
+        "url": "https://example.com/quiz", "snapshot_id": "snap-1",
+    }]
+
+
+def test_extract_questions_marks_third_party_and_keeps_web_attribution(tmp_path, scripted_provider):
+    payload = json.dumps([{
+        "type": "single_choice",
+        "question": "Dijkstra 算法采用什么策略？",
+        "options": ["A. 分治法", "B. 贪心策略"],
+        "answer": "B",
+        "explanation": "原文给出的答案。",
+        "concepts": ["Dijkstra 算法"],
+        "difficulty": "easy",
+        "source_ids": ["S1"],
+    }], ensure_ascii=False)
+    scripted_provider.queue(payload)
+
+    questions = QuestionGenerator(str(tmp_path), scripted_provider).extract_questions_from_web_evidence(
+        "[Web source 1: 某课程练习]\n第 1 题：Dijkstra 采用什么策略？", _web_sources(), count=5,
+    )
+
+    assert len(questions) == 1
+    assert questions[0].attribution_kind == "web"
+    # D9: the question text belongs to the page, and export must be able to tell.
+    assert questions[0].sources[0]["third_party"] is True
+    assert questions[0].sources[0]["snapshot_id"] == "snap-1"
+    assert "只提取" in scripted_provider.last_messages()[0]["content"]
+
+
+def test_extract_questions_returns_nothing_when_the_page_has_none(tmp_path, scripted_provider):
+    scripted_provider.queue("[]")
+    questions = QuestionGenerator(str(tmp_path), scripted_provider).extract_questions_from_web_evidence(
+        "只有知识点的页面", _web_sources(), count=5,
+    )
+    assert questions == []
+
+
+def test_extract_questions_ignores_unparseable_output(tmp_path, scripted_provider):
+    scripted_provider.queue("这不是 JSON")
+    questions = QuestionGenerator(str(tmp_path), scripted_provider).extract_questions_from_web_evidence(
+        "正文", _web_sources(), count=5,
+    )
+    assert questions == []
 
 
 # --- Evaluator tests ---

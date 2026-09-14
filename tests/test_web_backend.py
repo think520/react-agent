@@ -1807,6 +1807,35 @@ def test_question_set_errors_contract(backend_client):
     assert backend_client.post("/api/quiz/sets", json={"name": ""}).status_code == 422
 
 
+def test_quiz_question_search_mode_contract(backend_client, monkeypatch):
+    """S6 / D9: the two promises are separate modes of the same endpoint."""
+    captured: dict = {}
+
+    def fake_generate(self, **kwargs):
+        captured.update(kwargs)
+        return {
+            "ok": True, "status": "ready", "question_ids": [1], "count": 1,
+            "types": {"single_choice": 1}, "questions": [],
+            "resolved_query": kwargs["query"], "web_research_id": None,
+            "personalization": [], "mode": kwargs.get("mode"),
+        }
+
+    monkeypatch.setattr(
+        "web.backend.routers.quiz.QuizService.generate_questions", fake_generate,
+    )
+
+    response = backend_client.post(
+        "/api/quiz/questions", json={"query": "RAG 练习", "mode": "search"}
+    )
+    assert response.status_code == 200
+    assert captured["mode"] == "search"
+    assert response.json()["mode"] == "search"
+
+    assert backend_client.post(
+        "/api/quiz/questions", json={"query": "x", "mode": "nonsense"}
+    ).status_code == 422
+
+
 def test_review_queue_contract(backend_client, monkeypatch):
     monkeypatch.setattr(
         "web.backend.routers.learning.LearningService.get_review_queue",

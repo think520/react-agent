@@ -19,6 +19,9 @@ class GenerateQuestionsRequest(BaseModel):
     document_ids: list[str] = Field(default_factory=list, max_length=50)
     web_research_id: str | None = Field(default=None, max_length=64)
     web_confirmed: bool = False
+    # S6 / D9: "search" extracts the questions a page already contains instead of
+    # authoring new ones.
+    mode: str = Field(default="generate", pattern="^(generate|search)$")
 
 
 class StartQuizRequest(BaseModel):
@@ -60,6 +63,7 @@ def generate_questions(body: GenerateQuestionsRequest, request: Request) -> dict
         search_provider=search.get("provider", "auto"),
         jina_fallback=bool(search.get("jina_fallback", True)),
         memory_enabled=bool(preferences.get("memory", {}).get("enabled", True)),
+        mode=body.mode,
     ))
 
 

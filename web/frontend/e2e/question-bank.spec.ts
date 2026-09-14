@@ -361,3 +361,26 @@ test("a named practice set can be created from a filter and practised", async ({
   expect(bank.setPractices[0]).toEqual([3]);
   await page.waitForURL(/\/practice\/42/);
 });
+test("the practice page can search for existing questions instead of authoring them", async ({ page }) => {
+  await mockShell(page);
+  const bodies: Array<Record<string, unknown>> = [];
+  await page.route("**/api/quiz/questions", async (route) => {
+    bodies.push(JSON.parse(route.request().postData() || "{}"));
+    return route.fulfill(json({
+      status: "web_consent_required",
+      query: "RAG 练习",
+      reason: "搜现成的题必须联网读取公开资料。确认后 Bobodan 会搜索并只提取页面上已经存在的题目，不会自己编写。",
+      suggested_query: null,
+    }));
+  });
+
+  await page.goto("/practice");
+  await page.getByRole("tab", { name: "搜现成的题" }).click();
+  await page.locator("#practice-topic").fill("RAG 练习");
+  await page.getByRole("button", { name: "联网搜题" }).click();
+
+  // S6 / D9: the mode travels with the request, so the server never guesses.
+  await expect.poll(() => bodies.length).toBe(1);
+  expect(bodies[0]).toMatchObject({ mode: "search", query: "RAG 练习" });
+  await expect(page.locator(".practice-web-consent")).toContainText("搜现成的题");
+});

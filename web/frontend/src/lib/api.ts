@@ -367,7 +367,14 @@ export const api = {
     "/api/quiz/sessions/active",
   ),
   practice: (id: number) => request<PracticeSession>(`/api/quiz/sessions/${id}`),
-  generateQuestions: (query: string, course?: string, documentIds: string[] = [], webResearchId?: string, webConfirmed = false) => request<{
+  generateQuestions: (
+    query: string,
+    course?: string,
+    documentIds: string[] = [],
+    webResearchId?: string,
+    webConfirmed = false,
+    mode: "generate" | "search" = "generate",
+  ) => request<{
     status: "ready" | "web_consent_required";
     question_ids?: number[];
     questions?: Question[];
@@ -377,9 +384,18 @@ export const api = {
     reason?: string;
     suggested_query?: string;
     personalization?: PersonalizationRef[];
+    mode?: "generate" | "search";
   }>(
     "/api/quiz/questions",
-    json({ query, course: course || null, count: 5, document_ids: documentIds, web_research_id: webResearchId || null, web_confirmed: webConfirmed }),
+    json({
+      query,
+      course: course || null,
+      count: 5,
+      document_ids: documentIds,
+      web_research_id: webResearchId || null,
+      web_confirmed: webConfirmed,
+      mode,
+    }),
   ),
   startChatPractice: (artifactId: string, chatSessionId: string) => request<{ chat_session_id: string; artifact: PracticeReadyArtifact; practice_session_id: number }>(
     `/api/chat/practice/${encodeURIComponent(artifactId)}/start`,
