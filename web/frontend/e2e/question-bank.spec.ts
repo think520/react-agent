@@ -344,6 +344,11 @@ test("a named practice set can be created from a filter and practised", async ({
   await page.getByRole("tab", { name: /错题/ }).click();
   await expect(page.locator(".bank-row")).toHaveCount(1);
 
+  // The panel is a collapsed disclosure while no set exists, so it starts closed.
+  await expect(page.locator(".bank-sets")).not.toHaveAttribute("open", "");
+  await page.locator(".bank-sets > summary").click();
+  await expect(page.locator(".bank-sets")).toHaveAttribute("open", "");
+
   // D2: the set carries the current filter, not a hand-picked list.
   await page.getByRole("textbox", { name: "练习集名称" }).fill("我的错题集");
   await page.getByRole("button", { name: /存为练习集/ }).click();
@@ -360,6 +365,55 @@ test("a named practice set can be created from a filter and practised", async ({
   await expect.poll(() => bank.setPractices.length).toBe(1);
   expect(bank.setPractices[0]).toEqual([3]);
   await page.waitForURL(/\/practice\/42/);
+});
+
+test("the bank rows are readable and the question follows the reading size", async ({ page }) => {
+  await mockShell(page);
+  await mockBank(page);
+  await page.goto("/practice/bank");
+  await expect(page.locator(".bank-row")).toHaveCount(3);
+
+  // DESIGN.md §5 floors: helper text >= 12px, nothing under it inside a row.
+  const smallest = await page.locator(".bank-row").first().evaluate((row) => {
+    let min = Number.POSITIVE_INFINITY;
+    row.querySelectorAll("*").forEach((el) => {
+      const own = Array.from(el.childNodes)
+        .filter((node) => node.nodeType === 3)
+        .map((node) => (node.textContent || "").trim())
+        .join("");
+      if (!own) return;
+      const size = parseFloat(getComputedStyle(el).fontSize);
+      if (size < min) min = size;
+    });
+    return min;
+  });
+  expect(smallest).toBeGreaterThanOrEqual(12);
+
+  // The question reads at the user reading size, not a hard-coded value.
+  const fixed = await page.locator(".bank-row h3").first().evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+  await page.evaluate(() => document.documentElement.style.setProperty("--body-font-size", "18px"));
+  const bumped = await page.locator(".bank-row h3").first().evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+  expect(bumped).toBe(18);
+  expect(bumped).toBeGreaterThan(fixed - 1);
+
+  // Rows stay sheets, not voids, and the first one is reachable without scrolling.
+  // Narrow viewports stack the filter row and the row actions, so the caps are
+  // per-breakpoint; they still catch the previous 208px/460px regression.
+  const wide = (page.viewportSize()?.width ?? 0) >= 1280;
+  const rowBox = await page.locator(".bank-row").first().boundingBox();
+  expect(rowBox!.height).toBeLessThanOrEqual(wide ? 200 : 340);
+  expect(rowBox!.y).toBeLessThanOrEqual(wide ? 520 : 700);
+
+  // Answers sit behind one deliberate affordance and are labelled when opened.
+  // Fixture texts from WRONG_QUESTION / UNANSWERED_QUESTION above.
+  const answered = page.locator(".bank-row").filter({ hasText: "为什么 Dijkstra 不能处理负权边？" });
+  const unanswered = page.locator(".bank-row").filter({ hasText: "BFS 一定能求出最短路径。" });
+  await expect(answered).toHaveCount(1);
+  await expect(unanswered).toHaveCount(1);
+  await expect(unanswered.locator(".bank-answer")).toHaveCount(0);
+  await answered.getByText("查看参考答案与解析").click();
+  await expect(answered.locator(".bank-answer-label").first()).toHaveText("你的答案");
+  await expect(answered.locator(".bank-answer-label").last()).toHaveText("参考答案");
 });
 test("the practice page can search for existing questions instead of authoring them", async ({ page }) => {
   await mockShell(page);

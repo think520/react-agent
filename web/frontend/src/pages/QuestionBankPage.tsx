@@ -112,6 +112,8 @@ export function QuestionBankPage() {
   const [renameDraft, setRenameDraft] = useState("");
   const [setsWorking, setSetsWorking] = useState(false);
   const [transfer, setTransfer] = useState("");
+  // null = follow the data (open as soon as a set exists); explicit after a toggle.
+  const [setsOpen, setSetsOpen] = useState<boolean | null>(null);
   const { confirm, confirmElement } = useConfirm();
 
   useEffect(() => {
@@ -498,49 +500,58 @@ export function QuestionBankPage() {
         </nav>
         {error && <ErrorNotice message={error} />}
 
-        <section className="bank-sets">
-          <div className="bank-sets-head">
-            <strong>练习集</strong>
-            <form onSubmit={(event) => void createSet(event)}>
-              <input
-                value={newSetName}
-                placeholder={filterSummary() || "练习集名称"}
-                aria-label="练习集名称"
-                onChange={(event) => setNewSetName(event.target.value)}
-              />
-              <button className="quiet-button" disabled={setsWorking}>
-                <FolderPlus size={15} />存为练习集（{bank?.total ?? 0} 题）
-              </button>
-            </form>
+        <details
+          className="bank-sets"
+          open={setsOpen ?? sets.length > 0}
+          onToggle={(event) => setSetsOpen(event.currentTarget.open)}
+        >
+          <summary>
+            练习集
+            <small>{sets.length ? `${sets.length} 个` : "还没有练习集"}</small>
+          </summary>
+          <div className="bank-sets-open">
+            <div className="bank-sets-head">
+              <form onSubmit={(event) => void createSet(event)}>
+                <input
+                  value={newSetName}
+                  placeholder={filterSummary() || "练习集名称"}
+                  aria-label="练习集名称"
+                  onChange={(event) => setNewSetName(event.target.value)}
+                />
+                <button className="quiet-button" disabled={setsWorking}>
+                  <FolderPlus size={15} />存为练习集（{bank?.total ?? 0} 题）
+                </button>
+              </form>
+            </div>
+            {sets.length === 0
+              ? <p className="bank-sets-empty">把当前筛选结果存成一个命名集合，之后可以一键重练。</p>
+              : <div className="bank-set-list">{sets.map((item) => (
+                <div className={`bank-set-row ${setId === item.id ? "active" : ""}`} key={item.id}>
+                  {renamingId === item.id ? <>
+                    <input
+                      value={renameDraft}
+                      aria-label="新的练习集名称"
+                      onChange={(event) => setRenameDraft(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") void saveRename(item);
+                        if (event.key === "Escape") setRenamingId(0);
+                      }}
+                    />
+                    <button className="quiet-button" type="button" onClick={() => void saveRename(item)}>保存</button>
+                  </> : <>
+                    <button className="bank-set-name" type="button" onClick={() => viewSet(item)}>
+                      {item.name}<small>{item.question_count} 题</small>
+                    </button>
+                    <button className="quiet-button" type="button" disabled={setsWorking || item.question_count === 0 || starting === `set-${item.id}`} onClick={() => void practiceSet(item)}>
+                      <Play size={14} />练这集
+                    </button>
+                    <button className="icon-button" type="button" aria-label={`重命名 ${item.name}`} onClick={() => { setRenamingId(item.id); setRenameDraft(item.name); }}><Pencil size={14} /></button>
+                    <button className="icon-button" type="button" aria-label={`删除 ${item.name}`} onClick={() => void deleteSet(item)}><Trash2 size={14} /></button>
+                  </>}
+                </div>
+              ))}</div>}
           </div>
-          {sets.length === 0
-            ? <p className="bank-sets-empty">还没有练习集。把当前筛选结果存成一个命名集合，之后可以一键重练。</p>
-            : <div className="bank-set-list">{sets.map((item) => (
-              <div className={`bank-set-row ${setId === item.id ? "active" : ""}`} key={item.id}>
-                {renamingId === item.id ? <>
-                  <input
-                    value={renameDraft}
-                    aria-label="新的练习集名称"
-                    onChange={(event) => setRenameDraft(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") void saveRename(item);
-                      if (event.key === "Escape") setRenamingId(0);
-                    }}
-                  />
-                  <button className="quiet-button" type="button" onClick={() => void saveRename(item)}>保存</button>
-                </> : <>
-                  <button className="bank-set-name" type="button" onClick={() => viewSet(item)}>
-                    {item.name}<small>{item.question_count} 题</small>
-                  </button>
-                  <button className="quiet-button" type="button" disabled={setsWorking || item.question_count === 0 || starting === `set-${item.id}`} onClick={() => void practiceSet(item)}>
-                    <Play size={14} />练这集
-                  </button>
-                  <button className="icon-button" type="button" aria-label={`重命名 ${item.name}`} onClick={() => { setRenamingId(item.id); setRenameDraft(item.name); }}><Pencil size={14} /></button>
-                  <button className="icon-button" type="button" aria-label={`删除 ${item.name}`} onClick={() => void deleteSet(item)}><Trash2 size={14} /></button>
-                </>}
-              </div>
-            ))}</div>}
-        </section>
+        </details>
 
         {setId && (
           <p className="bank-set-banner">
@@ -570,9 +581,6 @@ export function QuestionBankPage() {
             <input value={query} placeholder="搜索题干或知识点" aria-label="搜索题库" onChange={(event) => setQuery(event.target.value)} />
             {query && <button type="button" className="icon-button" aria-label="清除搜索" onClick={() => setQuery("")}><X size={14} /></button>}
           </label>
-        </div>
-
-        <div className="bank-selects">
           <DropdownSelect ariaLabel="按题型筛选" value={qtype} onChange={changeFilter(setQtype)} options={TYPE_OPTIONS} />
           <DropdownSelect ariaLabel="按难度筛选" value={difficulty} onChange={changeFilter(setDifficulty)} options={DIFFICULTY_OPTIONS} />
           <DropdownSelect ariaLabel="按资料筛选" value={source} onChange={changeFilter(setSource)} options={sourceOptions} />
@@ -606,59 +614,73 @@ export function QuestionBankPage() {
             />
           ) : <div className="bank-list">
             {bank.items.map((item) => (
-              <article className="bank-row" key={item.id}>
-                <div className="bank-row-main">
-                  <div className="bank-row-head">
-                    <span className={`bank-state ${item.state}`}>{stateLabel(item.state)}</span>
-                    <small>{item.type_label}</small>
-                    {item.concepts.map((name) => (
-                      <button type="button" className="bank-concept" key={name} onClick={() => { setConcept(name); setPage(0); }}>{name}</button>
-                    ))}
-                  </div>
-                  <h3>{item.question}</h3>
-                  <div className="bank-row-meta">
-                    {item.source && <span>{item.source}</span>}
-                    <span>{formatRelativeDate(item.created_at)}</span>
-                    {item.last_attempt && <span>你的答案：{item.last_attempt.user_answer || "（空）"}</span>}
-                  </div>
-                  <AttributionBadges attribution={item.attribution} />
-                  {item.answer && <details className="bank-reveal">
+              <article className={`bank-row state-${item.state}`} key={item.id}>
+                <div className="bank-row-head">
+                  <span className={`bank-state ${item.state}`}>{stateLabel(item.state)}</span>
+                  <small>{item.type_label}</small>
+                  {item.concepts.map((name) => (
+                    <button type="button" className="bank-concept" key={name} onClick={() => { setConcept(name); setPage(0); }}>{name}</button>
+                  ))}
+                </div>
+                <h3>{item.question}</h3>
+                {item.answer && (
+                  <details className="bank-reveal">
                     <summary>查看参考答案与解析</summary>
-                    <p>参考答案：{item.answer}</p>
+                    <div className={`bank-answer ${item.state === "incorrect" ? "incorrect" : ""}`}>
+                      <div className="bank-answer-grid">
+                        <div>
+                          <span className="bank-answer-label">你的答案</span>
+                          <p className="bank-answer-value">{item.last_attempt?.user_answer || "（空）"}</p>
+                        </div>
+                        <div>
+                          <span className="bank-answer-label">参考答案</span>
+                          <p className="bank-answer-value">{item.answer}</p>
+                        </div>
+                      </div>
+                    </div>
                     {item.explanation && <p>{item.explanation}</p>}
                     {item.last_attempt?.feedback && <p>上次批改：{item.last_attempt.feedback}</p>}
-                  </details>}
-                </div>
-                <div className="bank-row-actions">
-                  <button
-                    className="quiet-button"
-                    type="button"
-                    disabled={busyId === item.id}
-                    aria-pressed={item.bookmarked}
-                    onClick={() => void toggleBookmark(item)}
-                  >
-                    {item.bookmarked ? <BookmarkCheck size={15} /> : <Bookmark size={15} />}
-                    {item.bookmarked ? "已收藏" : "收藏"}
-                  </button>
-                  <button className="quiet-button" type="button" onClick={() => askAi(item)}>
-                    <CircleHelp size={15} />问 AI
-                  </button>
-                  <DropdownSelect
-                    ariaLabel="把这一题加入练习集"
-                    value=""
-                    placeholder="加入练习集"
-                    disabled={setsWorking}
-                    onChange={(value) => void addToSet(item, value)}
-                    options={[
-                      { value: "", label: "加入练习集" },
-                      ...sets.map((entry) => ({ value: String(entry.id), label: entry.name, hint: String(entry.question_count) })),
-                      { value: "new", label: "新建练习集…" },
-                    ]}
-                  />
-                  {setId ? <button className="quiet-button" type="button" disabled={setsWorking} onClick={() => void removeFromSet(item)}><X size={14} />移出这集</button> : null}
-                  <button className="primary-button" type="button" disabled={starting === `question-${item.id}`} onClick={() => void startPractice(item)}>
-                    {starting === `question-${item.id}` ? "正在准备" : "练这题"}<ArrowRight size={15} />
-                  </button>
+                  </details>
+                )}
+                <div className="bank-footer">
+                  <div className="bank-row-meta">
+                    {item.last_attempt && (
+                      <span className="bank-mine">你的答案：<strong>{item.last_attempt.user_answer || "（空）"}</strong></span>
+                    )}
+                    <span>{formatRelativeDate(item.created_at)}</span>
+                  </div>
+                  <AttributionBadges attribution={item.attribution} />
+                  <div className="bank-row-actions">
+                    <button
+                      className="quiet-button"
+                      type="button"
+                      disabled={busyId === item.id}
+                      aria-pressed={item.bookmarked}
+                      onClick={() => void toggleBookmark(item)}
+                    >
+                      {item.bookmarked ? <BookmarkCheck size={15} /> : <Bookmark size={15} />}
+                      {item.bookmarked ? "已收藏" : "收藏"}
+                    </button>
+                    <button className="quiet-button" type="button" onClick={() => askAi(item)}>
+                      <CircleHelp size={15} />问 AI
+                    </button>
+                    <DropdownSelect
+                      ariaLabel="把这一题加入练习集"
+                      value=""
+                      placeholder="加入练习集"
+                      disabled={setsWorking}
+                      onChange={(value) => void addToSet(item, value)}
+                      options={[
+                        { value: "", label: "加入练习集" },
+                        ...sets.map((entry) => ({ value: String(entry.id), label: entry.name, hint: String(entry.question_count) })),
+                        { value: "new", label: "新建练习集…" },
+                      ]}
+                    />
+                    {setId ? <button className="quiet-button" type="button" disabled={setsWorking} onClick={() => void removeFromSet(item)}><X size={14} />移出这集</button> : null}
+                    <button className="primary-button" type="button" disabled={starting === `question-${item.id}`} onClick={() => void startPractice(item)}>
+                      {starting === `question-${item.id}` ? "正在准备" : "练这题"}<ArrowRight size={15} />
+                    </button>
+                  </div>
                 </div>
               </article>
             ))}
