@@ -86,7 +86,7 @@ export function ReviewPage() {
           {queue?.personalization?.length ? <details className="personalization-chip review-personalization"><summary><Brain size={13} />复习排序依据 <span>{queue.personalization.length}</span></summary><div>{queue.personalization.map((reference) => <section key={reference.id}><strong>{reference.title}</strong><p>{reference.content}</p><small>{reference.scope === "global" ? "全局" : "当前资料库"}</small></section>)}</div></details> : null}
           <div className="review-summary">
             <div><strong>{queue?.due_concepts.length || 0}</strong><span>到期知识点</span></div>
-            <div><strong>{queue?.wrong_answers.length || 0}</strong><span>需要回看的错题</span></div>
+            <div><strong>{queue?.wrong_total ?? queue?.wrong_answers.length ?? 0}</strong><span>需要回看的错题</span></div>
             <div><strong>{queue?.weaknesses.length || 0}</strong><span>当前薄弱点</span></div>
           </div>
           <div className="review-list">{items.map((item, index) => (
@@ -97,6 +97,12 @@ export function ReviewPage() {
               <button className="quiet-button" disabled={Boolean(workingId)} onClick={() => void startReview(item)}>{workingId === item.id ? "正在准备" : item.kind === "错题" ? "生成变式题" : "开始复习"}<ArrowRight size={15} /></button>
             </article>
           ))}</div>
+          {(queue?.wrong_total || 0) > queue!.wrong_answers.length && (
+            <p className="review-more">
+              这里列出最新 {queue!.wrong_answers.length} 道，共 {queue!.wrong_total} 道错题。
+              <button className="text-link" type="button" onClick={() => navigate("/practice/bank")}>在题库中查看全部</button>
+            </p>
+          )}
         </> : <EmptyState state="resting" title="今天没有到期内容" description="可以开始一轮新练习，或回到资料库继续阅读。" action={<button className="primary-button" onClick={() => navigate("/practice")}><BookOpenCheck size={17} />开始练习</button>} />}
         <section className="review-note"><Target size={20} /><div><strong>复习不是重新读一遍</strong><p>Bobodan 会优先让你主动回忆，再用解释和资料定位补齐缺口。</p></div><CheckCircle2 size={18} /></section>
       </div>

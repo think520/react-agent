@@ -162,6 +162,28 @@ def test_review_queue_ignores_partial_answers(store, svc):
     assert [item["state"] for item in quiz_store.list_bank_questions()] == ["partial"]
 
 
+def test_review_queue_reports_the_whole_wrong_set(store, svc):
+    """D5: Review must not silently truncate the wrong set at 20 rows."""
+    quiz_store = QuizStore(svc.workspace)
+    ids = [
+        quiz_store.add_question(Question(question=f"Q{index}", answer="A", concepts=["c"]))
+        for index in range(25)
+    ]
+    session = quiz_store.create_session(ids)
+    for qid in ids:
+        quiz_store.record_attempt(QuizAttempt(
+            session_id=session.id, question_id=qid, user_answer="x",
+            is_correct=False, verdict="incorrect",
+        ))
+
+    queue = svc.get_review_queue()
+    assert queue["wrong_total"] == 25
+    assert len(queue["wrong_answers"]) == 25
+    # The number Review shows is the same number the bank filters to.
+    assert quiz_store.count_bank_questions(state="incorrect") == 25
+    assert len(quiz_store.list_bank_questions(state="incorrect", limit=100)) == 25
+
+
 # --- mark_mastery ---
 
 def test_mark_mastery(svc):

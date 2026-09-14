@@ -594,11 +594,35 @@ class QuizService:
         normalized = (state or "all").strip().lower()
         return normalized if normalized in self._BANK_FILTER_STATES else "all"
 
+    def _bank_filters(
+        self,
+        *,
+        state: str | None = None,
+        qtype: str | None = None,
+        difficulty: str | None = None,
+        source: str | None = None,
+        course: str | None = None,
+        concept: str | None = None,
+        query: str | None = None,
+    ) -> dict[str, Any]:
+        """The complete bank filter set, shared by list / count / practice."""
+        return {
+            "state": self._normalize_bank_state(state),
+            "qtype": qtype,
+            "difficulty": difficulty,
+            "source": source,
+            "course": course,
+            "concept": concept,
+            "query": query,
+        }
+
     def get_bank(
         self,
         *,
         state: str | None = None,
         qtype: str | None = None,
+        difficulty: str | None = None,
+        source: str | None = None,
         course: str | None = None,
         concept: str | None = None,
         query: str | None = None,
@@ -606,16 +630,12 @@ class QuizService:
         offset: int = 0,
     ) -> dict[str, Any]:
         store = QuizStore(self.workspace)
-        normalized = self._normalize_bank_state(state)
+        filters = self._bank_filters(
+            state=state, qtype=qtype, difficulty=difficulty, source=source,
+            course=course, concept=concept, query=query,
+        )
         bounded_limit = max(1, min(int(limit or 50), 200))
         bounded_offset = max(0, int(offset or 0))
-        filters = {
-            "state": normalized,
-            "qtype": qtype,
-            "course": course,
-            "concept": concept,
-            "query": query,
-        }
         items = store.list_bank_questions(
             **filters, limit=bounded_limit, offset=bounded_offset
         )
@@ -623,10 +643,29 @@ class QuizService:
             items=[self._bank_item_public(item) for item in items],
             total=store.count_bank_questions(**filters),
             overview=store.bank_overview(),
-            state=normalized,
+            state=filters["state"],
             limit=bounded_limit,
             offset=bounded_offset,
         )
+
+    def count_bank(
+        self,
+        *,
+        state: str | None = None,
+        qtype: str | None = None,
+        difficulty: str | None = None,
+        source: str | None = None,
+        course: str | None = None,
+        concept: str | None = None,
+        query: str | None = None,
+    ) -> dict[str, Any]:
+        """Just the count, for callers that do not need the rows or the overview."""
+        store = QuizStore(self.workspace)
+        total = store.count_bank_questions(**self._bank_filters(
+            state=state, qtype=qtype, difficulty=difficulty, source=source,
+            course=course, concept=concept, query=query,
+        ))
+        return _ok(total=total, state=self._normalize_bank_state(state))
 
     def bookmark_question(self, question_id: int, bookmarked: bool = True) -> dict[str, Any]:
         store = QuizStore(self.workspace)
@@ -639,19 +678,27 @@ class QuizService:
         question_ids: list[int] | None = None,
         *,
         state: str | None = None,
+        qtype: str | None = None,
+        difficulty: str | None = None,
+        source: str | None = None,
         course: str | None = None,
         concept: str | None = None,
+        query: str | None = None,
         limit: int = 5,
     ) -> dict[str, Any]:
         store = QuizStore(self.workspace)
         ids = [int(item) for item in (question_ids or []) if int(item) > 0][:15]
         if not ids:
+            # "Practice what I am looking at": the same filter set the list used,
+            # so a concept / keyword / bookmark filter can be practised directly.
+            filters = self._bank_filters(
+                state=state, qtype=qtype, difficulty=difficulty, source=source,
+                course=course, concept=concept, query=query,
+            )
             ids = [
                 item["id"]
                 for item in store.list_bank_questions(
-                    state=self._normalize_bank_state(state),
-                    course=course,
-                    concept=concept,
+                    **filters,
                     limit=max(1, min(int(limit or 5), 15)),
                 )
             ]

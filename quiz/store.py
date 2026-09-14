@@ -311,6 +311,8 @@ class QuizStore:
         *,
         state: str | None = None,
         qtype: str | None = None,
+        difficulty: str | None = None,
+        source: str | None = None,
         course: str | None = None,
         concept: str | None = None,
         query: str | None = None,
@@ -320,6 +322,14 @@ class QuizStore:
         if qtype:
             clauses.append("q.type = ?")
             params.append(qtype)
+        if difficulty:
+            clauses.append("q.difficulty = ?")
+            params.append(difficulty)
+        # source is the exact material a question came from, which is what the
+        # bank UI lists; course stays the fuzzy filter the agent tool used.
+        if source:
+            clauses.append("q.source = ?")
+            params.append(source)
         if course:
             clauses.append("q.source LIKE ?")
             params.append(f"%{course}%")
@@ -388,6 +398,8 @@ class QuizStore:
         *,
         state: str | None = None,
         qtype: str | None = None,
+        difficulty: str | None = None,
+        source: str | None = None,
         course: str | None = None,
         concept: str | None = None,
         query: str | None = None,
@@ -395,7 +407,8 @@ class QuizStore:
         offset: int = 0,
     ) -> list[dict]:
         clauses, params = self._bank_filters(
-            state=state, qtype=qtype, course=course, concept=concept, query=query
+            state=state, qtype=qtype, difficulty=difficulty, source=source,
+            course=course, concept=concept, query=query,
         )
         sql = f"""SELECT q.id, q.type, q.question, q.options, q.concepts, q.difficulty,
                          q.source, q.attribution_kind, q.sources, q.created_at,
@@ -421,12 +434,15 @@ class QuizStore:
         *,
         state: str | None = None,
         qtype: str | None = None,
+        difficulty: str | None = None,
+        source: str | None = None,
         course: str | None = None,
         concept: str | None = None,
         query: str | None = None,
     ) -> int:
         clauses, params = self._bank_filters(
-            state=state, qtype=qtype, course=course, concept=concept, query=query
+            state=state, qtype=qtype, difficulty=difficulty, source=source,
+            course=course, concept=concept, query=query,
         )
         sql = f"""SELECT COUNT(*) AS total
                     FROM questions q
@@ -461,6 +477,12 @@ class QuizStore:
                     "SELECT type, COUNT(*) AS cnt FROM questions GROUP BY type"
                 ).fetchall()
             }
+            by_difficulty = {
+                item["difficulty"]: item["cnt"]
+                for item in conn.execute(
+                    "SELECT difficulty, COUNT(*) AS cnt FROM questions GROUP BY difficulty"
+                ).fetchall()
+            }
             by_concept = [
                 {"concept": item["concept"], "count": item["cnt"]}
                 for item in conn.execute(
@@ -471,13 +493,32 @@ class QuizStore:
                         LIMIT 10"""
                 ).fetchall()
             ]
+            # Every material the bank holds, so the 资料 filter can be a real list
+            # instead of free text. The reference library spans a handful of
+            # materials, so the cap is only a guard.
+            by_source = [
+                {"source": item["source"], "count": item["cnt"]}
+                for item in conn.execute(
+                    """SELECT source, COUNT(*) AS cnt FROM questions
+                        WHERE source <> ''
+                        GROUP BY source
+                        ORDER BY cnt DESC, source ASC
+                        LIMIT 200"""
+                ).fetchall()
+            ]
         finally:
             conn.close()
         ints = {
             key: int(row[key] or 0)
             for key in ("total", "unanswered", "partial", "correct", "incorrect", "bookmarked")
         }
-        return {**ints, "by_type": by_type, "by_concept": by_concept}
+        return {
+            **ints,
+            "by_type": by_type,
+            "by_difficulty": by_difficulty,
+            "by_concept": by_concept,
+            "by_source": by_source,
+        }
 
     def set_bookmark(self, question_id: int, bookmarked: bool = True) -> bool:
         conn = self._connect()

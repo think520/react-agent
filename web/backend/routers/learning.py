@@ -63,8 +63,11 @@ def reviews(request: Request, limit: int = 20) -> dict:
 
 
 @router.get("/review-queue")
-def review_queue(request: Request, limit: int = 20) -> dict:
-    result = _unwrap(_service(request).get_review_queue(limit=max(1, min(limit, 50))))
+def review_queue(request: Request, limit: int = 20, wrong_limit: int = 200) -> dict:
+    result = _unwrap(_service(request).get_review_queue(
+        limit=max(1, min(limit, 50)),
+        wrong_limit=max(1, min(wrong_limit, 500)),
+    ))
     preferences = get_preferences()
     if not preferences.get("memory", {}).get("enabled", True):
         result["personalization"] = []

@@ -86,8 +86,14 @@ class BankPracticeRequest(BaseModel):
         default="all",
         pattern="^(all|unanswered|correct|partial|incorrect|bookmarked)$",
     )
+    question_type: str | None = Field(
+        default=None, pattern="^(single_choice|true_false|short_answer)$"
+    )
+    difficulty: str | None = Field(default=None, pattern="^(easy|medium|hard)$")
+    source: str | None = Field(default=None, max_length=512)
     course: str | None = None
     concept: str | None = None
+    query: str | None = Field(default=None, max_length=200)
     limit: int = Field(default=5, ge=1, le=15)
 
 
@@ -108,16 +114,20 @@ def bank(
         default="all",
         pattern="^(all|unanswered|correct|partial|incorrect|bookmarked)$",
     ),
-    qtype: str | None = None,
+    qtype: str | None = Query(default=None, pattern="^(single_choice|true_false|short_answer)$"),
+    difficulty: str | None = Query(default=None, pattern="^(easy|medium|hard)$"),
+    source: str | None = Query(default=None, max_length=512),
     course: str | None = None,
     concept: str | None = None,
-    q: str | None = None,
+    q: str | None = Query(default=None, max_length=200),
     limit: int = 50,
     offset: int = 0,
 ) -> dict:
     return unwrap_service_result(_service(request).get_bank(
         state=state,
         qtype=qtype,
+        difficulty=difficulty,
+        source=source,
         course=course,
         concept=concept,
         query=q,
@@ -139,8 +149,12 @@ def bank_practice(body: BankPracticeRequest, request: Request) -> dict:
         _service(request).start_bank_practice(
             body.question_ids,
             state=body.state,
+            qtype=body.question_type,
+            difficulty=body.difficulty,
+            source=body.source,
             course=body.course,
             concept=body.concept,
+            query=body.query,
             limit=body.limit,
         )
     ))

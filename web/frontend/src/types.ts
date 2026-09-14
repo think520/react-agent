@@ -221,7 +221,10 @@ export interface QuestionBankOverview {
   incorrect: number;
   bookmarked: number;
   by_type: Record<string, number>;
+  by_difficulty: Record<string, number>;
   by_concept: Array<{ concept: string; count: number }>;
+  /** Every material the bank holds, so the 资料 filter can be a real list. */
+  by_source: Array<{ source: string; count: number }>;
 }
 
 export interface QuestionBank {
@@ -236,6 +239,8 @@ export interface QuestionBank {
 export interface ReviewQueue {
   due_concepts: Array<Record<string, unknown>>;
   wrong_answers: Array<Record<string, unknown>>;
+  /** The bank's true wrong-answer count; wrong_answers is only a window of it. */
+  wrong_total?: number;
   weaknesses: Array<Record<string, unknown>>;
   personalization?: PersonalizationRef[];
 }

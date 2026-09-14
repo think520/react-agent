@@ -411,6 +411,8 @@ export const api = {
   questionBank: (params: {
     state?: string;
     qtype?: string;
+    difficulty?: string;
+    source?: string;
     course?: string;
     concept?: string;
     query?: string;
@@ -420,6 +422,8 @@ export const api = {
     const search = new URLSearchParams();
     if (params.state && params.state !== "all") search.set("state", params.state);
     if (params.qtype) search.set("qtype", params.qtype);
+    if (params.difficulty) search.set("difficulty", params.difficulty);
+    if (params.source) search.set("source", params.source);
     if (params.course) search.set("course", params.course);
     if (params.concept) search.set("concept", params.concept);
     if (params.query) search.set("q", params.query);
@@ -432,12 +436,30 @@ export const api = {
     "/api/quiz/bank/bookmark",
     json({ question_id: questionId, bookmarked }),
   ),
-  startBankPractice: (questionIds: number[] = [], state = "all", limit = 5) => request<{
+  startBankPractice: (filters: {
+    questionIds?: number[];
+    state?: string;
+    questionType?: string;
+    difficulty?: string;
+    source?: string;
+    concept?: string;
+    query?: string;
+    limit?: number;
+  } = {}) => request<{
     practice_session_id: number;
     questions: Question[];
   }>(
     "/api/quiz/bank/practice",
-    json({ question_ids: questionIds, state, limit }),
+    json({
+      question_ids: filters.questionIds || [],
+      state: filters.state || "all",
+      question_type: filters.questionType || null,
+      difficulty: filters.difficulty || null,
+      source: filters.source || null,
+      concept: filters.concept || null,
+      query: filters.query || null,
+      limit: filters.limit || 5,
+    }),
   ),
   reviewQueue: () => request<ReviewQueue>("/api/learning/review-queue"),
   answerInteraction: (interactionId: string, chatSessionId: string, answers: Array<{ id: string; answer: string }>) =>

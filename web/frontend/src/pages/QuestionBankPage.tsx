@@ -3,6 +3,7 @@ import { ArrowRight, Bookmark, BookmarkCheck, Play, RefreshCw, Search, X } from 
 import { useNavigate } from "react-router-dom";
 
 import { AttributionBadges, EmptyState, ErrorNotice, LoadingState, formatRelativeDate } from "../components/common";
+import { DropdownSelect } from "../components/DropdownSelect";
 import { api } from "../lib/api";
 import { toErrorMessage } from "../lib/errors";
 import type { QuestionBank, QuestionBankItem, QuestionBankState } from "../types";
@@ -18,13 +19,36 @@ const FILTERS: Array<{ key: string; label: string }> = [
   { key: "bookmarked", label: "已收藏" },
 ];
 
-// One bulk action per state: "重练" is only right for the wrong-answer bucket.
-const BULK_ACTIONS: Record<string, string> = {
-  unanswered: "开始做前 5 道未作答的题",
-  incorrect: "重练前 5 道错题",
-  partial: "再练前 5 道基本正确的题",
-  correct: "复习前 5 道答对的题",
+// The state is the noun the bulk action operates on, so no verb has to be
+// guessed per state ("重练" is only right for the wrong-answer bucket).
+const BULK_NOUNS: Record<string, string> = {
+  unanswered: "未作答题",
+  incorrect: "错题",
+  partial: "基本正确题",
+  correct: "答对题",
+  bookmarked: "收藏题",
 };
+
+const TYPE_OPTIONS = [
+  { value: "", label: "全部题型" },
+  { value: "single_choice", label: "单选题" },
+  { value: "true_false", label: "判断题" },
+  { value: "short_answer", label: "简答题" },
+];
+
+const DIFFICULTY_OPTIONS = [
+  { value: "", label: "全部难度" },
+  { value: "easy", label: "简单" },
+  { value: "medium", label: "中等" },
+  { value: "hard", label: "较难" },
+];
+
+/** A material is stored as a full path; the tail is what identifies it in a menu. */
+function materialLabel(source: string) {
+  const tail = source.split(/[\\/]/).pop() || source;
+  const name = tail.replace(/\.[^.]+$/, "");
+  return name.length > 26 ? name.slice(0, 25) + "…" : name;
+}
 
 const STATE_LABELS: Record<QuestionBankState, string> = {
   unanswered: "未作答",
@@ -51,6 +75,9 @@ export function QuestionBankPage() {
   const navigate = useNavigate();
   const [state, setState] = useState("all");
   const [concept, setConcept] = useState("");
+  const [qtype, setQtype] = useState("");
+  const [difficulty, setDifficulty] = useState("");
+  const [source, setSource] = useState("");
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [page, setPage] = useState(0);
@@ -75,6 +102,9 @@ export function QuestionBankPage() {
       const result = await api.questionBank({
         state,
         concept: concept || undefined,
+        qtype: qtype || undefined,
+        difficulty: difficulty || undefined,
+        source: source || undefined,
         query: debouncedQuery || undefined,
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
@@ -89,12 +119,30 @@ export function QuestionBankPage() {
     } finally {
       setLoading(false);
     }
-  }, [state, concept, debouncedQuery, page]);
+  }, [state, concept, qtype, difficulty, source, debouncedQuery, page]);
 
   useEffect(() => { void load(); }, [load]);
 
   function selectFilter(key: string) {
     setState(key);
+    setPage(0);
+  }
+
+  /** Any filter change restarts paging, so a page can never run off the end. */
+  function changeFilter(setter: (value: string) => void) {
+    return (value: string) => {
+      setter(value);
+      setPage(0);
+    };
+  }
+
+  function clearFilters() {
+    setState("all");
+    setConcept("");
+    setQtype("");
+    setDifficulty("");
+    setSource("");
+    setQuery("");
     setPage(0);
   }
 
@@ -126,7 +174,7 @@ export function QuestionBankPage() {
     setStarting(`question-${item.id}`);
     setError("");
     try {
-      const created = await api.startBankPractice([item.id]);
+      const created = await api.startBankPractice({ questionIds: [item.id] });
       navigate(`/practice/${created.practice_session_id}`);
     } catch (reason) {
       setError(toErrorMessage(reason, "无法开始这一题。"));
@@ -138,7 +186,16 @@ export function QuestionBankPage() {
     setStarting("selection");
     setError("");
     try {
-      const created = await api.startBankPractice([], state, 5);
+      // "Practice what I am looking at": the same filter set the list used.
+      const created = await api.startBankPractice({
+        state,
+        concept: concept || undefined,
+        questionType: qtype || undefined,
+        difficulty: difficulty || undefined,
+        source: source || undefined,
+        query: debouncedQuery || undefined,
+        limit: 5,
+      });
       navigate(`/practice/${created.practice_session_id}`);
     } catch (reason) {
       setError(toErrorMessage(reason, "无法开始练习。"));
@@ -149,6 +206,17 @@ export function QuestionBankPage() {
   const overview = bank?.overview;
   const totalPages = bank ? Math.max(1, Math.ceil(bank.total / PAGE_SIZE)) : 1;
   const conceptPool = overview?.by_concept || [];
+  const sourceOptions = [
+    { value: "", label: "全部资料" },
+    ...(overview?.by_source || []).map((entry) => ({
+      value: entry.source,
+      label: materialLabel(entry.source),
+      hint: String(entry.count),
+    })),
+  ];
+  const filtersActive = state !== "all"
+    || Boolean(concept || qtype || difficulty || source || debouncedQuery);
+  const practiceCount = Math.max(1, Math.min(bank?.total || 0, 5));
 
   return (
     <section className="page-scroll">
@@ -186,6 +254,13 @@ export function QuestionBankPage() {
           </label>
         </div>
 
+        <div className="bank-selects">
+          <DropdownSelect ariaLabel="按题型筛选" value={qtype} onChange={changeFilter(setQtype)} options={TYPE_OPTIONS} />
+          <DropdownSelect ariaLabel="按难度筛选" value={difficulty} onChange={changeFilter(setDifficulty)} options={DIFFICULTY_OPTIONS} />
+          <DropdownSelect ariaLabel="按资料筛选" value={source} onChange={changeFilter(setSource)} options={sourceOptions} />
+          {filtersActive && <button className="quiet-button" type="button" onClick={clearFilters}><X size={14} />清除筛选</button>}
+        </div>
+
         {conceptPool.length > 0 && (
           <div className="bank-concepts">
             {concept && <button type="button" className="quiet-button" onClick={() => { setConcept(""); setPage(0); }}>概念：{concept}<X size={13} /></button>}
@@ -195,10 +270,10 @@ export function QuestionBankPage() {
           </div>
         )}
 
-        {state !== "all" && state !== "bookmarked" && (bank?.total || 0) > 0 && (
+        {filtersActive && (bank?.total || 0) > 0 && (
           <div className="bank-bulk">
             <button className="quiet-button" type="button" disabled={starting === "selection"} onClick={() => void practiceSelection()}>
-              <Play size={15} />{starting === "selection" ? "正在准备" : (BULK_ACTIONS[state] || "练前 5 道")}
+              <Play size={15} />{starting === "selection" ? "正在准备" : `练这 ${practiceCount} 道${BULK_NOUNS[state] || "题"}`}
             </button>
           </div>
         )}

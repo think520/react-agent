@@ -106,13 +106,22 @@ class LearningService:
             })
         return _ok(count=len(due), concepts=concepts)
 
-    def get_review_queue(self, limit: int = 20) -> dict[str, Any]:
+    # D5: the wrong set belongs to the bank, not to a 20-row window. The rows
+    # stay bounded so a long history cannot flood the page, but the reported
+    # total comes from the bank, so Review and the bank always agree.
+    WRONG_ANSWER_LIMIT = 200
+
+    def get_review_queue(
+        self, limit: int = 20, wrong_limit: int | None = None
+    ) -> dict[str, Any]:
         due_result = self.get_due_reviews(limit=limit)
         from quiz.store import QuizStore
         from service.quiz_service import QuizService
         quiz_store = QuizStore(self.workspace)
         quiz_service = QuizService(self.workspace, config=self.config)
-        wrong_result = quiz_service.get_wrong_answer_book(limit=limit)
+        bounded_wrong = max(1, min(int(wrong_limit or self.WRONG_ANSWER_LIMIT), 500))
+        wrong_result = quiz_service.get_wrong_answer_book(limit=bounded_wrong)
+        wrong_total = quiz_service.count_bank(state="incorrect").get("total", 0)
         weakness_result = quiz_service.get_weakness_analysis()
         due_concepts = [
             {
@@ -131,6 +140,7 @@ class LearningService:
         return _ok(
             due_concepts=due_concepts,
             wrong_answers=wrong_result.get("entries", []),
+            wrong_total=wrong_total,
             weaknesses=weaknesses,
         )
 

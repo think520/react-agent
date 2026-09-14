@@ -45,7 +45,7 @@ const UNANSWERED_QUESTION = {
   ...SHELF,
   id: 1, type: "true_false", type_label: "判断题",
   question: "BFS 一定能求出最短路径。", options: [],
-  concepts: ["图论"], difficulty: "medium", source: "算法导论",
+  concepts: ["图论"], difficulty: "hard", source: "图论讲义",
   created_at: "2026-09-06T00:00:00+00:00",
   state: "unanswered", bookmarked: false, bookmarked_at: "",
   last_attempt: null,
@@ -100,7 +100,7 @@ async function mockShell(page: Page) {
 async function mockBank(page: Page) {
   const state = { bookmarked: new Set<number>([WRONG_QUESTION.id]) };
   const bookmarks: Array<{ question_id: number; bookmarked: boolean }> = [];
-  const practices: Array<{ question_ids: number[]; state: string }> = [];
+  const practices: Array<Record<string, unknown>> = [];
 
   const item = (question: typeof WRONG_QUESTION) => ({
     ...question,
@@ -124,14 +124,21 @@ async function mockBank(page: Page) {
       return route.fulfill(json({ practice_session_id: 42, question_ids: body.question_ids, questions: [] }));
     }
     const filter = url.searchParams.get("state") || "all";
+    const difficulty = url.searchParams.get("difficulty");
+    const source = url.searchParams.get("source");
     const items = ALL_QUESTIONS.map(item);
-    const filtered = filter === "incorrect"
-      ? items.filter((entry) => entry.state === "incorrect")
-      : filter === "bookmarked"
-        ? items.filter((entry) => entry.bookmarked)
-        : filter === "unanswered"
-          ? items.filter((entry) => entry.state === "unanswered")
-          : items;
+    const byState = (entry: typeof WRONG_QUESTION) => {
+      if (filter === "incorrect") return entry.state === "incorrect";
+      if (filter === "correct") return entry.state === "correct";
+      if (filter === "partial") return entry.state === "partial";
+      if (filter === "unanswered") return entry.state === "unanswered";
+      if (filter === "bookmarked") return entry.bookmarked;
+      return true;
+    };
+    const filtered = items
+      .filter(byState)
+      .filter((entry) => !difficulty || entry.difficulty === difficulty)
+      .filter((entry) => !source || entry.source === source);
     return route.fulfill(json({
       items: filtered,
       total: filtered.length,
@@ -140,7 +147,12 @@ async function mockBank(page: Page) {
         unanswered: 1, correct: 1, partial: 0, incorrect: 1,
         bookmarked: state.bookmarked.size,
         by_type: { short_answer: 1, single_choice: 1, true_false: 1 },
+        by_difficulty: { easy: 1, medium: 1, hard: 1 },
         by_concept: [{ concept: "图论", count: 2 }, { concept: "排序", count: 1 }],
+        by_source: [
+          { source: "算法导论", count: 2 },
+          { source: "图论讲义", count: 1 },
+        ],
       },
       state: filter, limit: 20, offset: 0,
     }));
@@ -186,7 +198,8 @@ test("past questions are browsable, filterable and re-practisable", async ({ pag
 
   await page.getByRole("button", { name: "练这题" }).click();
   await page.waitForURL(/\/practice\/42/);
-  expect(bank.practices).toEqual([{ question_ids: [3], state: "all", limit: 5 }]);
+  expect(bank.practices).toHaveLength(1);
+  expect(bank.practices[0]).toMatchObject({ question_ids: [3], state: "all", limit: 5 });
   await expect(page.locator(".question-sheet h2")).toContainText("Dijkstra");
 });
 
@@ -205,4 +218,33 @@ test("bookmarking a question goes through the API and flips the row", async ({ p
 
   await page.getByRole("tab", { name: /已收藏/ }).click();
   await expect(page.locator(".bank-row")).toHaveCount(2);
+});
+test("difficulty and material filters narrow the bank and can be practised", async ({ page }) => {
+  await mockShell(page);
+  const bank = await mockBank(page);
+
+  await page.goto("/practice/bank");
+  await expect(page.locator(".bank-row")).toHaveCount(3);
+
+  // 难度 is one of the D2 axes and had no UI before this pass.
+  await page.getByRole("button", { name: "按难度筛选" }).click();
+  await page.getByRole("option", { name: "简单" }).click();
+  await expect(page.locator(".bank-row")).toHaveCount(1);
+  await expect(page.locator(".bank-row").first()).toContainText("下面哪个排序是稳定的？");
+
+  await page.getByRole("button", { name: "清除筛选" }).click();
+  await expect(page.locator(".bank-row")).toHaveCount(3);
+
+  // 资料 comes from the overview, so the menu is a real list of materials.
+  await page.getByRole("button", { name: "按资料筛选" }).click();
+  await page.getByRole("option", { name: /图论讲义/ }).click();
+  await expect(page.locator(".bank-row")).toHaveCount(1);
+
+  // "Practice what I am looking at" must send the whole filter set, not just state.
+  await page.getByRole("button", { name: /练这 1 道题/ }).click();
+  await expect.poll(() => bank.practices.length).toBe(1);
+  expect(bank.practices[0]).toMatchObject({
+    question_ids: [], state: "all", source: "图论讲义", limit: 5,
+  });
+  await page.waitForURL(/\/practice\/42/);
 });

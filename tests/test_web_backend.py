@@ -1671,19 +1671,78 @@ def test_quiz_bank_practice_rejects_empty_selection(backend_client):
     assert response.json()["error"]["code"] == "bank_empty"
 
 
+def test_quiz_bank_filter_axes_contract(backend_client):
+    """E18: difficulty / material / type are the D2 axes, and the bank filter set
+    is the same one practice uses."""
+    from quiz.schema import Question
+    from quiz.store import QuizStore
+
+    store = QuizStore(str(backend_client.workspace))
+    store.add_question(Question(question="简单题", answer="A", difficulty="easy",
+                                source="material-x", concepts=["alpha"]))
+    store.add_question(Question(question="难题", answer="A", difficulty="hard",
+                                source="material-y", concepts=["beta"]))
+    store.add_question(Question(type="true_false", question="判断题", answer="true",
+                                difficulty="hard", source="material-x"))
+
+    assert backend_client.get("/api/quiz/bank?difficulty=easy").json()["total"] == 1
+    assert backend_client.get("/api/quiz/bank?difficulty=hard").json()["total"] == 2
+    assert backend_client.get("/api/quiz/bank?source=material-x").json()["total"] == 2
+    assert backend_client.get("/api/quiz/bank?qtype=true_false").json()["total"] == 1
+
+    combined = backend_client.get("/api/quiz/bank?difficulty=hard&source=material-x").json()
+    assert combined["total"] == 1
+    assert combined["items"][0]["question"] == "判断题"
+    assert combined["overview"]["by_difficulty"]["hard"] == 2
+    assert {entry["source"] for entry in combined["overview"]["by_source"]} == {
+        "material-x", "material-y",
+    }
+    assert backend_client.get("/api/quiz/bank?difficulty=impossible").status_code == 422
+    assert backend_client.get("/api/quiz/bank?qtype=essay").status_code == 422
+
+    created = backend_client.post("/api/quiz/bank/practice", json={
+        "question_ids": [], "state": "all", "difficulty": "hard", "limit": 5,
+    }).json()
+    assert created["question_ids"] == [3, 2]
+
+
+def test_quiz_bank_practice_uses_the_current_filter(backend_client):
+    """Bookmarks and concepts are practiceable, not only the fixed states."""
+    ids = _seed_question_bank(backend_client)
+
+    bookmarked = backend_client.post("/api/quiz/bank/practice", json={
+        "question_ids": [], "state": "bookmarked",
+    }).json()
+    assert bookmarked["question_ids"] == [ids["wrong"]]
+
+    by_concept = backend_client.post("/api/quiz/bank/practice", json={
+        "question_ids": [], "state": "all", "concept": "代数",
+    }).json()
+    assert by_concept["question_ids"] == [ids["kept"]]
+
+    by_keyword = backend_client.post("/api/quiz/bank/practice", json={
+        "question_ids": [], "state": "all", "query": "还没做过",
+    }).json()
+    assert by_keyword["question_ids"] == [ids["unanswered"]]
+
+
 def test_review_queue_contract(backend_client, monkeypatch):
     monkeypatch.setattr(
         "web.backend.routers.learning.LearningService.get_review_queue",
-        lambda self, limit: {
+        lambda self, limit, wrong_limit=None: {
             "ok": True,
             "due_concepts": [{"concept": "graphs"}],
-            "wrong_answers": [],
+            "wrong_answers": [{"question_id": 3}],
+            "wrong_total": 8,
             "weaknesses": [],
         },
     )
     response = backend_client.get("/api/learning/review-queue")
     assert response.status_code == 200
     assert response.json()["due_concepts"][0]["concept"] == "graphs"
+    # The bank total travels with the queue so the UI never shows a 20-row window
+    # as if it were the whole wrong set.
+    assert response.json()["wrong_total"] == 8
 
 
 def test_library_import_strips_internal_paths(backend_client, monkeypatch):
