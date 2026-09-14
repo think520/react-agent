@@ -59,7 +59,12 @@ class ScriptedProvider:
 
     # -- LLMProvider contract ----------------------------------------------
 
-    def complete(self, messages: list[dict], tools: list[dict] | None = None) -> LLMResponse:
+    def complete(
+        self,
+        messages: list[dict],
+        tools: list[dict] | None = None,
+        cancel_token=None,
+    ) -> LLMResponse:
         turn = self._record_and_take(messages, tools)
         if isinstance(turn, Exception):
             raise turn
@@ -85,6 +90,7 @@ class ScriptedProvider:
         self,
         messages: list[dict],
         tools: list[dict] | None = None,
+        cancel_token=None,
     ) -> Iterator[LLMStreamChunk]:
         turn = self._record_and_take(messages, tools)
         if isinstance(turn, Exception):

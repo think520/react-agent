@@ -327,7 +327,7 @@ hooks 最小接线（✅ 结果上限落 `after_tool`、白名单门落 `before_
 设计文档：[`CANCELLATION_DESIGN.md`](CANCELLATION_DESIGN.md)（2026-09-14）。分四阶段：
 
 1. ✅ **原语与穿透**：`core/cancellation.py::CancelToken`（含父子传播）+ `AgentLoop` 迭代检查点与工具派发检查点 + 终止事件 `termination_reason="cancelled"`
-2. ⏳ **provider 流式读循环**：每个 chunk 前检查 → break 出循环让响应与连接关闭（非流式靠 timeout 兜底，取消后不重试）
+2. ✅ **provider 流式读循环**：每个 chunk 前检查 → break 出循环让响应与连接关闭；非流式靠 timeout 兜底且**取消后不再重试**；`RunCancelled` 与 `ProviderError` 分开
 3. ⏳ **Web 宽限期**：run 注册表 + 断线宽限 30s + 超期取消 + 宽限内重连续跑；同时把批次二留下的「客户端重连发 after_seq」接上
 4. ⏳ **CLI 与 specialist**：SIGINT 接 token；specialist 子 token（父取消即停）+ 每工具超时转结构化错误
 

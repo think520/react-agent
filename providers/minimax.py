@@ -121,12 +121,20 @@ class MiniMaxProvider(OpenAICompatibleProvider):
             usage=self._normalize_usage(data),
         )
 
-    def complete_stream(self, messages: List[dict], tools: List[dict] = None) -> Iterator[LLMStreamChunk]:
+    def complete_stream(
+        self,
+        messages: List[dict],
+        tools: List[dict] = None,
+        cancel_token=None,
+    ) -> Iterator[LLMStreamChunk]:
         """Hold tool deltas until refusal detection has seen the full response."""
         content = ""
         pending_tool_deltas = []
         last_request_id = ""
-        for chunk in super().complete_stream(messages, tools):
+        # Only forward the token when there is one: a provider that predates the
+        # parameter (or a test double) keeps working unchanged.
+        forward = {"cancel_token": cancel_token} if cancel_token is not None else {}
+        for chunk in super().complete_stream(messages, tools, **forward):
             content += chunk.content_delta
             pending_tool_deltas.extend(chunk.tool_call_deltas)
             last_request_id = chunk.request_id or last_request_id

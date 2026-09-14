@@ -6,12 +6,25 @@ from typing import List
 
 import httpx
 
+from core.cancellation import CancelToken, RunCancelled
+
 from .base import LLMProvider
 from .errors import ProviderConnectionError, ProviderError, ProviderTimeout
 from .retry import is_retryable_status, retry_delay
 from .types import LLMResponse, LLMStreamChunk, ToolCall, ToolCallDelta
 
 logger = logging.getLogger(__name__)
+
+
+def _retry_pause(attempt: int, cancel_token: CancelToken | None) -> None:
+    """Pause before the next attempt, unless the turn was cancelled.
+
+    A4 batch 3: cancellation must not be followed by another request - that is
+    exactly the token burn the audit was about.
+    """
+    if cancel_token is not None and cancel_token.is_cancelled():
+        raise RunCancelled(cancel_token.reason)
+    time.sleep(retry_delay(attempt))
 
 
 class OpenAICompatibleProvider:
@@ -182,12 +195,23 @@ class OpenAICompatibleProvider:
             request_id=str(data.get("id") or ""),
         )
 
-    def complete(self, messages: List[dict], tools: List[dict] = None) -> LLMResponse:
+    def complete(
+        self,
+        messages: List[dict],
+        tools: List[dict] = None,
+        cancel_token: CancelToken | None = None,
+    ) -> LLMResponse:
         payload = self._build_payload(messages, tools=tools)
         headers = self._headers()
 
         last_error = None
+        # A4 batch 3: a non-streaming request cannot be interrupted mid-flight,
+        # but a cancelled turn must not spend another request here.
+        if cancel_token is not None and cancel_token.is_cancelled():
+            raise RunCancelled(cancel_token.reason)
         for attempt in range(self.max_retries):
+            if cancel_token is not None and cancel_token.is_cancelled():
+                raise RunCancelled(cancel_token.reason)
             try:
                 with httpx.Client(base_url=self.base_url, timeout=self.timeout) as client:
                     response = client.post("/chat/completions", headers=headers, json=payload)
@@ -198,7 +222,7 @@ class OpenAICompatibleProvider:
                     if is_retryable_status(response.status_code):
                         last_error = f"{self.name} API error: {response.status_code}"
                         logger.warning(f"[{self.name}] {last_error} — retry {attempt + 1}/{self.max_retries}")
-                        time.sleep(retry_delay(attempt))
+                        _retry_pause(attempt, cancel_token)
                         continue
 
                     raise ProviderError(
@@ -209,11 +233,11 @@ class OpenAICompatibleProvider:
             except httpx.TimeoutException:
                 last_error = f"{self.name} API timeout"
                 logger.warning(f"[{self.name}] {last_error} — retry {attempt + 1}/{self.max_retries}")
-                time.sleep(retry_delay(attempt))
+                _retry_pause(attempt, cancel_token)
             except httpx.ConnectError:
                 last_error = f"{self.name} API connection error"
                 logger.warning(f"[{self.name}] {last_error} — retry {attempt + 1}/{self.max_retries}")
-                time.sleep(retry_delay(attempt))
+                _retry_pause(attempt, cancel_token)
 
         if last_error and "timeout" in last_error:
             raise ProviderTimeout(last_error, retryable=True)
@@ -221,18 +245,32 @@ class OpenAICompatibleProvider:
             raise ProviderConnectionError(last_error, retryable=True)
         raise ProviderError(f"{self.name} API failed after {self.max_retries} retries: {last_error}", retryable=True)
 
-    def complete_stream(self, messages: List[dict], tools: List[dict] = None) -> Iterator[LLMStreamChunk]:
+    def complete_stream(
+        self,
+        messages: List[dict],
+        tools: List[dict] = None,
+        cancel_token: CancelToken | None = None,
+    ) -> Iterator[LLMStreamChunk]:
         payload = self._build_payload(messages, tools=tools, stream=True)
         headers = self._headers()
 
         last_error = None
         started = False  # once chunks were yielded, retrying would replay duplicate content
+        if cancel_token is not None and cancel_token.is_cancelled():
+            raise RunCancelled(cancel_token.reason)
         for attempt in range(self.max_retries):
+            if cancel_token is not None and cancel_token.is_cancelled():
+                raise RunCancelled(cancel_token.reason)
             try:
                 with httpx.Client(base_url=self.base_url, timeout=self.timeout) as client:
                     with client.stream("POST", "/chat/completions", headers=headers, json=payload) as response:
                         if response.status_code == 200:
                             for line in response.iter_lines():
+                                # A4 batch 3: leaving the loop lets the `with`
+                                # blocks close the response and the connection,
+                                # so the provider really stops generating.
+                                if cancel_token is not None and cancel_token.is_cancelled():
+                                    break
                                 if isinstance(line, bytes):
                                     line = line.decode("utf-8", errors="replace")
                                 line = line.strip()
@@ -251,7 +289,7 @@ class OpenAICompatibleProvider:
                             response.read()
                             last_error = f"{self.name} API error: {response.status_code}"
                             logger.warning(f"[{self.name}] {last_error} - retry {attempt + 1}/{self.max_retries}")
-                            time.sleep(retry_delay(attempt))
+                            _retry_pause(attempt, cancel_token)
                             continue
 
                         response.read()
@@ -265,13 +303,13 @@ class OpenAICompatibleProvider:
                 if started:
                     raise ProviderTimeout(f"{self.name} stream interrupted mid-response: {last_error}")
                 logger.warning(f"[{self.name}] {last_error} - retry {attempt + 1}/{self.max_retries}")
-                time.sleep(retry_delay(attempt))
+                _retry_pause(attempt, cancel_token)
             except httpx.ConnectError:
                 last_error = f"{self.name} API connection error"
                 if started:
                     raise ProviderConnectionError(f"{self.name} stream interrupted mid-response: {last_error}")
                 logger.warning(f"[{self.name}] {last_error} - retry {attempt + 1}/{self.max_retries}")
-                time.sleep(retry_delay(attempt))
+                _retry_pause(attempt, cancel_token)
 
         if last_error and "timeout" in last_error:
             raise ProviderTimeout(last_error, retryable=True)

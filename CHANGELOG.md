@@ -7,6 +7,10 @@
 ## [未发布]
 
 ### 变更
+- **A4 批次三 · 取消原语（阶段二：provider 穿透，2026-09-14）**：阶段一只让循环在检查点停下，但在途请求仍在跑。这一阶段让**流式请求真的断**：`complete_stream` 的读循环在每个 chunk 之前检查令牌，命中就 `break`，`with` 退出时响应与连接一起关闭，provider 停止生成——这是整套协作取消里唯一能真正打断网络请求的位置。非流式请求打断不了，于是改为**取消后不再重试、不再发下一个**。
+  - 复现：新增 `tests/test_provider_cancellation.py` 三条，用 `httpx.MockTransport` 保留真实的 httpx 客户端与真实的读循环，只换传输层：①50 个 delta 的流在收到第 1 个后取消 → **只解析出 1 个 chunk 且只发出 1 次请求**（不重试）；②已取消的流**从不打开连接**（`RunCancelled`，连接记录为空）；③返回 500 这种可重试状态时，若此时已取消 → 只请求 1 次。**修前失败信号**：循环会读完 50 个 delta、重试可达 3 次。
+  - 修法：`LLMProvider` 协议、`openai_compat`（流式与非流式）、`minimax`（转发给父类）与测试替身 `ScriptedProvider` 全部接受 `cancel_token`；重试前的 `time.sleep` 统一改走 `_retry_pause(attempt, token)`——**取消后不再重试**是这一条的核心承诺；`AgentLoop` 用签名探测决定是否传该参数（不支持的 provider 会记一条 warning，而不是静默假装停止有效）；`run_stream` 增加 `except RunCancelled` 分支，保证取消被报成 `cancelled` 而不是 `error`。
+  - 阶段三、四（⏳）：Web 断线宽限期与重连续跑、CLI SIGINT 与 specialist 子 token、每工具超时表。
 - **A4 批次三 · 取消原语（阶段一，2026-09-14）**：先落设计文档 [`CANCELLATION_DESIGN.md`](CANCELLATION_DESIGN.md)——记录实测现状（生产代码取消原语 0 命中、SSE 生成器从不关闭、specialist 的 `Future.cancel()` 对已开始任务无效、CLI 只跳出消费循环）、锁定的方案（协作取消）与**诚实的边界**（Python 不能杀线程：流式真停、非流式靠 timeout、无视标志的工具会跑完）。
   - 复现：新增 `tests/test_cancellation.py` 七条（幂等且保留首个 reason、`raise_if_cancelled` 带 reason、父取消传播到已存在的子、取消后新建的子一开始就是取消态、子可单独取消、另一个线程能观察到取消）+ `tests/test_agent_cancellation.py` 两条。**修前失败信号**：`ModuleNotFoundError: core.cancellation`；以及循环没有 `cancel_token` 形参。
   - 修法（阶段一）：`core/cancellation.py` 新增 `CancelToken`（内部 `threading.Event` + 锁 + 父子表，`reason` 记首个原因，`RunCancelled` 与 `ProviderError` 刻意区分——取消不是失败，不该触发重试、不该计入错误率）；`AgentLoop` 接受 `cancel_token`，在**每轮迭代开始**与**每次工具派发前**检查：命中则以 `termination_reason="cancelled"` 结束本轮并保留已产出内容，工具则返回结构化的「未执行」结果。最强的断言是第一条：**预先取消的 run 对 provider 的调用次数为 0**——点了停止就不再花钱。

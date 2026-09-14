@@ -1,4 +1,5 @@
 import hashlib
+import inspect
 import json
 import logging
 import os
@@ -18,6 +19,7 @@ from core.hooks import (
     dispatch,
 )
 from core.builtin_hooks import register_builtin_hooks
+from core.cancellation import RunCancelled
 from core.prompt_layout import mark_dynamic_tail
 from core.session_compactor import project_context, repair_tool_pairing, should_compact
 from tools import get_tools_schema, execute_tool
@@ -385,6 +387,11 @@ class AgentLoop:
             yield max_iter_event
             if self.trace_writer:
                 self.trace_writer.write(max_iter_event)
+        except RunCancelled as cancelled:
+            # A4 batch 3: a provider (or a tool) may raise this mid-turn; it is a
+            # stop, not a failure, so it must not be reported as an error.
+            yield from self._cancelled_events(final_response or cancelled.reason, usage_records)
+            return final_response
         except Exception as exc:
             error_done = {
                 "type": "assistant_done",
@@ -630,6 +637,27 @@ class AgentLoop:
         # and this way no future projection change can reintroduce it.
         return repair_tool_pairing(messages)
 
+    def _provider_cancel_kwargs(self) -> dict:
+        """Pass the cancel token only to providers that accept it.
+
+        A4 batch 3: a provider that cannot be cancelled is worth saying out loud
+        once, rather than silently pretending the stop button works.
+        """
+        if self.cancel_token is None:
+            return {}
+        target = getattr(self.llm, "complete_stream", None) or getattr(self.llm, "complete", None)
+        try:
+            parameters = inspect.signature(target).parameters
+        except (TypeError, ValueError):
+            return {}
+        if "cancel_token" in parameters or any(
+            parameter.kind is inspect.Parameter.VAR_KEYWORD
+            for parameter in parameters.values()
+        ):
+            return {"cancel_token": self.cancel_token}
+        logger.warning("Provider %r does not accept cancel_token", self.llm)
+        return {}
+
     def _cancelled_events(self, content: str, usage_records: list) -> Iterator[dict]:
         """Terminate a turn because it was cancelled, not because it failed.
 
@@ -649,7 +677,11 @@ class AgentLoop:
     def _complete_with_events(self, *, emit_content: bool = True) -> Iterator[dict]:
         complete_stream = getattr(self.llm, "complete_stream", None)
         if not callable(complete_stream):
-            response = self.llm.complete(self._build_context(), tools=self.tools_schema)
+            response = self.llm.complete(
+                self._build_context(),
+                tools=self.tools_schema,
+                **self._provider_cancel_kwargs(),
+            )
             if response.content and emit_content:
                 yield {"type": "assistant_delta", "content": response.content}
             return response, ([response.content] if response.content else [])
@@ -659,7 +691,11 @@ class AgentLoop:
         stream_usage = None
         request_id = ""
 
-        for chunk in complete_stream(self._build_context(), tools=self.tools_schema):
+        for chunk in complete_stream(
+            self._build_context(),
+            tools=self.tools_schema,
+            **self._provider_cancel_kwargs(),
+        ):
             if chunk.usage is not None:
                 stream_usage = chunk.usage
             if chunk.request_id:
