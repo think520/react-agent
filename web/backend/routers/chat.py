@@ -63,6 +63,7 @@ from web.backend.schemas import (
     WikiPlanApplyRequest,
     WikiPlanRecoveryRequest,
 )
+from web.backend.specialists import ensure_specialist_tools
 from web.backend.sse import StreamEmitter, encode_sse, get_stream_store, iterate_on_stream_lane
 
 router = APIRouter()
@@ -90,6 +91,11 @@ _WEB_TOOL_NAMES = frozenset({
     "learning_review",
     "request_memory_confirmation",
     "ask_user",
+    # P1-16: the three specialists the CLI always had. Registered for the web
+    # by web/backend/specialists.py; the session travels with the call.
+    "delegate_doc_reader",
+    "delegate_triage",
+    "delegate_planner",
     "request_web_search",
     "web_research",
 })
@@ -1509,6 +1515,10 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
         content, references = injector.retrieve(body.message)
         personalization = {"content": content, "references": references}
         memory_injector = injector
+    # P1-16: register delegate_* before the schema snapshot is taken, otherwise
+    # the browser still cannot reach the specialists even though the allowlist
+    # lists them.
+    ensure_specialist_tools(config)
     allowed_tool_names = _WEB_TOOL_NAMES if memory_enabled else _WEB_TOOL_NAMES - _MEMORY_TOOL_NAMES
     if search_permission == "auto":
         allowed_tool_names = allowed_tool_names - {"request_web_search"}

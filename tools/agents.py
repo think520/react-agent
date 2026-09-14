@@ -19,8 +19,8 @@ logger = logging.getLogger(__name__)
 
 def register_delegate_tools(
     registry: SpecialistRegistry,
-    get_session: "Any",  # callable returning the current parent Session
-    get_app_config: "Any",  # callable returning the current app config dict
+    get_session: "Any" = None,  # callable returning the current parent Session
+    get_app_config: "Any" = None,  # callable returning the current app config dict
 ) -> int:
     """Register the 3 delegate tools. Returns count registered.
 
@@ -29,10 +29,14 @@ def register_delegate_tools(
         get_session: callable returning the current parent Session (REPL holds it).
         get_app_config: callable returning the current app config dict.
     """
+    # P1-16: the web has no single "current session", so it relies on the
+    # session injected with each call; get_session stays for the REPL.
+    get_session = get_session or (lambda: None)
+    resolved_config = get_app_config or (lambda: {})
     count = 0
     for name, _specialist, _cfg in registry.list_enabled():
         schema = _schema_for(name)
-        func = _make_delegate_func(name, registry, get_session, get_app_config)
+        func = _make_delegate_func(name, registry, get_session, resolved_config)
         register_tool(
             name=f"delegate_{name}",
             description=_description_for(name),
@@ -51,9 +55,11 @@ def _make_delegate_func(
     get_app_config: "Any",
 ):
     """Build the callable that REPL's execute_tool() will invoke."""
-    def delegate(**kwargs) -> ToolResult:
+    def delegate(session=None, **kwargs) -> ToolResult:
         task = _build_task(name, kwargs)
-        parent_session: Session = get_session()
+        # P1-16: prefer the session injected with the call (the web passes it
+        # per run); the REPL keeps its get_session closure as a fallback.
+        parent_session: Session = session or get_session()
         app_config = get_app_config()
         return run_specialist(registry, name, str(task), parent_session, app_config)
     delegate.__name__ = f"delegate_{name}"

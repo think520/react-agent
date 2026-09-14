@@ -320,7 +320,7 @@ P5G.3 的产品能力不再整体等待 Electron：Roadmap、复习提醒和部�
 
 #### 批次二 · 接线（已定方案，批次一完成后开始）
 
-hooks 最小接线（✅ 结果上限落 `after_tool`、白名单门落 `before_tool`，记忆注入不动，加守护测试）→ 上下文压缩两级（✅ L1 工具结果上限与 marker、✅ L2 确定性 checkpoint + turn 边界切点 + 序列化后配对兜底、✅ 接线 `context_window`）→ append-only 事件表 + `Last-Event-ID` 续传（✅ 事件落库与续传端点；⏳ 断线宽限取消随批次三的取消原语一起做）→ specialist 上 Web → 向量补建驱动 → grep 非文本可见降级。
+hooks 最小接线（✅ 结果上限落 `after_tool`、白名单门落 `before_tool`，记忆注入不动，加守护测试）→ 上下文压缩两级（✅ L1 工具结果上限与 marker、✅ L2 确定性 checkpoint + turn 边界切点 + 序列化后配对兜底、✅ 接线 `context_window`）→ append-only 事件表 + `Last-Event-ID` 续传（✅ 事件落库与续传端点；⏳ 断线宽限取消随批次三的取消原语一起做）→ specialist 上 Web（✅ P1-16）→ 向量补建驱动（⏳ P1-18）→ grep 非文本可见降级（⏳ P1-22）。
 
 #### 批次三 · 取消原语（先设计后动代码）
 

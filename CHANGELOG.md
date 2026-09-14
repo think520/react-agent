@@ -7,6 +7,9 @@
 ## [未发布]
 
 ### 变更
+- **A4 批次二 · specialist 上 Web（P1-16，2026-09-14）**：`tools/agents.py::register_delegate_tools` **只在 `cli/repl.py` 启动时被调用**，Web 后端从不注册，于是 `delegate_doc_reader` / `delegate_triage` / `delegate_planner` 三个子 agent 在浏览器里根本不存在——同一个产品，两个前端能力不对等。
+  - 复现：新增 `tests/test_web_specialists.py` 三条——①`execute_tool` 必须把**当次调用的 session** 注入给声明了 `session` 形参的工具；②`ensure_specialist_tools(config)` 注册出三个 `delegate_*` 且重复调用不产生重复注册；③Web 的 `_WEB_TOOL_NAMES` 必须放行这三个名字。**修前失败信号**：`assert delegate_doc_reader in TOOL_REGISTRY` 失败、`ModuleNotFoundError: web.backend.specialists`，以及白名单断言列出实际 frozenset 但不含该名字。
+  - 修法：`tools/base.py::execute_tool` 增加 `session` 注入（**Web 是并发的，不能像 REPL 那样闭包一个「当前 session」**，会话必须随调用传递）；`tools/agents.py` 的 delegate 函数签名改为 `delegate(session=None, **kwargs)`，优先用注入的 session、回退到 REPL 的 `get_session`；`get_session` / `get_app_config` 变为可选以同时支持两端；新增 `web/backend/specialists.py::ensure_specialist_tools(config)`（进程内幂等），并在 `create_run` 里**于 schema 快照之前**调用——否则白名单放行了、schema 里却没有这几个工具。
 - **A4 批次二 · 事件落库与断线续传（P1-17，2026-09-14）**：续传这条路**每一节都在、就是没通电**——seq 打戳、`StreamStore`、`/streams/{id}/replay` 端点、前端按 seq 去重，全都写好了；但存储是**进程内内存缓冲**，而且每个 run 在 `finally` 里调 `emitter.clear()`（断线也走这条路径）——**清除的时机与重放的目的正好相反**，所以重连永远读不到任何东西，重启更是一片空白。
   - 复现：新增 `tests/test_event_log.py` 五条（每流单调 seq、游标读取、**新实例仍能读到**（模拟重启）、12 线程并发 append 得到唯一 seq、保留策略淘汰旧流）+ `tests/test_web_backend.py` 一条端到端：写入两帧 → 清掉进程内 store 缓存（模拟重启）→ 请求 replay 端点仍然拿到 `seq: 2` 与内容。**修前失败信号**：`ModuleNotFoundError: core.event_log`；以及旧实现下 replay 在 clear 之后返回空。
   - 修法：新增 `core/event_log.py`（SQLite `stream_events(stream_id, seq, event, data, created_at)`，seq 的读改写放在 `begin_immediate` 事务里保证并发唯一，`read_after` 游标读取，`prune` 按保留天数与流数量上限回收）；`StreamStore` 可挂一个 `EventLog`，挂上之后**完全以日志为准**（内存缓冲不再参与——否则重启后缓冲自己的计数器会与日志的 seq 打架）；`get_stream_store(workspace)` 按 workspace 缓存；`create_run` 改用 workspace store 并在开跑时 `prune()`；**删掉两处 `emitter.clear()`**；replay 端点改为读持久日志，并同时接受 `after_seq` 与 `Last-Event-ID`（浏览器 EventSource 重连时会自动带它）。

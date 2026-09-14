@@ -143,6 +143,11 @@ def execute_tool(name: str, args: dict, session=None) -> Any:
             if accepts_kwargs or key in declared
         }
         if session is not None:
+            if "session" in sig.parameters:
+                # P1-16: tools that need the calling session take it as an
+                # injected parameter. The web runs concurrently, so closing
+                # over a global "current session" is not an option there.
+                call_args["session"] = session
             if "cwd" in sig.parameters:
                 call_args["cwd"] = session.cwd
             if "workspace" in sig.parameters:
