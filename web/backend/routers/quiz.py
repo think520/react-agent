@@ -114,6 +114,9 @@ def bank(
         default="all",
         pattern="^(all|unanswered|correct|partial|incorrect|bookmarked)$",
     ),
+    # 「问 AI」hands a question id to the chat; the agent reads it back through the
+    # bank so an unanswered question still cannot leak its answer.
+    question_id: int | None = Query(default=None, ge=1),
     qtype: str | None = Query(default=None, pattern="^(single_choice|true_false|short_answer)$"),
     difficulty: str | None = Query(default=None, pattern="^(easy|medium|hard)$"),
     source: str | None = Query(default=None, max_length=512),
@@ -125,6 +128,7 @@ def bank(
 ) -> dict:
     return unwrap_service_result(_service(request).get_bank(
         state=state,
+        question_id=question_id,
         qtype=qtype,
         difficulty=difficulty,
         source=source,

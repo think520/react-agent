@@ -1726,6 +1726,23 @@ def test_quiz_bank_practice_uses_the_current_filter(backend_client):
     assert by_keyword["question_ids"] == [ids["unanswered"]]
 
 
+def test_quiz_bank_single_question_contract(backend_client):
+    """The 「问 AI」 hand-off points at one stable question id."""
+    ids = _seed_question_bank(backend_client)
+
+    one = backend_client.get(f"/api/quiz/bank?question_id={ids['wrong']}").json()
+    assert one["total"] == 1
+    assert [item["id"] for item in one["items"]] == [ids["wrong"]]
+    assert one["items"][0]["answer"] == "秘密答案"
+
+    pending = backend_client.get(f"/api/quiz/bank?question_id={ids['unanswered']}").json()
+    assert pending["total"] == 1
+    assert "answer" not in pending["items"][0]
+
+    assert backend_client.get("/api/quiz/bank?question_id=9999").json()["total"] == 0
+    assert backend_client.get("/api/quiz/bank?question_id=0").status_code == 422
+
+
 def test_review_queue_contract(backend_client, monkeypatch):
     monkeypatch.setattr(
         "web.backend.routers.learning.LearningService.get_review_queue",

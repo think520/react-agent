@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
-import { ArrowRight, Bookmark, BookmarkCheck, Play, RefreshCw, Search, X } from "lucide-react";
+import { ArrowRight, Bookmark, BookmarkCheck, CircleHelp, Play, RefreshCw, Search, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import { AttributionBadges, EmptyState, ErrorNotice, LoadingState, formatRelativeDate } from "../components/common";
 import { DropdownSelect } from "../components/DropdownSelect";
 import { api } from "../lib/api";
 import { toErrorMessage } from "../lib/errors";
+import { useHandoffStore } from "../stores/handoffStore";
 import type { QuestionBank, QuestionBankItem, QuestionBankState } from "../types";
 
 const PAGE_SIZE = 20;
@@ -182,6 +183,17 @@ export function QuestionBankPage() {
     }
   }
 
+  /** D4: the same stable id drives both the practice and the explanation. The
+   *  draft names question_id so the agent can read it back through bank_list. */
+  function askAi(item: QuestionBankItem) {
+    useHandoffStore.getState().setChatDraft([
+      `讲解题库第 ${item.id} 题（question_id=${item.id}）：${item.question}`,
+      "",
+      "先点出它在考察什么，再一步步引导我，不要直接给答案。",
+    ].join("\n"));
+    navigate("/chat");
+  }
+
   async function practiceSelection() {
     setStarting("selection");
     setError("");
@@ -321,6 +333,9 @@ export function QuestionBankPage() {
                   >
                     {item.bookmarked ? <BookmarkCheck size={15} /> : <Bookmark size={15} />}
                     {item.bookmarked ? "已收藏" : "收藏"}
+                  </button>
+                  <button className="quiet-button" type="button" onClick={() => askAi(item)}>
+                    <CircleHelp size={15} />问 AI
                   </button>
                   <button className="primary-button" type="button" disabled={starting === `question-${item.id}`} onClick={() => void startPractice(item)}>
                     {starting === `question-${item.id}` ? "正在准备" : "练这题"}<ArrowRight size={15} />

@@ -13,6 +13,11 @@
   - **复习页去掉 20 条窗口**（D5/S4 的正式验收）：`get_review_queue` 现在返回题库的真实错题总数 `wrong_total`，行数窗口放宽到 200（路由上限 500），被截断时给「在题库中查看全部」。此前只统一了错题**定义**、窗口还在，错题超过 20 时两处数字会对不上——`QUESTION_BANK_DESIGN.md` §5 的 S4 状态已据实修正。
   - 仍未做：UI「问 AI」带 `question_id` 引用某题、命名练习集、S6 联网搜题、S7 导出与备份（见设计文档 §5 的收口清单）。
   - 验证：Python `1430 passed`、Vitest `57 passed`、lint 与生产构建通过、Playwright `59 passed / 1 skipped`（题库 e2e 由 6 条增至 9 条，覆盖难度 / 资料筛选与按筛选组卷）。
+- **题库收口 · 第 2 批（2026-09-11，E18 补齐）**：D4 后半的「引用某一道题」落地。
+  - 题库每行新增「问 AI」：把 `question_id` 写进对话草稿（`handoffStore.setChatDraft`）并跳到 Chat，用户可以先改再发。
+  - `bank_list` 新增 `question_id` 参数，agent 按 id 读回**同一道题**（顺带补上 `difficulty` / `source` 过滤）；读回走的是题库路径，因此**未作答的题依旧不返回答案**——没有为「引用」新开一条泄题通道。
+  - `GET /api/quiz/bank?question_id=` 同步支持（`ge=1`，`0` 返回 422）。
+  - 验证：Python `1432 passed`、Vitest `57 passed`、lint 与构建通过、Playwright `62 passed / 1 skipped`（题库 e2e 增至 12 条，新增三视口「行内问 AI 把 id 带进对话草稿」）。
 - **题库 MVP（E18 S1–S5，2026-09-10，分支 `feat/e18-question-bank`）**：把「每道生成的题都已经落库」接成用户能看见、能收藏、能重练的题库，兑现 `PracticePage` 里那句长期失真的「留空时会从现有题库与资料重点中选择」。设计依据 `docs/QUESTION_BANK_DESIGN.md`（D1–D9）。
   - **数据层**：`questions` 新增 `bookmarked_at`（沿用 `_ensure_db` 的 PRAGMA 迁移，幂等，现有题目零迁移）；新增 `list_bank_questions` / `count_bank_questions` / `bank_overview` / `set_bookmark`。状态**全部派生**——用 `MAX(id)` 子查询取最近一次作答，不物化任何状态列。未作答的题在列表与工具输出里都**不返回答案与解析**，题库不会变成答案表。
   - **错题语义收敛（有意为之的用户可见变更）**：`get_wrong_answers` 从「所有答错的尝试」改为「最近一次仍答错」，`partial` 不再算错（与 E15 三态判分对齐），`get_weakness_analysis` 同步排除 `partial`。答错后重练答对的题会同时从错题本和题库的错题筛选里消失；复习调度（SM-2）不受影响。

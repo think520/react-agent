@@ -90,6 +90,37 @@ def test_bank_bookmark_tool_marks_and_reports_missing(tmp_path):
     assert not missing.ok
 
 
+def test_bank_list_reads_one_question_without_leaking_its_answer(tmp_path):
+    """A 「问 AI」 hand-off names one question; reading it must still respect the
+    unanswered-answer rule."""
+    workspace = str(tmp_path)
+    store = QuizStore(workspace)
+    answered = store.add_question(Question(question="已答过的题", answer="已知答案", concepts=["图论"]))
+    unanswered = store.add_question(Question(question="还没做的题", answer="隐藏答案", concepts=["图论"]))
+    quiz_session = store.create_session([answered])
+    store.record_attempt(QuizAttempt(
+        session_id=quiz_session.id, question_id=answered, user_answer="x",
+        is_correct=False, verdict="incorrect",
+    ))
+    session = SimpleNamespace(workspace_root=workspace, session_id="chat-1")
+
+    found = execute_tool("bank_list", {"question_id": answered}, session=session)
+    assert found.ok
+    assert "题库第" in found.content
+    assert "已知答案" in found.content
+    assert [item["id"] for item in found.data["items"]] == [answered]
+
+    pending = execute_tool("bank_list", {"question_id": unanswered}, session=session)
+    assert pending.ok
+    assert "隐藏答案" not in pending.content
+    assert "answer" not in pending.data["items"][0]
+
+    missing = execute_tool("bank_list", {"question_id": 9999}, session=session)
+    assert missing.ok
+    assert "9999" in missing.content
+    assert missing.data["total"] == 0
+
+
 def test_bank_tools_are_registered_and_web_visible():
     from web.backend.routers.chat import _WEB_TOOL_NAMES
     from tools.base import TOOL_REGISTRY

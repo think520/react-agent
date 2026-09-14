@@ -410,6 +410,7 @@ export const api = {
   abandonPractice: (id: number) => request(`/api/quiz/sessions/${id}`, { method: "DELETE" }),
   questionBank: (params: {
     state?: string;
+    questionId?: number;
     qtype?: string;
     difficulty?: string;
     source?: string;
@@ -421,6 +422,7 @@ export const api = {
   } = {}) => {
     const search = new URLSearchParams();
     if (params.state && params.state !== "all") search.set("state", params.state);
+    if (params.questionId) search.set("question_id", String(params.questionId));
     if (params.qtype) search.set("qtype", params.qtype);
     if (params.difficulty) search.set("difficulty", params.difficulty);
     if (params.source) search.set("source", params.source);

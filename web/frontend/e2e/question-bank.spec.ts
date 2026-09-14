@@ -248,3 +248,17 @@ test("difficulty and material filters narrow the bank and can be practised", asy
   });
   await page.waitForURL(/\/practice\/42/);
 });
+test("a bank question can be handed to chat with its stable id", async ({ page }) => {
+  await mockShell(page);
+  await mockBank(page);
+
+  await page.goto("/practice/bank");
+  const row = page.locator(".bank-row").filter({ hasText: "BFS 一定能求出最短路径" });
+  await row.getByRole("button", { name: "问 AI" }).click();
+
+  await page.waitForURL(/\/chat$/);
+  // The draft names the id so the agent can read the same question back (D4).
+  const composer = page.getByRole("textbox", { name: "消息" });
+  await expect(composer).toHaveValue(/question_id=1/);
+  await expect(composer).toHaveValue(/BFS 一定能求出最短路径/);
+});

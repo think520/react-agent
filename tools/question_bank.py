@@ -69,21 +69,27 @@ def bank_overview(workspace: str = ".") -> ToolResult:
 
 def bank_list(
     state: str = "all",
+    question_id: int | None = None,
     concept: str | None = None,
     course: str | None = None,
+    difficulty: str | None = None,
+    source: str | None = None,
     question_type: str | None = None,
     limit: int = 20,
     workspace: str = ".",
 ) -> ToolResult:
-    """List bank questions filtered by status, concept or course."""
+    """List bank questions, or look up the one question the user referred to."""
     try:
         from service.quiz_service import QuizService
 
         bounded = max(1, min(int(limit or 20), 100))
         result = QuizService(workspace).get_bank(
             state=state,
+            question_id=question_id,
             concept=concept,
             course=course,
+            difficulty=difficulty,
+            source=source,
             qtype=question_type,
             limit=bounded,
         )
@@ -93,13 +99,17 @@ def bank_list(
         if not items:
             return ToolResult(
                 ok=True,
-                content="题库中没有符合条件的题目。",
+                content=(f"题库中没有编号为 {question_id} 的题目。" if question_id
+                         else "题库中没有符合条件的题目。"),
                 data={"total": 0, "state": result["state"], "items": []},
             )
-        lines = [
-            f"共 {result['total']} 道题符合条件（state={result['state']}），"
-            f"下面是最新的 {len(items)} 道："
-        ]
+        if question_id:
+            lines = [f"题库第 {items[0]['id']} 题（{_state_label(items[0]['state'])}）："]
+        else:
+            lines = [
+                f"共 {result['total']} 道题符合条件（state={result['state']}），"
+                f"下面是最新的 {len(items)} 道："
+            ]
         lines.extend(_question_line(item) for item in items)
         lines.append(
             "要重练时让用户在题库界面开始；不要把题目当成聊天文本直接发给用户。"
@@ -172,7 +182,9 @@ register_tool(
     description=(
         "List saved practice questions from the question bank, optionally filtered "
         "by state (all/unanswered/correct/partial/incorrect/bookmarked), concept, "
-        "course or question type. Read-only: it never starts a practice."
+        "material, course, difficulty or question type. Pass question_id to read the "
+        "single question the user is referring to (e.g. from a 「问 AI」 hand-off). "
+        "Read-only: it never starts a practice."
     ),
     params_schema={
         "type": "object",
@@ -182,8 +194,21 @@ register_tool(
                 "enum": ["all", "unanswered", "correct", "partial", "incorrect", "bookmarked"],
                 "description": "Which bank state to list (default all)",
             },
+            "question_id": {
+                "type": "integer",
+                "description": "Read exactly this question (for a 「问 AI」 reference)",
+            },
             "concept": {"type": "string", "description": "Optional concept name filter"},
-            "course": {"type": "string", "description": "Optional course/source filter"},
+            "course": {"type": "string", "description": "Optional course/source substring filter"},
+            "difficulty": {
+                "type": "string",
+                "enum": ["easy", "medium", "hard"],
+                "description": "Optional difficulty filter",
+            },
+            "source": {
+                "type": "string",
+                "description": "Optional exact material filter (from bank_overview by_source)",
+            },
             "question_type": {
                 "type": "string",
                 "description": "Optional question type filter: single_choice, true_false, short_answer",

@@ -310,6 +310,7 @@ class QuizStore:
     def _bank_filters(
         *,
         state: str | None = None,
+        question_id: int | None = None,
         qtype: str | None = None,
         difficulty: str | None = None,
         source: str | None = None,
@@ -319,6 +320,11 @@ class QuizStore:
     ) -> tuple[list[str], list]:
         clauses = ["1=1"]
         params: list = []
+        # Reading one question must go through the bank, not get_question: only
+        # this path strips the reference answer for questions not yet answered.
+        if question_id:
+            clauses.append("q.id = ?")
+            params.append(int(question_id))
         if qtype:
             clauses.append("q.type = ?")
             params.append(qtype)
@@ -397,6 +403,7 @@ class QuizStore:
         self,
         *,
         state: str | None = None,
+        question_id: int | None = None,
         qtype: str | None = None,
         difficulty: str | None = None,
         source: str | None = None,
@@ -407,7 +414,8 @@ class QuizStore:
         offset: int = 0,
     ) -> list[dict]:
         clauses, params = self._bank_filters(
-            state=state, qtype=qtype, difficulty=difficulty, source=source,
+            state=state, question_id=question_id, qtype=qtype,
+            difficulty=difficulty, source=source,
             course=course, concept=concept, query=query,
         )
         sql = f"""SELECT q.id, q.type, q.question, q.options, q.concepts, q.difficulty,
@@ -433,6 +441,7 @@ class QuizStore:
         self,
         *,
         state: str | None = None,
+        question_id: int | None = None,
         qtype: str | None = None,
         difficulty: str | None = None,
         source: str | None = None,
@@ -441,7 +450,8 @@ class QuizStore:
         query: str | None = None,
     ) -> int:
         clauses, params = self._bank_filters(
-            state=state, qtype=qtype, difficulty=difficulty, source=source,
+            state=state, question_id=question_id, qtype=qtype,
+            difficulty=difficulty, source=source,
             course=course, concept=concept, query=query,
         )
         sql = f"""SELECT COUNT(*) AS total

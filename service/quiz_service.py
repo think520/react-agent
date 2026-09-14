@@ -598,6 +598,7 @@ class QuizService:
         self,
         *,
         state: str | None = None,
+        question_id: int | None = None,
         qtype: str | None = None,
         difficulty: str | None = None,
         source: str | None = None,
@@ -608,6 +609,7 @@ class QuizService:
         """The complete bank filter set, shared by list / count / practice."""
         return {
             "state": self._normalize_bank_state(state),
+            "question_id": question_id,
             "qtype": qtype,
             "difficulty": difficulty,
             "source": source,
@@ -620,6 +622,7 @@ class QuizService:
         self,
         *,
         state: str | None = None,
+        question_id: int | None = None,
         qtype: str | None = None,
         difficulty: str | None = None,
         source: str | None = None,
@@ -631,7 +634,8 @@ class QuizService:
     ) -> dict[str, Any]:
         store = QuizStore(self.workspace)
         filters = self._bank_filters(
-            state=state, qtype=qtype, difficulty=difficulty, source=source,
+            state=state, question_id=question_id, qtype=qtype,
+            difficulty=difficulty, source=source,
             course=course, concept=concept, query=query,
         )
         bounded_limit = max(1, min(int(limit or 50), 200))
@@ -652,6 +656,7 @@ class QuizService:
         self,
         *,
         state: str | None = None,
+        question_id: int | None = None,
         qtype: str | None = None,
         difficulty: str | None = None,
         source: str | None = None,
@@ -662,7 +667,8 @@ class QuizService:
         """Just the count, for callers that do not need the rows or the overview."""
         store = QuizStore(self.workspace)
         total = store.count_bank_questions(**self._bank_filters(
-            state=state, qtype=qtype, difficulty=difficulty, source=source,
+            state=state, question_id=question_id, qtype=qtype,
+            difficulty=difficulty, source=source,
             course=course, concept=concept, query=query,
         ))
         return _ok(total=total, state=self._normalize_bank_state(state))
