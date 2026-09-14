@@ -42,6 +42,22 @@ export function ReaderPage() {
   const pageRef = useRef<HTMLElement>(null);
   const readingOpenedRef = useRef(false);
   const lastProgressRef = useRef(0);
+  // Closing the rail mounts the 64px edge zone under the pointer, and the browser
+  // recomputes hover when the element under the cursor changes — so a plain
+  // setRailOpen(false) was immediately undone by the mouseenter it caused and the
+  // X looked dead (2026-09-14 bug report). Remember where the close happened and
+  // ignore the hover that comes from that very spot until the pointer leaves.
+  const railClosePoint = useRef<{ x: number; y: number } | null>(null);
+  const closeRail = useCallback((event?: { clientX: number; clientY: number }) => {
+    railClosePoint.current = event ? { x: event.clientX, y: event.clientY } : null;
+    setRailOpen(false);
+  }, []);
+  const openRail = useCallback((event: { clientX: number; clientY: number }) => {
+    const point = railClosePoint.current;
+    if (point && Math.abs(event.clientX - point.x) < 8 && Math.abs(event.clientY - point.y) < 8) return;
+    railClosePoint.current = null;
+    setRailOpen(true);
+  }, []);
 
   const selectedId = id ?? null;
   const selected = documents.find((document) => document.document_id === selectedId) ?? null;
@@ -151,7 +167,7 @@ export function ReaderPage() {
       if (e.key === "Escape") { navigate("/library?collection=" + collection); return; }
       if (e.shiftKey && (e.key === "J" || e.key === "j")) goTo(1);
       if (e.shiftKey && (e.key === "K" || e.key === "k")) goTo(-1);
-      if (e.key === "[") setRailOpen(false);
+      if (e.key === "[") closeRail();
       if (e.key === "]") setRailOpen(true);
     };
     window.addEventListener("keydown", handler);
@@ -342,14 +358,21 @@ export function ReaderPage() {
         />
       )}
       {/* TASKS_LIBRARY_REWORK task 2: chapter rail (right-edge 64px hover zone).
-          The zone only exists while the rail is closed, so clicking the X really
-          dismisses it (the mouse stays inside the zone otherwise and re-opens it). */}
-      {!railOpen && <div className="chapter-rail-zone" onMouseEnter={() => setRailOpen(true)} />}
+          The zone only exists while the rail is closed. Because it lands directly
+          under the pointer that just closed the rail, onMouseEnter has to ignore
+          the hover coming from exactly where the X was (openRail / closeRail). */}
+      {!railOpen && (
+        <div
+          className="chapter-rail-zone"
+          onMouseLeave={() => { railClosePoint.current = null; }}
+          onMouseEnter={(event) => openRail(event)}
+        />
+      )}
       {railOpen && (
         <aside className="chapter-rail">
           <header>
             <span>章节</span>
-            <button className="icon-button" aria-label="关闭章节" onClick={() => setRailOpen(false)}><X size={14} /></button>
+            <button className="icon-button" aria-label="关闭章节" onClick={(event) => closeRail(event)}><X size={14} /></button>
           </header>
           <div>
             {sections.filter((section) => section.heading).map((section) => (

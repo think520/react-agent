@@ -156,6 +156,7 @@
 - **Docs cleanup**: 新增 `docs/README.md` 作为文档索引，新增 `docs/DESIGN.md` 作为长期视觉设计参考；将 `docs/OPENAI_AGENT_CODEX_REFERENCE_FOR_BOBODAN.md` 纳入当前工程边界参考；将已实现或历史详细设计移入 `docs/archive/`，当前执行入口收敛到 `docs/NEXT_STEPS_EXECUTION_PLAN.md`。
 - **REPL UI 改进**: thinking 动效增加实时计时器（`⠋ thinking · 3.2s`）。工具调用显示改为 Claude Code 风格（`▸ tool_name(args)` → `✓ preview`），消除多余空白行。thinking 动效在工具执行期间保持可见。
 ### 修复
+- **阅读器章节目录关不掉（2026-09-14，用户反馈）**：点章节导轨的 ✕ 之后它会立刻弹回来。原因是关闭动作会在指针底下挂出 64px 的触发带（`.chapter-rail-zone`），而浏览器在光标底下的元素变化时会重算 hover 并补发 `mouseenter`——于是这次的 `setRailOpen(false)` 被它自己引发的事件撤销了，注释里「关闭时触发带不存在」的假设在 Blink 上不成立。改为记住关闭发生的位置，来自**同一坐标**（±8px）的那次 hover 直接忽略，指针离开触发带即解除。回归测试 `e2e/app.spec.ts`「the chapter rail dismisses and does not re-open under the same pointer」先复现（旧代码报 `Expected: 0, Received: 1`）再验证修复，同时钉住「离开后再靠近仍然能唤出」这条正向行为。
 - Wiki 默认区分“知识页 / 资料索引 / 个人笔记”，资料索引不再与概念页混排或显示为 `obsidian_note`；新生成的资料索引限制为短摘要、学习地图和关键结论，不再逐章复刻原文，已有页面可通过“AI 更新当前页”生成需确认的更新计划。耗时与 Token 估算改用同 Provider、同模型的真实请求样本并显示可信度，完成计划展示本轮实际用量、Provider 缓存和 Bobodan 本地缓存。
 - Wiki 取消现在会在每次模型请求前重新检查停止标记，不再继续执行同一批次内尚未发出的请求；刷新过的旧会话即使 artifact 与 plan 状态不一致，也会继续轮询并收敛为“已取消”。缺少 `summary / changes` 的中断记录按空计划安全显示，不再导致整个 Chat 页面白屏。
 - Wiki 资料摘要页和同名概念页改用类型感知的规范 ID，不再在 Library 中相互折叠；资料摘要、实体、概念、综合分析和问题页均显示正确类型。

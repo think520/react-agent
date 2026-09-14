@@ -93,6 +93,54 @@ test("first upload creates a portable library before indexing the file", async (
   expect(importLibraryHeader).toBe("new-library");
 });
 
+test("the chapter rail dismisses and does not re-open under the same pointer", async ({ page }, testInfo) => {
+  // The rail is revealed by pointer hover, which the mobile project cannot
+  // produce: it emulates a touch device (hasTouch), so mouse.move never fires
+  // mouseenter. Verified by hand that the rail is visible and closable at a
+  // 412x915 touch viewport; there is no separate mobile acceptance target.
+  test.skip(testInfo.project.name === "mobile", "hover reveal does not fire under touch emulation");
+  await page.addInitScript(() => localStorage.setItem("bobodan:onboarding:v1", "complete"));
+  const document = {
+    document_id: "doc-1", source: "course/lesson.md", kind: "course_document", title: "第一课",
+    collection: "material", content_role: "content", chunk_count: 2,
+  };
+  await page.route("**/api/settings", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(settingsPayload({ workspace_name: "Bobodan" })) }));
+  await page.route("**/api/libraries", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ active_library_id: "library-1", libraries: [{ library_id: "library-1", name: "测试资料库", created_at: "", last_opened_at: "", active: true, available: true }] }) }));
+  await page.route("**/api/chat/sessions", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ sessions: [] }) }));
+  await page.route("**/api/learning/review-queue", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ due_concepts: [], wrong_answers: [], weaknesses: [] }) }));
+  await page.route("**/api/kb/documents?collection=material", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ documents: [document] }) }));
+  await page.route("**/api/kb/documents/doc-1", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ document, sections: [
+    { chunk_id: "c1", heading: "第一节 概念", text: "正文。" },
+    { chunk_id: "c2", heading: "第二节 推导", text: "更多正文。" },
+  ] }) }));
+  await page.route("**/api/memory/knowledge/by-document/doc-1", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ items: [] }) }));
+  await page.route("**/api/memory/reading-progress/doc-1", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ progress: { document_id: "doc-1", progress: 0 } }) }));
+  await page.route("**/api/graph/extractions", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ documents: {} }) }));
+
+  await page.goto("/library/read/doc-1");
+  await expect(page.getByRole("heading", { name: "第一课" })).toBeVisible();
+  await expect(page.locator(".chapter-rail")).toHaveCount(0);
+
+  // The rail is revealed by moving to the right edge of the reading column.
+  const zone = await page.locator(".chapter-rail-zone").boundingBox();
+  await page.mouse.move(zone!.x + zone!.width / 2, zone!.y + 200);
+  await expect(page.locator(".chapter-rail")).toBeVisible();
+  await expect(page.getByRole("button", { name: "第一节 概念" })).toBeVisible();
+
+  // Closing it mounts the hover zone under the pointer. The click must win: the
+  // rail used to re-open instantly because the new zone fired mouseenter from the
+  // very spot the X was clicked (2026-09-14 bug report).
+  await page.getByRole("button", { name: "关闭章节" }).click();
+  await expect(page.locator(".chapter-rail")).toHaveCount(0);
+  await expect(page.locator(".chapter-rail")).toHaveCount(0);
+
+  // Leaving the zone and coming back still reveals the rail.
+  await page.mouse.move(zone!.x - 40, zone!.y + 200);
+  await page.mouse.move(zone!.x + zone!.width / 2, zone!.y + 200);
+  await expect(page.locator(".chapter-rail")).toBeVisible();
+});
+
+
 
 
 
