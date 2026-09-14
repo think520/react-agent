@@ -31,6 +31,10 @@
     - **回归测试**：`e2e/app.spec.ts` 的判断题流程补上结果区字号断言（判定 ≥15 / 正文 ≥16 / 参考答案 ≥13）。
     - 棘轮同步下调：<12px 字号 208→**195**、脱轨圆角 69→**65**，裸 `ease` 与裸毫秒不变。实测复核：`/practice/11` 与 `/review` 两页的可见文本**已经没有低于 12px 的元素**。
     - 验证：Python `1450 passed`、Vitest `63 passed`、ESLint 与生产构建通过、Playwright 全量通过。
+  - **停靠面回调 · 侧栏不再是一条黄带（2026-09-14，用户反馈）**：用户给的参照是 [tw93/Kami](https://github.com/tw93/Kami) 与 Claude 网站的暖纸风，并指出左右侧栏的颜色突兀。查参照项目的 `tokens.json` 后发现**本项目的调色板本来就与 Kami 同源**——画布 `#f5f4ed` 就是 Kami 的 `--parchment`，品牌色 `#1B365D` 就是 Kami 的 `--brand`；出问题的只是上一批自己挑的停靠面 `#efeade`：它比画布深 9–19/255，且 **HSL 饱和度 0.35 高于画布的 0.29**，于是整条侧栏渲染成饱和的橄榄黄。
+    - 改成用 Kami 自己的三档：停靠面 `#f0eee6`（Kami 的 inline-code 灰）、画布 `#f5f4ed`（parchment）、抬升面 `#faf9f5`（ivory）。与画布的通道差收到 5–8/255。
+    - **把「不突兀」变成可执行约束**：`DESIGN.md` §7 与 `designTokens.test.ts` 新增「纸张阶梯」——三档顺序固定、与画布每个通道差 ≤ 8/255、停靠面必须更灰（HSL 饱和度 ≤ 画布）。同一组断言对每个纸色主题都跑（含 `[data-paper-texture="off"]`，它原先只换了画布与抬升面，停靠面会漂到 11/255，已补上自己的值）。
+    - 已实测这组断言真的会咬人：把停靠面改回 `#efeade` 会同时报出 `--paper-sunken` 通道超限与 `expected 0.3469 to be less than or equal to 0.2857`。
   - **未做**（按约定分批，见 `docs/ROADMAP.md` W3 的 F19）：其余页面的字号 / 间距 / 交互态收敛（Library·Reader / 低频页）；暗色主题（本轮只把 token 改成可换主题的形状）。
   - 验证：Python `1450 passed`、Vitest `57 → 63 passed`、ESLint 与生产构建通过、Playwright `77 passed / 1 skipped`；`tests/conftest.py` 的 tripwire 确认全量跑前后真实工作区库未变。
 - **题库收口 · 第 1 批（2026-09-11，E18 补齐）**：首轮交付后逐条对照 `QUESTION_BANK_DESIGN.md` §6 的验收条件，发现四处「设计写了、实现没有」的缺口，本批补齐前三处。

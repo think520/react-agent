@@ -127,3 +127,68 @@ describe("漂移棘轮（只允许变小）", () => {
     expect(bare).toBeLessThanOrEqual(BUDGET);
   });
 });
+
+/**
+ * 纸张阶梯：三档表面必须可辨，但不能抢戏。
+ * 2026-09-14 第一版把停靠面写成 #efeade，侧栏与右栏变成一条饱和的橄榄黄带——
+ * 与画布差 9-19/255 且饱和度 0.35 > 画布的 0.29。暖纸的方向是往灰走，不是往黄走。
+ */
+function hexChannels(value: string, name: string): [number, number, number] {
+  const match = /^#([0-9a-f]{6})$/i.exec(value);
+  if (!match) throw new Error(`${name} 不是 6 位 hex：${value}`);
+  const n = parseInt(match[1], 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+function saturation([r, g, b]: [number, number, number]) {
+  const max = Math.max(r, g, b) / 255;
+  const min = Math.min(r, g, b) / 255;
+  const delta = max - min;
+  if (delta === 0) return 0;
+  const l = (max + min) / 2;
+  return l > 0.5 ? delta / (2 - max - min) : delta / (max + min);
+}
+
+function luminance([r, g, b]: [number, number, number]) {
+  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+}
+
+function pendingThemes() {
+  const themes = [{ name: ":root", block: rootBlock(cssText) }];
+  for (const match of cssText.matchAll(/\[data-paper-texture="[a-z]+"\]\s*\{[^}]*\}/g)) {
+    themes.push({ name: match[0].split("{")[0].trim(), block: match[0] });
+  }
+  return themes;
+}
+
+describe("纸张阶梯（可辨但不突兀）", () => {
+  for (const theme of pendingThemes()) {
+    const own = tokensIn(theme.block);
+    const value = (name: string) => own.get(name) ?? cssTokens.get(name) ?? "";
+    const paper = hexChannels(/(#[0-9a-f]{6})/i.exec(value("--paper"))?.[1] ?? "", `--paper (${theme.name})`);
+    const soft = hexChannels(/(#[0-9a-f]{6})/i.exec(value("--paper-soft"))?.[1] ?? "", `--paper-soft (${theme.name})`);
+    const sunken = hexChannels(/(#[0-9a-f]{6})/i.exec(value("--paper-sunken"))?.[1] ?? "", `--paper-sunken (${theme.name})`);
+
+    it(`${theme.name} 的顺序是 停靠面 < 画布 < 抬升面`, () => {
+      expect(luminance(sunken)).toBeLessThan(luminance(paper));
+      expect(luminance(paper)).toBeLessThan(luminance(soft));
+    });
+
+    it(`${theme.name} 与画布每个通道的差不超过 8/255`, () => {
+      const tooFar = [
+        ["--paper-sunken", sunken],
+        ["--paper-soft", soft],
+      ]
+        .filter(([, channels]) =>
+          (channels as number[]).some((v, i) => Math.abs(v - paper[i]) > 8),
+        )
+        .map(([name]) => name);
+      expect(tooFar).toEqual([]);
+    });
+
+    it(`${theme.name} 的停靠面更灰，不比画布更黄`, () => {
+      expect(saturation(sunken)).toBeLessThanOrEqual(saturation(paper));
+    });
+  }
+});
+

@@ -550,8 +550,8 @@
   /* --- Surfaces: three steps that are actually distinguishable (DESIGN.md §7).
      Before this the three paper tones differed by 2/255 and read as one surface. */
   --paper: #f5f4ed;          /* content canvas */
-  --paper-soft: #fcfbf7;     /* raised: cards, menus, active rows */
-  --paper-sunken: #efeade;   /* docked: rails and inset blocks */
+  --paper-soft: #faf9f5;     /* raised: cards, menus, active rows (Kami ivory) */
+  --paper-sunken: #f0eee6;   /* docked: rails and inset blocks (Kami inline-code tone) */
   --parchment: var(--paper-sunken);  /* legacy alias, kept for the 5 old call sites */
 
   --ink: #2e2b27;
@@ -640,7 +640,7 @@ body { margin: 0; overflow: hidden; background: var(--paper); }
 [data-reading-font="jin-kai"] { --font-reading: "TsangerJinKai02", "Noto Serif SC", "Source Han Serif SC", serif; }
 [data-reading-font="noto-serif"] { --font-reading: "Noto Serif SC", "Source Han Serif SC", "Songti SC", "STSong", serif; }
 [data-paper-texture="on"] body { background-color: #f5f4ed; }
-[data-paper-texture="off"] { --paper: #f7f6f1; --paper-soft: #f8f7f3; }
+[data-paper-texture="off"] { --paper: #f7f6f1; --paper-soft: #f8f7f3; --paper-sunken: #f1f0ea; }
 [data-paper-texture="on"] .main-column, [data-paper-texture="on"] .sidebar, [data-paper-texture="on"] .context-panel, [data-paper-texture="on"] .settings-dialog { background-image: repeating-linear-gradient(0deg, rgba(61,53,43,.008) 0, rgba(61,53,43,.008) 1px, transparent 1px, transparent 5px); }
 * { scrollbar-width: thin; scrollbar-color: rgba(154,145,133,.34) transparent; }
 *::-webkit-scrollbar { width: 8px; height: 8px; }
