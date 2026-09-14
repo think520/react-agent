@@ -19,7 +19,7 @@ from core.hooks import (
 )
 from core.builtin_hooks import register_builtin_hooks
 from core.prompt_layout import mark_dynamic_tail
-from core.session_compactor import project_context, should_compact
+from core.session_compactor import project_context, repair_tool_pairing, should_compact
 from tools import get_tools_schema, execute_tool
 from tools.base import ToolResult
 from providers.types import LLMResponse, ToolCall
@@ -600,8 +600,12 @@ class AgentLoop:
         """
         messages = self.session.messages
         if self.context_window is not None and should_compact(messages, self.context_window):
-            return project_context(messages, self.checkpoint)
-        return messages
+            messages = project_context(messages, self.checkpoint)
+        # P0-8 / P1-11: repair at the very last layer, on the payload the provider
+        # actually sees. A dangling tool_call (pause without resume, exception
+        # mid-tool) or an orphan tool response is a hard 400 from a strict API,
+        # and this way no future projection change can reintroduce it.
+        return repair_tool_pairing(messages)
 
     def _complete_with_events(self, *, emit_content: bool = True) -> Iterator[dict]:
         complete_stream = getattr(self.llm, "complete_stream", None)

@@ -14,6 +14,7 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 from core.agent_loop import AgentLoop
+from core.session_compactor import resolve_context_window
 from cli.markdown_render import (
     print_error,
     print_kv_panel,
@@ -265,6 +266,9 @@ class REPL:
                 self.session,
                 skills_prompt=self.skills_prompt,
                 mcp_prompt=self.mcp_prompt,
+                # P0-8: the CLI is a production path too - without this the
+                # compaction threshold never fired here either.
+                context_window=resolve_context_window(self.config),
             )
             self.tool_count = len(get_tools_schema())
             self.setup_prompt_session()
@@ -691,6 +695,7 @@ class REPL:
             mcp_prompt=self.mcp_prompt,
             request_prompt=request_prompt,
             trace_writer=run_trace,
+            context_window=resolve_context_window(self.config),
         )
 
         events: queue.Queue[dict] = queue.Queue()

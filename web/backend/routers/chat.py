@@ -15,6 +15,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
 from core.session import Session
+from core.session_compactor import resolve_context_window
 from core.agent_events import canonicalize_event
 from core.event_bus import get_default_bus
 from core.memory_injector import MemoryInjector
@@ -1589,6 +1590,7 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
                 request_prompt=request_prompt,
                 response_guard=response_guard,
                 memory_injector=memory_injector,
+                context_window=resolve_context_window(config),
                 resume_tool_call_id=(resume_record or {}).get("tool_call_id") or None,
                 resume_tool_content=_resume_content(resume_record) if resume_record else "",
             )
