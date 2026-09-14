@@ -133,7 +133,8 @@ class AgentLoop:
                  tools_schema: list[dict] | None = None,
                  max_iterations: int | None = None,
                  trace_writer=None, allowed_tool_names=None, response_guard=None,
-                 memory_injector=None, context_window: int | None = None, checkpoint=None):
+                 memory_injector=None, context_window: int | None = None, checkpoint=None,
+                 cancel_token=None):
         self.llm = llm_provider
         self.session = session
         self.tools_schema = tools_schema if tools_schema is not None else get_tools_schema()
@@ -149,6 +150,9 @@ class AgentLoop:
         self.memory_injector = memory_injector
         self.context_window = context_window
         self.checkpoint = checkpoint
+        # A4 batch 3 (P0-1): cooperative cancellation. None means "not cancellable",
+        # which is what CLI/test callers get until they opt in.
+        self.cancel_token = cancel_token
         # Idempotent result cache for read-only tools within one turn (AG-2.4).
         self._tool_result_cache: dict[str, ToolResult] = {}
         # P1-15 / P0-9: every run path builds a loop, so this is where the
@@ -270,6 +274,12 @@ class AgentLoop:
                 self.session.add_tool_message(resume_tool_call_id, resume_tool_content)
 
             for iteration in range(self.max_iterations):
+                # A4 batch 3 (P0-1): the user pressed stop, or the client
+                # disconnected and the grace period expired. End the turn here
+                # instead of after the next (paid) request.
+                if self.cancel_token is not None and self.cancel_token.is_cancelled():
+                    yield from self._cancelled_events(final_response, usage_records)
+                    return final_response
                 response, response_deltas = yield from self._complete_with_events(
                     emit_content=False
                 )
@@ -540,6 +550,19 @@ class AgentLoop:
         Returns (result, elapsed_seconds, terminate_flag).
         """
         start_ts = time.monotonic()
+        # A4 batch 3 (P0-1): a cancelled turn must stop paying for tools. A tool
+        # that already started is not killed (Python cannot), but nothing new
+        # begins, and the skipped call is reported instead of silently missing.
+        if self.cancel_token is not None and self.cancel_token.is_cancelled():
+            return (
+                ToolResult(
+                    ok=False,
+                    content="本轮已取消，工具未执行。",
+                    data={"code": "cancelled"},
+                ),
+                time.monotonic() - start_ts,
+                False,
+            )
         if args_parse_error is not None:
             return (
                 ToolResult(
@@ -606,6 +629,22 @@ class AgentLoop:
         # mid-tool) or an orphan tool response is a hard 400 from a strict API,
         # and this way no future projection change can reintroduce it.
         return repair_tool_pairing(messages)
+
+    def _cancelled_events(self, content: str, usage_records: list) -> Iterator[dict]:
+        """Terminate a turn because it was cancelled, not because it failed.
+
+        P0-1: cancellation is not an error - the partial answer stays, and the
+        reason travels so the UI can say "已取消" rather than "失败".
+        """
+        event = {
+            "type": "assistant_done",
+            "content": content or "",
+            "termination_reason": "cancelled",
+            "usage_records": usage_records,
+        }
+        yield event
+        if self.trace_writer:
+            self.trace_writer.write(event)
 
     def _complete_with_events(self, *, emit_content: bool = True) -> Iterator[dict]:
         complete_stream = getattr(self.llm, "complete_stream", None)

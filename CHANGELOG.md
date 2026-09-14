@@ -7,6 +7,10 @@
 ## [未发布]
 
 ### 变更
+- **A4 批次三 · 取消原语（阶段一，2026-09-14）**：先落设计文档 [`CANCELLATION_DESIGN.md`](CANCELLATION_DESIGN.md)——记录实测现状（生产代码取消原语 0 命中、SSE 生成器从不关闭、specialist 的 `Future.cancel()` 对已开始任务无效、CLI 只跳出消费循环）、锁定的方案（协作取消）与**诚实的边界**（Python 不能杀线程：流式真停、非流式靠 timeout、无视标志的工具会跑完）。
+  - 复现：新增 `tests/test_cancellation.py` 七条（幂等且保留首个 reason、`raise_if_cancelled` 带 reason、父取消传播到已存在的子、取消后新建的子一开始就是取消态、子可单独取消、另一个线程能观察到取消）+ `tests/test_agent_cancellation.py` 两条。**修前失败信号**：`ModuleNotFoundError: core.cancellation`；以及循环没有 `cancel_token` 形参。
+  - 修法（阶段一）：`core/cancellation.py` 新增 `CancelToken`（内部 `threading.Event` + 锁 + 父子表，`reason` 记首个原因，`RunCancelled` 与 `ProviderError` 刻意区分——取消不是失败，不该触发重试、不该计入错误率）；`AgentLoop` 接受 `cancel_token`，在**每轮迭代开始**与**每次工具派发前**检查：命中则以 `termination_reason="cancelled"` 结束本轮并保留已产出内容，工具则返回结构化的「未执行」结果。最强的断言是第一条：**预先取消的 run 对 provider 的调用次数为 0**——点了停止就不再花钱。
+  - 阶段二至四（⏳，见 ROADMAP 与设计文档第 9 节）：provider 流式读循环的中断、Web 断线宽限期与重连续跑、CLI SIGINT 与 specialist 子 token、每工具超时表。
 - **A4 批次二 · grep 非文本降级（P1-22，2026-09-14）**：`rag/grep_retriever.py` 对 PDF/DOCX/PPTX 是「按文本读」，两类后果同时存在——ripgrep 遇到二进制直接返回**无匹配**，Python 回退读出来的也是乱码，于是「原文定位」在这些格式上**形同虚设却毫无提示**，模型据此说出「资料里没有」——一句可能完全错误的话。
   - 复现：新增 `tests/test_grep_binary.py` 三条：①同一批候选里文本文件仍能命中，而二进制文件被跳过并**计入统计**（`binary_skipped=1`、`binary_sources=["slides.pdf"]`）；②纯文本候选不会被误判；③`rag_search` 工具在拿到 `grep_unreadable>0` 时，**模型可见的 content 里必须出现「无法做原文定位」的提示**并且 `data` 里带结构化字段。**修前失败信号**：`TypeError: GrepRetriever.search() got an unexpected keyword argument stats`；第一版实现还把同一次搜索的展开阶梯算成 3 次跳过（`assert 3 == 1`），改成按**文档**去重计数后正确。
   - 修法：`_looks_binary()` 按 ripgrep 同款规则嗅探前 4KB 是否含 NUL（不维护扩展名清单，.doc/.ppt 之类也覆盖）；`_grep_candidates` 在调用前跳过二进制并把**文档名**记入 `stats`；编排器把它放进 `RetrievalResult.debug`；`rag/retriever.py` 的状态字典新增 `grep_unreadable` 与 `grep_unreadable_sources`；`tools/rag_search.py` 既写进 `data`，也追加一行**给模型看**的提示（「有 N 份非文本资料无法做原文定位，不要据此断言资料里没有」）。
