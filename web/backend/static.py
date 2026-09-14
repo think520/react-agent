@@ -49,9 +49,19 @@ def mount_frontend(app: FastAPI, dist_dir: Path | None = None) -> None:
         # earlier and match first; this is the defensive backstop).
         if full_path.startswith("api/"):
             raise HTTPException(status_code=404)
-        candidate = dist / full_path
-        if candidate.is_file():
+        # P0-4: only serve files that resolve *inside* the build directory.
+        # `dist / "C:/Windows/win.ini"` replaces the base on Windows and
+        # `dist / "../secret"` walks out everywhere; FileResponse used to return
+        # both verbatim. An escape attempt is a hard 404, never the SPA fallback.
+        try:
+            candidate = (dist / full_path).resolve()
+        except OSError:
+            raise HTTPException(status_code=404)
+        inside_build = candidate.is_relative_to(dist)
+        if inside_build and candidate.is_file():
             return FileResponse(candidate)
+        if not inside_build:
+            raise HTTPException(status_code=404)
         index_file = dist / "index.html"
         if index_file.is_file():
             return FileResponse(index_file)
