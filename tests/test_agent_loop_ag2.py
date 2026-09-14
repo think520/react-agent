@@ -70,7 +70,7 @@ def test_before_turn_hook_injects_and_is_cleaned_up():
 
 
 def test_before_tool_hook_blocks_tool(tmp_path):
-    register_hook(BEFORE_TOOL, lambda tool_name, args, session: block("denied by policy") if tool_name == "write_file" else None)
+    register_hook(BEFORE_TOOL, lambda tool_name, args, session, **kw: block("denied by policy") if tool_name == "write_file" else None)
 
     session = Session.new(str(tmp_path))
     llm = MockLLM([
@@ -87,7 +87,7 @@ def test_before_tool_hook_blocks_tool(tmp_path):
 
 
 def test_before_tool_hook_terminate_stops_turn(tmp_path):
-    register_hook(BEFORE_TOOL, lambda tool_name, args, session: block("halt", terminate=True) if tool_name == "write_file" else None)
+    register_hook(BEFORE_TOOL, lambda tool_name, args, session, **kw: block("halt", terminate=True) if tool_name == "write_file" else None)
 
     session = Session.new(str(tmp_path))
     llm = MockLLM([

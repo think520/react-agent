@@ -7,6 +7,9 @@
 ## [未发布]
 
 ### 变更
+- **A4 批次二 · hooks 最小接线 + P0-9 工具结果上限（2026-09-14）**：`core/hooks.py` 与它的四个派发点早在 AG-2.1 就写好了，但**生产代码里注册数为零**——文档声称承载权限检查与结果消毒，实际运行的代码里没有这两件事。同时 P0-9 指出单条工具结果没有任何上限（只有 `read_file` 自带 1MB），`rag_search` 还会把同一批 chunk 在 JSON 与格式化文本里序列化两遍。
+  - 复现：新增 `tests/test_builtin_hooks.py` 七条——①超长结果必须被截断且**保留头尾**并带省略说明；②短结果原样通过；③**失败结果永不截断**（错误文本是唯一的排查线索）；④经 `dispatch(AFTER_TOOL, …)` 走一遍派发后拿到的替换结果确实被限界；⑤白名单门对未启用工具返回 `unavailable in this runtime`（与既有测试断言的文案一致）、对 `allowed=None` 放行；⑥重复注册不产生重复 hook；⑦**构造一个 AgentLoop 后注册表里必须能查到这两个内建 hook**——这正是审计测试盲区第 7 条缺的守护。**修前失败信号**：`ModuleNotFoundError: core.builtin_hooks`，以及注册表在生产路径下始终为空。
+  - 修法：新增 `core/builtin_hooks.py`——`cap_tool_result`（32000 字符上限、头尾各 40%、中间替换为省略说明并提示用 offset/limit 续读、失败结果豁免）与 `allowlist_gate`（把白名单作为**每次派发的数据**传入，而不是全局注册，避免 specialist 的白名单污染主循环）；`AgentLoop.__init__` 调用幂等的 `register_builtin_hooks()`（每个运行路径都会构造 loop，覆盖面最广，也不怕新增调用方忘记接线）；原先内联的白名单判断改为走注册表派发，行为与文案保持不变。
 - **A4 止血轮立项（2026-09-14）**：外部审计 [`TECH_AUDIT_2026-09-14.md`](TECH_AUDIT_2026-09-14.md) 落库（15 P0 / 36 P1 / 33 P2 / 12 测试盲区）。本轮按「先止血 → 再接线 → 横切原语单独立项」推进；`docs/ROADMAP.md` 新增 **§2 A4 止血轮**，把要做哪几条与审计编号对应起来，P2 不排期。审计编号 `P0-x` / `P1-x` 成为稳定引用，后续提交信息带编号。
   - 立项前对照三个本地参考项目（DeepTutor / OpenMAIC / openhanako-reference）逐条核查，确认可照搬项（工具渐进披露、原子写地基、事件表 + `Last-Event-ID`、lease 队列、序列化后配对兜底）与**不要抄的坑**（Windows 上 `fcntl` 缺失即静默无锁、`setdefault` 给模型留缝、ring buffer 不能当唯一恢复依据）。其中 DeepTutor 的 `tools/file_tools.py` 路径校验写了却从未接线、`events/event_bus.py` 只发无订阅者，与本次审计「不缺架构缺接线」的判断互为印证。
   - 验收口径：每条先写会失败的复现测试再修；断线取消 / Qdrant 双开 / 删除确认 / 向量补建四类必须真实集成或故障注入；CHANGELOG 记录复现方式与失败信号。

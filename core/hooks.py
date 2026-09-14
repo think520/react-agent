@@ -10,6 +10,11 @@ never breaks the loop:
   result sanitization, evidence-state recording).
 
 A before_tool hook returns a ToolGate (allow, or block with reason/terminate).
+It receives `tool_name`, `args`, `session` and — since P1-15 — `allowed`: the
+per-run tool allowlist the loop passes as data. Take `**kwargs` if you do not
+care about every dispatch argument, because `dispatch` swallows hook
+exceptions by design and a signature mismatch would otherwise disable the
+hook silently.
 A before_turn hook may return a string to inject into the turn's system
 context. after_tool hooks may return a replacement ToolResult.
 """

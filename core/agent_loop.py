@@ -17,6 +17,7 @@ from core.hooks import (
     before_turn_results,
     dispatch,
 )
+from core.builtin_hooks import register_builtin_hooks
 from core.prompt_layout import mark_dynamic_tail
 from core.session_compactor import project_context, should_compact
 from tools import get_tools_schema, execute_tool
@@ -150,6 +151,9 @@ class AgentLoop:
         self.checkpoint = checkpoint
         # Idempotent result cache for read-only tools within one turn (AG-2.4).
         self._tool_result_cache: dict[str, ToolResult] = {}
+        # P1-15 / P0-9: every run path builds a loop, so this is where the
+        # built-in hooks (result ceiling, allowlist gate) actually get wired.
+        register_builtin_hooks()
 
     def set_session(self, session) -> None:
         self.session = session
@@ -549,19 +553,15 @@ class AgentLoop:
                 False,
             )
 
-        # Built-in allowlist gate (the before_tool checkpoint) — AG-2.2.
-        if (
-            self.allowed_tool_names is not None
-            and tc.name not in self.allowed_tool_names
+        # before_tool hooks (allowlist gate, permissions, additional gating).
+        # P1-15: the allowlist used to be an inline check; it now travels through
+        # the registry as the built-in gate, with the per-run set passed as data.
+        for gate in before_tool_gates(
+            tool_name=tc.name,
+            args=args,
+            session=self.session,
+            allowed=self.allowed_tool_names,
         ):
-            return (
-                ToolResult(ok=False, content=f"Tool unavailable in this runtime: {tc.name}"),
-                time.monotonic() - start_ts,
-                False,
-            )
-
-        # External before_tool hooks (permissions, additional gating) — AG-2.1.
-        for gate in before_tool_gates(tool_name=tc.name, args=args, session=self.session):
             if not gate.allow:
                 return (
                     ToolResult(ok=False, content=gate.reason or f"Tool blocked: {tc.name}"),
