@@ -31,6 +31,7 @@ def unwrap_service_result(
         mapped_status = {
             "wrong_answer_not_found": 404,
             "question_not_found": 404,
+            "question_set_not_found": 404,
             "evidence_missing": 409,
             "grading_unavailable": 503,
             "variant_generation_failed": 503,

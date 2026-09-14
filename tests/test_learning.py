@@ -263,7 +263,7 @@ def test_path_generator_simple_plan(tmp_path):
     progress = ProgressTracker(store, scheduler)
     generator = LearningPathGenerator(store, progress, llm_provider=None)
 
-    plan = generator.generate_path(goal="复习数据结构")
+    plan = generator.generate_path(goal="复习数据结构", workspace=str(tmp_path))
     assert plan.title != ""
     assert len(plan.steps) >= 1
     assert plan.id is not None
@@ -279,7 +279,7 @@ def test_path_generator_with_weakness(tmp_path):
     scheduler.record_review("图", correct=False)
 
     generator = LearningPathGenerator(store, progress, llm_provider=None)
-    plan = generator.generate_path(goal="补薄弱点")
+    plan = generator.generate_path(goal="补薄弱点", workspace=str(tmp_path))
     assert len(plan.steps) >= 1
 
 

@@ -1743,6 +1743,70 @@ def test_quiz_bank_single_question_contract(backend_client):
     assert backend_client.get("/api/quiz/bank?question_id=0").status_code == 422
 
 
+def test_question_set_contract(backend_client):
+    """E18 / D2 / D8: a named set is a named list of question ids."""
+    ids = _seed_question_bank(backend_client)
+
+    created = backend_client.post("/api/quiz/sets", json={
+        "name": "我的错题集", "question_ids": [], "state": "incorrect",
+    }).json()
+    assert created["name"] == "我的错题集"
+    assert created["question_ids"] == [ids["wrong"]]
+    set_id = created["set_id"]
+
+    listing = backend_client.get("/api/quiz/sets").json()["sets"]
+    assert [(row["id"], row["name"], row["question_count"]) for row in listing] == [
+        (set_id, "我的错题集", 1)
+    ]
+
+    detail = backend_client.get(f"/api/quiz/sets/{set_id}").json()
+    assert [item["id"] for item in detail["items"]] == [ids["wrong"]]
+    assert detail["items"][0]["answer"] == "秘密答案"
+
+    added = backend_client.post(f"/api/quiz/sets/{set_id}/items", json={
+        "question_id": ids["kept"],
+    })
+    assert added.status_code == 200
+    assert [item["id"] for item in backend_client.get(f"/api/quiz/sets/{set_id}").json()["items"]] == [
+        ids["wrong"], ids["kept"]
+    ]
+
+    renamed = backend_client.patch(f"/api/quiz/sets/{set_id}", json={"name": "重命名"})
+    assert renamed.json()["name"] == "重命名"
+
+    practice = backend_client.post(f"/api/quiz/sets/{set_id}/practice").json()
+    assert practice["question_ids"] == [ids["wrong"], ids["kept"]]
+
+    assert backend_client.delete(
+        f"/api/quiz/sets/{set_id}/items/{ids['wrong']}"
+    ).status_code == 200
+    assert len(backend_client.get(f"/api/quiz/sets/{set_id}").json()["items"]) == 1
+
+    assert backend_client.delete(f"/api/quiz/sets/{set_id}").status_code == 200
+    assert backend_client.get("/api/quiz/sets").json()["sets"] == []
+
+
+def test_question_set_errors_contract(backend_client):
+    ids = _seed_question_bank(backend_client)
+
+    assert backend_client.get("/api/quiz/sets/9999").status_code == 404
+    assert backend_client.patch("/api/quiz/sets/9999", json={"name": "x"}).status_code == 404
+    assert backend_client.delete("/api/quiz/sets/9999").status_code == 404
+    assert backend_client.post(
+        "/api/quiz/sets/9999/items", json={"question_id": ids["wrong"]}
+    ).status_code == 404
+    assert backend_client.post("/api/quiz/sets/9999/practice").status_code == 404
+
+    # An unresolvable filter makes an empty set, which cannot be practised yet.
+    empty = backend_client.post("/api/quiz/sets", json={
+        "name": "空的", "state": "partial",
+    }).json()
+    assert empty["question_count"] == 0
+    assert backend_client.post(f"/api/quiz/sets/{empty['set_id']}/practice").status_code == 400
+
+    assert backend_client.post("/api/quiz/sets", json={"name": ""}).status_code == 422
+
+
 def test_review_queue_contract(backend_client, monkeypatch):
     monkeypatch.setattr(
         "web.backend.routers.learning.LearningService.get_review_queue",

@@ -599,6 +599,7 @@ class QuizService:
         *,
         state: str | None = None,
         question_id: int | None = None,
+        question_ids: list[int] | None = None,
         qtype: str | None = None,
         difficulty: str | None = None,
         source: str | None = None,
@@ -610,6 +611,7 @@ class QuizService:
         return {
             "state": self._normalize_bank_state(state),
             "question_id": question_id,
+            "question_ids": question_ids,
             "qtype": qtype,
             "difficulty": difficulty,
             "source": source,
@@ -623,6 +625,7 @@ class QuizService:
         *,
         state: str | None = None,
         question_id: int | None = None,
+        set_id: int | None = None,
         qtype: str | None = None,
         difficulty: str | None = None,
         source: str | None = None,
@@ -640,6 +643,21 @@ class QuizService:
         )
         bounded_limit = max(1, min(int(limit or 50), 200))
         bounded_offset = max(0, int(offset or 0))
+        set_name = ""
+        if set_id is not None:
+            record = store.get_question_set(int(set_id))
+            if not record:
+                return _err("练习集不存在。", code="question_set_not_found")
+            set_name = record["name"]
+            # An empty set must read as empty, not as "no filter" (the store
+            # treats an empty id list as no constraint at all).
+            if not record["question_ids"]:
+                return _ok(
+                    items=[], total=0, overview=store.bank_overview(),
+                    state=filters["state"], limit=bounded_limit,
+                    offset=bounded_offset, set_id=int(set_id), set_name=set_name,
+                )
+            filters["question_ids"] = record["question_ids"]
         items = store.list_bank_questions(
             **filters, limit=bounded_limit, offset=bounded_offset
         )
@@ -650,6 +668,8 @@ class QuizService:
             state=filters["state"],
             limit=bounded_limit,
             offset=bounded_offset,
+            set_id=int(set_id) if set_id is not None else None,
+            set_name=set_name,
         )
 
     def count_bank(
@@ -657,6 +677,7 @@ class QuizService:
         *,
         state: str | None = None,
         question_id: int | None = None,
+        question_ids: list[int] | None = None,
         qtype: str | None = None,
         difficulty: str | None = None,
         source: str | None = None,
@@ -667,7 +688,7 @@ class QuizService:
         """Just the count, for callers that do not need the rows or the overview."""
         store = QuizStore(self.workspace)
         total = store.count_bank_questions(**self._bank_filters(
-            state=state, question_id=question_id, qtype=qtype,
+            state=state, question_id=question_id, question_ids=question_ids, qtype=qtype,
             difficulty=difficulty, source=source,
             course=course, concept=concept, query=query,
         ))
@@ -710,6 +731,110 @@ class QuizService:
             ]
         if not ids:
             return _err("题库中没有符合条件的题目。", code="bank_empty")
+        return self.start_quiz(count=len(ids), question_ids=ids, origin="practice")
+
+    # --- Named practice sets (E18 / D2 / D8) ---
+
+    MAX_SET_QUESTIONS = 200
+
+    def list_question_sets(self) -> dict[str, Any]:
+        store = QuizStore(self.workspace)
+        return _ok(sets=store.list_question_sets())
+
+    def get_question_set(self, set_id: int) -> dict[str, Any]:
+        store = QuizStore(self.workspace)
+        record = store.get_question_set(set_id)
+        if not record:
+            return _err("练习集不存在。", code="question_set_not_found")
+        items = store.list_bank_questions(
+            question_ids=record["question_ids"], limit=self.MAX_SET_QUESTIONS
+        )
+        by_id = {item["id"]: item for item in items}
+        ordered = [by_id[qid] for qid in record["question_ids"] if qid in by_id]
+        return _ok(
+            set_id=record["id"],
+            name=record["name"],
+            created_at=record["created_at"],
+            updated_at=record["updated_at"],
+            items=[self._bank_item_public(item) for item in ordered],
+        )
+
+    def create_question_set(
+        self,
+        name: str,
+        question_ids: list[int] | None = None,
+        *,
+        state: str | None = None,
+        concept: str | None = None,
+        qtype: str | None = None,
+        difficulty: str | None = None,
+        source: str | None = None,
+        course: str | None = None,
+        query: str | None = None,
+        limit: int = 200,
+    ) -> dict[str, Any]:
+        """Create a set from explicit ids, or from whatever the bank is filtered to."""
+        store = QuizStore(self.workspace)
+        ids = [int(item) for item in (question_ids or []) if int(item) > 0]
+        if not ids:
+            ids = [
+                item["id"]
+                for item in store.list_bank_questions(
+                    **self._bank_filters(
+                        state=state, concept=concept, qtype=qtype,
+                        difficulty=difficulty, source=source,
+                        course=course, query=query,
+                    ),
+                    limit=max(1, min(int(limit or 200), self.MAX_SET_QUESTIONS)),
+                )
+            ]
+        record = store.create_question_set(name, ids[: self.MAX_SET_QUESTIONS])
+        if not record:
+            return _err("练习集需要一个名字。", code="question_set_name_required")
+        return _ok(
+            set_id=record["id"],
+            name=record["name"],
+            question_ids=record["question_ids"],
+            question_count=len(record["question_ids"]),
+        )
+
+    def rename_question_set(self, set_id: int, name: str) -> dict[str, Any]:
+        store = QuizStore(self.workspace)
+        if not store.get_question_set(set_id):
+            return _err("练习集不存在。", code="question_set_not_found")
+        if not store.rename_question_set(set_id, name):
+            return _err("练习集需要一个名字。", code="question_set_name_required")
+        return _ok(set_id=set_id, name=(name or "").strip()[:80])
+
+    def delete_question_set(self, set_id: int) -> dict[str, Any]:
+        store = QuizStore(self.workspace)
+        if not store.delete_question_set(set_id):
+            return _err("练习集不存在。", code="question_set_not_found")
+        return _ok(set_id=set_id, deleted=True)
+
+    def add_question_to_set(self, set_id: int, question_id: int) -> dict[str, Any]:
+        store = QuizStore(self.workspace)
+        if not store.get_question_set(set_id):
+            return _err("练习集不存在。", code="question_set_not_found")
+        if not store.add_question_to_set(set_id, question_id):
+            return _err("题目不存在。", code="question_not_found")
+        return _ok(set_id=set_id, question_id=question_id)
+
+    def remove_question_from_set(self, set_id: int, question_id: int) -> dict[str, Any]:
+        store = QuizStore(self.workspace)
+        if not store.get_question_set(set_id):
+            return _err("练习集不存在。", code="question_set_not_found")
+        store.remove_question_from_set(set_id, question_id)
+        return _ok(set_id=set_id, question_id=question_id, removed=True)
+
+    def start_set_practice(self, set_id: int, limit: int = 15) -> dict[str, Any]:
+        store = QuizStore(self.workspace)
+        record = store.get_question_set(set_id)
+        if not record:
+            return _err("练习集不存在。", code="question_set_not_found")
+        ids = record["question_ids"][: max(1, min(int(limit or 15), 15))]
+        if not ids:
+            return _err("这个练习集里还没有题目。", code="question_set_empty")
         return self.start_quiz(count=len(ids), question_ids=ids, origin="practice")
 
     # --- Stats ---

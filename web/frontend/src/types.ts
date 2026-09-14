@@ -234,6 +234,17 @@ export interface QuestionBank {
   state: string;
   limit: number;
   offset: number;
+  /** Set when the list is showing one named practice set (E18 / D2). */
+  set_id?: number | null;
+  set_name?: string;
+}
+
+export interface QuestionSetSummary {
+  id: number;
+  name: string;
+  created_at: string;
+  updated_at: string;
+  question_count: number;
 }
 
 export interface ReviewQueue {

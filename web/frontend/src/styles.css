@@ -1572,6 +1572,21 @@ kbd { color: var(--faint); font-family: inherit; font-size: 10px; }
 .bank-search input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; font-size: 12px; }
 .bank-search input::placeholder { color: var(--faint); }
 .bank-search .icon-button { width: 22px; height: 22px; }
+.bank-sets { border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; margin-bottom: 16px; background: var(--paper-soft); }
+.bank-sets-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; justify-content: space-between; }
+.bank-sets-head strong { color: var(--blue); font-family: var(--font-reading); font-size: 15px; font-weight: 500; }
+.bank-sets-head form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.bank-sets-head input { min-height: 30px; min-width: 160px; border: 1px solid var(--border); border-radius: 6px; padding: 0 9px; background: var(--paper); color: var(--ink); font-size: 12px; }
+.bank-sets-empty { margin: 8px 0 0; color: var(--faint); font-size: 11px; }
+.bank-set-list { display: grid; gap: 4px; margin-top: 8px; }
+.bank-set-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; border-radius: 6px; padding: 5px 7px; }
+.bank-set-row.active { background: var(--blue-wash); }
+.bank-set-row input { min-height: 28px; min-width: 150px; border: 1px solid var(--border); border-radius: 6px; padding: 0 8px; background: var(--paper); font-size: 12px; }
+.bank-set-name { display: inline-flex; min-height: 28px; align-items: center; gap: 7px; border: 0; padding: 0 6px; background: transparent; color: var(--ink); font-size: 12px; text-align: left; }
+.bank-set-name:hover { color: var(--blue); }
+.bank-set-name small { color: var(--faint); font-size: 10px; }
+.bank-set-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 14px; border-left: 2px solid var(--blue-soft); padding: 8px 12px; background: var(--blue-wash); color: var(--muted); font-size: 11px; }
+.bank-set-banner .text-link { border: 0; padding: 0; background: transparent; font-size: 11px; }
 .bank-selects { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; margin-bottom: 14px; }
 .bank-selects .dropdown-trigger { min-height: 30px; border: 1px solid var(--border); background: var(--paper-soft); }
 .bank-concepts { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-bottom: 14px; }

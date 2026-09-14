@@ -101,12 +101,36 @@ async function mockBank(page: Page) {
   const state = { bookmarked: new Set<number>([WRONG_QUESTION.id]) };
   const bookmarks: Array<{ question_id: number; bookmarked: boolean }> = [];
   const practices: Array<Record<string, unknown>> = [];
+  const sets: Array<{ id: number; name: string; question_ids: number[] }> = [];
+  const setPractices: number[][] = [];
+  let nextSetId = 1;
 
   const item = (question: typeof WRONG_QUESTION) => ({
     ...question,
     bookmarked: state.bookmarked.has(question.id),
     bookmarked_at: state.bookmarked.has(question.id) ? "2026-09-09T00:00:00+00:00" : "",
   });
+
+  /** One filter implementation, shared by the list and by set creation. */
+  const resolveItems = (params: URLSearchParams) => {
+    const filter = params.get("state") || "all";
+    const difficulty = params.get("difficulty");
+    const source = params.get("source");
+    const setId = params.get("set_id");
+    const scoped = setId ? sets.find((entry) => String(entry.id) === setId) : undefined;
+    return ALL_QUESTIONS.map(item)
+      .filter((entry) => {
+        if (filter === "incorrect") return entry.state === "incorrect";
+        if (filter === "correct") return entry.state === "correct";
+        if (filter === "partial") return entry.state === "partial";
+        if (filter === "unanswered") return entry.state === "unanswered";
+        if (filter === "bookmarked") return entry.bookmarked;
+        return true;
+      })
+      .filter((entry) => !difficulty || entry.difficulty === difficulty)
+      .filter((entry) => !source || entry.source === source)
+      .filter((entry) => !scoped || scoped.question_ids.includes(entry.id));
+  };
 
   await page.route("**/api/quiz/bank**", async (route) => {
     const request = route.request();
@@ -124,21 +148,9 @@ async function mockBank(page: Page) {
       return route.fulfill(json({ practice_session_id: 42, question_ids: body.question_ids, questions: [] }));
     }
     const filter = url.searchParams.get("state") || "all";
-    const difficulty = url.searchParams.get("difficulty");
-    const source = url.searchParams.get("source");
-    const items = ALL_QUESTIONS.map(item);
-    const byState = (entry: typeof WRONG_QUESTION) => {
-      if (filter === "incorrect") return entry.state === "incorrect";
-      if (filter === "correct") return entry.state === "correct";
-      if (filter === "partial") return entry.state === "partial";
-      if (filter === "unanswered") return entry.state === "unanswered";
-      if (filter === "bookmarked") return entry.bookmarked;
-      return true;
-    };
-    const filtered = items
-      .filter(byState)
-      .filter((entry) => !difficulty || entry.difficulty === difficulty)
-      .filter((entry) => !source || entry.source === source);
+    const items = resolveItems(new URLSearchParams());
+    const filtered = resolveItems(url.searchParams);
+    const viewedSet = sets.find((entry) => String(entry.id) === url.searchParams.get("set_id"));
     return route.fulfill(json({
       items: filtered,
       total: filtered.length,
@@ -155,7 +167,69 @@ async function mockBank(page: Page) {
         ],
       },
       state: filter, limit: 20, offset: 0,
+      set_id: viewedSet ? viewedSet.id : null,
+      set_name: viewedSet ? viewedSet.name : "",
     }));
+  });
+
+  // The named practice sets are their own surface (E18 / D2 / D8).
+  await page.route("**/api/quiz/sets**", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const parts = url.pathname.split("/").filter(Boolean);
+    const setId = parts.length > 3 ? Number(parts[3]) : 0;
+    const found = sets.find((entry) => entry.id === setId);
+    if (request.method() === "GET") {
+      return route.fulfill(json({ sets: sets.map((entry) => ({
+        id: entry.id,
+        name: entry.name,
+        created_at: "2026-09-11T00:00:00+00:00",
+        updated_at: "2026-09-11T00:00:00+00:00",
+        question_count: entry.question_ids.length,
+      })) }));
+    }
+    if (request.method() === "POST" && !setId) {
+      const body = JSON.parse(request.postData() || "{}");
+      const params = new URLSearchParams();
+      if (body.state) params.set("state", body.state);
+      if (body.difficulty) params.set("difficulty", body.difficulty);
+      if (body.source) params.set("source", body.source);
+      const ids = (body.question_ids || []).length
+        ? body.question_ids
+        : resolveItems(params).map((entry) => entry.id);
+      const created = { id: nextSetId++, name: body.name, question_ids: ids };
+      sets.push(created);
+      return route.fulfill(json({
+        set_id: created.id, name: created.name,
+        question_ids: ids, question_count: ids.length,
+      }));
+    }
+    if (!found) {
+      return route.fulfill(json({ error: { code: "question_set_not_found", message: "missing" } }));
+    }
+    if (request.method() === "PATCH") {
+      found.name = JSON.parse(request.postData() || "{}").name;
+      return route.fulfill(json({ set_id: found.id, name: found.name }));
+    }
+    if (request.method() === "DELETE" && url.pathname.endsWith("/" + found.id)) {
+      sets.splice(sets.indexOf(found), 1);
+      return route.fulfill(json({ set_id: found.id, deleted: true }));
+    }
+    if (request.method() === "POST" && url.pathname.endsWith("/items")) {
+      const body = JSON.parse(request.postData() || "{}");
+      if (!found.question_ids.includes(body.question_id)) found.question_ids.push(body.question_id);
+      return route.fulfill(json({ set_id: found.id, question_id: body.question_id }));
+    }
+    if (request.method() === "DELETE" && url.pathname.includes("/items/")) {
+      const questionId = Number(url.pathname.split("/").pop());
+      found.question_ids = found.question_ids.filter((id) => id !== questionId);
+      return route.fulfill(json({ set_id: found.id, question_id: questionId, removed: true }));
+    }
+    if (request.method() === "POST" && url.pathname.endsWith("/practice")) {
+      setPractices.push([...found.question_ids]);
+      return route.fulfill(json({ practice_session_id: 42, question_ids: found.question_ids, questions: [] }));
+    }
+    return route.fulfill(json({}));
   });
 
   await page.route("**/api/quiz/sessions/42", (route) => route.fulfill(json({
@@ -169,7 +243,7 @@ async function mockBank(page: Page) {
     progress: { answered: 0, total: 1, correct: 0, current_index: 0, completed: false },
   })));
 
-  return { bookmarks, practices, state };
+  return { bookmarks, practices, state, sets, setPractices };
 }
 
 test("past questions are browsable, filterable and re-practisable", async ({ page }) => {
@@ -261,4 +335,29 @@ test("a bank question can be handed to chat with its stable id", async ({ page }
   const composer = page.getByRole("textbox", { name: "消息" });
   await expect(composer).toHaveValue(/question_id=1/);
   await expect(composer).toHaveValue(/BFS 一定能求出最短路径/);
+});
+test("a named practice set can be created from a filter and practised", async ({ page }) => {
+  await mockShell(page);
+  const bank = await mockBank(page);
+
+  await page.goto("/practice/bank");
+  await page.getByRole("tab", { name: /错题/ }).click();
+  await expect(page.locator(".bank-row")).toHaveCount(1);
+
+  // D2: the set carries the current filter, not a hand-picked list.
+  await page.getByRole("textbox", { name: "练习集名称" }).fill("我的错题集");
+  await page.getByRole("button", { name: /存为练习集/ }).click();
+  await expect(page.locator(".bank-set-banner")).toContainText("我的错题集");
+  expect(bank.sets[0]).toMatchObject({ name: "我的错题集", question_ids: [3] });
+
+  // Viewing a set narrows the bank to it; leaving restores the whole bank.
+  await expect(page.locator(".bank-row")).toHaveCount(1);
+  await page.getByRole("button", { name: "返回全部题目" }).click();
+  await page.getByRole("tab", { name: /全部/ }).click();
+  await expect(page.locator(".bank-row")).toHaveCount(3);
+
+  await page.getByRole("button", { name: "练这集" }).click();
+  await expect.poll(() => bank.setPractices.length).toBe(1);
+  expect(bank.setPractices[0]).toEqual([3]);
+  await page.waitForURL(/\/practice\/42/);
 });

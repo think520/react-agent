@@ -1,6 +1,15 @@
 import re
 import time
 
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _isolated_cwd(tmp_path, monkeypatch):
+    """REPL.initialize() builds its runtime context from os.getcwd(). Without
+    this, every test in this module opens the repository workspace database."""
+    monkeypatch.chdir(tmp_path)
+
 _ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 
 

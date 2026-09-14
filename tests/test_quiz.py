@@ -290,6 +290,65 @@ def test_get_weakness_analysis(tmp_path):
     assert concepts["algebra"]["wrong_count"] == 1
 
 
+# --- Named practice sets (E18 / D2 / D8) ---
+
+def test_question_sets_are_named_question_id_lists(tmp_path):
+    store = QuizStore(str(tmp_path))
+    ids = [store.add_question(Question(question=f"Q{index}", answer="A")) for index in range(3)]
+
+    created = store.create_question_set("我的错题集", ids[:2])
+    assert created["name"] == "我的错题集"
+    assert created["question_ids"] == ids[:2]
+    assert [(row["id"], row["question_count"]) for row in store.list_question_sets()] == [
+        (created["id"], 2)
+    ]
+
+    # The set has its own order, independent of the bank default.
+    assert store.replace_question_set_items(created["id"], [ids[2], ids[0]]) is True
+    assert store.get_question_set(created["id"])["question_ids"] == [ids[2], ids[0]]
+
+    assert store.add_question_to_set(created["id"], ids[1]) is True
+    assert store.add_question_to_set(created["id"], ids[1]) is True  # idempotent
+    assert store.get_question_set(created["id"])["question_ids"] == [ids[2], ids[0], ids[1]]
+
+    assert store.remove_question_from_set(created["id"], ids[2]) is True
+    assert store.get_question_set(created["id"])["question_ids"] == [ids[0], ids[1]]
+    assert store.remove_question_from_set(created["id"], 9999) is False
+
+    assert store.rename_question_set(created["id"], "  改名了  ") is True
+    assert store.get_question_set(created["id"])["name"] == "改名了"
+    assert store.rename_question_set(created["id"], "   ") is False
+
+    assert store.delete_question_set(created["id"]) is True
+    assert store.get_question_set(created["id"]) is None
+    assert store.list_question_sets() == []
+
+
+def test_question_sets_ignore_unknown_and_duplicate_ids(tmp_path):
+    store = QuizStore(str(tmp_path))
+    qid = store.add_question(Question(question="Q1", answer="A"))
+
+    created = store.create_question_set("集", [qid, qid, 9999, 0, "x"])
+    assert created["question_ids"] == [qid]
+    assert store.create_question_set("   ", [qid]) is None
+
+    assert store.add_question_to_set(9999, qid) is False
+    assert store.add_question_to_set(created["id"], 9999) is False
+    assert store.replace_question_set_items(9999, [qid]) is False
+    assert store.delete_question_set(9999) is False
+
+
+def test_question_set_items_store_ids_only(tmp_path):
+    """D8: a set never copies question text, so it cannot drift from the bank."""
+    store = QuizStore(str(tmp_path))
+    conn = sqlite3.connect(store.db_path)
+    try:
+        columns = [row[1] for row in conn.execute("PRAGMA table_info(question_set_items)")]
+    finally:
+        conn.close()
+    assert columns == ["set_id", "question_id", "position", "added_at"]
+
+
 # --- Question bank (E18) ---
 
 def _answer(store, question_id, *, correct=False, verdict="", answer="x"):

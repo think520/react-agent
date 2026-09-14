@@ -11,6 +11,7 @@ import type {
   PracticeReadyArtifact,
   Question,
   QuestionBank,
+  QuestionSetSummary,
   ReviewQueue,
   SettingsSummary,
   RuntimeStatus,
@@ -411,6 +412,7 @@ export const api = {
   questionBank: (params: {
     state?: string;
     questionId?: number;
+    setId?: number;
     qtype?: string;
     difficulty?: string;
     source?: string;
@@ -423,6 +425,7 @@ export const api = {
     const search = new URLSearchParams();
     if (params.state && params.state !== "all") search.set("state", params.state);
     if (params.questionId) search.set("question_id", String(params.questionId));
+    if (params.setId) search.set("set_id", String(params.setId));
     if (params.qtype) search.set("qtype", params.qtype);
     if (params.difficulty) search.set("difficulty", params.difficulty);
     if (params.source) search.set("source", params.source);
@@ -462,6 +465,47 @@ export const api = {
       query: filters.query || null,
       limit: filters.limit || 5,
     }),
+  ),
+  questionSets: () => request<{ sets: QuestionSetSummary[] }>("/api/quiz/sets"),
+  createQuestionSet: (body: {
+    name: string;
+    questionIds?: number[];
+    state?: string;
+    questionType?: string;
+    difficulty?: string;
+    source?: string;
+    concept?: string;
+    query?: string;
+    limit?: number;
+  }) => request<{ set_id: number; name: string; question_ids: number[]; question_count: number }>(
+    "/api/quiz/sets",
+    json({
+      name: body.name,
+      question_ids: body.questionIds || [],
+      state: body.state || "all",
+      question_type: body.questionType || null,
+      difficulty: body.difficulty || null,
+      source: body.source || null,
+      concept: body.concept || null,
+      query: body.query || null,
+      limit: body.limit || 200,
+    }),
+  ),
+  renameQuestionSet: (setId: number, name: string) => request<{ set_id: number; name: string }>(
+    `/api/quiz/sets/${setId}`,
+    { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) },
+  ),
+  deleteQuestionSet: (setId: number) => request<{ set_id: number; deleted: boolean }>(
+    `/api/quiz/sets/${setId}`, { method: "DELETE" },
+  ),
+  addQuestionToSet: (setId: number, questionId: number) => request<{ set_id: number; question_id: number }>(
+    `/api/quiz/sets/${setId}/items`, json({ question_id: questionId }),
+  ),
+  removeQuestionFromSet: (setId: number, questionId: number) => request<{ set_id: number; question_id: number; removed: boolean }>(
+    `/api/quiz/sets/${setId}/items/${questionId}`, { method: "DELETE" },
+  ),
+  startSetPractice: (setId: number, limit = 15) => request<{ practice_session_id: number; questions: Question[] }>(
+    `/api/quiz/sets/${setId}/practice?limit=${limit}`, { method: "POST" },
   ),
   reviewQueue: () => request<ReviewQueue>("/api/learning/review-queue"),
   answerInteraction: (interactionId: string, chatSessionId: string, answers: Array<{ id: string; answer: string }>) =>

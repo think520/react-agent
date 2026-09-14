@@ -117,6 +117,9 @@ def bank(
     # 「问 AI」hands a question id to the chat; the agent reads it back through the
     # bank so an unanswered question still cannot leak its answer.
     question_id: int | None = Query(default=None, ge=1),
+    # Viewing one named set is just another bank filter, so the list, the state
+    # tabs and the bulk practice all keep working inside it.
+    set_id: int | None = Query(default=None, ge=1),
     qtype: str | None = Query(default=None, pattern="^(single_choice|true_false|short_answer)$"),
     difficulty: str | None = Query(default=None, pattern="^(easy|medium|hard)$"),
     source: str | None = Query(default=None, max_length=512),
@@ -129,6 +132,7 @@ def bank(
     return unwrap_service_result(_service(request).get_bank(
         state=state,
         question_id=question_id,
+        set_id=set_id,
         qtype=qtype,
         difficulty=difficulty,
         source=source,
@@ -161,6 +165,87 @@ def bank_practice(body: BankPracticeRequest, request: Request) -> dict:
             query=body.query,
             limit=body.limit,
         )
+    ))
+
+
+class QuestionSetCreateRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=80)
+    question_ids: list[int] = Field(default_factory=list, max_length=200)
+    state: str = Field(
+        default="all",
+        pattern="^(all|unanswered|correct|partial|incorrect|bookmarked)$",
+    )
+    question_type: str | None = Field(
+        default=None, pattern="^(single_choice|true_false|short_answer)$"
+    )
+    difficulty: str | None = Field(default=None, pattern="^(easy|medium|hard)$")
+    source: str | None = Field(default=None, max_length=512)
+    concept: str | None = None
+    query: str | None = Field(default=None, max_length=200)
+    limit: int = Field(default=200, ge=1, le=200)
+
+
+class QuestionSetRenameRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=80)
+
+
+class QuestionSetItemRequest(BaseModel):
+    question_id: int = Field(..., ge=1)
+
+
+@router.get("/sets")
+def list_question_sets(request: Request) -> dict:
+    return unwrap_service_result(_service(request).list_question_sets())
+
+
+@router.post("/sets")
+def create_question_set(body: QuestionSetCreateRequest, request: Request) -> dict:
+    return unwrap_service_result(_service(request).create_question_set(
+        body.name,
+        body.question_ids,
+        state=body.state,
+        concept=body.concept,
+        qtype=body.question_type,
+        difficulty=body.difficulty,
+        source=body.source,
+        query=body.query,
+        limit=body.limit,
+    ))
+
+
+@router.get("/sets/{set_id}")
+def get_question_set(set_id: int, request: Request) -> dict:
+    return unwrap_service_result(_service(request).get_question_set(set_id))
+
+
+@router.patch("/sets/{set_id}")
+def rename_question_set(set_id: int, body: QuestionSetRenameRequest, request: Request) -> dict:
+    return unwrap_service_result(_service(request).rename_question_set(set_id, body.name))
+
+
+@router.delete("/sets/{set_id}")
+def delete_question_set(set_id: int, request: Request) -> dict:
+    return unwrap_service_result(_service(request).delete_question_set(set_id))
+
+
+@router.post("/sets/{set_id}/items")
+def add_set_item(set_id: int, body: QuestionSetItemRequest, request: Request) -> dict:
+    return unwrap_service_result(
+        _service(request).add_question_to_set(set_id, body.question_id)
+    )
+
+
+@router.delete("/sets/{set_id}/items/{question_id}")
+def remove_set_item(set_id: int, question_id: int, request: Request) -> dict:
+    return unwrap_service_result(
+        _service(request).remove_question_from_set(set_id, question_id)
+    )
+
+
+@router.post("/sets/{set_id}/practice")
+def practice_question_set(set_id: int, request: Request, limit: int = 15) -> dict:
+    return _start_practice_payload(unwrap_service_result(
+        _service(request).start_set_practice(set_id, limit=limit)
     ))
 
 

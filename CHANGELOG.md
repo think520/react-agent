@@ -18,6 +18,14 @@
   - `bank_list` 新增 `question_id` 参数，agent 按 id 读回**同一道题**（顺带补上 `difficulty` / `source` 过滤）；读回走的是题库路径，因此**未作答的题依旧不返回答案**——没有为「引用」新开一条泄题通道。
   - `GET /api/quiz/bank?question_id=` 同步支持（`ge=1`，`0` 返回 422）。
   - 验证：Python `1432 passed`、Vitest `57 passed`、lint 与构建通过、Playwright `62 passed / 1 skipped`（题库 e2e 增至 12 条，新增三视口「行内问 AI 把 id 带进对话草稿」）。
+- **题库收口 · 第 3 批（2026-09-11，E18 补齐）**：命名练习集（D2 的承载物、D8 的两张小表）+ 测试隔离加固。
+  - `question_sets(id, name, created_at, updated_at)` 与 `question_set_items(set_id, question_id, position, added_at)`：**只存 id、不复制题面**（有测试钉住列定义），集合因此永远不会与题库脱同步；建表走 `CREATE TABLE IF NOT EXISTS`，现有库零迁移。
+  - 全套 REST：`GET|POST /api/quiz/sets`、`GET|PATCH|DELETE /api/quiz/sets/{id}`、`POST /api/quiz/sets/{id}/items`、`DELETE /api/quiz/sets/{id}/items/{question_id}`、`POST /api/quiz/sets/{id}/practice`（`question_set_not_found` → 404）。
+  - 题库列表新增 `set_id` 视图：看集合只是多一个筛选条件，状态 tab / 分页 / 批量练照常工作，不必另写一套渲染；空集合读作空而不是「没有筛选」（空 id 列表会被当成无约束，这点单独处理）。
+  - 题库页新增「练习集」区：按**当前筛选**存为命名集合（默认名取筛选摘要）、查看、练这集、改名、删除（走统一确认弹窗）；每行可加入某个集合或「新建并加入」，看集合时可逐题移出。
+  - 按 D4，**agent 依旧不碰集合结构**（三个只读 / 收藏工具不变），集合的建改只在 UI 侧。
+  - **测试隔离加固**（同批发现）：`tests/test_learning.py` 的两次 `generate_path` 与 `tests/test_repl.py` 全模块都把「当前目录」当工作区，会打开并迁移**开发者的真实 `.knowledge/bobodan.db`**——本轮新增题集建表让这个泄漏第一次产生了实际写入。修掉三处（显式传 `tmp_path` / 模块级 `monkeypatch.chdir`），并在 `tests/conftest.py` 加**会话结束的 tripwire**：跑完比对真实库的大小与 mtime，被动过就让这次运行失败并说明原因。此后全量跑的前后哈希与 mtime 完全一致。
+  - 验证：Python `1437 passed`、Vitest `57 passed`、lint 与构建通过、Playwright `65 passed / 1 skipped`（题库 e2e 增至 15 条，新增三视口「按筛选建集 → 查看 → 练这集」）。
 - **题库 MVP（E18 S1–S5，2026-09-10，分支 `feat/e18-question-bank`）**：把「每道生成的题都已经落库」接成用户能看见、能收藏、能重练的题库，兑现 `PracticePage` 里那句长期失真的「留空时会从现有题库与资料重点中选择」。设计依据 `docs/QUESTION_BANK_DESIGN.md`（D1–D9）。
   - **数据层**：`questions` 新增 `bookmarked_at`（沿用 `_ensure_db` 的 PRAGMA 迁移，幂等，现有题目零迁移）；新增 `list_bank_questions` / `count_bank_questions` / `bank_overview` / `set_bookmark`。状态**全部派生**——用 `MAX(id)` 子查询取最近一次作答，不物化任何状态列。未作答的题在列表与工具输出里都**不返回答案与解析**，题库不会变成答案表。
   - **错题语义收敛（有意为之的用户可见变更）**：`get_wrong_answers` 从「所有答错的尝试」改为「最近一次仍答错」，`partial` 不再算错（与 E15 三态判分对齐），`get_weakness_analysis` 同步排除 `partial`。答错后重练答对的题会同时从错题本和题库的错题筛选里消失；复习调度（SM-2）不受影响。
@@ -28,7 +36,7 @@
   - **本轮未做**：命名练习集（D8 的两张小表）、S6 联网搜题、S7 导出与备份、题库行内「问 AI」引用某题；均记录在 `QUESTION_BANK_DESIGN.md` §5 与 `ROADMAP.md`。
   - 验证：Python `1427 passed`（+22）、Vitest `57 passed`、前端 lint 与生产构建通过、Playwright `56 passed / 1 skipped`（新增 `e2e/question-bank.spec.ts`，三视口各 2 条）。
   - **交付后审查修正**：`incorrect` 改成**兜底桶**——最近一次作答只要不是「通过」就算错题（`verdict = incorrect`、E15 前旧行、以及任何未识别的 verdict）。原来的写法会让一个未识别的 verdict 在界面上标成「答错」，却既进不了错题筛选、也不计入任何计数，四个状态加起来对不上总数；现在四个派生状态永远把题库分完，并有两个不变量测试钉住。`GET /api/quiz/bank` 的 `state` 改为受校验参数，拼错返回 422，而不是静默把整库列出来。题库页在结果集变小（例如在「已收藏」页取消最后一条收藏）时把页码收回有效范围；批量按钮按状态改用对应文案（未作答是「开始做」、答对是「复习」，不再一律叫「重练」）。
-- **测试套件隔离修复（2026-09-11）**：`tests/conftest.py` 现在把 `BOBODAN_WORKSPACE` 一并指向一次性目录（此前只隔离了 `BOBODAN_HOME`）。默认工作区就是当前目录，所以任何没有显式传 workspace 的 store 都会打开开发者的真实 `.knowledge/bobodan.db`——这已经实际发生过一次：套件静默迁移了真实库的结构。对照实验确认因果：去掉这行 pin，跑完全量后真实库会重新出现；加回后全量运行对该路径没有任何连接，并且在把真实库放回原位后，跑前跑后的文件哈希与 mtime 完全一致。新增 `tests/test_isolation.py` 钉住这条边界。
+- **测试套件隔离修复（2026-09-11）**：`tests/conftest.py` 现在把 `BOBODAN_WORKSPACE` 一并指向一次性目录（此前只隔离了 `BOBODAN_HOME`）。默认工作区就是当前目录，所以任何没有显式传 workspace 的 store 都会打开开发者的真实 `.knowledge/bobodan.db`——这已经实际发生过一次：套件静默迁移了真实库的结构。对照实验确认因果：去掉这行 pin，跑完全量后真实库会重新出现；加回后全量运行对该路径没有任何连接，并且在把真实库放回原位后，跑前跑后的文件哈希与 mtime 完全一致。新增 `tests/test_isolation.py` 钉住这条边界。（第 3 批发现这层 pin 只盖住走环境变量的路径；`learning/path.py` 的 `workspace="."` 与 `cli/repl.py` 的 `os.getcwd()` 仍会打开真实库，已随第 3 批修掉并补上会话结束的 tripwire。）
 - **文档体系收敛（2026-09-03）**：新增统一路线图 `docs/ROADMAP.md`——合并 openhanako 前置路线（R0-R3）、参考项目调研报告借鉴清单（DeepTutor D1-D13 / OpenMAIC O1-O10 / qiaomu Q1-Q10 / 前端 F1-F18）、整机优化计划遗留、2026-08-01 体验审查未决项与 P5G.2/3 剩余，按 W1 学习闭环 / W2 检索与 RAG / W3 前端第二批 / W4 运行时底座 / W5 发布通道五个工作流组织，附执行波次、已拍板决策与合并后的明确不做清单。7 份已完成或被取代的文档（任务书 / 审查报告 / 旧路线 / 知识地图设计）移入 `docs/archive/`；`docs/README.md` 重写为 6 份活跃文档索引；`rag_design.md` 顶部加 embedding 决策更新横幅（用户自配 API 取代 Ollama 假设，详见调研报告第十章）。调研报告保留为活文档（ROADMAP 条目的论据与源码索引）。
 - **R0 质量与调试基建（2026-08-28，分支 `feat/r0-quality-infra`，依据 `docs/PRE_DESKTOP_ROADMAP.md`）**：借鉴 openhanako v0.450 的测试与调试实践，正面解决"桌面版前难调试难测试"。
   - **测试策略成文**（`tests/README.md`）：风险驱动分层 + keep/delete 规则（删锁文案、删 mock 私有字段、删环境依赖的间歇失败用例），LLM 测试必须走单缝。

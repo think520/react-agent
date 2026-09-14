@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { ArrowRight, Bookmark, BookmarkCheck, CircleHelp, Play, RefreshCw, Search, X } from "lucide-react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { ArrowRight, Bookmark, BookmarkCheck, CircleHelp, FolderPlus, Pencil, Play, RefreshCw, Search, Trash2, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import { AttributionBadges, EmptyState, ErrorNotice, LoadingState, formatRelativeDate } from "../components/common";
@@ -7,7 +7,8 @@ import { DropdownSelect } from "../components/DropdownSelect";
 import { api } from "../lib/api";
 import { toErrorMessage } from "../lib/errors";
 import { useHandoffStore } from "../stores/handoffStore";
-import type { QuestionBank, QuestionBankItem, QuestionBankState } from "../types";
+import { useConfirm } from "../ui/Modal";
+import type { QuestionBank, QuestionBankItem, QuestionBankState, QuestionSetSummary } from "../types";
 
 const PAGE_SIZE = 20;
 
@@ -87,6 +88,13 @@ export function QuestionBankPage() {
   const [error, setError] = useState("");
   const [busyId, setBusyId] = useState(0);
   const [starting, setStarting] = useState("");
+  const [sets, setSets] = useState<QuestionSetSummary[]>([]);
+  const [setId, setSetId] = useState<number | null>(null);
+  const [newSetName, setNewSetName] = useState("");
+  const [renamingId, setRenamingId] = useState(0);
+  const [renameDraft, setRenameDraft] = useState("");
+  const [setsWorking, setSetsWorking] = useState(false);
+  const { confirm, confirmElement } = useConfirm();
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -96,12 +104,23 @@ export function QuestionBankPage() {
     return () => window.clearTimeout(timer);
   }, [query]);
 
+  const loadSets = useCallback(async () => {
+    try {
+      setSets((await api.questionSets()).sets);
+    } catch (reason) {
+      setError(toErrorMessage(reason, "无法读取练习集。"));
+    }
+  }, []);
+
+  useEffect(() => { void loadSets(); }, [loadSets]);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
       const result = await api.questionBank({
         state,
+        setId: setId || undefined,
         concept: concept || undefined,
         qtype: qtype || undefined,
         difficulty: difficulty || undefined,
@@ -120,7 +139,7 @@ export function QuestionBankPage() {
     } finally {
       setLoading(false);
     }
-  }, [state, concept, qtype, difficulty, source, debouncedQuery, page]);
+  }, [state, concept, qtype, difficulty, source, setId, debouncedQuery, page]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -147,6 +166,142 @@ export function QuestionBankPage() {
     setPage(0);
   }
 
+  /** A short, human name for the current filter, used as the default set name. */
+  function filterSummary() {
+    const parts: string[] = [];
+    if (state !== "all") parts.push(FILTERS.find((filter) => filter.key === state)?.label || state);
+    if (concept) parts.push(concept);
+    if (qtype) parts.push(TYPE_OPTIONS.find((option) => option.value === qtype)?.label || qtype);
+    if (difficulty) parts.push(DIFFICULTY_OPTIONS.find((option) => option.value === difficulty)?.label || difficulty);
+    if (source) parts.push(materialLabel(source));
+    if (debouncedQuery) parts.push(debouncedQuery);
+    return parts.filter(Boolean).join(" · ").slice(0, 40);
+  }
+
+  async function createSet(event: FormEvent) {
+    event.preventDefault();
+    const name = newSetName.trim() || filterSummary() || "我的练习集";
+    setSetsWorking(true);
+    setError("");
+    try {
+      const created = await api.createQuestionSet({
+        name,
+        state,
+        concept: concept || undefined,
+        questionType: qtype || undefined,
+        difficulty: difficulty || undefined,
+        source: source || undefined,
+        query: debouncedQuery || undefined,
+        limit: 200,
+      });
+      setNewSetName("");
+      await loadSets();
+      setSetId(created.set_id);
+      setPage(0);
+    } catch (reason) {
+      setError(toErrorMessage(reason, "无法创建练习集。"));
+    } finally {
+      setSetsWorking(false);
+    }
+  }
+
+  async function addToSet(item: QuestionBankItem, value: string) {
+    if (!value) return;
+    setSetsWorking(true);
+    setError("");
+    try {
+      if (value === "new") {
+        const created = await api.createQuestionSet({
+          name: `来自「${item.concepts[0] || "题库"}」的练习集`,
+          questionIds: [item.id],
+        });
+        setSetId(created.set_id);
+      } else {
+        await api.addQuestionToSet(Number(value), item.id);
+      }
+      await loadSets();
+      setPage(0);
+      await load();
+    } catch (reason) {
+      setError(toErrorMessage(reason, "无法加入练习集。"));
+    } finally {
+      setSetsWorking(false);
+    }
+  }
+
+  async function removeFromSet(item: QuestionBankItem) {
+    if (!setId) return;
+    setSetsWorking(true);
+    setError("");
+    try {
+      await api.removeQuestionFromSet(setId, item.id);
+      await loadSets();
+      await load();
+    } catch (reason) {
+      setError(toErrorMessage(reason, "无法移出练习集。"));
+    } finally {
+      setSetsWorking(false);
+    }
+  }
+
+  async function saveRename(item: QuestionSetSummary) {
+    const name = renameDraft.trim();
+    if (!name || name === item.name) {
+      setRenamingId(0);
+      return;
+    }
+    setSetsWorking(true);
+    setError("");
+    try {
+      await api.renameQuestionSet(item.id, name);
+      setRenamingId(0);
+      await loadSets();
+      await load();
+    } catch (reason) {
+      setError(toErrorMessage(reason, "改名失败。"));
+    } finally {
+      setSetsWorking(false);
+    }
+  }
+
+  async function deleteSet(item: QuestionSetSummary) {
+    const ok = await confirm({
+      title: `删除练习集「${item.name}」？`,
+      detail: "只删除这个集合，题目本身不会被删除。",
+      confirmLabel: "删除",
+      danger: true,
+    });
+    if (!ok) return;
+    setSetsWorking(true);
+    setError("");
+    try {
+      await api.deleteQuestionSet(item.id);
+      if (setId === item.id) setSetId(null);
+      await loadSets();
+      setPage(0);
+    } catch (reason) {
+      setError(toErrorMessage(reason, "无法删除练习集。"));
+    } finally {
+      setSetsWorking(false);
+    }
+  }
+
+  async function practiceSet(item: QuestionSetSummary) {
+    setStarting(`set-${item.id}`);
+    setError("");
+    try {
+      const created = await api.startSetPractice(item.id);
+      navigate(`/practice/${created.practice_session_id}`);
+    } catch (reason) {
+      setError(toErrorMessage(reason, "无法开始这一集。", ));
+      setStarting("");
+    }
+  }
+
+  function viewSet(item: QuestionSetSummary) {
+    setSetId(item.id);
+    setPage(0);
+  }
   async function toggleBookmark(item: QuestionBankItem) {
     setBusyId(item.id);
     setError("");
@@ -232,6 +387,7 @@ export function QuestionBankPage() {
 
   return (
     <section className="page-scroll">
+      {confirmElement}
       <div className="page-container review-container">
         <header className="page-heading">
           <div><span>Practice</span><h2>题库</h2><p>已经生成过的题目都在这里，按最近一次作答的状态归类。</p></div>
@@ -242,6 +398,57 @@ export function QuestionBankPage() {
           <button type="button" className="active" aria-current="page">题库</button>
         </nav>
         {error && <ErrorNotice message={error} />}
+
+        <section className="bank-sets">
+          <div className="bank-sets-head">
+            <strong>练习集</strong>
+            <form onSubmit={(event) => void createSet(event)}>
+              <input
+                value={newSetName}
+                placeholder={filterSummary() || "练习集名称"}
+                aria-label="练习集名称"
+                onChange={(event) => setNewSetName(event.target.value)}
+              />
+              <button className="quiet-button" disabled={setsWorking}>
+                <FolderPlus size={15} />存为练习集（{bank?.total ?? 0} 题）
+              </button>
+            </form>
+          </div>
+          {sets.length === 0
+            ? <p className="bank-sets-empty">还没有练习集。把当前筛选结果存成一个命名集合，之后可以一键重练。</p>
+            : <div className="bank-set-list">{sets.map((item) => (
+              <div className={`bank-set-row ${setId === item.id ? "active" : ""}`} key={item.id}>
+                {renamingId === item.id ? <>
+                  <input
+                    value={renameDraft}
+                    aria-label="新的练习集名称"
+                    onChange={(event) => setRenameDraft(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") void saveRename(item);
+                      if (event.key === "Escape") setRenamingId(0);
+                    }}
+                  />
+                  <button className="quiet-button" type="button" onClick={() => void saveRename(item)}>保存</button>
+                </> : <>
+                  <button className="bank-set-name" type="button" onClick={() => viewSet(item)}>
+                    {item.name}<small>{item.question_count} 题</small>
+                  </button>
+                  <button className="quiet-button" type="button" disabled={setsWorking || item.question_count === 0 || starting === `set-${item.id}`} onClick={() => void practiceSet(item)}>
+                    <Play size={14} />练这集
+                  </button>
+                  <button className="icon-button" type="button" aria-label={`重命名 ${item.name}`} onClick={() => { setRenamingId(item.id); setRenameDraft(item.name); }}><Pencil size={14} /></button>
+                  <button className="icon-button" type="button" aria-label={`删除 ${item.name}`} onClick={() => void deleteSet(item)}><Trash2 size={14} /></button>
+                </>}
+              </div>
+            ))}</div>}
+        </section>
+
+        {setId && (
+          <p className="bank-set-banner">
+            正在查看练习集「{bank?.set_name || "…"}」· {bank?.total ?? 0} 题
+            <button className="text-link" type="button" onClick={() => { setSetId(null); setPage(0); }}>返回全部题目</button>
+          </p>
+        )}
 
         <div className="bank-toolbar">
           <div className="mention-tabs bank-filters" role="tablist" aria-label="按状态筛选">
@@ -337,6 +544,19 @@ export function QuestionBankPage() {
                   <button className="quiet-button" type="button" onClick={() => askAi(item)}>
                     <CircleHelp size={15} />问 AI
                   </button>
+                  <DropdownSelect
+                    ariaLabel="把这一题加入练习集"
+                    value=""
+                    placeholder="加入练习集"
+                    disabled={setsWorking}
+                    onChange={(value) => void addToSet(item, value)}
+                    options={[
+                      { value: "", label: "加入练习集" },
+                      ...sets.map((entry) => ({ value: String(entry.id), label: entry.name, hint: String(entry.question_count) })),
+                      { value: "new", label: "新建练习集…" },
+                    ]}
+                  />
+                  {setId ? <button className="quiet-button" type="button" disabled={setsWorking} onClick={() => void removeFromSet(item)}><X size={14} />移出这集</button> : null}
                   <button className="primary-button" type="button" disabled={starting === `question-${item.id}`} onClick={() => void startPractice(item)}>
                     {starting === `question-${item.id}` ? "正在准备" : "练这题"}<ArrowRight size={15} />
                   </button>
