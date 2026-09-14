@@ -7,6 +7,9 @@
 ## [未发布]
 
 ### 变更
+- **A4 批次二 · 向量补建（P1-18，2026-09-14）**：导入时若 embedding 后端（Ollama）没起来，文档只被标成 `pending`；之后再 sync 会因为「内容未变」而不走写向量的分支，于是**向量永远补不上、语义检索永久缺失，而界面不报任何错**。`rag/sqlite_store.py::get_pending_vector_documents` 早就写好了，但除了测试没有任何调用方。
+  - 复现：新增 `tests/test_vector_backfill.py` 三条，**用真实的 SQLite 与真实的 Qdrant local 目录**（只把 embedding 客户端换成假对象，因为 CI 里没有 Ollama）：①pending 文档被补建后 `vector_status` 归零、embedding 被调用一次；②embedding 不可用时是**安全 no-op**（仍为 pending，不会误标 indexed）；③embedding 抛错时错误被**记录到文档**，而不是继续静默 pending。**修前失败信号**：`ImportError: cannot import name backfill_vectors from obsidian.sync`。
+  - 修法：`obsidian/sync.py` 新增 `backfill_vectors(sqlite, qdrant, embedding, embedding_dim)`——遍历 pending 文档、取回其 chunks、嵌入、先删旧向量再 upsert、标记 indexed；任何异常都落到 `mark_vector_error`，并把数量计入 `SyncSummary.vectors_backfilled`（同时进 `to_dict`）。顺带把 sync 内联的 Qdrant payload 构造抽成 `_vector_payload()`，补建走同一份字段定义，避免两处漂移。
 - **A4 批次二 · specialist 上 Web（P1-16，2026-09-14）**：`tools/agents.py::register_delegate_tools` **只在 `cli/repl.py` 启动时被调用**，Web 后端从不注册，于是 `delegate_doc_reader` / `delegate_triage` / `delegate_planner` 三个子 agent 在浏览器里根本不存在——同一个产品，两个前端能力不对等。
   - 复现：新增 `tests/test_web_specialists.py` 三条——①`execute_tool` 必须把**当次调用的 session** 注入给声明了 `session` 形参的工具；②`ensure_specialist_tools(config)` 注册出三个 `delegate_*` 且重复调用不产生重复注册；③Web 的 `_WEB_TOOL_NAMES` 必须放行这三个名字。**修前失败信号**：`assert delegate_doc_reader in TOOL_REGISTRY` 失败、`ModuleNotFoundError: web.backend.specialists`，以及白名单断言列出实际 frozenset 但不含该名字。
   - 修法：`tools/base.py::execute_tool` 增加 `session` 注入（**Web 是并发的，不能像 REPL 那样闭包一个「当前 session」**，会话必须随调用传递）；`tools/agents.py` 的 delegate 函数签名改为 `delegate(session=None, **kwargs)`，优先用注入的 session、回退到 REPL 的 `get_session`；`get_session` / `get_app_config` 变为可选以同时支持两端；新增 `web/backend/specialists.py::ensure_specialist_tools(config)`（进程内幂等），并在 `create_run` 里**于 schema 快照之前**调用——否则白名单放行了、schema 里却没有这几个工具。

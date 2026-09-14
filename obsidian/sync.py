@@ -44,6 +44,8 @@ class SyncSummary:
     error_files: int = 0
     errors: list = field(default_factory=list)
     extraction_counts: dict = field(default_factory=dict)
+    #: P1-18: documents whose vectors were written by the backfill pass.
+    vectors_backfilled: int = 0
 
     def to_dict(self) -> dict:
         return {
@@ -227,6 +229,70 @@ def _scan_library_root(
                 continue
             files.append((relative, path, content_hash))
     return sorted(files, key=lambda item: item[0].casefold())
+
+
+def _vector_payload(chunk: dict, *, document_id: str, source: str, title: str, course: str) -> dict:
+    """Qdrant payload for one chunk; shared by the sync pass and the backfill."""
+    return {
+        "chunk_id": chunk["id"],
+        "document_id": document_id,
+        "source": source,
+        "title": title,
+        "course": course or "",
+        "heading_path": chunk.get("heading_path", []),
+        "heading_text": chunk.get("heading_text", ""),
+        "section_id": chunk.get("section_id", ""),
+        "chunk_index_in_section": chunk.get("chunk_index_in_section", 0),
+        "page_start": chunk.get("page_start"),
+        "page_end": chunk.get("page_end"),
+        "slide_start": chunk.get("slide_start"),
+        "slide_end": chunk.get("slide_end"),
+    }
+
+
+def backfill_vectors(sqlite, qdrant, embedding, embedding_dim) -> int:
+    """Embed documents whose vectors were never written (P1-18).
+
+    Importing while the embedding backend is down records `pending`, and the
+    next sync sees "content unchanged" and writes nothing - so semantic search
+    stayed silently unavailable, with no error anywhere. Failures are recorded
+    on the document instead of being swallowed.
+    """
+    if not embedding_dim or not embedding.is_available():
+        return 0
+    backfilled = 0
+    for document in sqlite.get_pending_vector_documents():
+        document_id = document["id"]
+        chunks = sqlite.get_chunks_by_document(document_id)
+        if not chunks:
+            continue
+        try:
+            texts = [chunk.get("embedding_text") or chunk["text"] for chunk in chunks]
+            vectors = embedding.embed_texts(texts)
+            if not vectors or len(vectors) != len(chunks):
+                sqlite.mark_vector_error(document_id, "embedding count mismatch")
+                continue
+            chunk_ids = [chunk["id"] for chunk in chunks]
+            payloads = [
+                _vector_payload(
+                    chunk,
+                    document_id=document_id,
+                    source=document.get("source", ""),
+                    title=document.get("title", ""),
+                    course=document.get("course", ""),
+                )
+                for chunk in chunks
+            ]
+            qdrant.delete_by_filter(document_id)
+            qdrant.upsert(chunk_ids, vectors, payloads)
+            sqlite.mark_vector_indexed(document_id, document.get("content_hash") or "")
+            backfilled += 1
+        except Exception as exc:
+            logger.warning("Vector backfill failed for %s: %s", document_id, exc)
+            sqlite.mark_vector_error(document_id, str(exc))
+    if backfilled:
+        logger.info("Backfilled vectors for %d documents", backfilled)
+    return backfilled
 
 
 def sync_sources(
@@ -445,21 +511,13 @@ def sync_sources(
                     if vectors and len(vectors) == len(chunks):
                         chunk_ids = [c["id"] for c in chunks]
                         payloads = [
-                            {
-                                "chunk_id": c["id"],
-                                "document_id": document_id,
-                                "source": source,
-                                "title": title,
-                                "course": course or "",
-                                "heading_path": c.get("heading_path", []),
-                                "heading_text": c.get("heading_text", ""),
-                                "section_id": c.get("section_id", ""),
-                                "chunk_index_in_section": c.get("chunk_index_in_section", 0),
-                                "page_start": c.get("page_start"),
-                                "page_end": c.get("page_end"),
-                                "slide_start": c.get("slide_start"),
-                                "slide_end": c.get("slide_end"),
-                            }
+                            _vector_payload(
+                                c,
+                                document_id=document_id,
+                                source=source,
+                                title=title,
+                                course=course or "",
+                            )
                             for c in chunks
                         ]
                         # Delete old vectors first
@@ -512,6 +570,12 @@ def sync_sources(
                 qdrant.delete_by_filter(doc_id)
             except Exception:
                 pass
+
+    # ── Step 5b: Backfill vectors that were never written (P1-18) ───────
+    # Documents imported while the embedding backend was down were marked
+    # pending; because their content never changes again, a plain sync would
+    # never write their vectors and semantic search stayed silently absent.
+    vectors_backfilled = backfill_vectors(sqlite, qdrant, embedding, embedding_dim)
 
     # ── Step 6: Read reviewed concept-map status ────────────────────────
     # Source sync no longer writes the retired JSON graph. Concepts only
@@ -587,6 +651,7 @@ def sync_sources(
         error_files=len(errors),
         errors=errors,
         extraction_counts=dict(extraction_counts),
+        vectors_backfilled=vectors_backfilled,
     )
 
 
