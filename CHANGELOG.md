@@ -7,6 +7,10 @@
 ## [未发布]
 
 ### 变更
+- **A4 批次二 · grep 非文本降级（P1-22，2026-09-14）**：`rag/grep_retriever.py` 对 PDF/DOCX/PPTX 是「按文本读」，两类后果同时存在——ripgrep 遇到二进制直接返回**无匹配**，Python 回退读出来的也是乱码，于是「原文定位」在这些格式上**形同虚设却毫无提示**，模型据此说出「资料里没有」——一句可能完全错误的话。
+  - 复现：新增 `tests/test_grep_binary.py` 三条：①同一批候选里文本文件仍能命中，而二进制文件被跳过并**计入统计**（`binary_skipped=1`、`binary_sources=["slides.pdf"]`）；②纯文本候选不会被误判；③`rag_search` 工具在拿到 `grep_unreadable>0` 时，**模型可见的 content 里必须出现「无法做原文定位」的提示**并且 `data` 里带结构化字段。**修前失败信号**：`TypeError: GrepRetriever.search() got an unexpected keyword argument stats`；第一版实现还把同一次搜索的展开阶梯算成 3 次跳过（`assert 3 == 1`），改成按**文档**去重计数后正确。
+  - 修法：`_looks_binary()` 按 ripgrep 同款规则嗅探前 4KB 是否含 NUL（不维护扩展名清单，.doc/.ppt 之类也覆盖）；`_grep_candidates` 在调用前跳过二进制并把**文档名**记入 `stats`；编排器把它放进 `RetrievalResult.debug`；`rag/retriever.py` 的状态字典新增 `grep_unreadable` 与 `grep_unreadable_sources`；`tools/rag_search.py` 既写进 `data`，也追加一行**给模型看**的提示（「有 N 份非文本资料无法做原文定位，不要据此断言资料里没有」）。
+  - 未覆盖：前端 run-summary 里把这条渲染成用户可见文案还没做——`e2e/` 里没有任何 fixture 覆盖 run-summary 的 operations 列表（连既有的 `semantic_available` 降级文案也没有测试），补它需要一个 fixture 接缝，已记入 ROADMAP 待办。
 - **A4 批次二 · 向量补建（P1-18，2026-09-14）**：导入时若 embedding 后端（Ollama）没起来，文档只被标成 `pending`；之后再 sync 会因为「内容未变」而不走写向量的分支，于是**向量永远补不上、语义检索永久缺失，而界面不报任何错**。`rag/sqlite_store.py::get_pending_vector_documents` 早就写好了，但除了测试没有任何调用方。
   - 复现：新增 `tests/test_vector_backfill.py` 三条，**用真实的 SQLite 与真实的 Qdrant local 目录**（只把 embedding 客户端换成假对象，因为 CI 里没有 Ollama）：①pending 文档被补建后 `vector_status` 归零、embedding 被调用一次；②embedding 不可用时是**安全 no-op**（仍为 pending，不会误标 indexed）；③embedding 抛错时错误被**记录到文档**，而不是继续静默 pending。**修前失败信号**：`ImportError: cannot import name backfill_vectors from obsidian.sync`。
   - 修法：`obsidian/sync.py` 新增 `backfill_vectors(sqlite, qdrant, embedding, embedding_dim)`——遍历 pending 文档、取回其 chunks、嵌入、先删旧向量再 upsert、标记 indexed；任何异常都落到 `mark_vector_error`，并把数量计入 `SyncSummary.vectors_backfilled`（同时进 `to_dict`）。顺带把 sync 内联的 Qdrant payload 构造抽成 `_vector_payload()`，补建走同一份字段定义，避免两处漂移。

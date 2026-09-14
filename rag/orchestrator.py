@@ -151,7 +151,8 @@ class RetrievalOrchestrator:
         )
 
         # Grep evidence search
-        grep_hits = self.grep.search(query, documents=doc_hits)
+        grep_stats: dict = {}
+        grep_hits = self.grep.search(query, documents=doc_hits, stats=grep_stats)
 
         # Determine confidence from grep results
         confidence = "low"
@@ -168,5 +169,8 @@ class RetrievalOrchestrator:
                 "hybrid_candidates": len(hybrid_result.all_chunk_hits),
                 "documents_checked": len(doc_hits),
                 "grep_matches": len(grep_hits),
+                # P1-22: documents grep could not read (PDF/Word/PowerPoint).
+                "grep_unreadable": grep_stats.get("binary_skipped", 0),
+                "grep_unreadable_sources": grep_stats.get("binary_sources", []),
             },
         )

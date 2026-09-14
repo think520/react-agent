@@ -258,4 +258,8 @@ def _search_v2_with_status(
         "semantic_available": semantic_available,
         "fallback_from": result.fallback_from,
         "confidence": result.confidence,
+        # P1-22: “原文定位” is a no-op on non-text material; say so instead of
+        # returning an empty result that reads as “the material does not say it”.
+        "grep_unreadable": int(result.debug.get("grep_unreadable") or 0),
+        "grep_unreadable_sources": list(result.debug.get("grep_unreadable_sources") or []),
     }

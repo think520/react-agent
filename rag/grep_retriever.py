@@ -50,6 +50,7 @@ class GrepRetriever:
         documents: list[DocumentHit],
         intent: str = "exact_lookup",
         window_chars: int | None = None,
+        stats: dict | None = None,
     ) -> list[RetrievalHit]:
         """Search for exact text matches in candidate documents.
 
@@ -75,7 +76,7 @@ class GrepRetriever:
         ]
 
         for candidate_docs, win in configs:
-            matches = self._grep_candidates(query, candidate_docs, win)
+            matches = self._grep_candidates(query, candidate_docs, win, stats=stats)
 
             if not matches:
                 continue
@@ -98,8 +99,13 @@ class GrepRetriever:
         query: str,
         documents: list[DocumentHit],
         window_chars: int,
+        stats: dict | None = None,
     ) -> list[GrepMatch]:
-        """Run grep on candidate documents."""
+        """Run grep on candidate documents.
+
+        P1-22: binary documents (PDF/Word/PowerPoint) are reported through
+        `stats` instead of quietly yielding nothing.
+        """
         matches: list[GrepMatch] = []
 
         for doc in documents:
@@ -109,6 +115,15 @@ class GrepRetriever:
             else:
                 file_path = self.workspace / doc.source
             if not file_path.exists():
+                continue
+            if _looks_binary(file_path):
+                if stats is not None:
+                    # Count documents, not attempts: the expansion ladder below
+                    # scans the same candidates three times.
+                    sources = stats.setdefault("binary_sources", [])
+                    if doc.source not in sources:
+                        sources.append(doc.source)
+                    stats["binary_skipped"] = len(sources)
                 continue
 
             doc_matches = _grep_file(
@@ -121,6 +136,22 @@ class GrepRetriever:
             matches.extend(doc_matches)
 
         return matches
+
+
+#: Bytes inspected when deciding whether a file is text. PDF, DOCX and PPTX
+#: all carry NUL bytes this early; ripgrep uses the same rule, but it returns
+#: "no matches" rather than "cannot read", which is what made the failure
+#: invisible (P1-22).
+_BINARY_SNIFF_BYTES = 4096
+
+
+def _looks_binary(path: Path) -> bool:
+    """True when the file cannot be grepped as text."""
+    try:
+        with open(path, "rb") as handle:
+            return b"\x00" in handle.read(_BINARY_SNIFF_BYTES)
+    except OSError:
+        return True
 
 
 def _grep_file(

@@ -58,6 +58,10 @@ def rag_search(
             "resolved_mode": result.get("resolved_mode"),
             "semantic_available": result.get("semantic_available"),
             "fallback_from": result.get("fallback_from"),
+            # P1-22: non-text material cannot be grepped; the count travels with
+            # the result so neither the model nor the UI has to guess.
+            "grep_unreadable": result.get("grep_unreadable") or 0,
+            "grep_unreadable_sources": result.get("grep_unreadable_sources") or [],
         }
         sources = []
         for item in results:
@@ -86,9 +90,20 @@ def rag_search(
             },
         }]
 
+        content = json.dumps(data, ensure_ascii=False, indent=2) + "\n\n" + format_search_results(results)
+        unreadable = int(data["grep_unreadable"] or 0)
+        if unreadable:
+            # P1-22: without this the model reads an empty result as “the material
+            # does not say it”, when in fact the PDF was never looked at.
+            names = "、".join(str(name) for name in data["grep_unreadable_sources"][:3])
+            content += (
+                f"\n\n注意：有 {unreadable} 份非文本资料（{names}）无法做原文定位，"
+                "它们的正文没有被检索到。不要据此断言资料里没有相关内容。"
+            )
+
         return ToolResult(
             ok=True,
-            content=json.dumps(data, ensure_ascii=False, indent=2) + "\n\n" + format_search_results(results),
+            content=content,
             data=data,
             artifacts=artifacts,
         )
