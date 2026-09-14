@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import os
 import threading
 import uuid
@@ -15,6 +16,28 @@ _SECRET_FIELDS = frozenset({
     "api_key", "api_secret", "token", "password", "secret",
     "authorization", "access_token", "refresh_token",
 })
+
+# P0-6: field names alone are not enough — credentials also arrive inside
+# ordinary strings (a shell command, a query string, a request body). These
+# patterns rewrite the secret and keep the surrounding text readable.
+_SECRET_VALUE_PATTERNS = (
+    (
+        re.compile(
+            r"(?i)\b(bearer|basic|token|api[_-]?key|apikey|secret|password)"
+            r"(\s*[:=]\s*)([A-Za-z0-9._~+/=-]{6,})"
+        ),
+        r"\1\2***",
+    ),
+    (re.compile(r"\b(?:sk|ghp|gho|xox[baprs]|AIza)[-_A-Za-z0-9]{10,}\b"), "***"),
+)
+
+
+def _redact_text(text: str) -> str:
+    """Mask credential-shaped substrings inside arbitrary text."""
+    for pattern, replacement in _SECRET_VALUE_PATTERNS:
+        text = pattern.sub(replacement, text)
+    return text
+
 
 # Truncate large content blobs to keep trace files manageable.
 _MAX_CONTENT_LEN = 500
@@ -34,6 +57,8 @@ def _redact_obj(obj: object, depth: int = 0) -> object:
         return {k: _redact_obj(_redact_value(k, v), depth + 1) for k, v in obj.items()}
     if isinstance(obj, list):
         return [_redact_obj(item, depth + 1) for item in obj]
+    if isinstance(obj, str):
+        return _redact_text(obj)
     return obj
 
 
@@ -90,19 +115,19 @@ class TraceWriter:
             record["elapsed"] = round(event.get("elapsed", 0.0), 3)
             summary = event.get("result_summary")
             if summary:
-                record["result_summary"] = summary
+                record["result_summary"] = _redact_obj(summary)
             content = event.get("content", "")
             if content:
-                record["content"] = _truncate(content)
+                record["content"] = _truncate(_redact_text(content))
 
         elif event_type == "assistant_done":
             record["termination_reason"] = event.get("termination_reason", "")
             content = event.get("content", "")
             if content:
-                record["content"] = _truncate(content)
+                record["content"] = _truncate(_redact_text(content))
 
         elif event_type == "error":
-            record["error"] = _truncate(str(event.get("error", "")))
+            record["error"] = _truncate(_redact_text(str(event.get("error", ""))))
 
         line = json.dumps(record, ensure_ascii=False)
         with self._lock:

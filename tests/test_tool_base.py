@@ -89,6 +89,73 @@ def test_execute_tool_enforces_session_retrieval_scope():
         restore_registry(snapshot_registry, snapshot_schemas)
 
 
+def dummy_workspace_tool(workspace: str = ".", arg1: str = "") -> str:
+    return f"{workspace}:{arg1}"
+
+
+def dummy_identity_tool(chat_session_id: str = "", search_provider: str = "auto") -> str:
+    return f"{chat_session_id}:{search_provider}"
+
+
+def _registered(name, func):
+    register_tool(name, "A probe tool", {"type": "object", "properties": {}}, func)
+
+
+def test_execute_tool_ignores_model_supplied_workspace():
+    """P0-5: the sandbox root is injected, never negotiated.
+
+    `call_args.setdefault("workspace", ...)` used to let the model carry its
+    own `workspace` key, so `read_file(path="C:/Windows/win.ini",
+    workspace="C:/")` escaped the sandbox.
+    """
+    snapshot_registry = TOOL_REGISTRY.copy()
+    snapshot_schemas = list(TOOL_SCHEMAS)
+    try:
+        _registered("probe_ws", dummy_workspace_tool)
+        session = Session.new("/tmp/project")
+        result = execute_tool("probe_ws", {"arg1": "x", "workspace": "/attacker"}, session=session)
+        assert result.ok
+        assert result.content == "/tmp/project:x"
+    finally:
+        restore_registry(snapshot_registry, snapshot_schemas)
+
+
+def test_execute_tool_drops_arguments_the_tool_never_declared():
+    """P0-5: undeclared keys are dropped instead of reaching the callable."""
+    snapshot_registry = TOOL_REGISTRY.copy()
+    snapshot_schemas = list(TOOL_SCHEMAS)
+    try:
+        _registered("probe_extra", dummy_workspace_tool)
+        session = Session.new("/tmp/project")
+        result = execute_tool(
+            "probe_extra",
+            {"arg1": "x", "workspace": "/attacker", "secret_extra": "boom"},
+            session=session,
+        )
+        assert result.ok
+        assert result.content == "/tmp/project:x"
+    finally:
+        restore_registry(snapshot_registry, snapshot_schemas)
+
+
+def test_execute_tool_ignores_model_supplied_session_identity():
+    """P0-5: session identity is not a model-supplied parameter either."""
+    snapshot_registry = TOOL_REGISTRY.copy()
+    snapshot_schemas = list(TOOL_SCHEMAS)
+    try:
+        _registered("probe_identity", dummy_identity_tool)
+        session = Session.new("/tmp/project")
+        session.search_provider = "local"
+        result = execute_tool(
+            "probe_identity",
+            {"chat_session_id": "victim-session", "search_provider": "evil"},
+            session=session,
+        )
+        assert result.ok
+        assert result.content == f"{session.session_id}:local"
+    finally:
+        restore_registry(snapshot_registry, snapshot_schemas)
+
 def test_execute_unknown_tool():
     result = execute_tool("unknown_tool", {})
     assert isinstance(result, ToolResult)

@@ -626,6 +626,38 @@ def test_trace_writer_redacts_secrets(tmp_path):
     assert record["args"]["url"] == "https://api.example.com"
 
 
+def test_trace_writer_redacts_secret_shaped_values(tmp_path):
+    """P0-6: field-name matching alone leaked credentials that sit inside
+    ordinary strings — a shell command, a query string, a provider key."""
+    from core.trace import TraceWriter
+    import json
+    from pathlib import Path
+
+    writer = TraceWriter("sess", str(tmp_path))
+    writer.write({
+        "type": "tool_start",
+        "tool_call_id": "c3",
+        "tool_name": "http_request",
+        "args": {
+            "url": "https://api.example.com/v1?token=zzz-super-secret-value",
+            "body": 'curl -H "Authorization: Bearer sk-live-abcdef123456" https://x',
+            "key": "sk-proj-abcdef1234567890",
+        },
+    })
+    writer.write({
+        "type": "tool_end",
+        "tool_call_id": "c3",
+        "ok": True,
+        "content": "request used Bearer sk-live-abcdef123456",
+    })
+
+    raw = Path(writer.path).read_text(encoding="utf-8")
+    assert "sk-live-abcdef123456" not in raw
+    assert "sk-proj-abcdef1234567890" not in raw
+    assert "zzz-super-secret-value" not in raw
+    assert "api.example.com" in raw  # ordinary content survives
+    assert json.loads(raw.strip().split(chr(10))[0])["args"]["url"].startswith("https://")
+
 def test_trace_writer_truncates_long_content(tmp_path):
     from core.trace import TraceWriter, _MAX_CONTENT_LEN
     import json

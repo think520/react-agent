@@ -92,6 +92,45 @@ def test_write_file_outside_workspace(tmp_path):
     assert "denied" in result.content.lower()
 
 
+_INTERNAL = (
+    (".git", "config", "[core]"),
+    (".knowledge", "knowledge.db", "sqlite-ish"),
+    (".session", "abc.json", "{}"),
+    (".bobodan", "preferences.json", "{}"),
+)
+
+
+def test_read_file_denies_internal_directories(tmp_path):
+    """P0-6: the deny list matched the basename only, so `.git/config` and
+    `.session/<id>.json` looked innocent and were readable."""
+    for directory, name, body in _INTERNAL:
+        folder = tmp_path / directory
+        folder.mkdir(exist_ok=True)
+        (folder / name).write_text(body, encoding="utf-8")
+        result = read_file(str(folder / name), workspace=str(tmp_path))
+        assert not result.ok, f"{directory}/{name}"
+        assert "denied" in result.content.lower(), f"{directory}/{name}"
+
+
+def test_write_file_denies_internal_directories(tmp_path):
+    """P0-6: write_file could overwrite the knowledge DB and session files."""
+    for directory, name, _ in _INTERNAL:
+        result = write_file(str(tmp_path / directory / name), "boom", workspace=str(tmp_path), overwrite=True)
+        assert not result.ok, f"{directory}/{name}"
+        assert "denied" in result.content.lower(), f"{directory}/{name}"
+
+
+def test_denied_directories_only_apply_below_the_workspace(tmp_path):
+    """Guards the fix from over-blocking: a workspace that merely lives under a
+    directory named like a denied one must keep working."""
+    workspace = tmp_path / "venv" / "project"
+    workspace.mkdir(parents=True)
+    note = workspace / "note.md"
+    note.write_text("still readable", encoding="utf-8")
+    result = read_file(str(note), workspace=str(workspace))
+    assert result.ok, result.content
+    assert result.content == "still readable"
+
 def test_write_file_deny_env(tmp_path):
     env_path = tmp_path / ".env"
     result = write_file(str(env_path), "SECRET=abc", workspace=str(tmp_path))

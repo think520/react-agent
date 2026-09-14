@@ -19,7 +19,7 @@ def read_file(path: str, cwd: str = ".", workspace: str = ".") -> ToolResult:
     if not _is_within_workspace(target_path, workspace):
         return ToolResult(ok=False, content=f"Access denied: {path} is outside workspace")
 
-    if _is_denied_path(target_path):
+    if _is_denied_path(target_path, workspace):
         return ToolResult(ok=False, content=f"Access denied: {path} is a protected file")
 
     try:
@@ -51,7 +51,7 @@ def write_file(path: str, content: str, cwd: str = ".",
     if not _is_within_workspace(target_path, workspace):
         return ToolResult(ok=False, content=f"Access denied: {path} is outside workspace")
 
-    if _is_denied_path(target_path):
+    if _is_denied_path(target_path, workspace):
         return ToolResult(ok=False, content=f"Access denied: {path} is a protected file")
 
     try:
