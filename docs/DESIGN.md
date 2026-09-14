@@ -487,48 +487,73 @@ Memory Browser 视觉要像整理索引卡，不像数据库表。
 | 实心危险操作 | `--color-danger-strong` | `#934D43` |
 | 信息 | `--color-info` | `#1B365D` |
 
+### 颜色面积预算
+
+只写禁令时，实现只能一路退到「只用主色」——这是实测结论（`styles.css` 里 `--blue*` 被引用 188 次，`--petal-wash` 只有 2 次）。所以每个色相给**正面预算**；§14 禁止的是「超出预算」，不是色相本身。
+
+| 色相 | 角色 | 允许面积 | 允许场景 |
+|---|---|---|---|
+| 墨蓝 `--blue*` | 结构色 | 不限 | 导航、标题、主按钮、链接、选中态 |
+| 纸色 `--paper*` | 底面 | 不限 | 画布、抬升面、停靠面、内嵌块 |
+| 植物绿 `--sage*` | 状态色 | 每屏 ≤ 1 个整块区域 | 答对 / 基本正确、成功提示、来源可信、空态插画底 |
+| 橘棕 `--clay*` | 状态色 + 温度 | 每屏 ≤ 1 个整块区域，另可 ≤ 1 处点缀 | 答错、待核实、草稿、需要用户确认的卡片 |
+| 花瓣粉 `--petal-wash` | 情绪点缀 | ≤ 视口面积 2% | 空态、庆祝、品牌小标记。**必须列出具体调用点，否则删除该 token** |
+| `--danger` | 破坏性 | 仅按钮与提示条 | 删除、清空、错误 |
+
+禁止的是**整页主题化**（整页变绿 / 变棕 / 变粉）与**同一屏出现两种以上大面积状态色**。
+
 ### CSS Tokens
+
+下面这张表是**唯一真相源**：名字与数值必须和 `web/frontend/src/styles.css` 的 `:root` 完全一致，由 `web/frontend/src/lib/designTokens.test.ts` 逐条校验（漂移即测试失败）。
 
 ```css
 :root {
-  --color-paper: #F5F4ED;
-  --color-paper-soft: #F7F5EF;
-  --color-parchment: #F3EFE5;
-  --color-ink: #2E2B27;
-  --color-muted: #6F675C;
-  --color-faint: #756D63;
+  /* 表面：三档必须肉眼可辨（相邻 ΔL* ≥ 2–3） */
+  --paper: #f5f4ed;          /* 内容画布 */
+  --paper-soft: #fcfbf7;     /* 抬升：卡片、菜单、选中行 */
+  --paper-sunken: #efeade;   /* 停靠：侧栏、右栏、内嵌块 */
+  --parchment: var(--paper-sunken);  /* 旧别名，保留给 5 处历史调用 */
 
-  --color-ink-blue: #1B365D;
-  --color-ink-blue-soft: #2F4F78;
-  --color-ink-blue-wash: #E8EDF3;
-  --color-ink-blue-faint: #A9B7C8;
+  /* 文字：muted 是次要信息，faint 是三级信息；两者必须有明显差别 */
+  --ink: #2e2b27;
+  --muted: #5b544a;
+  --faint: #71685c;
 
-  --color-sage: #7A9B76;
-  --color-sage-soft: #93AA8D;
-  --color-sage-mist: #A8C3A1;
-  --color-leaf-pale: #B8C9B1;
+  /* 边框：三档（内容内发丝线 / 容器边界 / 输入与强调） */
+  --border-subtle: rgba(46, 43, 39, 0.06);
+  --border: rgba(46, 43, 39, 0.12);
+  --border-strong: rgba(46, 43, 39, 0.2);
 
-  --color-oak: #C89B73;
-  --color-oak-soft: #D1A57A;
-  --color-wheat: #CFAF88;
-
-  --color-clay: #B86F4B;
-  --color-clay-soft: #C98563;
-  --color-clay-mist: #E8C9B8;
-  --color-clay-wash: #F3E1D5;
-
-  --color-petal: #D9A7A0;
-  --color-petal-soft: #E7BDB8;
-  --color-petal-wash: #F6E6E2;
-
-  --color-danger: #B36A5E;
-  --color-danger-strong: #934D43;
-
+  /* 高度：内容只允许一档抬升，其余留给浮层 */
   --shadow-soft: 0 4px 12px rgba(46, 43, 39, 0.04);
-  --shadow-float: 0 8px 24px rgba(46, 43, 39, 0.07);
+  --shadow-lift: 0 2px 8px rgba(46, 43, 39, 0.07);
+  --shadow-float: 0 16px 40px rgba(46, 43, 39, 0.1);
+  --shadow-dialog: 0 24px 70px rgba(46, 43, 39, 0.18);
+
+  /* 圆角 */
   --radius-sm: 6px;
   --radius-md: 8px;
   --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  /* 间距：页面代码从刻度取值，不写 magic number */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
+  /* 动效：两条曲线 + 三档时长 + 三档 spring（见 §11） */
+  --ease-out: cubic-bezier(.22, 1, .36, 1);
+  --ease-in-out: cubic-bezier(.77, 0, .175, 1);
+  --dur-fast: 120ms;
+  --dur-base: 160ms;
+  --dur-slow: 220ms;
+  --spring-micro: linear(0, 0.52 14%, 0.94 36%, 1);
+  --spring-base: linear(0, 0.26 11%, 0.72 31%, 1.01 54%, 1);
+  --spring-macro: linear(0, 0.16 8%, 0.5 24%, 0.85 44%, 1.01 68%, 1);
 }
 ```
 
@@ -639,7 +664,9 @@ Noto Serif SC 使用 Unicode Range 分片随项目分发，覆盖正文常见字
 - 正文行高建议 `1.7` 到 `1.9`。
 - 一行文字不宜过长，阅读区域宽度控制在 `680px` 到 `760px`。
 
-> **与实现的差距（2026-09-14 实测）**：`web/frontend/src/styles.css` 共有 350 条 `font-size` 声明，其中 **168 条（48%）< 12px、247 条（71%）< 13px**——即大部分界面文字低于本节下限。题库页（E18）已在排版批里逐条对齐本表；其余页面尚未。后续做全站排版时以本节为验收口径。
+**下限是硬约束**：辅助说明 **≥ 12px**、UI 标签 **≥ 13px**、正文 **16–18px**。任何界面上出现低于下限的文字，都算违反本节——只写「建议」拦不住，所以它由契约测试执行（见 §16）。
+
+> **与实现的差距（2026-09-14 实测）**：`web/frontend/src/styles.css` 有 **494 条 `font-size` 声明，其中 233 条（47%）< 12px、337 条（68%）< 13px**。骨架层（侧栏 / 顶栏 / 右栏 / 按钮）已在本轮对齐下限；其余页面尚未，逐批收敛。契约测试用**棘轮**记录当前允许的最大违规数：只能减少，不能增加。
 
 ## 6. 空间与布局
 
@@ -696,6 +723,22 @@ Web App：
 - 来源 chip、状态标签和进度数字不能改变题卡或工具栏高度。
 - 不使用 viewport width 缩放字体；按断点调整布局，不按屏幕宽度连续缩放字号。
 
+### 间距刻度
+
+页面代码从刻度取值，不写 magic number（`padding: 18px`、`gap: 13px` 这类散值会让不同页面自己长出一套节奏）。
+
+| token | 值 | 用在哪 |
+|---|---|---|
+| `--space-1` | 4px | 图标与文字之间、chip 内部 |
+| `--space-2` | 8px | 行内元素之间、紧凑按钮内距 |
+| `--space-3` | 12px | 列表项内距、控件之间 |
+| `--space-4` | 16px | 卡片内距、表单行之间 |
+| `--space-5` | 24px | 区块内距 |
+| `--space-6` | 32px | 区块之间 |
+| `--space-7` | 48px | 页面级分节 |
+
+刻度之外只允许两种例外：图标尺寸、以及 1px 边框与分隔线。
+
 TUI：
 
 - 使用清晰分区，但边框要轻。
@@ -704,40 +747,51 @@ TUI：
 
 ## 7. 形状与光影
 
-### 圆角
+本节的全部数值都在 §4 的 token 表里，实现**只能引用 token**，不写裸数值。
 
-- 小控件：`6px`
-- 按钮、输入框、卡片：`8px`
-- 抽屉、弹窗、浮层：`12px`
-- 圆形头像、状态点和纯图标圆按钮可以使用 `50%`。
+### 圆角四档
+
+| token | 值 | 用在哪 |
+|---|---|---|
+| `--radius-sm` | 6px | 小控件、chip、标签、行内代码 |
+| `--radius-md` | 8px | 按钮、输入框、列表行、导航项 |
+| `--radius-lg` | 12px | 卡片、面板、浮层 |
+| `--radius-xl` | 16px | 抽屉、弹窗、大容器 |
+
+- 圆形头像、状态点和纯图标圆按钮可以用 `50%`。
 - 有机曲线只用于插图、图片裁切或少量品牌装饰，不用于主要 UI 容器。
+- **不要出现 5px / 7px / 9px 这类不在刻度上的值**（当前代码里有大量 `7px`，属于历史漂移，改到 `--radius-md`）。
 
-### 阴影
+### 表面与高度
 
-阴影要像自然光，而不是悬浮广告。
+**三档表面必须肉眼可辨**。只差 2/255 的三档等于一档——这是「整机看起来平」的根本原因。
 
-推荐：
+| 层 | token | 用在哪 |
+|---|---|---|
+| 停靠面 | `--paper-sunken` | 侧栏、右栏、内嵌块（比画布深） |
+| 画布 | `--paper` | 主内容区 |
+| 抬升面 | `--paper-soft` | 卡片、菜单、弹窗、选中行（比画布浅） |
 
-```css
-box-shadow: 0 4px 12px rgba(46, 43, 39, 0.04);
-box-shadow: 0 8px 24px rgba(46, 43, 39, 0.07);
-```
+| 高度 | token | 用在哪 |
+|---|---|---|
+| 静置 | `--shadow-soft` | 主按钮、主卡片 |
+| 抬升 | `--shadow-lift` | hover 与选中态、浮起的小控件 |
+| 浮层 | `--shadow-float` | popover、下拉面板、抽屉 |
+| 模态 | `--shadow-dialog` | dialog |
 
-避免：
+**配额**：内容区**每屏最多 1 层嵌套**（抬升面里可以放内嵌块，但内嵌块不能再有边框容器），**最多 1 处抬升**。超过配额才叫「卡片套卡片」。
 
-```css
-box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
-```
+避免：`0 20px 60px rgba(0, 0, 0, 0.15)` 这种悬浮广告阴影；也避免给每个内容块都加阴影。
 
-### 边框
+### 边框三档
 
-边框颜色建议使用：
+| token | 值 | 用在哪 |
+|---|---|---|
+| `--border-subtle` | `rgba(46, 43, 39, 0.06)` | 内容内部的发丝分隔线（列表行之间、区块之间） |
+| `--border` | `rgba(46, 43, 39, 0.12)` | 真正的容器边界（卡片、面板、栏与栏之间） |
+| `--border-strong` | `rgba(46, 43, 39, 0.20)` | 输入框、次要按钮、需要被看见的边界 |
 
-```css
-border-color: rgba(46, 43, 39, 0.10);
-```
-
-边框应该像纸张分隔线，不像管理后台的表格线。
+边框应该像纸张分隔线，不像管理后台的表格线。**内容里的分隔用 `--border-subtle`**，不要一律用 `--border`——那样每个块都长得一样重。
 
 ## 8. 网站设计规则
 
@@ -1079,6 +1133,17 @@ TUI 的文案要短、温和、确定。
 - 阅读进度或生成状态的柔和变化
 - 进入使用有即时反馈的 ease-out，持续移动使用 ease-in-out；不使用起步迟缓的 ease-in
 - 只过渡 `opacity` 和 `transform` 等低成本属性，高频键盘菜单不添加明显开关动画
+- **三档 spring 预设**（用于有物理感的反馈：按压、选中、展开；`linear()` 近似，过冲 ≤ 2%）：
+
+| token | 配哪档时长 | 用在哪 |
+|---|---|---|
+| `--spring-micro` | `--dur-fast` | 按钮按压、开关、checkbox |
+| `--spring-base` | `--dur-base` | 选中态、行展开、卡片抬升 |
+| `--spring-macro` | `--dur-slow` | 抽屉与面板入场、列表增删的布局动画 |
+
+- 允许 `transform: scale()`，但**只允许 0.96–1.02** 区间（按压 0.96–0.98，强调最多 1.02）。
+- 允许**布局动画**：列表增删、折叠展开可以位移动画，但必须走 `--spring-macro` 或 `--ease-in-out`，且不能超过 220ms。
+- 过渡必须引用 token：写 `transition: transform var(--dur-fast) var(--spring-micro)`，不写裸 `ease` / 裸 `cubic-bezier` / 裸毫秒值。**当前代码里 18 处用的是裸 `ease`，属于漂移。**
 
 避免：
 
@@ -1164,32 +1229,36 @@ Bobodan 的界面文案应该像一位安静的编辑，而不是营销人员或
 - 正文对比度、focus、键盘操作和减少动效是否通过检查。
 - 用户自定义人设是否没有覆盖事实标签和来源标注。
 
-## 14. 反模式
+## 14. 反模式与配额
 
-以下方向默认不适合 Bobodan。后续设计和实现必须把这些当作硬约束，而不是可选建议：
+这一节分成两半：**底线**绝对禁止，**配额**是「可以有，但有限度」。
 
-- 暗黑终端黑客风
-- Stripe/Vercel 式冷白科技风
-- Linear/Raycast 式极客工具风
-- 企业 ERP 后台风
-- 金融交易高密度风
-- 大面积玻璃拟态
-- 大面积蓝紫渐变
-- 大面积橘棕导致页面变成复古咖啡色主题
-- 大面积粉色导致页面变成甜品、少女或美妆主题
-- 大面积绿色导致页面变成健康、园艺或咖啡品牌主题
-- 纯图标堆叠的工具面板
-- 过度可爱化或玩具化
-- 大圆角胶囊按钮作为主要 UI 语言
-- 卡片套卡片、面板套面板
+把配额也写成绝对禁令的后果是可测的：实现者为了不违规，只能走最保守的一条路（发丝线列表 + 只用主色），界面就会变得平、淡、没有层级——2026-09-14 的实测正是如此。
+
+### 底线（绝对禁止）
+
+- 暗黑终端黑客风、Stripe/Vercel 式冷白科技风、Linear/Raycast 式极客工具风、企业 ERP 后台风、金融交易高密度风
+- 用**颜色**作为来源、正确性或状态的唯一表达（必须同时有文字）
 - 装饰性光球、渐变球、bokeh 背景
 - 运行时依赖公共字体 CDN，导致离线界面退化
-- 用颜色作为来源、正确性或状态的唯一表达
 - 用滤镜反转或纯黑背景快速拼出暗色模式
 - 让 Agents、MCP、Logs 直接占据首页主舞台
-- 把 Practice 做成高密度题库后台
-- 把 Review 做成复杂数据看板
+- 把 Practice 做成高密度题库后台，把 Review 做成复杂数据看板
 - 用人设语气掩盖来源、AI 补充或待核实状态
+- 整页主题化（整页变绿 / 变棕 / 变粉）
+
+### 配额（可以有，按此上限）
+
+| 项 | 配额 |
+|---|---|
+| 嵌套表面 | 内容区每屏 ≤ 1 层（抬升面里可有内嵌块，内嵌块不得再有边框容器）；超出才叫「卡片套卡片」 |
+| 抬升 `--shadow-lift` | 内容区每屏 ≤ 1 处（hover 与选中态不算新增一处） |
+| 玻璃效果 | 仅限吸顶 topbar 与浮层，`blur ≤ 16px`；不做大面积玻璃 |
+| 胶囊 / 大圆角 | 允许用于 chip 与分段控件，≤ `--radius-xl`；不做成页面级按钮语言 |
+| 彩色面积 | 按 §4 的「颜色面积预算」表执行 |
+| 渐变 | 允许同色相、明度差 ≤ 8% 的底面层次；禁止跨色相渐变 |
+| 纯图标控件 | 工具栏级允许；面板级必须带文字或 tooltip |
+| 可爱化 | 只允许品牌插图与空态；不进入控件与文案 |
 
 ## 15. 一句话标准
 
@@ -1199,6 +1268,48 @@ Bobodan 的界面文案应该像一位安静的编辑，而不是营销人员或
 
 它就接近 Bobodan 的方向。
 
+## 16. 组件规格与交互四态
+
+这一节把「好看的界面」拆成可实现的数值。每个组件必须从 §4 的 token 取值，不写裸数值。
+
+### 交互四态（所有可点元素都必须有）
+
+| 态 | 要求 |
+|---|---|
+| 静置 | 明确边界：`--border-strong`（次要）或实色底（主要） |
+| hover | 底色变化（`--blue-wash` 或 `--paper-soft`）+ 抬升 `--shadow-lift` |
+| active | 按压反馈：`transform: scale(0.96–0.98)` 或底色加深一档 |
+| focus-visible | `outline: 2px solid var(--blue-soft)` / `outline-offset: 2px`；不得用 `outline: none` 覆盖 |
+| disabled | `opacity: .55` + `cursor: not-allowed`；不得只变灰而不禁用 |
+
+### 组件规格表
+
+| 组件 | 表面 | 边框 | 圆角 | 内距 | 字号 | 高度 |
+|---|---|---|---|---|---|---|
+| 页面容器 | `--paper` | 无 | — | `--space-6` 40px `--space-7` | — | — |
+| 停靠栏（侧栏 / 右栏） | `--paper-sunken` | `--border` 竖线 | — | `--space-4` 起 | 标签 ≥ 12px | — |
+| 顶栏 | `--paper` + blur ≤ 16px | `--border-subtle` 下边 | — | 横向 `--space-4` | 标题 17px / 副标 ≥ 12px | 68px |
+| 卡片 | `--paper-soft` | `--border` | `--radius-lg` | `--space-4` | 正文 ≥ 13.5px | — |
+| 列表行 | 停靠面上的透明行 | `--border-subtle` 分隔 | `--radius-md` | `--space-2` `--space-3` | ≥ 13px | ≥ 44px |
+| 主按钮 | `--blue` | 同色 | `--radius-md` | 0 13px | 13px / 650 | ≥ 40px |
+| 次要按钮 | 透明 → hover `--blue-wash` | `--border-strong` | `--radius-md` | 0 13px | 13px / 650 | ≥ 40px |
+| 图标按钮 | 透明 → hover `--blue-wash` | hover 时 `--border-subtle` | `--radius-md` | — | — | 36–40px 方形 |
+| 输入框 | `--paper-soft` | `--border-strong` | `--radius-md` | 0 `--space-3` | ≥ 13px | ≥ 36px |
+| chip / 标签 | `*-wash` 或 ink 5% | 无 | `--radius-sm` | 0 `--space-2` | ≥ 12px | ≥ 24px |
+| 状态块（答案反馈 / 提示条） | `*-wash` | 左边框 3px 该色相实色 | `0 --radius-sm --radius-sm 0` | `--space-3` `--space-4` | ≥ 13.5px | — |
+| 浮层（popover / 菜单） | `--paper-soft` | `--border-strong` | `--radius-lg` | `--space-2` | ≥ 12.5px | — |
+| 弹窗 / 抽屉 | `--paper-soft` | `--border` | `--radius-xl` | `--space-5` | — | — |
+
+### 契约测试
+
+`web/frontend/src/lib/designTokens.test.ts` 把下面几条变成会失败的测试，避免再次出现「文档写着、代码里没有」：
+
+1. **token 一致**：§4 token 表里的 `--name: value` 与 `styles.css` `:root` 同名同值（去空格后逐条比对），且表中不得出现代码里没有的 token。
+2. **字号下限（棘轮）**：低于下限的 `font-size` 声明数 ≤ 测试里记录的预算；预算只允许下调。
+3. **缓动来自 token（棘轮）**：`transition` / `animation` 里的裸 `ease` / 裸 `cubic-bezier` / 裸毫秒值数量 ≤ 预算。
+4. **圆角不脱轨（棘轮）**：不在 §7 刻度上的 `border-radius` 值数量 ≤ 预算。
+
+棘轮的意义：不要求一次改完，但**不允许变差**；每完成一批就下调预算，直到归零。
 如果一个界面看起来像：
 
 > 科技公司 dashboard、AI 发布页、交易系统或运维控制台。

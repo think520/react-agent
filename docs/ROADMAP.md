@@ -121,6 +121,8 @@
 
 ### W3 前端体验第二批
 
+**设计规格层已先重写（2026-09-14，见 §2「设计规格层重写」）**：复查后确认 `DESIGN.md` 的问题是「紧在禁令、松在规格」——颜色只有 1 档可用的边框、2 个被祝福的阴影、3 个字号级别，而 §14 全是绝对禁止没有配额，实现只能退到发丝线列表 + 只用主色。规格层已按实测重写（颜色面积预算 / 表面·边框·高度分档 / 字号硬下限 / 间距刻度 / 三档 spring / 反模式改配额），骨架层已落地，token 一致性与漂移棘轮由 `web/frontend/src/lib/designTokens.test.ts` 钉住。**下方 FE-P0 / FE-P1 的页面级工作按新规格分批执行**（Chat → Practice·Review → Library·Reader → 低频页），每落一批就把棘轮预算下调一次。
+
 **FE-P0（流式正确性，先做）**
 
 | # | 事项 | 动哪里 |
@@ -146,7 +148,8 @@
 | H-c | Toast 通知系统 + 错误呈现器（人话一行+详情+错误码；与 E1 联动） | 全局；openhanako |
 | H-d | @-mention 升级 inline 徽章（CodeMirror chip） | composer；openhanako |
 | H-e | 文档版本 diff 视图（三栏：版本/版本/行级 diff，回滚前先看） | DocumentEditor；openhanako FileHistoryModal |
-| H-f | motion spring 三档预设 + AnimatedList 布局动画（衔接现有 --dur token 体系） | ui/；openhanako |
+| H-f | motion spring 三档预设 + AnimatedList 布局动画（衔接现有 --dur token 体系）——**三档 spring 预设（CSS `linear()`）已在 2026-09-14 落地（`DESIGN.md` §11 / `styles.css`），`AnimatedList` 布局动画仍待做** | ui/；openhanako |
+| F19 | 页面级规格收敛：字号 / 间距 / 交互四态 / 表面分档，按 Chat → Practice·Review → Library·Reader → 低频页 分批，每批同步下调 `designTokens.test.ts` 的棘轮预算 | 各页面 CSS；`DESIGN.md` §5–§7、§16 |
 
 **FE-P2（锦上添花）**：F4 断线恢复全家桶（Last-Event-ID 重放+caught_up+看门狗+命令 ACK）、F5 乐观负 id 对账、F15 空态三件套组件化、F16 组件外 -state.ts 纯函数模式 + 架构契约测试、F18 ProgressRing/LevelUp 庆祝动效、ContextRing 复习负载环（H）。
 **体验审查 P2 杂项**：slash/@ 可发现性提示、连续复习多条错题、完成页逐题回顾、来源视图按来源分组、设置保存方式统一、流式不抢滚轮（F7 覆盖）、切资料库不强制跳聊天、空态用路由 Link。
@@ -274,6 +277,20 @@ P5G.3 的产品能力不再整体等待 Electron：Roadmap、复习提醒和部�
 
 排序原则：学习闭环正确性 > 可恢复性 > 检索质量证据 > 界面质感 > 通用运行时能力 > 发布包装。任何条目开工前先对齐 `PROJECT_GUIDE.md` 的产品边界四问。
 
+### 设计规格层重写（2026-09-14 完成）
+
+用户实测反馈「前端 UI 还是不好看、不够丝滑」，复查 `DESIGN.md` 后确认问题不是「约束太紧」，而是**紧在禁令、松在规格**：三档纸色只差 2–4/255 等于一档、全站 31 条 `transition`、文档写「辅助 12–13px」而 494 条 `font-size` 里 233 条（47%）低于 12px、`--blue*` 被引用 188 次而 `--petal-wash` 只有 2 次。本轮先重写规格层再落地骨架层，页面级收敛按批次执行（W3 F19）。
+
+| 层 | 状态 | 证据 |
+|---|---|---|
+| 规格层（`DESIGN.md`） | 已验证 | §4 颜色改**面积预算**（墨蓝不限、sage/clay 每屏 ≤1 整块、petal ≤2% 视口且须列调用点）；§4 token 表换成代码真实命名并成为唯一真相源；§5 字号下限（辅助 ≥12 / 标签 ≥13 / 正文 16–18）成硬约束；§6 新增间距刻度 4/8/12/16/24/32/48；§7 纸色三档拉开 + `--paper-sunken`、`--shadow-lift`、圆角 6/8/12/16、边框三档；§11 三档 spring（CSS `linear()`，不引 motion 库）+ `scale` 0.96–1.02 与 ≤220ms 布局动画；§14 拆「底线 / 配额」；新增 §16 组件规格与交互四态 |
+| 骨架层（`styles.css`） | 已验证 | 侧栏 / 右栏改 `--paper-sunken`（三级结构第一次显形）、顶栏与右栏 tab active 走 `--shadow-lift`、导航与按钮补 hover 抬升与 spring 按压、圆角与间距开始走 token、shell 一层 10 处 10–11px 标签提到 12px、`--muted` / `--faint` 加深（正文对比度同时改善） |
+| 防漂移 | 已验证 | 新增 `web/frontend/src/lib/designTokens.test.ts`：文档 ↔ 代码 token 一致性（含反向检查）+ 四条棘轮（<12px 字号 ≤226、裸 `ease` ≤16、脱轨圆角 ≤73、裸毫秒 ≤5），只允许下调；已实测能抓到人为漂移 |
+
+验证：Python `1450 passed`（tripwire 确认真实工作区库未动）、Vitest `63 passed`、ESLint 与生产构建通过、Playwright `77 passed / 1 skipped`。
+
+**未做**：其余页面的字号 / 间距 / 交互态收敛（F19 分批）；暗色主题——本轮只把 token 改成可换主题的形状，并补上文档里已预留但一直没实现的 `[data-theme]` 钩子。
+
 ### 单项完成定义
 
 一项路线任务只有同时满足以下条件才能标记为 `已验证`：
@@ -293,7 +310,7 @@ P5G.3 的产品能力不再整体等待 Electron：Roadmap、复习提醒和部�
 | RAG embedding | 向量库不动（qdrant 本地）；不内置 ONNX 模型（fastembed 搁置，+70~110MB 与 512 token 截断风险记录在案）；embedding 走用户自配 API（SiliconFlow bge-m3 免费标推荐）+ Ollama 可选离线档；fts_only 是一等公民形态不是降级 | 调研报告 ch10 |
 | 桌面版推迟 | P5G.2 门禁化；先 W3/W4（原 R1/R2）主体；sidecar/server-info/契约测试三结论必须吸收 | PRE_DESKTOP + 本次确认 |
 | 教学闭环哲学 | 模型管教学、引擎管算术；推进由已掌握内容计算，绝不用 stage counter | DeepTutor 对照 + Bobodan 证据门禁既有实践 |
-| 动效体系 | 三档 token（120/160/220ms）+ 两条缓动；应用内减动效 = OS 级语义；不为动画引 motion 库 | DESIGN.md §11 + 2026-08-28 体验轮 |
+| 动效体系 | 三档 token（120/160/220ms）+ 两条缓动；2026-09-14 增三档 spring 预设（CSS `linear()` 近似、过冲 ≤2%）与 `scale` 0.96–1.02；应用内减动效 = OS 级语义；不为动画引 motion 库 | DESIGN.md §11 + 2026-08-28 体验轮 + 2026-09-14 设计规格轮 |
 | 测试政策 | 风险驱动分层；LLM 单缝 ScriptedProvider；浏览器只留冒烟；契约测试优先 | tests/README.md |
 
 ## 4. 明确不做（合并自三份来源，防止范围蔓延）
