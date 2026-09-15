@@ -328,7 +328,7 @@ hooks 最小接线（✅ 结果上限落 `after_tool`、白名单门落 `before_
 
 1. ✅ **原语与穿透**：`core/cancellation.py::CancelToken`（含父子传播）+ `AgentLoop` 迭代检查点与工具派发检查点 + 终止事件 `termination_reason="cancelled"`
 2. ✅ **provider 流式读循环**：每个 chunk 前检查 → break 出循环让响应与连接关闭；非流式靠 timeout 兜底且**取消后不再重试**；`RunCancelled` 与 `ProviderError` 分开
-3. ⏳ **Web 宽限期**：run 注册表 + 断线宽限 30s + 超期取消 + 宽限内重连续跑；同时把批次二留下的「客户端重连发 after_seq」接上
+3. 🚧 **Web 宽限期**（部分完成）：✅ run 注册表 + 宽限计时/重连取消/显式停止（`web/backend/run_registry.py`，5 条测试）；✅ 断线时**显式关闭同步生成器**（让 producer 的 finally 真的跑到，见 `iterate_on_stream_lane`）；✅ `run_stream` 接受并转发 `cancel_token`。⏳ 剩下的关键一步是**结构改动**：SSE 生成器是被客户端拉动的，客户端一走就没人拉，所以「宽限期内 run 继续跑」要求 run 与响应解耦——后台泵把事件写进批次二的事件日志，SSE 只做 tail；否则宽限计时器只是延迟一次「已经停下」的取消。
 4. ⏳ **CLI 与 specialist**：SIGINT 接 token；specialist 子 token（父取消即停）+ 每工具超时转结构化错误
 
 协作取消穿透 `AgentLoop` → provider 流 → 工具边界；每工具超时转结构化错误结果；取消后落盘已产出内容并标记 cancelled。

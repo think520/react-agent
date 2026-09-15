@@ -7,6 +7,9 @@
 ## [未发布]
 
 ### 变更
+- **A4 批次三 · 取消原语（阶段三：断线宽限，部分完成，2026-09-14）**：先落 `web/backend/run_registry.py`——按 stream_id 登记 run 的 `CancelToken`，`note_disconnect` 起宽限计时、`note_reconnect` 撤销计时（刷新与误关不掉线）、`finish` 清理、`cancel_now` 供显式停止。另修审计点「SSE 生成器从不被关闭」：`iterate_on_stream_lane` 现在在 `finally` 里显式关闭同步生成器，断线时 producer 的 finally（会话落盘）真的会跑到。
+  - 复现：`tests/test_run_registry.py` 五条（断线**不立即**取消、宽限到期取消且 reason 为 `client_disconnected`、窗口内重连后 run 存活、断线幂等不重启计时、finish 后不再取消、每个 run 独立 token）+ `tests/test_sse_stream.py` 两条（响应停止时 producer 的 finally 被走到；正常流仍逐条送达）。**修前失败信号**：`ModuleNotFoundError: web.backend.run_registry`；以及 `AttributeError: list_iterator has no attribute close`（顺带暴露了 close 需要判存）。
+  - **未完成的关键一步（诚实记录）**：SSE 的生成器是**被客户端拉动**的——客户端一断就没人拉，run 会停在上一个 yield。所以「宽限期内让 run 继续跑」不是加计时器就能成立的，它要求把 run 的生产与响应解耦（后台泵把事件写进批次二的事件日志，SSE 只 tail 日志）。这一步是结构改动，我没有半截开始；计时器本身、取消路径与显式关闭都已就位并有测试，缺的是那个泵。
 - **A4 批次三 · 取消原语（阶段二：provider 穿透，2026-09-14）**：阶段一只让循环在检查点停下，但在途请求仍在跑。这一阶段让**流式请求真的断**：`complete_stream` 的读循环在每个 chunk 之前检查令牌，命中就 `break`，`with` 退出时响应与连接一起关闭，provider 停止生成——这是整套协作取消里唯一能真正打断网络请求的位置。非流式请求打断不了，于是改为**取消后不再重试、不再发下一个**。
   - 复现：新增 `tests/test_provider_cancellation.py` 三条，用 `httpx.MockTransport` 保留真实的 httpx 客户端与真实的读循环，只换传输层：①50 个 delta 的流在收到第 1 个后取消 → **只解析出 1 个 chunk 且只发出 1 次请求**（不重试）；②已取消的流**从不打开连接**（`RunCancelled`，连接记录为空）；③返回 500 这种可重试状态时，若此时已取消 → 只请求 1 次。**修前失败信号**：循环会读完 50 个 delta、重试可达 3 次。
   - 修法：`LLMProvider` 协议、`openai_compat`（流式与非流式）、`minimax`（转发给父类）与测试替身 `ScriptedProvider` 全部接受 `cancel_token`；重试前的 `time.sleep` 统一改走 `_retry_pause(attempt, token)`——**取消后不再重试**是这一条的核心承诺；`AgentLoop` 用签名探测决定是否传该参数（不支持的 provider 会记一条 warning，而不是静默假装停止有效）；`run_stream` 增加 `except RunCancelled` 分支，保证取消被报成 `cancelled` 而不是 `error`。

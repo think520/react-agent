@@ -206,6 +206,7 @@ class AgentService:
         response_guard=None,
         memory_injector=None,
         context_window: int | None = None,
+        cancel_token=None,
         resume_tool_call_id: str | None = None,
         resume_tool_content: str = "",
     ) -> Iterator[dict]:
@@ -233,6 +234,7 @@ class AgentService:
             memory_injector=memory_injector,
             # P0-8: without this the compaction threshold never fired.
             context_window=context_window,
+            cancel_token=cancel_token,
         )
         return agent.run_stream(
             user_input,

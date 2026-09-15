@@ -17,6 +17,45 @@ def test_encode_sse_shape():
     assert frame.endswith("\n\n")
 
 
+"""A4 batch 3 phase 3: a dropped SSE client must close the producer."""
+
+import anyio
+
+from web.backend.sse import iterate_on_stream_lane
+
+
+def test_the_producer_is_closed_when_the_response_stops():
+    """The audit point: `iterate_on_stream_lane` never closed the synchronous
+    generator, so a disconnect left the run parked at its last yield and its
+    finally blocks (session persist) unrun."""
+    closed: list[str] = []
+
+    def producer():
+        try:
+            for index in range(100):
+                yield index
+        finally:
+            closed.append("producer-finally")
+
+    async def scenario() -> None:
+        stream = iterate_on_stream_lane(producer())
+        first = await stream.__anext__()
+        assert first == 0
+        await stream.aclose()  # what a cancelled response does
+
+    anyio.run(scenario)
+
+    assert closed == ["producer-finally"]
+
+
+def test_a_finished_stream_still_delivers_every_item():
+    async def scenario() -> list:
+        stream = iterate_on_stream_lane(iter([1, 2, 3]))
+        return [item async for item in stream]
+
+    assert anyio.run(scenario) == [1, 2, 3]
+
+
 def test_stream_buffer_assigns_monotonic_seq():
     buffer = StreamBuffer()
     assert buffer.append("a", {"x": 1}) == 1

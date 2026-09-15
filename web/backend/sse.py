@@ -46,6 +46,24 @@ async def iterate_on_stream_lane(generator: Iterator[Any]) -> AsyncIterator[Any]
     request threadpool.
     """
     iterator = iter(generator)
+    try:
+        async for item in _drive_lane(iterator):
+            yield item
+    finally:
+        # A4 batch 3: close the synchronous generator explicitly. On disconnect
+        # the response task is cancelled, and letting the generator be reaped by
+        # the GC leaves the run parked at its last yield with nothing to drive
+        # it. Closing it here runs the producer finally blocks (session persist).
+        # Safe because anyio waits for the worker thread by default.
+        closer = getattr(iterator, "close", None)
+        if callable(closer):
+            try:
+                closer()
+            except (RuntimeError, ValueError):
+                pass
+
+
+async def _drive_lane(iterator: Iterator[Any]) -> AsyncIterator[Any]:
     while True:
         try:
             item = await anyio.to_thread.run_sync(
