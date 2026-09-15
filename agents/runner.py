@@ -18,6 +18,7 @@ import time
 from typing import Any
 
 from core.agent_loop import AgentLoop
+from core.cancellation import CancelToken
 from core.session import Session
 from tools.base import ToolResult, get_tools_schema
 
@@ -124,6 +125,7 @@ def run_specialist(
     task: str,
     parent_session: Session,
     app_config: dict | None = None,
+    cancel_token: CancelToken | None = None,
 ) -> ToolResult:
     """Execute a specialist. Returns ToolResult with content (prose) and data (structured).
 
@@ -162,11 +164,17 @@ def run_specialist(
         provider = _make_specialist_provider(cfg, specialist, app_config)
 
         # 5. Sub-AgentLoop
+        # P0-2: the sub-loop gets a token of its own, tied to the parent turn.
+        # `future.cancel()` cannot stop a task that already started, so a timed
+        # out specialist used to keep calling the model and writing state; the
+        # token makes it stop at its next checkpoint instead.
+        child_token = cancel_token.child() if cancel_token is not None else CancelToken()
         sub_loop = AgentLoop(
             provider,
             fresh,
             tools_schema=specialist_tools,
             max_iterations=cfg.max_iterations,
+            cancel_token=child_token,
         )
 
         # 6. Run with timeout
@@ -176,6 +184,8 @@ def run_specialist(
         try:
             result_text = future.result(timeout=cfg.timeout_seconds)
         except concurrent.futures.TimeoutError:
+            # Tell the abandoned sub-loop to stop at its next checkpoint (P0-2).
+            child_token.cancel("specialist_timeout")
             future.cancel()
             executor.shutdown(wait=False, cancel_futures=True)
             duration = int((time.monotonic() - start) * 1000)

@@ -7,6 +7,9 @@
 ## [未发布]
 
 ### 变更
+- **A4 批次三 · specialist 子 token（P0-2，2026-09-14）**：审计原话是「specialist 超时无法真正取消，后台继续跑并写状态」——`agents/runner.py` 超时后调 `future.cancel()`，而它对**已经开始执行**的任务无效，于是父级已经按超时换路，那个 specialist 仍在发 LLM 请求、仍在写 learning store。
+  - 复现：`tests/test_agents_runner.py` 新增一条——用「永远不返回」的子循环 + 0.2s 超时，断言被放弃的子循环**拿到了与父级绑定的子 token 且已被取消**（reason = `specialist_timeout`）。改动前这条断言无法成立（`AgentLoop` 根本没收到 `cancel_token` 实参），改动后它在 0.2s 内返回并完成取消。
+  - 修法：`run_specialist(..., cancel_token=None)` 为每个 specialist 建**子 token**（父级取消自动传播到它），交给子 `AgentLoop`；超时分支在 `future.cancel()` 之前先 `child_token.cancel("specialist_timeout")`，于是子循环在下一个检查点停下。链路一直打通到工具层：`execute_tool(..., cancel_token=...)` 会把它注入给声明了该形参的工具，`delegate(session, cancel_token, ...)` 再转交 runner——**父轮取消时 specialist 一起停**。
 - **A4 批次三 · 每工具超时转结构化错误 + 顺手修掉 P1-7（2026-09-14）**：循环原来内联调用 `execute_tool`，所以**一个卡住的工具会卡住整轮**。接线超时时又暴露出一个更早就存在的真实缺陷（P1-7 去重竞态），两条一起解决。
   - 复现：新增 `tests/test_tool_timeouts.py` 五条：①未登记超时的工具走内联（不付线程成本）；②快工具照常返回；③**挂住的工具变成结构化超时**（`data["code"]=="tool_timeout"`，且调用方**不等被放弃的线程**）；④抛异常的工具变成结果而不是炸穿；⑤**端到端**：`time.sleep(5)` 的工具在 0.2s 预算下，整轮仍以 `final_answer` 正常结束、会话不受影响。**修前失败信号**：`ModuleNotFoundError: tools.timeouts`；端到端那条会真的挂 5 秒。
   - 修法：`tools/timeouts.py` 提供 `TOOL_TIMEOUTS`（只登记会阻塞在外部的地方：三个 `delegate_*`、`rag_search`、两个联网工具）与 `run_with_timeout()`——一次性 worker + `future.result(timeout)`，超时返回 `ToolResult(ok=False, code="tool_timeout")`，`executor.shutdown(wait=False)` **绝不等被放弃的线程**。循环按需分派：未登记超时的工具仍走内联，**不为不需要的线程付费**。

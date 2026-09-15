@@ -150,6 +150,36 @@ def test_long_content_truncated_to_2000():
 
 # --- Timeout (Invariant 5) ---
 
+def test_a_timed_out_specialist_is_told_to_stop(monkeypatch):
+    """P0-2: `future.cancel()` cannot stop a task that already started, so a
+    timed-out specialist kept calling the model and writing state. It now gets a
+    token tied to the parent turn and is cancelled when the wait expires."""
+    import time as time_module
+
+    from core.cancellation import CancelToken
+
+    reg = _build_registry_with(TriageSpecialist(), yaml={"timeout_seconds": 0.2})
+
+    def _hangs():
+        time_module.sleep(5)
+        yield _assistant_done("{}")[0]
+
+    with patch("providers.factory.ProviderFactory.create") as pf_create, \
+         patch("agents.runner.AgentLoop") as MockLoop:
+        pf_create.return_value = MagicMock(timeout=30)
+        MockLoop.return_value.run_stream.return_value = _hangs()
+
+        parent = CancelToken()
+        result = run_specialist(
+            reg, "triage", "summarize x", _mock_session(), _app_config(), cancel_token=parent,
+        )
+
+    assert result.ok is False
+    child_token = MockLoop.call_args.kwargs["cancel_token"]
+    assert child_token is not parent, "the specialist owns a child scope"
+    assert child_token.is_cancelled() is True
+    assert child_token.reason == "specialist_timeout"
+
 def test_timeout_returns_error_type_timeout():
     reg = _build_registry_with(TriageSpecialist(), yaml={"timeout_seconds": 1})
     with patch("providers.factory.ProviderFactory.create") as pf_create, \

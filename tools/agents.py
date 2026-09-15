@@ -55,13 +55,17 @@ def _make_delegate_func(
     get_app_config: "Any",
 ):
     """Build the callable that REPL's execute_tool() will invoke."""
-    def delegate(session=None, **kwargs) -> ToolResult:
+    def delegate(session=None, cancel_token=None, **kwargs) -> ToolResult:
         task = _build_task(name, kwargs)
         # P1-16: prefer the session injected with the call (the web passes it
         # per run); the REPL keeps its get_session closure as a fallback.
         parent_session: Session = session or get_session()
         app_config = get_app_config()
-        return run_specialist(registry, name, str(task), parent_session, app_config)
+        # P0-2: the parent turn token travels with the delegation, so a cancelled
+        # or torn-down turn stops its specialist instead of letting it write on.
+        return run_specialist(
+            registry, name, str(task), parent_session, app_config, cancel_token=cancel_token,
+        )
     delegate.__name__ = f"delegate_{name}"
     delegate.__qualname__ = f"delegate_{name}"
     return delegate

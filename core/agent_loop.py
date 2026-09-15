@@ -642,10 +642,14 @@ class AgentLoop:
         # (This wiring is what exposed the P1-7 de-duplication race above.)
         timeout = tool_timeout(tc.name)
         if timeout is None:
-            result = execute_tool(tc.name, args, session=self.session)
+            result = execute_tool(
+                tc.name, args, session=self.session, cancel_token=self.cancel_token,
+            )
         else:
             result = run_with_tool_timeout(
-                lambda: execute_tool(tc.name, args, session=self.session),
+                lambda: execute_tool(
+                    tc.name, args, session=self.session, cancel_token=self.cancel_token,
+                ),
                 timeout,
                 tc.name,
             )

@@ -110,7 +110,7 @@ def get_tools_schema() -> list[dict]:
     return list(TOOL_SCHEMAS)
 
 
-def execute_tool(name: str, args: dict, session=None) -> Any:
+def execute_tool(name: str, args: dict, session=None, cancel_token=None) -> Any:
     """Execute a tool by name with given arguments.
 
     Returns ToolResult for registered tools, or error string for unknown tools.
@@ -148,6 +148,11 @@ def execute_tool(name: str, args: dict, session=None) -> Any:
                 # injected parameter. The web runs concurrently, so closing
                 # over a global "current session" is not an option there.
                 call_args["session"] = session
+            if "cancel_token" in sig.parameters:
+                # P0-2: tools that hand work to a sub-agent (the delegate_*
+                # family) need the parent turn token, so the child stops when
+                # the parent does instead of writing state in the background.
+                call_args["cancel_token"] = cancel_token
             if "cwd" in sig.parameters:
                 call_args["cwd"] = session.cwd
             if "workspace" in sig.parameters:
