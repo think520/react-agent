@@ -230,6 +230,8 @@ export function ChatPage() {
   const scrollRef = useStickyBottomScroll<HTMLDivElement>([messages, status]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  // P0-1: the run lives on the server now, so stopping it needs its stream id.
+  const streamIdRef = useRef<string | null>(null);
   const sessionIdRef = useRef(sessionId);
   const leaveChatRef = useRef(false);
 
@@ -403,6 +405,7 @@ export function ChatPage() {
         references: outgoingReferences,
         webResearchId,
         strictDocumentScope,
+        onStreamId: (id) => { streamIdRef.current = id; },
       }, (streamEvent) => handleStreamEvent(streamEvent, {
         onRunStarted: (chatSessionId) => {
           nextSessionId = chatSessionId;
@@ -430,6 +433,7 @@ export function ChatPage() {
       settleLastMessage(true);
     } finally {
       abortRef.current = null;
+      streamIdRef.current = null;
       setSending(false);
     }
   }
@@ -753,7 +757,7 @@ export function ChatPage() {
     if (!sessionId) return;
     const controller = new AbortController();
     abortRef.current = controller;
-    setSending(true);
+    streamIdRef.current = null;
     // Decision B: the continuation is a new assistant message, not a user
     // bubble -- the answers are carried as the paused tool call's result.
     setMessages((current) => [...current, { role: "assistant", content: "", pending: true }]);
@@ -768,6 +772,7 @@ export function ChatPage() {
         references: [],
         strictDocumentScope,
         resumeInteractionId: interactionId,
+        onStreamId: (id) => { streamIdRef.current = id; },
       }, (streamEvent) => handleStreamEvent(streamEvent, {
         getSessionId: () => sessionId,
       }), controller.signal);
@@ -784,6 +789,7 @@ export function ChatPage() {
       settleLastMessage(true);
     } finally {
       abortRef.current = null;
+      streamIdRef.current = null;
       setSending(false);
     }
   }
@@ -1054,7 +1060,7 @@ export function ChatPage() {
           <label className={`composer-select model ${activeProvider?.configured ? "connected" : "offline"}`} title="本会话使用的模型"><i /><ModelSelect providers={settings?.providers || []} label="当前模型" value={selectedProvider} onChange={(value) => void changeProvider(value)} /></label>
           <label className="composer-select depth" title="回答深度"><DropdownSelect ariaLabel="回答深度" value={settings?.preferences.assistant.answer_depth || "standard"} disabled={sending || !settings} onChange={(value) => void changeAnswerDepth(value as "concise" | "standard" | "deep")} options={[{ value: "concise", label: "简洁" }, { value: "standard", label: "标准" }, { value: "deep", label: "深入" }]} /></label>
           <span className="composer-hint">Enter 发送 · Shift Enter 换行</span>
-          {sending ? <button className="send-button stop" type="button" aria-label="停止生成" onClick={() => abortRef.current?.abort()}><Square /></button> : <button className="send-button" type="submit" disabled={!draft.trim() || !libraryReady} aria-label="发送"><ArrowUp /></button>}
+          {sending ? <button className="send-button stop" type="button" aria-label="停止生成" onClick={() => { const id = streamIdRef.current; abortRef.current?.abort(); if (id) void api.cancelRun(id).catch(() => undefined); }}><Square /></button> : <button className="send-button" type="submit" disabled={!draft.trim() || !libraryReady} aria-label="发送"><ArrowUp /></button>}
         </div>
       </div>
     </form>

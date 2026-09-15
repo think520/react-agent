@@ -94,6 +94,36 @@ async function mockShell(page: Page) {
   })));
 }
 
+test("stopping a run keeps what was already produced", async ({ page }) => {
+  await mockShell(page);
+  const cancelled: string[] = [];
+  await page.route("**/api/chat/streams/*/cancel", async (route) => {
+    cancelled.push(route.request().url());
+    await route.fulfill(json({ ok: true, cancelled: true }));
+  });
+  // Hold the run open so the stop button stays on screen long enough to click.
+  await page.route("**/api/chat/runs", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    await route
+      .fulfill({ contentType: "text/event-stream", body: PAUSED_STREAM })
+      .catch(() => undefined);
+  });
+
+  await page.goto("/chat");
+  const composer = page.getByRole("textbox", { name: "消息" });
+  await composer.fill("帮我安排学习路线");
+  await composer.press("Enter");
+
+  const stop = page.getByRole("button", { name: "停止生成" });
+  await expect(stop).toBeVisible();
+  await stop.click();
+
+  await expect(page.locator(".answer-failure")).toContainText("回答已停止");
+  // No frame ever named the stream, so there is nothing to cancel on the server
+  // yet: aborting the fetch is the only thing that can happen at this point.
+  expect(cancelled).toEqual([]);
+});
+
 test("answering the card resumes the turn without inventing a user bubble", async ({ page }) => {
   await mockShell(page);
   const answerBodies: Array<Record<string, unknown>> = [];

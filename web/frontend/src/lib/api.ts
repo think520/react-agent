@@ -697,6 +697,13 @@ export const api = {
   ),
   graphSavePositions: (positions: Array<{ concept_id: string; x: number; y: number }>, viewId = "default") =>
     request<{ saved: number }>("/api/graph/positions", json({ positions, view_id: viewId })),
+  // P0-1: a run outlives its fetch now, so stopping one is a request to the
+  // server rather than a side effect of closing the connection.
+  cancelRun: (streamId: string) =>
+    request<{ ok: boolean; cancelled: boolean }>(
+      "/api/chat/streams/" + encodeURIComponent(streamId) + "/cancel",
+      { method: "POST" },
+    ),
 };
 
 interface StreamFrameMeta {
@@ -714,6 +721,11 @@ export type ChatStreamEvent =
   | { event: "practice" | "learning_update"; data: Record<string, unknown> & StreamFrameMeta }
   | { event: "run_completed"; data: { chat_session_id: string; termination_reason: string } & StreamFrameMeta }
   | { event: "run_failed"; data: { error: { code: string; message: string } } & StreamFrameMeta };
+
+/** Backoff for resuming a run after its reader broke (P0-1). */
+export const RESUME_DELAYS_MS = [300, 900, 2000];
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export function parseFrame(frame: string): ChatStreamEvent | null {
   let event = "message";
@@ -747,6 +759,8 @@ export async function streamChat(
     strictDocumentScope?: boolean;
     /** E4: continue a paused ask_user turn instead of sending a new message. */
     resumeInteractionId?: string;
+    /** P0-1: called with the stream id as soon as a frame names it. */
+    onStreamId?: (streamId: string) => void;
   },
   onEvent: (event: ChatStreamEvent) => void,
   signal?: AbortSignal,
@@ -788,31 +802,106 @@ export async function streamChat(
     );
   }
 
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
   // De-duplicate replayed frames on reconnect (AG-0.3): each frame carries a
-  // monotonic seq; an already-consumed seq must never render twice.
+  // monotonic seq; an already-consumed seq must never render twice. P0-1 made
+  // that dedup load-bearing: a dropped reader now resumes instead of failing.
   const consumedSeqs = new Set<number>();
+  let lastSeq = 0;
+  let streamId = "";
+  let terminal = false;
   const dispatch = (parsed: ChatStreamEvent) => {
     const seq = parsed.data.seq;
     if (typeof seq === "number" && consumedSeqs.has(seq)) return;
-    if (typeof seq === "number") consumedSeqs.add(seq);
+    if (typeof seq === "number") {
+      consumedSeqs.add(seq);
+      if (seq > lastSeq) lastSeq = seq;
+    }
+    if (!streamId && parsed.data.stream_id) {
+      streamId = parsed.data.stream_id;
+      // The stop button cancels the *run*, which no longer lives in this
+      // response, so it needs the id as soon as one frame names it.
+      preferences.onStreamId?.(streamId);
+    }
+    if (parsed.event === "run_completed" || parsed.event === "run_failed") terminal = true;
     onEvent(parsed);
   };
-  while (true) {
-    const { done, value } = await reader.read();
-    buffer += decoder.decode(value, { stream: !done });
-    const frames = buffer.split(/\r?\n\r?\n/);
-    buffer = frames.pop() || "";
-    for (const frame of frames) {
-      const parsed = parseFrame(frame);
-      if (parsed) dispatch(parsed);
+  const pump = async (body: ReadableStream<Uint8Array>): Promise<number> => {
+    const reader = body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let frames = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      buffer += decoder.decode(value, { stream: !done });
+      const parts = buffer.split(/\r?\n\r?\n/);
+      buffer = parts.pop() || "";
+      for (const frame of parts) {
+        const parsed = parseFrame(frame);
+        if (parsed) {
+          frames += 1;
+          dispatch(parsed);
+        }
+      }
+      if (done) break;
     }
-    if (done) break;
+    if (buffer.trim()) {
+      const parsed = parseFrame(buffer);
+      if (parsed) {
+        frames += 1;
+        dispatch(parsed);
+      }
+    }
+    return frames;
+  };
+  const openResume = async (
+    id: string,
+    after: number,
+  ): Promise<ReadableStream<Uint8Array> | null> => {
+    try {
+      const resumed = await fetch(
+        "/api/chat/streams/" + encodeURIComponent(id) + "/replay?after_seq=" + after,
+        { headers: { "Last-Event-ID": String(after) }, signal },
+      );
+      return resumed.ok && resumed.body ? resumed.body : null;
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      return null;
+    }
+  };
+
+  let networkError: unknown = null;
+  try {
+    await pump(response.body);
+  } catch (error) {
+    // A broken reader is recoverable now: the run keeps going on the server.
+    if (signal?.aborted) throw error;
+    networkError = error;
   }
-  if (buffer.trim()) {
-    const parsed = parseFrame(buffer);
-    if (parsed) dispatch(parsed);
+
+  // Only a *broken* reader resumes: a clean end without a terminal event is
+  // the server saying the run is over, and retrying it would just add delay.
+  if (networkError != null && !terminal && streamId) {
+    for (const delay of RESUME_DELAYS_MS) {
+      if (terminal) break;
+      await sleep(delay);
+      const body = await openResume(streamId, lastSeq);
+      if (!body) continue;
+      let frames = 0;
+      try {
+        frames = await pump(body);
+      } catch (error) {
+        // This attempt broke too: keep the remaining delays instead of giving
+        // up on the run after the first unlucky reconnect.
+        if (signal?.aborted) throw error;
+        networkError = error;
+        continue;
+      }
+      // Zero frames after our cursor means the log has nothing left for us,
+      // which is exactly how a run that already finished looks.
+      if (frames === 0) break;
+    }
   }
+  // Nothing resumed and nothing terminal: report the original failure instead
+  // of returning a silently truncated answer.
+  if (!terminal && networkError) throw networkError;
 }
