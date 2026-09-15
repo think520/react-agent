@@ -303,7 +303,7 @@ P5G.3 的产品能力不再整体等待 Electron：Roadmap、复习提醒和部�
 
 本轮按「先止血 → 再接线 → 横切原语单独立项」推进，P2 不排期。审计编号（`P0-x` / `P1-x`）成为稳定引用，提交信息一律带编号。
 
-#### 批次一 · 止血（进行中）
+#### 批次一 · 止血（✅ 已完成）
 
 | 条目 | 审计编号 | 动作 | 状态 |
 |---|---|---|---|
@@ -318,17 +318,18 @@ P5G.3 的产品能力不再整体等待 Electron：Roadmap、复习提醒和部�
 | chunk_id 稳定性 | P1-21 | grep 命中 id 改用 `_stable_hash`，并加跨进程回归测试 | 已验证 |
 | reset 一致性 | P1-28 | `/kb reset` 一并清理 `manifest.json`（派生索引，下次 sync 重建） | 已验证 |
 
-#### 批次二 · 接线（已定方案，批次一完成后开始）
+#### 批次二 · 接线（✅ 已完成）
 
-hooks 最小接线（✅ 结果上限落 `after_tool`、白名单门落 `before_tool`，记忆注入不动，加守护测试）→ 上下文压缩两级（✅ L1 工具结果上限与 marker、✅ L2 确定性 checkpoint + turn 边界切点 + 序列化后配对兜底、✅ 接线 `context_window`）→ append-only 事件表 + `Last-Event-ID` 续传（✅ 事件落库与续传端点；⏳ 断线宽限取消随批次三的取消原语一起做）→ specialist 上 Web（✅ P1-16）→ 向量补建驱动（✅ P1-18）→ grep 非文本降级（✅ P1-22 服务端链路：检测 → 结果字段 → 模型可见提示；✅ 前端 run-summary 可见文案 + `e2e/interaction.spec.ts` 的 operations fixture 接缝）。
+hooks 最小接线（✅ 结果上限落 `after_tool`、白名单门落 `before_tool`，记忆注入不动，加守护测试）→ 上下文压缩两级（✅ L1 工具结果上限与 marker、✅ L2 确定性 checkpoint + turn 边界切点 + 序列化后配对兜底、✅ 接线 `context_window`）→ append-only 事件表 + `Last-Event-ID` 续传（✅ 事件落库与续传端点；✅ 断线宽限取消与重连续看见批次三）→ specialist 上 Web（✅ P1-16）→ 向量补建驱动（✅ P1-18）→ grep 非文本降级（✅ P1-22 服务端链路：检测 → 结果字段 → 模型可见提示；✅ 前端 run-summary 可见文案 + `e2e/interaction.spec.ts` 的 operations fixture 接缝）。
 
-#### 批次三 · 取消原语（先设计后动代码）
+#### 批次三 · 取消原语（✅ 已完成）
 
 设计文档：[`CANCELLATION_DESIGN.md`](CANCELLATION_DESIGN.md)（2026-09-14）。分四阶段：
 
 1. ✅ **原语与穿透**：`core/cancellation.py::CancelToken`（含父子传播）+ `AgentLoop` 迭代检查点与工具派发检查点 + 终止事件 `termination_reason="cancelled"`
 2. ✅ **provider 流式读循环**：每个 chunk 前检查 → break 出循环让响应与连接关闭；非流式靠 timeout 兜底且**取消后不再重试**；`RunCancelled` 与 `ProviderError` 分开
-3. ✅ **Web 宽限期**：run 注册表 + 宽限计时/重连取消/显式停止（`web/backend/run_registry.py`，5 条测试）+ 断线时显式关闭同步生成器（`iterate_on_stream_lane`）+ `run_stream` 接受并转发 `cancel_token`；结构那一步已落地——`web/backend/run_pump.py::RunPump` 在自己的线程里把 producer 拉到结束，HTTP 响应只 tail 事件日志，`create_run` 把注册表 token 交给 `run_stream`，`replay_stream` 对 live pump 先 `note_reconnect` 再续传（8 条 `tests/test_run_pump.py` + 1 条路由测试）；同时补上保留策略的洞：`EventLog.prune(exempt=live_stream_ids())`，正在跑的 run 不会被按时间或数量删掉。⏳ 浏览器侧仍未接线：前端不请求 replay 端点，也没有「停止本轮」按钮去调 `cancel_now`（见 CHANGELOG 同条诚实边界）。
+3. ✅ **Web 宽限期**：run 注册表 + 宽限计时/重连取消/显式停止（`web/backend/run_registry.py`）+ 断线时显式关闭同步生成器（`iterate_on_stream_lane`）+ `run_stream` 接受并转发 `cancel_token`；结构那一步已落地——`web/backend/run_pump.py::RunPump` 在自己的线程里把 producer 拉到结束，HTTP 响应只 tail 事件日志，`create_run` 把注册表 token 交给 `run_stream`，`replay_stream` 对 live pump 先 `note_reconnect` 再续传（8 条 `tests/test_run_pump.py` + 路由测试）；同时补上保留策略的洞：`EventLog.prune(exempt=live_stream_ids())`，正在跑的 run 不会被按时间或数量删掉。
+   - ✅ **浏览器侧收口**：解耦后 `abort()` 只断读者、不再停服务端，所以补了 `POST /api/chat/streams/{stream_id}/cancel`（未知/已结束的流是 no-op）+ 前端 `onStreamId` → 停止按钮 `abort()` 与 `cancelRun()` 一起做；读者意外断开时从 `after_seq` 重连 replay 端点续看（300/900/2000ms 退避 + 已有 seq 去重，零帧即认为读完）。宽限期不再硬编码：`web.stream_grace_seconds`（默认 30）。
 4. 🚧 **CLI 与 specialist**：
    - ✅ **每工具超时转结构化错误**（`tools/timeouts.py` + 已接进循环，5 条测试含端到端）
    - ✅ **顺手修掉 P1-7**：接线超时时 `test_read_only_tool_dedup` 确定性失败，暴露出只读去重的真实竞态（两个并行同参数调用都通过缓存检查）。已改为 claim/wait：第一个调用**认领**键，重复调用等待它（有界等待 + fail-open，泄漏的认领只会让优化失效、不会挂住一轮）。新增两条测试，其中一条把等待预算设为 0 来证明「这个等待正是防止重复执行的原因」。
@@ -337,8 +338,15 @@ hooks 最小接线（✅ 结果上限落 `after_tool`、白名单门落 `before_
 
 协作取消穿透 `AgentLoop` → provider 流 → 工具边界；每工具超时转结构化错误结果；取消后落盘已产出内容并标记 cancelled。
 
+#### 本轮收官（2026-09-14）
+
+批次一 10 条（对应 12 个审计编号）、批次二 6 条、批次三 4 阶段全部 ✅。15 条 P0 里 **13 条闭环**，剩下两条见下。全量验证：pytest `1553 passed`（含真实工作区库 tripwire）、Vitest `73 passed`、Playwright `88 passed / 2 skipped`、ESLint 与生产构建通过。
+
+收官时补上的一笔债值得单独记住：把 run 生产与 SSE 响应解耦之后，「点停止」的语义反而**退化**了（`abort()` 只断读者），所以同一轮里把 `cancel` 端点、前端 `onStreamId`、重连续看和可配宽限期一并接完——**解耦不改接线，接线才算修完**。
 #### 明确不在本轮
 
+- **P0-10（墙钟 deadline / 回合级预算）**：本轮只做了 per-tool 超时（工具不再能卡死整轮）与 provider per-read 超时；「整轮墙钟上限」会牵动 provider、工具与 SSE 的预算语义，需要单独设计（含超时后的落盘与 UI 文案），不在本轮草率加一个会误杀长回答的计时器。
+- **P0-14（sync 跨存储事务边界）**：本轮补的是原子写（P0-13）、删除确认（P0-12）与 Qdrant 生命周期（P0-15）；SQLite 与 Qdrant 之间**真正的**单文档事务边界未做，当前仍是「尽量一致 + 可重建」。
 - **P2 全部 33 条**：不排期，顺手时处理。
 - **检索调优**（FTS 权重、RRF `k`、页码精度）：等 ROADMAP G4 评测集有基线之后再谈，避免无基线调参。
 - **推理质量**（P1-1~P1-6）：归既有 E11 / E12 / H-R2.5，不重复立项。

@@ -7,13 +7,13 @@
 
 ## 1. 现状（实测，不是推测）
 
-| 事实 | 证据 |
-|---|---|
-| 生产代码里没有任何取消原语 | 全仓 grep `stop_event` / `should_stop` / `cancel_event` 在生产代码 0 命中 |
-| 停止生成只发生在前端 | `ChatPage.tsx` 只做 `abortRef.current?.abort()`，服务端无感，token 继续烧 |
-| SSE 生成器从不被关闭 | `web/backend/sse.py::iterate_on_stream_lane` 没有 try/finally 关闭底层同步生成器；`create_run` 的 `finally` 只做 `persist_session()` 与 `emitter.clear()` |
-| specialist 超时是假的 | `agents/runner.py` 用 `Future.cancel()`，对已经开始执行的任务无效；父级已按超时换路，旧任务仍在发请求、仍在写 learning store |
-| CLI 取消是假的 | agent 跑在 daemon 线程，超时与 Ctrl+C 只跳出消费循环，线程继续跑 |
+| 事实 | 证据 | 收口状态 |
+|---|---|---|
+| 生产代码里没有任何取消原语 | 全仓 grep `stop_event` / `should_stop` / `cancel_event` 在生产代码 0 命中 | ✅ `core/cancellation.py` |
+| 停止生成只发生在前端 | `ChatPage.tsx` 只做 `abortRef.current?.abort()`，服务端无感，token 继续烧 | ✅ 见 §6.3：`POST /streams/{id}/cancel` |
+| SSE 生成器从不被关闭 | `web/backend/sse.py::iterate_on_stream_lane` 没有 try/finally 关闭底层同步生成器 | ✅ 已显式关闭；且 run 生产已与响应解耦（§6.2） |
+| specialist 超时是假的 | `agents/runner.py` 用 `Future.cancel()`，对已经开始执行的任务无效 | ✅ 子 token + 超时主动通知 |
+| CLI 取消是假的 | agent 跑在 daemon 线程，超时与 Ctrl+C 只跳出消费循环，线程继续跑 | ✅ 超时与 Ctrl+C 都接到同一个 token |
 
 危害的共同形态：**用户以为停了，服务端还在烧钱、还在写状态**。
 
@@ -83,6 +83,33 @@ SSE 生成器 finally（断线也走）
 
 宽限期是「刷新页面」与「关掉标签页」的分界：刷新会在几秒内重连，误关来得及撤回，真的关掉就止血。
 
+### 6.1 宽限窗口可配
+
+```yaml
+web:
+  stream_grace_seconds: 30
+```
+
+`resolve_grace_seconds(config)` 读它，非法值回落 30s；`RunRegistry.start(stream_id, grace_seconds)` 支持每个 run 覆盖（测试要用短窗口）。
+
+### 6.2 实现时被迫补的一步：run 必须与响应解耦
+
+光有计时器不成立。实测下来：SSE 生成器是**被客户端拉动**的，客户端一走 run 就停在上一个 yield——那时取消的是一个「已经停下」的东西。所以真正让宽限期有意义的是 `web/backend/run_pump.py::RunPump`：
+
+- 泵在自己的线程里把 producer 拉到结束（帧已由 `StreamEmitter` 写进批次二的事件日志，泵不另外缓冲）
+- HTTP 响应退化成**读者**：`tail()` 从游标读日志直到泵结束
+- 断线只影响读者；run 继续走，`finally` 里的会话落盘变成正常完成路径
+
+由此带来一条额外约束：**保留策略不能删活流**。`EventLog.prune` 原本按「最旧的流先删」，会删掉正在跑的 run 的帧，且 `append` 的 seq 来自 `MAX(seq)`，删完 seq 从 1 重来、读者永远等不到自己的游标。现在 `prune(exempt=live_stream_ids())`，且流数量上限只作用于可删集合。
+
+### 6.3 前端必须显式说「停」
+
+解耦之后，`abort()` 只断开读者，**不再**停服务端。所以：
+
+- 后端 `POST /api/chat/streams/{stream_id}/cancel` → `RunRegistry.cancel_now(reason="user_stopped")`；未知或已结束的流返回 `{ok: true, cancelled: false}`（晚点一下不会变成报错）
+- 前端 `onStreamId` 在第一帧拿到 stream id，停止按钮同时做两件事：`abort()` 本地 fetch + `api.cancelRun(id)`
+- 读者意外断开时，客户端从 `after_seq` 重连 replay 端点续看（三次退避 300/900/2000ms）；一次重连**零帧**即认为日志已读完，不再重试
+
 ## 7. 明确不做
 
 - 不引入 asyncio 重写；不做子进程隔离（理由见第 2 节）
@@ -105,5 +132,32 @@ SSE 生成器 finally（断线也走）
 2. **Web 宽限期**：run 注册表 + 断线取消 + 重连续跑 + 测试
 3. **CLI 与 specialist**：SIGINT 接 token；specialist 子 token + 超时后不再写状态 + 测试
 4. **每工具超时表**：per-tool timeout 配置 + 结构化超时结果
+
+---
+
+## 10. 收口证据（as-built，2026-09-14）
+
+| 验收项 | 落地的测试 |
+|---|---|
+| 取消幂等、保留首个 reason、父子传播 | `tests/test_cancellation.py`（7 条）、`tests/test_agent_cancellation.py`（2 条） |
+| 流式请求真的停、且取消后不重试 | `tests/test_provider_cancellation.py`（3 条，`httpx.MockTransport` 保留真实读循环） |
+| 工具超时转结构化错误、会话不炸 | `tests/test_tool_timeouts.py`（5 条，含端到端） |
+| specialist 子 token / 超时通知 | `tests/test_agents_runner.py` |
+| 每工具超时表 | `tools/timeouts.py` + `tests/test_tool_timeouts.py` |
+| CLI 超时与 Ctrl+C | `tests/test_repl.py`（真 `SIGINT` 一条 + 超时） |
+| 断线宽限、重连撤销、并发独立 | `tests/test_run_registry.py`（7 条） |
+| 生产与响应解耦 | `tests/test_run_pump.py`（8 条，关键一条是「读者只取一帧就走，泵仍跑完」） |
+| 保留策略不删活流 | `tests/test_event_log.py::test_prune_never_deletes_a_stream_that_is_still_live` |
+| 路由层接线（token 来源、句柄回收、宽限期来自配置） | `tests/test_web_backend.py`（3 条） |
+| 停止端点 | `tests/test_web_backend.py::test_cancel_stream_reaches_a_live_run` |
+| 前端重连续看与去重 | `web/frontend/src/lib/api.test.ts`（4 条新增） |
+| 停止按钮行为 | `web/frontend/e2e/interaction.spec.ts::stopping a run keeps what was already produced` |
+
+### 仍然成立的边界（不假装完成）
+
+- Python 杀不掉线程：以上全是「不再等 + 在检查点通知」，不是抢占式终止。
+- 非流式请求打断不了在途 HTTP，只能取消后不再重试。
+- 断开标签页后重连**必须**是客户端行为：replay 端点与 `note_reconnect` 都已就位，但服务端无法替浏览器重连。
+- 前端重连是「同页面的读者断了再续」，不是「关掉再打开页面」——刷新后新页面靠的是 `run_completed` 落盘保留的那一轮会话，不靠 replay。
 
 
