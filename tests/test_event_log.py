@@ -66,3 +66,29 @@ def test_prune_drops_old_streams(tmp_path):
     assert removed >= 1
     live = [stream for stream in ("s1", "s2", "s3") if log.max_seq(stream) > 0]
     assert len(live) <= 2
+
+
+def test_prune_never_deletes_a_stream_that_is_still_live(tmp_path):
+    """Retention must not delete the frames a live run is still reading.
+
+    The SSE response tails this log, so pruning a live stream would drop the
+    rest of the turn and restart its seq at 1 - leaving its reader waiting on a
+    cursor it can never reach again.
+    """
+    aged = EventLog(str(tmp_path / "aged"), retention_days=1)
+    aged.append("live", "message_delta", {"content": "chunk"})
+    aged.append("dead", "message_delta", {"content": "old"})
+
+    aged.prune(now=10 ** 12, exempt=["live"])
+
+    assert aged.max_seq("live") == 1, "the live stream must survive the sweep"
+    assert aged.max_seq("dead") == 0
+
+    capped = EventLog(str(tmp_path / "capped"), retention_days=999, max_streams=1)
+    for stream in ("live", "s1", "s2"):
+        capped.append(stream, "message_delta", {"content": stream})
+
+    capped.prune(exempt=["live"])
+
+    assert capped.max_seq("live") == 1
+    assert capped.max_seq("s1") + capped.max_seq("s2") == 1, "the cap still applies"

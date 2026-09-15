@@ -50,6 +50,13 @@ from web.backend.deps import (
 )
 from web.backend.errors import APIError
 from web.backend.events import to_web_events
+from web.backend.run_pump import (
+    RunPump,
+    get_live_pump,
+    live_stream_ids,
+    register_pump,
+)
+from web.backend.run_registry import get_run_registry
 from web.backend.schemas import (
     ChatRunRequest, ChatSessionProviderRequest, ChatSessionUpdateRequest,
     InteractionAnswerRequest, MemoryProposalResolutionRequest,
@@ -1395,13 +1402,22 @@ def replay_stream(stream_id: str, request: Request, after_seq: int = 0) -> Strea
         cursor = max(cursor, int(header_cursor.strip()))
 
     def frames():
+        # P0-1: reconnecting inside the grace window must keep the run alive.
+        # While the pump is live this reader follows the rest of the run; if
+        # the timer already expired the token is cancelled and the run will
+        # stop at its next checkpoint, so the replay still drains and ends.
+        live = get_live_pump(stream_id)
+        if live is not None:
+            get_run_registry().note_reconnect(stream_id)
+            yield from live.tail(cursor)
+            return
         for frame in store.replay(stream_id, cursor):
             yield encode_sse(
                 frame["event"],
                 {**frame["data"], "seq": frame["seq"], "stream_id": stream_id},
             )
 
-    return StreamingResponse(frames(), media_type="text/event-stream")
+    return StreamingResponse(iterate_on_stream_lane(frames()), media_type="text/event-stream")
 
 
 @router.post("/runs")
@@ -1537,7 +1553,9 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
     # P1-17: a workspace-bound store persists frames, so a reconnect - even
     # after the run ended or the server restarted - can still replay them.
     stream_store = get_stream_store(workspace)
-    stream_store.prune()  # retention replaces the old clear-on-finish
+    # Retention replaces the old clear-on-finish, but it must never age out a
+    # run that is still producing: the log is that run's transport now.
+    stream_store.prune(exempt=live_stream_ids())
     emitter = StreamEmitter(stream_store, stream_id)
     response_policies = []
     if _requires_local_evidence(
@@ -1613,6 +1631,7 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
                 context_window=resolve_context_window(config),
                 resume_tool_call_id=(resume_record or {}).get("tool_call_id") or None,
                 resume_tool_content=_resume_content(resume_record) if resume_record else "",
+                cancel_token=handle.token,
             )
             termination_reason = "final_answer"
             for event in events:
@@ -1684,8 +1703,10 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
                 },
             })
         finally:
-            # Client disconnects raise GeneratorExit here; persist whatever
-            # the agent already produced instead of dropping the whole turn.
+            # A4 batch 3: the pump owns this generator, so a dropped client no
+            # longer lands here mid-turn - the run finishes and persists in
+            # full. This finally still covers a hard shutdown or a closed
+            # generator, where saving the partial turn beats throwing it away.
             try:
                 persist_session()
             except Exception:
@@ -1695,7 +1716,26 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
             # opposite of what replay needs. Growth is bounded by the retention
             # policy applied when the next run starts (stream_store.prune()).
 
-    # Pump the blocking producer on the dedicated SSE lane: without it,
-    # Starlette borrows a shared request-pool thread per blocked next() and
-    # every active stream would eat into the default 40-thread budget.
-    return StreamingResponse(iterate_on_stream_lane(event_stream()), media_type="text/event-stream")
+    # A4 batch 3 (P0-1): production no longer depends on a reader. The pump
+    # owns event_stream() on its own thread, and the response only tails the
+    # persisted log - so a dropped client pauses nothing, and the grace timer
+    # in run_registry finally has a live run left to cancel.
+    run_registry = get_run_registry()
+    handle = run_registry.start(stream_id)
+    pump = register_pump(
+        RunPump(stream_id, event_stream(), store=stream_store, registry=run_registry)
+    ).start()
+
+    def tail_frames():
+        try:
+            yield from pump.tail(0)
+        finally:
+            # The reader went away (or finished). A finished pump already
+            # retired its handle, so this only arms the disconnect grace
+            # period for a run that is genuinely still producing.
+            if not pump.finished:
+                run_registry.note_disconnect(stream_id)
+
+    # Keep the tail on the dedicated SSE lane: it is still a blocking
+    # generator, and the shared request pool must not absorb it.
+    return StreamingResponse(iterate_on_stream_lane(tail_frames()), media_type="text/event-stream")

@@ -99,3 +99,11 @@ class RunRegistry:
             handle.timer = None
         logger.info("Grace period expired for %s; cancelling the run", stream_id)
         handle.token.cancel(DISCONNECT_REASON)
+
+
+_default_registry = RunRegistry()
+
+
+def get_run_registry() -> RunRegistry:
+    """Process-wide registry: stream ids are uuids, so one map is enough."""
+    return _default_registry

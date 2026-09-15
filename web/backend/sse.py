@@ -168,11 +168,15 @@ class StreamStore:
         if self._log is not None:
             self._log.clear(stream_id)
 
-    def prune(self) -> int:
-        """Apply the retention policy (P1-17 replaced clear-on-finish with it)."""
+    def prune(self, exempt=()) -> int:
+        """Apply the retention policy (P1-17 replaced clear-on-finish with it).
+
+        `exempt` carries the stream ids of runs that are still producing:
+        the log is now their transport, so retention must leave them alone.
+        """
         if self._log is None:
             return 0
-        return self._log.prune()
+        return self._log.prune(exempt=exempt)
 
     def has(self, stream_id: str) -> bool:
         with self._lock:

@@ -107,22 +107,39 @@ class EventLog:
         with self._connect() as connection:
             connection.execute("DELETE FROM stream_events WHERE stream_id = ?", (stream_id,))
 
-    def prune(self, *, now: float | None = None) -> int:
-        """Drop frames older than the retention window and surplus streams."""
+    def prune(self, *, now: float | None = None, exempt=()) -> int:
+        """Drop frames older than the retention window and surplus streams.
+
+        `exempt` names streams that are still live. Retention must never age out
+        a run that is mid-flight: the run now *travels* through this log (the
+        SSE response only tails it), so deleting its frames would both drop the
+        rest of the turn and restart its seq numbering from 1 - leaving the
+        reader waiting on a cursor it can never reach again.
+        """
         moment = time.time() if now is None else now
         cutoff = moment - self.retention_days * 86400
+        protected = sorted({str(item) for item in exempt if str(item)})
+        guard = ""
+        guard_args: list = []
+        if protected:
+            guard = " AND stream_id NOT IN (%s)" % ",".join("?" * len(protected))
+            guard_args = list(protected)
         removed = 0
         with self._connect() as connection:
             cursor = connection.execute(
-                "DELETE FROM stream_events WHERE created_at < ?", (cutoff,)
+                "DELETE FROM stream_events WHERE created_at < ?" + guard,
+                tuple([cutoff, *guard_args]),
             )
             removed += cursor.rowcount or 0
             stale = connection.execute(
                 "SELECT stream_id, MAX(created_at) AS latest FROM stream_events"
-                " GROUP BY stream_id ORDER BY latest DESC LIMIT -1 OFFSET ?",
-                (self.max_streams,),
+                " WHERE 1 = 1" + guard + " GROUP BY stream_id",
+                tuple(guard_args),
             ).fetchall()
-            for row in stale:
+            # The cap applies to the prunable set, so a live stream can never
+            # push a finished one out of the kept window (nor be pushed out).
+            stale = sorted(stale, key=lambda row: row["latest"], reverse=True)
+            for row in stale[self.max_streams:]:
                 cursor = connection.execute(
                     "DELETE FROM stream_events WHERE stream_id = ?", (row["stream_id"],)
                 )

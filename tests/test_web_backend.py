@@ -1210,6 +1210,54 @@ def test_chat_run_maps_safe_events_and_injects_runtime(backend_client, monkeypat
     assert schema_names == set(captured["allowed_tool_names"])
 
 
+def test_chat_run_pumps_the_producer_and_owns_the_cancel_token(backend_client, monkeypatch):
+    """P0-1: production runs on the pump, and the registry owns its token.
+
+    Reproduces the audit finding directly: before this wiring, create_run never
+    built a cancel token at all, so a dropped client had nothing that could be
+    cancelled - and nothing kept producing either.
+    """
+    import re
+
+    from web.backend.run_pump import get_live_pump
+    from web.backend.run_registry import get_run_registry
+
+    captured = {}
+
+    class DummyProvider:
+        def get_name(self):
+            return "dummy"
+
+    runtime = SimpleNamespace(
+        workspace=str(backend_client.workspace),
+        skills_prompt="skills prompt",
+        memory_prompt="memory prompt",
+        create_provider=lambda _name, model=None: DummyProvider(),
+        refresh_memory=lambda: "memory prompt",
+        create_trace=lambda _session_id: object(),
+    )
+
+    def fake_run_stream(**kwargs):
+        captured.update(kwargs)
+        yield {"type": "assistant_done", "content": "Hi", "termination_reason": "final_answer"}
+
+    monkeypatch.setattr("web.backend.routers.chat.get_runtime_context", lambda: runtime)
+    monkeypatch.setattr("web.backend.routers.chat.AgentService.run_stream", fake_run_stream)
+
+    response = backend_client.post("/api/chat/runs", json={"message": "hello", "save": False})
+    assert response.status_code == 200
+    assert "event: run_completed" in response.text
+
+    token = captured["cancel_token"]
+    assert token.is_cancelled() is False
+    assert hasattr(token, "cancel")
+
+    stream_id = re.search(r'"stream_id": "([^"]+)"', response.text).group(1)
+    assert get_run_registry().get(stream_id) is None, "the pump must retire the handle"
+    assert get_live_pump(stream_id) is None
+
+
+
 def test_chat_stream_finalizer_retries_failed_session_save(backend_client, monkeypatch):
     runtime = SimpleNamespace(
         workspace=str(backend_client.workspace),
