@@ -216,3 +216,47 @@ test("every chat label sits at or above the reading floors", async ({ page }) =>
     expect(overflow).toBeLessThanOrEqual(1);
   }
 });
+
+
+const RUN_SUMMARY = {
+  artifact_id: "r1",
+  type: "run_summary",
+  status: "completed",
+  total_elapsed: 1.5,
+  operations: [
+    {
+      tool_name: "rag_search",
+      status: "completed",
+      query: "负权边",
+      elapsed: 1.2,
+      hit_count: 0,
+      // The vector leg worked; what failed is exact-source lookup on non-text
+      // material (P1-22). Before this the summary said nothing at all.
+      semantic_available: true,
+      grep_unreadable: 2,
+      grep_unreadable_sources: ["slides.pdf", "deck.pptx"],
+    },
+  ],
+};
+
+test("a run summary names the material it could not locate", async ({ page }) => {
+  await mockShell(page);
+  await page.route("**/api/chat/sessions/s1", (route) => route.fulfill(json({
+    ...SESSION_BASE, message_count: 2,
+    messages: [
+      { role: "user", content: "负权边是什么" },
+      { role: "assistant", content: "见资料。", artifacts: [RUN_SUMMARY] },
+    ],
+  })));
+
+  await page.goto("/chat/s1");
+
+  // The summary is a collapsed <details>; open it like a reader would.
+  await page.locator(".run-summary > summary").click();
+
+  const note = page.locator(".run-summary .retrieval-degraded");
+  await expect(note).toBeVisible();
+  await expect(note).toContainText("非文本资料无法原文定位");
+  await expect(note).toContainText("slides.pdf");
+});
+

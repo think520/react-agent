@@ -120,6 +120,15 @@ function RunSummary({ artifact }: { artifact?: RunSummaryArtifact }) {
           {operation.hit_count ? "当前仅使用关键词检索" : "关键词检索未命中，向量检索当前不可用"}
         </span>
       )}
+      {/* P1-22: non-text material cannot be grepped, so an empty result must not
+          read as “the material does not say it”. */}
+      {operation.tool_name === "rag_search" && !!operation.grep_unreadable && (
+        <span className="retrieval-degraded">
+          {operation.grep_unreadable_sources?.length
+            ? `${operation.grep_unreadable_sources[0]} 等 ${operation.grep_unreadable} 份非文本资料无法原文定位`
+            : `${operation.grep_unreadable} 份非文本资料无法原文定位`}
+        </span>
+      )}
       <small>{operation.status === "completed" ? "完成" : "失败"} · {formatDuration(operation.elapsed || 0)}</small>
     </p>)}</div>}
   </details>;

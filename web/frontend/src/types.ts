@@ -762,6 +762,9 @@ export interface RunSummaryOperation {
   retrieval_mode?: string;
   semantic_available?: boolean;
   fallback_from?: string;
+  /** P1-22: documents exact-source lookup could not read (PDF/Word/PPT). */
+  grep_unreadable?: number;
+  grep_unreadable_sources?: string[];
 }
 
 export interface RunSummaryArtifact {
