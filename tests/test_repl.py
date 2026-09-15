@@ -266,6 +266,57 @@ def test_repl_timeout_tells_the_agent_to_stop(monkeypatch, capsys):
     output = capsys.readouterr().out
     assert "已通知后台请求停止" in output
 
+def test_repl_sigint_tells_the_agent_to_stop(monkeypatch, capsys):
+    """P0-3: Ctrl+C used to break only the rendering loop, leaving the worker
+    thread burning tokens. It must cancel the same token the timeout path uses."""
+    import signal
+    import threading as threading_module
+
+    from core import agent_loop as agent_loop_module
+
+    config = {
+        "llm": {
+            "default_provider": "minimax",
+            "providers": {"minimax": {"model": "MiniMax-Text-01", "api_key_env": "MINIMAX_API_KEY"}},
+        },
+        "session": {"save_dir": ".session-test"},
+        # Long timeout on purpose: SIGINT is what must end this run.
+        "agent": {"timeout": 30},
+    }
+
+    monkeypatch.setattr("cli.repl.ProviderFactory.load_config", lambda path: config)
+    monkeypatch.setattr(
+        "cli.repl.ProviderFactory.create",
+        lambda provider_config, agent_config, model=None: SlowProvider(delay=2),
+    )
+    monkeypatch.setattr("cli.repl.get_tools_schema", lambda: [{"function": {"name": "read_file"}}])
+
+    captured: dict = {}
+    real_loop = agent_loop_module.AgentLoop
+
+    def spy(*args, **kwargs):
+        captured["token"] = kwargs.get("cancel_token")
+        return real_loop(*args, **kwargs)
+
+    monkeypatch.setattr(agent_loop_module, "AgentLoop", spy)
+
+    repl = REPL(config_path="config.yaml")
+    repl.initialize()
+
+    timer = threading_module.Timer(0.4, signal.raise_signal, args=(signal.SIGINT,))
+    timer.daemon = True
+    timer.start()
+    try:
+        repl.run_agent("hello")
+    finally:
+        timer.cancel()
+
+    token = captured.get("token")
+    assert token is not None
+    assert token.is_cancelled() is True
+    assert token.reason == "user_interrupted"
+    assert "已取消本轮" in capsys.readouterr().out
+
 def test_repl_success_commits_session(monkeypatch, capsys):
     """On success, the main session should have the new messages."""
     config = {
