@@ -1257,6 +1257,76 @@ def test_chat_run_pumps_the_producer_and_owns_the_cancel_token(backend_client, m
     assert get_live_pump(stream_id) is None
 
 
+def test_cancel_stream_reaches_a_live_run(backend_client):
+    """P0-1: the stop button must stop the run, not only the browser fetch.
+
+    Aborting the fetch was enough while the response drove the producer. The
+    pump changed that, so an explicit cancel endpoint is now load-bearing.
+    """
+    from web.backend.run_registry import get_run_registry
+
+    registry = get_run_registry()
+    handle = registry.start("stream-stop-me")
+    try:
+        response = backend_client.post("/api/chat/streams/stream-stop-me/cancel")
+        assert response.status_code == 200
+        assert response.json() == {"ok": True, "cancelled": True}
+        assert handle.token.is_cancelled() is True
+        assert handle.token.reason == "user_stopped"
+    finally:
+        registry.finish("stream-stop-me")
+
+    late = backend_client.post("/api/chat/streams/stream-stop-me/cancel")
+    assert late.status_code == 200
+    assert late.json() == {"ok": True, "cancelled": False}
+
+
+def test_chat_run_uses_the_configured_grace_period(backend_client, monkeypatch):
+    """The wiring, not just the helper: config must reach RunRegistry.start."""
+    from web.backend.run_registry import RunRegistry, resolve_grace_seconds
+    from web.backend.routers import chat as chat_router
+
+    captured = {}
+    real_start = RunRegistry.start
+
+    def spy_start(self, stream_id, grace_seconds=None):
+        captured["grace"] = grace_seconds
+        return real_start(self, stream_id, grace_seconds)
+
+    class DummyProvider:
+        def get_name(self):
+            return "dummy"
+
+    runtime = SimpleNamespace(
+        workspace=str(backend_client.workspace),
+        skills_prompt="skills prompt",
+        memory_prompt="memory prompt",
+        create_provider=lambda _name, model=None: DummyProvider(),
+        refresh_memory=lambda: "memory prompt",
+        create_trace=lambda _session_id: object(),
+    )
+    config = dict(chat_router.get_config())
+    config["web"] = {"stream_grace_seconds": 0.25}
+    monkeypatch.setattr(chat_router, "get_config", lambda: config)
+    monkeypatch.setattr(RunRegistry, "start", spy_start)
+    monkeypatch.setattr("web.backend.routers.chat.get_runtime_context", lambda: runtime)
+    monkeypatch.setattr(
+        "web.backend.routers.chat.AgentService.run_stream",
+        lambda **kwargs: iter([{
+            "type": "assistant_done",
+            "content": "Hi",
+            "termination_reason": "final_answer",
+        }]),
+    )
+
+    response = backend_client.post("/api/chat/runs", json={"message": "hello", "save": False})
+
+    assert response.status_code == 200
+    assert "event: run_completed" in response.text
+    assert captured["grace"] == 0.25
+    assert captured["grace"] == resolve_grace_seconds(config)
+
+
 
 def test_chat_stream_finalizer_retries_failed_session_save(backend_client, monkeypatch):
     runtime = SimpleNamespace(

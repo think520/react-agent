@@ -46,6 +46,13 @@ agent:
   # it the compaction path never ran and long sessions hit the provider limit.
   context_window: 32000
 
+web:
+  # P0-1: how long a dropped SSE client has to come back before its run is
+  # cancelled. A background pump keeps the turn alive in the meantime, so
+  # this is the whole "refresh is safe, closing the tab is not a token
+  # leak" budget.
+  stream_grace_seconds: 30
+
 session:
   save_dir: ".session"
   max_messages: 100

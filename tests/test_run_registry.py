@@ -64,3 +64,22 @@ def test_every_run_gets_its_own_token():
     registry.cancel_now("s1", "user_stopped")
     assert first.token.is_cancelled() is True
     assert second.token.is_cancelled() is False
+
+
+def test_resolve_grace_seconds_reads_config_and_falls_back():
+    from web.backend.run_registry import DEFAULT_GRACE_SECONDS, resolve_grace_seconds
+
+    assert resolve_grace_seconds({"web": {"stream_grace_seconds": 5}}) == 5.0
+    assert resolve_grace_seconds({"web": {"stream_grace_seconds": 0}}) == 0.0
+    assert resolve_grace_seconds({"web": {"stream_grace_seconds": "7.5"}}) == 7.5
+    assert resolve_grace_seconds({"web": {}}) == DEFAULT_GRACE_SECONDS
+    assert resolve_grace_seconds({}) == DEFAULT_GRACE_SECONDS
+    assert resolve_grace_seconds(None) == DEFAULT_GRACE_SECONDS
+    assert resolve_grace_seconds({"web": {"stream_grace_seconds": "soon"}}) == DEFAULT_GRACE_SECONDS
+    assert resolve_grace_seconds({"web": {"stream_grace_seconds": -1}}) == DEFAULT_GRACE_SECONDS
+
+
+def test_start_can_override_the_registry_grace_period():
+    registry = RunRegistry(grace_seconds=30.0)
+    assert registry.start("per-run", 2.5).grace_seconds == 2.5
+    assert registry.start("default-window").grace_seconds == 30.0

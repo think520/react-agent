@@ -42,8 +42,9 @@ class RunRegistry:
         self._lock = threading.RLock()
         self._runs: dict[str, RunHandle] = {}
 
-    def start(self, stream_id: str) -> RunHandle:
-        handle = RunHandle(stream_id=stream_id, grace_seconds=self.grace_seconds)
+    def start(self, stream_id: str, grace_seconds: float | None = None) -> RunHandle:
+        window = self.grace_seconds if grace_seconds is None else float(grace_seconds)
+        handle = RunHandle(stream_id=stream_id, grace_seconds=window)
         with self._lock:
             self._runs[stream_id] = handle
         return handle
@@ -99,6 +100,22 @@ class RunRegistry:
             handle.timer = None
         logger.info("Grace period expired for %s; cancelling the run", stream_id)
         handle.token.cancel(DISCONNECT_REASON)
+
+
+def resolve_grace_seconds(config: dict | None) -> float:
+    """Grace window for a dropped client: explicit config, else the default.
+
+    P0-1: this is the budget between "the browser went away" and "stop the
+    run". It was a hardcoded 30s; a desktop user on a slow refresh can
+    legitimately need longer, and a test needs it shorter.
+    """
+    web_config = (config or {}).get("web") or {}
+    raw = web_config.get("stream_grace_seconds")
+    try:
+        seconds = float(raw)
+    except (TypeError, ValueError):
+        return DEFAULT_GRACE_SECONDS
+    return seconds if seconds >= 0 else DEFAULT_GRACE_SECONDS
 
 
 _default_registry = RunRegistry()

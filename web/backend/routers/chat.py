@@ -56,7 +56,7 @@ from web.backend.run_pump import (
     live_stream_ids,
     register_pump,
 )
-from web.backend.run_registry import get_run_registry
+from web.backend.run_registry import get_run_registry, resolve_grace_seconds
 from web.backend.schemas import (
     ChatRunRequest, ChatSessionProviderRequest, ChatSessionUpdateRequest,
     InteractionAnswerRequest, MemoryProposalResolutionRequest,
@@ -1420,6 +1420,23 @@ def replay_stream(stream_id: str, request: Request, after_seq: int = 0) -> Strea
     return StreamingResponse(iterate_on_stream_lane(frames()), media_type="text/event-stream")
 
 
+@router.post("/streams/{stream_id}/cancel")
+def cancel_stream(stream_id: str) -> dict:
+    """Stop a live run (P0-1).
+
+    The stop button used to only abort the browser fetch, and that was enough
+    while the response drove the producer. Now that a background pump owns the
+    run, an abandoned reader changes nothing on its own - so the client has to
+    say so explicitly. Unknown or already-finished streams are a no-op, which
+    keeps a late click from turning into an error.
+    """
+    registry = get_run_registry()
+    if registry.get(stream_id) is None:
+        return {"ok": True, "cancelled": False}
+    registry.cancel_now(stream_id, reason="user_stopped")
+    return {"ok": True, "cancelled": True}
+
+
 @router.post("/runs")
 def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
     if not body.message.strip() and not body.resume_interaction_id:
@@ -1721,7 +1738,7 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
     # persisted log - so a dropped client pauses nothing, and the grace timer
     # in run_registry finally has a live run left to cancel.
     run_registry = get_run_registry()
-    handle = run_registry.start(stream_id)
+    handle = run_registry.start(stream_id, resolve_grace_seconds(config))
     pump = register_pump(
         RunPump(stream_id, event_stream(), store=stream_store, registry=run_registry)
     ).start()
