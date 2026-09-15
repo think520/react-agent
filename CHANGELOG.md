@@ -7,6 +7,11 @@
 ## [未发布]
 
 ### 变更
+- **A4 批次三 · 每工具超时原语（阶段四之一，2026-09-14；接线被 P1-7 挡住）**：循环原来内联调用 `execute_tool`，所以**一个卡住的工具会卡住整轮**——审计 P0-2/P0-3 里「超时语义是假的」有这一半。本轮先落**原语**，接线时撞上一个必须单独处理的问题（见下）。
+  - 复现：新增 `tests/test_tool_timeouts.py` 五条：①未登记超时的工具走内联（不付线程成本）；②快工具照常返回；③**挂住的工具变成结构化超时**（`data["code"]=="tool_timeout"`，且调用方**不等被放弃的线程**）；④抛异常的工具变成结果而不是炸穿；⑤**端到端**：`time.sleep(5)` 的工具在 0.2s 预算下，整轮仍以 `final_answer` 正常结束、会话不受影响。**修前失败信号**：`ModuleNotFoundError: tools.timeouts`；端到端那条会真的挂 5 秒。
+  - 修法：`tools/timeouts.py` 提供 `TOOL_TIMEOUTS`（只登记会阻塞在外部的地方：三个 `delegate_*`、`rag_search`、两个联网工具）与 `run_with_timeout()`——一次性 worker + `future.result(timeout)`，超时返回 `ToolResult(ok=False, code="tool_timeout")`，`executor.shutdown(wait=False)` **绝不等被放弃的线程**。循环按需分派：未登记超时的工具仍走内联，**不为不需要的线程付费**。
+  - 诚实边界（已写进模块 docstring）：Python 不能杀线程，超时的语义是「不再等 + 告诉模型」，被放弃的线程靠自身 IO 超时结束。
+  - **接线被 P1-7 挡住（本轮新发现）**：把超时接进循环后 `test_read_only_tool_dedup` **确定性失败**——给 `rag_search` 加超时后它走 worker 线程，两个并行的同参数只读调用**都通过缓存检查**，于是执行两次。这正是审计 P1-7 说的「靠线程调度侥幸通过」：它不是 flake，而是真实的去重竞态，被我的时序改动稳定复现。修它需要 claim/wait（等待者必须保证被唤醒，不能永久挂起），属于独立的正确性改动，因此本轮**只提交原语与它的测试**，循环里留 `NOTE(P1-7)` 指向 ROADMAP，端到端那条测试以 `skip(reason=...)` 标注而不是删掉。
 - **A4 批次三 · 取消原语（阶段三：断线宽限，部分完成，2026-09-14）**：先落 `web/backend/run_registry.py`——按 stream_id 登记 run 的 `CancelToken`，`note_disconnect` 起宽限计时、`note_reconnect` 撤销计时（刷新与误关不掉线）、`finish` 清理、`cancel_now` 供显式停止。另修审计点「SSE 生成器从不被关闭」：`iterate_on_stream_lane` 现在在 `finally` 里显式关闭同步生成器，断线时 producer 的 finally（会话落盘）真的会跑到。
   - 复现：`tests/test_run_registry.py` 五条（断线**不立即**取消、宽限到期取消且 reason 为 `client_disconnected`、窗口内重连后 run 存活、断线幂等不重启计时、finish 后不再取消、每个 run 独立 token）+ `tests/test_sse_stream.py` 两条（响应停止时 producer 的 finally 被走到；正常流仍逐条送达）。**修前失败信号**：`ModuleNotFoundError: web.backend.run_registry`；以及 `AttributeError: list_iterator has no attribute close`（顺带暴露了 close 需要判存）。
   - **未完成的关键一步（诚实记录）**：SSE 的生成器是**被客户端拉动**的——客户端一断就没人拉，run 会停在上一个 yield。所以「宽限期内让 run 继续跑」不是加计时器就能成立的，它要求把 run 的生产与响应解耦（后台泵把事件写进批次二的事件日志，SSE 只 tail 日志）。这一步是结构改动，我没有半截开始；计时器本身、取消路径与显式关闭都已就位并有测试，缺的是那个泵。

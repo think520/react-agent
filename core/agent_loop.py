@@ -20,6 +20,7 @@ from core.hooks import (
 )
 from core.builtin_hooks import register_builtin_hooks
 from core.cancellation import RunCancelled
+
 from core.prompt_layout import mark_dynamic_tail
 from core.session_compactor import project_context, repair_tool_pairing, should_compact
 from tools import get_tools_schema, execute_tool
@@ -607,6 +608,9 @@ class AgentLoop:
             if cached is not None:
                 return cached, 0.0, False
 
+        # NOTE(P1-7): dispatching this through tools.timeouts exposed a race in the
+        # read-only de-duplication cache below - two parallel identical calls both
+        # miss - so the timeout is not wired here yet. See ROADMAP A4 batch 3.
         result = execute_tool(tc.name, args, session=self.session)
 
         # after_tool hooks (sanitize / audit / evidence state) — AG-2.1.
