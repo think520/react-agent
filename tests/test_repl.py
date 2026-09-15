@@ -223,6 +223,49 @@ def test_repl_timeout_does_not_modify_session(monkeypatch, capsys):
     assert "session not modified" not in output.lower()
 
 
+def test_repl_timeout_tells_the_agent_to_stop(monkeypatch, capsys):
+    """P0-3: the timeout message used to admit the background request kept running.
+
+    The token is what makes the interrupt reach the worker thread.
+    """
+    from core import agent_loop as agent_loop_module
+
+    config = {
+        "llm": {
+            "default_provider": "minimax",
+            "providers": {"minimax": {"model": "MiniMax-Text-01", "api_key_env": "MINIMAX_API_KEY"}},
+        },
+        "session": {"save_dir": ".session-test"},
+        "agent": {"timeout": 1},
+    }
+
+    monkeypatch.setattr("cli.repl.ProviderFactory.load_config", lambda path: config)
+    monkeypatch.setattr(
+        "cli.repl.ProviderFactory.create",
+        lambda provider_config, agent_config, model=None: SlowProvider(delay=10),
+    )
+    monkeypatch.setattr("cli.repl.get_tools_schema", lambda: [{"function": {"name": "read_file"}}])
+
+    captured: dict = {}
+    real_loop = agent_loop_module.AgentLoop
+
+    def spy(*args, **kwargs):
+        captured["token"] = kwargs.get("cancel_token")
+        return real_loop(*args, **kwargs)
+
+    monkeypatch.setattr(agent_loop_module, "AgentLoop", spy)
+
+    repl = REPL(config_path="config.yaml")
+    repl.initialize()
+    repl.run_agent("hello")
+
+    token = captured.get("token")
+    assert token is not None, "the CLI must hand the agent a cancellable token"
+    assert token.is_cancelled() is True
+    assert token.reason == "cli_timeout"
+    output = capsys.readouterr().out
+    assert "已通知后台请求停止" in output
+
 def test_repl_success_commits_session(monkeypatch, capsys):
     """On success, the main session should have the new messages."""
     config = {

@@ -664,8 +664,16 @@ class REPL:
           - Coalesce tracks consecutive same-name success calls per visual scope
         """
         import time
+
         from core.agent_loop import AgentLoop
+        from core.cancellation import CancelToken
         from core.trace import TraceWriter
+
+        # P0-3: the CLI used to admit, in its own timeout message, that the
+        # background request might keep running - the thread kept burning
+        # tokens because Ctrl+C only broke the consumption loop. The token is
+        # what lets an interrupt reach the agent.
+        run_token = CancelToken()
 
         session_copy = replace(self.session, messages=list(self.session.messages))
 
@@ -696,6 +704,7 @@ class REPL:
             request_prompt=request_prompt,
             trace_writer=run_trace,
             context_window=resolve_context_window(self.config),
+            cancel_token=run_token,
         )
 
         events: queue.Queue[dict] = queue.Queue()
@@ -737,6 +746,7 @@ class REPL:
         response = ""
         start = time.monotonic()
         timed_out = False
+        cancelled = False
         last_tick_frame_index = -1
         self._stream_in_code_block = False
         partial_written = 0
@@ -851,6 +861,7 @@ class REPL:
                 elapsed = now - start
                 if elapsed >= self.agent_timeout:
                     timed_out = True
+                    run_token.cancel("cli_timeout")
                     break
 
                 # B-lite tick: rewrite the active line in place
@@ -998,6 +1009,13 @@ class REPL:
 
             if not timed_out:
                 thread.join(timeout=1)
+        except KeyboardInterrupt:
+            # P0-3: Ctrl+C must reach the agent, not just stop the rendering.
+            # The worker thread keeps its own copy of the token, so cancelling it
+            # here ends the run at its next checkpoint.
+            cancelled = True
+            run_token.cancel("user_interrupted")
+            print_error("已取消本轮；已通知后台请求停止（在下一个检查点生效）。")
         finally:
             self._b_seal_active_line()
 
@@ -1020,11 +1038,14 @@ class REPL:
             out.write(f"{final_flush}\n")
             out.flush()
 
+        if cancelled:
+            return
+
         if timed_out:
             print_error(
                 f"[Timeout] Agent did not respond within {self.agent_timeout}s.\n"
-                "本轮对话不会写回当前会话；后台请求和已经启动的工具操作可能仍在继续。\n"
-                "如果随后出现文件变化，这是超时前已启动操作的结果。"
+                "本轮对话不会写回当前会话，并且已通知后台请求停止（在下一个检查点生效）。\n"
+                "已经启动的工具操作可能仍会收尾——Python 无法中断正在执行的线程。"
             )
             return
 

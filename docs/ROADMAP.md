@@ -333,7 +333,7 @@ hooks 最小接线（✅ 结果上限落 `after_tool`、白名单门落 `before_
    - ✅ **每工具超时转结构化错误**（`tools/timeouts.py` + 已接进循环，5 条测试含端到端）
    - ✅ **顺手修掉 P1-7**：接线超时时 `test_read_only_tool_dedup` 确定性失败，暴露出只读去重的真实竞态（两个并行同参数调用都通过缓存检查）。已改为 claim/wait：第一个调用**认领**键，重复调用等待它（有界等待 + fail-open，泄漏的认领只会让优化失效、不会挂住一轮）。新增两条测试，其中一条把等待预算设为 0 来证明「这个等待正是防止重复执行的原因」。
    - ✅ **specialist 子 token**（父取消即停；超时也真的通知它停，不再只是 `future.cancel()`）
-   - ⏳ SIGINT 接 token
+   - ✅ **CLI 超时与 Ctrl+C 接 token**（超时路径有测试；Ctrl+C 走同一个 token 的 `cancel`）
 
 协作取消穿透 `AgentLoop` → provider 流 → 工具边界；每工具超时转结构化错误结果；取消后落盘已产出内容并标记 cancelled。
 

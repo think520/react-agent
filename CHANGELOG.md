@@ -7,6 +7,10 @@
 ## [未发布]
 
 ### 变更
+- **A4 批次三 · CLI 超时与 Ctrl+C 接 token（P0-3，2026-09-14）**：CLI 的 agent 跑在 daemon 线程里，超时与 Ctrl+C 只跳出**消费循环**，线程继续烧 token——代码里甚至在自己的提示语中承认了这一点（「后台请求和已经启动的工具操作可能仍在继续」）。
+  - 复现：`tests/test_repl.py` 新增一条——把 `core.agent_loop.AgentLoop` 换成会记录实参的 spy，复用既有的 `SlowProvider(delay=10)` + `agent.timeout=1` 场景，断言**循环拿到的 token 在超时后已被取消**且 reason 为 `cli_timeout`，并且新提示语出现。改动前该断言无法成立（`AgentLoop` 根本没收到 `cancel_token`），那条提示语也还是一句免责声明。
+  - 修法：`run_agent` 每轮建 `CancelToken` 并交给 `AgentLoop`；超时分支在 break 前 `run_token.cancel("cli_timeout")`；消费循环外包一层 `except KeyboardInterrupt`（设置 `cancelled`、取消 token、给出提示后干净返回，不再只封存当前行）；提示语改为如实描述「已通知后台请求停止（在下一个检查点生效），已启动的工具可能仍会收尾」。
+  - 未单独覆盖：Ctrl+C 路径与超时路径**共用同一个 `run_token.cancel(...)`**，但只有超时那条有测试；真实 SIGINT 需要向测试进程发信号，留给后续补。
 - **A4 批次三 · specialist 子 token（P0-2，2026-09-14）**：审计原话是「specialist 超时无法真正取消，后台继续跑并写状态」——`agents/runner.py` 超时后调 `future.cancel()`，而它对**已经开始执行**的任务无效，于是父级已经按超时换路，那个 specialist 仍在发 LLM 请求、仍在写 learning store。
   - 复现：`tests/test_agents_runner.py` 新增一条——用「永远不返回」的子循环 + 0.2s 超时，断言被放弃的子循环**拿到了与父级绑定的子 token 且已被取消**（reason = `specialist_timeout`）。改动前这条断言无法成立（`AgentLoop` 根本没收到 `cancel_token` 实参），改动后它在 0.2s 内返回并完成取消。
   - 修法：`run_specialist(..., cancel_token=None)` 为每个 specialist 建**子 token**（父级取消自动传播到它），交给子 `AgentLoop`；超时分支在 `future.cancel()` 之前先 `child_token.cancel("specialist_timeout")`，于是子循环在下一个检查点停下。链路一直打通到工具层：`execute_tool(..., cancel_token=...)` 会把它注入给声明了该形参的工具，`delegate(session, cancel_token, ...)` 再转交 runner——**父轮取消时 specialist 一起停**。
