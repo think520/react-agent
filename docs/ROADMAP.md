@@ -330,8 +330,8 @@ hooks 最小接线（✅ 结果上限落 `after_tool`、白名单门落 `before_
 2. ✅ **provider 流式读循环**：每个 chunk 前检查 → break 出循环让响应与连接关闭；非流式靠 timeout 兜底且**取消后不再重试**；`RunCancelled` 与 `ProviderError` 分开
 3. 🚧 **Web 宽限期**（部分完成）：✅ run 注册表 + 宽限计时/重连取消/显式停止（`web/backend/run_registry.py`，5 条测试）；✅ 断线时**显式关闭同步生成器**（让 producer 的 finally 真的跑到，见 `iterate_on_stream_lane`）；✅ `run_stream` 接受并转发 `cancel_token`。⏳ 剩下的关键一步是**结构改动**：SSE 生成器是被客户端拉动的，客户端一走就没人拉，所以「宽限期内 run 继续跑」要求 run 与响应解耦——后台泵把事件写进批次二的事件日志，SSE 只做 tail；否则宽限计时器只是延迟一次「已经停下」的取消。
 4. 🚧 **CLI 与 specialist**：
-   - ✅ **每工具超时原语**（`tools/timeouts.py`：`TOOL_TIMEOUTS` + `run_with_timeout()`，4 条测试 + 1 条待启用）
-   - ⏳ **但还没接进循环**：接线后 `test_read_only_tool_dedup` 确定性失败——两个并行的同参数只读调用**都通过缓存检查**（审计 P1-7 原话「靠线程调度侥幸通过」，现在被稳定复现）。修它需要 claim/wait 设计（等待者不能永久挂起），单独作为一条做，不在同一轮半截开始。循环里留了 `NOTE(P1-7)` 指向这里。
+   - ✅ **每工具超时转结构化错误**（`tools/timeouts.py` + 已接进循环，5 条测试含端到端）
+   - ✅ **顺手修掉 P1-7**：接线超时时 `test_read_only_tool_dedup` 确定性失败，暴露出只读去重的真实竞态（两个并行同参数调用都通过缓存检查）。已改为 claim/wait：第一个调用**认领**键，重复调用等待它（有界等待 + fail-open，泄漏的认领只会让优化失效、不会挂住一轮）。新增两条测试，其中一条把等待预算设为 0 来证明「这个等待正是防止重复执行的原因」。
    - ⏳ SIGINT 接 token；⏳ specialist 子 token（父取消即停）
 
 协作取消穿透 `AgentLoop` → provider 流 → 工具边界；每工具超时转结构化错误结果；取消后落盘已产出内容并标记 cancelled。

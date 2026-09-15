@@ -1,7 +1,5 @@
 """P0-2/P0-3: a hanging tool must degrade, not hang the turn."""
 
-import pytest
-
 from tools.base import ToolResult
 from tools.timeouts import TOOL_TIMEOUTS, run_with_timeout, tool_timeout
 
@@ -38,11 +36,6 @@ def test_a_hanging_tool_becomes_a_structured_timeout():
     assert elapsed < 3, "the caller must not wait for the abandoned worker"
 
 
-@pytest.mark.skip(
-    reason="needs the read-only dedup claim/wait fix first: wiring timeouts into"
-    " the loop makes P1-7 reproduce deterministically (two parallel identical"
-    " rag_search calls both miss the cache). See ROADMAP A4 batch 3.",
-)
 def test_a_loop_turns_a_hanging_tool_into_a_result(tmp_path, monkeypatch):
     """End to end: the session survives and the model is told, instead of the
     turn hanging until the user gives up."""

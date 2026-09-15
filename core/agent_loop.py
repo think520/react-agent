@@ -3,6 +3,7 @@ import inspect
 import json
 import logging
 import os
+import threading
 import time
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
@@ -22,6 +23,7 @@ from core.builtin_hooks import register_builtin_hooks
 from core.cancellation import RunCancelled
 
 from core.prompt_layout import mark_dynamic_tail
+from tools.timeouts import run_with_timeout as run_with_tool_timeout, tool_timeout
 from core.session_compactor import project_context, repair_tool_pairing, should_compact
 from tools import get_tools_schema, execute_tool
 from tools.base import ToolResult
@@ -40,6 +42,9 @@ READ_ONLY_TOOLS = frozenset({
 
 # Bounded thread pool for concurrent read-only tool execution (AG-2.3).
 MAX_PARALLEL_TOOLS = 2
+#: How long a duplicate read-only call waits for the first one (P1-7). Bounded so
+#: a leaked claim can delay the optimisation but never hang a turn.
+DEDUP_WAIT_SECONDS = 5.0
 
 
 def _args_hash(args: dict) -> str:
@@ -158,6 +163,10 @@ class AgentLoop:
         self.cancel_token = cancel_token
         # Idempotent result cache for read-only tools within one turn (AG-2.4).
         self._tool_result_cache: dict[str, ToolResult] = {}
+        # P1-7: the cache alone raced - two parallel identical calls both missed
+        # it. A claimed key makes the duplicate wait instead of re-running.
+        self._tool_cache_lock = threading.Lock()
+        self._tool_claims: dict[str, threading.Event] = {}
         # P1-15 / P0-9: every run path builds a loop, so this is where the
         # built-in hooks (result ceiling, allowlist gate) actually get wired.
         register_builtin_hooks()
@@ -601,17 +610,45 @@ class AgentLoop:
                 )
 
         # Idempotent de-duplication for read-only tools (AG-2.4).
+        #
+        # P1-7: this used to be a bare cache check. Two parallel identical calls
+        # both passed it before either stored a result, so the same search ran
+        # twice - it only looked correct because thread timing usually serialised
+        # them. The first caller now *claims* the key and a duplicate waits for it.
+        # The wait is bounded and fails open: a leaked claim costs the
+        # optimisation, never the turn.
         cache_key = None
+        claim = None
         if tc.name in READ_ONLY_TOOLS:
             cache_key = f"{tc.name}:{_args_hash(args)}"
-            cached = self._tool_result_cache.get(cache_key)
-            if cached is not None:
-                return cached, 0.0, False
+            deadline = time.monotonic() + DEDUP_WAIT_SECONDS
+            while True:
+                with self._tool_cache_lock:
+                    cached = self._tool_result_cache.get(cache_key)
+                    if cached is not None:
+                        return cached, 0.0, False
+                    claim = self._tool_claims.get(cache_key)
+                    if claim is None:
+                        claim = threading.Event()
+                        self._tool_claims[cache_key] = claim
+                        break
+                if time.monotonic() >= deadline:
+                    claim = None  # fail open rather than wait forever
+                    break
+                claim.wait(timeout=DEDUP_WAIT_SECONDS)
 
-        # NOTE(P1-7): dispatching this through tools.timeouts exposed a race in the
-        # read-only de-duplication cache below - two parallel identical calls both
-        # miss - so the timeout is not wired here yet. See ROADMAP A4 batch 3.
-        result = execute_tool(tc.name, args, session=self.session)
+        # P0-2/P0-3: a tool with a declared budget runs on a worker so a hang
+        # degrades into a structured result instead of holding the turn hostage.
+        # (This wiring is what exposed the P1-7 de-duplication race above.)
+        timeout = tool_timeout(tc.name)
+        if timeout is None:
+            result = execute_tool(tc.name, args, session=self.session)
+        else:
+            result = run_with_tool_timeout(
+                lambda: execute_tool(tc.name, args, session=self.session),
+                timeout,
+                tc.name,
+            )
 
         # after_tool hooks (sanitize / audit / evidence state) — AG-2.1.
         for replacement in dispatch(
@@ -620,8 +657,14 @@ class AgentLoop:
             if isinstance(replacement, ToolResult):
                 result = replacement
 
-        if cache_key is not None and isinstance(result, ToolResult):
-            self._tool_result_cache[cache_key] = result
+        if cache_key is not None:
+            if isinstance(result, ToolResult):
+                with self._tool_cache_lock:
+                    self._tool_result_cache[cache_key] = result
+            with self._tool_cache_lock:
+                self._tool_claims.pop(cache_key, None)
+            if claim is not None:
+                claim.set()  # wake the duplicates waiting on this key
 
         return result, time.monotonic() - start_ts, False
 

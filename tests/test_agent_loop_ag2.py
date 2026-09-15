@@ -152,6 +152,59 @@ def test_read_only_tool_dedup(monkeypatch, tmp_path):
     assert calls == ["same"]
 
 
+def test_read_only_tool_dedup_survives_a_real_overlap(monkeypatch, tmp_path):
+    """P1-7: the bare cache check let two parallel identical calls both miss, so
+    the search ran twice. It passed only because thread timing usually
+    serialised them; a small sleep inside the tool takes the luck away."""
+    import time as time_module
+
+    calls = []
+
+    def slow_rag(query, workspace="."):
+        calls.append(query)
+        time_module.sleep(0.2)
+        return ToolResult(ok=True, content="result", data={"results": [], "hit_count": 0})
+
+    monkeypatch.setitem(TOOL_REGISTRY, "rag_search", slow_rag)
+    session = Session.new(str(tmp_path))
+    llm = MockLLM([
+        _tool_response([
+            {"name": "rag_search", "args": {"query": "same"}},
+            {"name": "rag_search", "args": {"query": "same"}},
+        ]),
+        LLMResponse(content="done"),
+    ])
+    AgentLoop(llm, session).run("search")
+
+    assert calls == ["same"]
+
+
+def test_without_a_wait_budget_the_duplicate_runs_again(monkeypatch, tmp_path):
+    """Proves the wait is what prevents the second run: the design fails open, so
+    a zero budget reproduces the old behaviour instead of hanging."""
+    import time as time_module
+
+    monkeypatch.setattr("core.agent_loop.DEDUP_WAIT_SECONDS", 0.0)
+    calls = []
+
+    def slow_rag(query, workspace="."):
+        calls.append(query)
+        time_module.sleep(0.2)
+        return ToolResult(ok=True, content="result", data={"results": [], "hit_count": 0})
+
+    monkeypatch.setitem(TOOL_REGISTRY, "rag_search", slow_rag)
+    session = Session.new(str(tmp_path))
+    llm = MockLLM([
+        _tool_response([
+            {"name": "rag_search", "args": {"query": "same"}},
+            {"name": "rag_search", "args": {"query": "same"}},
+        ]),
+        LLMResponse(content="done"),
+    ])
+    AgentLoop(llm, session).run("search")
+
+    assert calls == ["same", "same"], "fail open, never hang"
+
 def test_read_only_parallel_correct_results_and_event_order(monkeypatch, tmp_path):
     """Multiple read-only tools return correct results with ordered events."""
     monkeypatch.setitem(
