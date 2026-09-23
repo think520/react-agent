@@ -9,6 +9,7 @@
  *  - 候选区单独面板（CandidateReviewPanel）
  */
 
+import { readerLocation } from "../lib/documentLinks";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useOutletContext } from "react-router-dom";
 import { List, Map as MapIcon, Link2, Maximize2, Network, Plus, Search, Sparkles, Table, X } from "lucide-react";
@@ -344,7 +345,7 @@ export function KnowledgeMapPage() {
         <Modal onClose={() => { setShowCandidates(false); setExtractionSource(null); }} ariaLabel="候选审查" zIndex={120}>
           <CandidateReviewPanel
             extractionSource={extractionSource ?? undefined}
-            onReturnToSource={extractionSource ? () => navigate(`/library?document=${encodeURIComponent(extractionSource.documentId)}`) : undefined}
+            onReturnToSource={extractionSource ? () => navigate(readerLocation({ document_id: extractionSource.documentId }) || "/library") : undefined}
             onClose={() => {
               setShowCandidates(false);
               setExtractionSource(null);

@@ -1,3 +1,4 @@
+import { readerLocation } from "../lib/documentLinks";
 import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BookOpen,
@@ -140,7 +141,7 @@ function LearningContext({
                 <div>{group.sources.map((source, index) => <section key={source.source_id || index}>
                   <small>{source.heading || (source.page ? `第 ${source.page} 页` : source.slide ? `第 ${source.slide} 页` : "原文片段")}</small>
                   {source.excerpt && <p>{source.excerpt}</p>}
-                  {source.document_id && <NavLink className="text-link" to={`/library?collection=${source.collection === "wiki" ? "wiki" : "material"}&document=${encodeURIComponent(source.document_id)}${source.chunk_id ? `&chunk=${encodeURIComponent(source.chunk_id)}` : ""}`}>打开原文</NavLink>}
+                  {source.document_id && <NavLink className="text-link" to={readerLocation(source) ?? "/library"}>打开原文</NavLink>}
                 </section>)}</div>
               </details>;
             })}

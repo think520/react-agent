@@ -1,3 +1,4 @@
+import { readerLocation } from "../lib/documentLinks";
 import { useEffect, useMemo, useState } from "react";
 import { BookOpen, Check, Eye, Pencil, Pin, Plus, Search, Trash2, X } from "lucide-react";
 import { useOutletContext } from "react-router-dom";
@@ -238,7 +239,7 @@ export function NotesPage() {
               {(item.references || []).length > 0 && (
                 <div className="note-item-refs">
                   <BookOpen size={12} />
-                  {(item.references || []).map((ref) => <button key={ref.document_id} className="text-link" type="button" onClick={() => window.location.assign(`/library?collection=material&document=${encodeURIComponent(ref.document_id)}`)}>{ref.title}</button>)}
+                  {(item.references || []).map((ref) => <button key={ref.document_id} className="text-link" type="button" onClick={() => window.location.assign(readerLocation({ document_id: ref.document_id, collection: "material" }) || "/library")}>{ref.title}</button>)}
                 </div>
               )}
               <div className="note-item-actions">

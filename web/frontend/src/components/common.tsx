@@ -1,3 +1,4 @@
+import { readerLocation } from "../lib/documentLinks";
 import { useState, type ButtonHTMLAttributes, type ReactNode, type SyntheticEvent } from "react";
 import { ExternalLink, FileText, LoaderCircle, SearchX } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -137,7 +138,7 @@ export function AttributionBadges({ attribution, onOpenSources }: { attribution?
         if (source.url) return <a className={`source-chip ${attribution.kind}`} href={source.url} target="_blank" rel="noreferrer" title={sourceDetail} key={source.source_id}>{content}</a>;
         if (source.document_id) {
           if (onOpenSources) return <button className={`source-chip ${attribution.kind}`} type="button" title="查看全部引用位置" onClick={() => onOpenSources(attribution)} key={group.key}>{content}</button>;
-          const target = `/library?collection=${source.collection === "wiki" ? "wiki" : "material"}&document=${encodeURIComponent(source.document_id)}${source.chunk_id ? `&chunk=${encodeURIComponent(source.chunk_id)}` : ""}`;
+          const target = readerLocation(source) || "/library?collection=material";
           return <Link className={`source-chip ${attribution.kind}`} title={`打开资料${location ? ` · ${location}` : ""}`} to={target} key={group.key}>{content}</Link>;
         }
         return <span className={`source-chip ${attribution.kind}`} title={location} key={group.key}>{content}</span>;

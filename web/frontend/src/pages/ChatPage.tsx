@@ -1,3 +1,4 @@
+import { readerLocation } from "../lib/documentLinks";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUp, BookOpen, Brain, Check, Command, FilePlus2, FileText, FolderOpen, Globe2, Library, MessageCircle, Paperclip, RotateCcw, Square, Sparkles, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
@@ -831,7 +832,7 @@ export function ChatPage() {
 
   function openReference(reference: ChatReference) {
     if (reference.type === "session") navigate(`/chat/${reference.id}`);
-    else navigate(`/library?collection=${reference.collection || "material"}&document=${encodeURIComponent(reference.id)}`);
+    else navigate(readerLocation({ document_id: reference.id, collection: reference.collection }) || "/library");
   }
 
   const activeProvider = settings?.providers.find((provider) => provider.name === (selectedProvider.split("::")[0] || selectedProvider));
