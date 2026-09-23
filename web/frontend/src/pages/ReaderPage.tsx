@@ -90,6 +90,12 @@ export function ReaderPage() {
   const showOriginal = readerView.view === "original";
   const originalParts = splitFrontmatter(originalText);
   const arrivedViaCitation = Boolean(chunkParam) && forcedSections;
+  // PDF 的原件没法高亮（浏览器内置阅读器不暴露文本），所以定位只能发生在"按小节"
+  // 视图里——这句话要说清楚，否则用户会以为原件那边也该亮起来。
+  const citationBarText =
+    inlineOriginal === "pdf"
+      ? "已定位到引用段落 · PDF 原件无法高亮，已在「按小节」"
+      : "已定位到引用段落";
 
   const scrollToChunk = useCallback((chunkId: string) => {
     const target = Array.from(document.querySelectorAll<HTMLElement>("[data-chunk-id]"))
@@ -126,7 +132,7 @@ export function ReaderPage() {
     openTab(selectedId);
     if (pageRef.current) pageRef.current.scrollTop = scrolls[selectedId] || 0;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedId]);
+  }, [selectedId, chunkParam]);
 
   useEffect(() => {
     setSelectionQuote("");
@@ -445,7 +451,7 @@ export function ReaderPage() {
           <article className="reader-article">
             {arrivedViaCitation && (
               <div className="reader-citation-bar" role="status">
-                <span>已定位到引用段落</span>
+                <span>{citationBarText}</span>
                 <button className="quiet-button" type="button" onClick={() => chooseView("original")}>
                   看原文
                 </button>
