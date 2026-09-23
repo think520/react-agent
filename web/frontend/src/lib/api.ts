@@ -761,6 +761,17 @@ export function splitFrontmatter(text: string): { meta: string; body: string } {
 }
 
 
+/**
+ * Raw URL suitable for an <iframe>/<img>: those requests cannot carry the
+ * library header, so the id travels in the query string (the backend accepts it
+ * for media routes only, and still requires a registered library).
+ */
+export function documentRawEmbedUrl(documentId: string): string {
+  const base = documentRawUrl(documentId);
+  return activeLibraryId ? base + "?library=" + encodeURIComponent(activeLibraryId) : base;
+}
+
+
 export function documentAssetUrl(documentId: string, source: string): string {
   if (!source || /^(https?:|data:|blob:|\/)/i.test(source)) return source;
   const base =

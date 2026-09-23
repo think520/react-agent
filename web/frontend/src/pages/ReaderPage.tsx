@@ -11,7 +11,7 @@ import { useNavigate, useOutletContext, useParams, useSearchParams } from "react
 import type { AppOutletContext } from "../components/AppShell";
 import { EmptyState, ErrorNotice, LoadingState } from "../components/common";
 import { DocumentEditor } from "../components/DocumentEditor";
-import { ApiError, api, documentAssetUrl, fetchDocumentRawText, openDocumentRaw, splitFrontmatter } from "../lib/api";
+import { ApiError, api, documentAssetUrl, documentRawEmbedUrl, fetchDocumentRawText, openDocumentRaw, splitFrontmatter } from "../lib/api";
 import { useHandoffStore } from "../stores/handoffStore";
 import { useReaderTabsStore } from "../stores/readerTabsStore";
 import { useConfirm } from "../ui/Modal";
@@ -83,8 +83,10 @@ export function ReaderPage() {
 
   const selectedId = id ?? null;
   const selected = documents.find((document) => document.document_id === selectedId) ?? null;
-  const canShowOriginal =
-    Boolean(selected?.has_original) && INLINE_ORIGINAL_EXTENSIONS.has(documentExtension(selected?.source));
+  const extension = documentExtension(selected?.source);
+  const inlineOriginal: "markdown" | "pdf" | null =
+    INLINE_ORIGINAL_EXTENSIONS.has(extension) ? "markdown" : extension === "pdf" ? "pdf" : null;
+  const canShowOriginal = Boolean(selected?.has_original) && inlineOriginal !== null;
   // 带跳转意图进来（搜索/引用）时强制分段视图，但不动用户偏好。
   const effectiveView: ReaderView = forcedSections || !canShowOriginal ? "sections" : view;
   const showOriginal = effectiveView === "original";
@@ -416,6 +418,30 @@ export function ReaderPage() {
           <article className="reader-article">
             {selectionQuote && <div className="selection-toolbar"><Quote size={15} /><span>已选择 {selectionQuote.length} 个字符</span><button className="quiet-button" onClick={askAboutSelection}>带到对话</button><button className="quiet-button" onClick={createPracticeFromSelection}>基于此出题</button><button className="quiet-button" onClick={() => setSelectionQuote("")}>取消</button></div>}
             {detailLoading && !sections.length ? <LoadingState label="正在打开资料…" state="reading" /> : showOriginal ? (
+              inlineOriginal === "pdf" ? (
+                <div className="reader-pdf">
+                  <div className="reader-pdf-toolbar">
+                    <span className="text-faint">{selected.title || selected.source}</span>
+                    <a
+                      className="quiet-button"
+                      href={documentRawEmbedUrl(selected.document_id)}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      在系统打开
+                    </a>
+                  </div>
+                  <p className="text-faint reader-pdf-hint">
+                    要引用或问 AI，请切到「按小节」——PDF 阅读器里的选区读不到页面。
+                  </p>
+                  <iframe
+                    className="reader-pdf-frame"
+                    title={selected.title || selected.source}
+                    src={documentRawEmbedUrl(selected.document_id)}
+                    style={{ width: "100%", height: "72vh", border: "0" }}
+                  />
+                </div>
+              ) : (
               <div className="reader-prose reader-original" onMouseUp={captureSelection}>
                 {originalParts.meta && (
                   <details className="reader-meta">
@@ -444,6 +470,7 @@ export function ReaderPage() {
                   <LoadingState label="正在读取原文…" state="reading" />
                 )}
               </div>
+              )
             ) : sections.length ? <div className={`reader-prose ${detailLoading ? "refreshing" : ""}`} onMouseUp={captureSelection}>{sections.map((section, index) => {
               const previous = index > 0 ? sections[index - 1] : undefined;
               const showHeading = Boolean(section.heading) && section.heading !== previous?.heading;

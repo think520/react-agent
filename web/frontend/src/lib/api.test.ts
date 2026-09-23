@@ -5,6 +5,7 @@ import {
   RESUME_DELAYS_MS,
   api,
   documentAssetUrl,
+  documentRawEmbedUrl,
   openDocumentRaw,
   splitFrontmatter,
   streamChat,
@@ -262,6 +263,10 @@ describe("api client", () => {
     const ruleOnly = splitFrontmatter("---\n就是一条分隔线\n");
     expect(ruleOnly.meta).toBe("");
     expect(ruleOnly.body).toBe("---\n就是一条分隔线\n");
+  });
+
+  it("builds an embeddable raw URL for iframes", () => {
+    expect(documentRawEmbedUrl("doc-1")).toBe("/api/kb/documents/doc-1/raw");
   });
 
   it("rewrites relative image sources to the asset endpoint", () => {
