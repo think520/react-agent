@@ -886,9 +886,10 @@ export async function streamChat(
       await sleep(delay);
       const body = await openResume(streamId, lastSeq);
       if (!body) continue;
-      let frames = 0;
       try {
-        frames = await pump(body);
+        // Zero frames after our cursor means the log has nothing left for us,
+        // which is exactly how a run that already finished looks.
+        if ((await pump(body)) === 0) break;
       } catch (error) {
         // This attempt broke too: keep the remaining delays instead of giving
         // up on the run after the first unlucky reconnect.
@@ -896,9 +897,6 @@ export async function streamChat(
         networkError = error;
         continue;
       }
-      // Zero frames after our cursor means the log has nothing left for us,
-      // which is exactly how a run that already finished looks.
-      if (frames === 0) break;
     }
   }
   // Nothing resumed and nothing terminal: report the original failure instead
