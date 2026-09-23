@@ -52,6 +52,15 @@ PRESETS: dict[str, dict[str, Any]] = {
         "api_key_env": "OPENAI_API_KEY",
         "dim": 1536,
     },
+    # 智谱 v4 是 OpenAI 兼容接口（实测 2026-09-23：embedding-3 默认 2048 维，
+    # 0.5 元/百万 tokens）。该模型也支持 dimensions=1024，但 provider 目前不发这个
+    # 参数，所以这里必须写 API 的默认维度，否则 Qdrant collection 会按错维度建。
+    "zhipu": {
+        "base_url": "https://open.bigmodel.cn/api/paas/v4",
+        "model": "embedding-3",
+        "api_key_env": "ZHIPU_API_KEY",
+        "dim": 2048,
+    },
     "ollama": {
         "base_url": "http://localhost:11434",
         "model": "qwen3-embedding:0.6b",

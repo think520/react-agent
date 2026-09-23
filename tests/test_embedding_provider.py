@@ -66,6 +66,25 @@ def test_a_preset_expands_into_a_configured_provider(monkeypatch):
     assert provider.is_available() is True
 
 
+def test_the_zhipu_preset_matches_the_vendor_default_dimension(monkeypatch):
+    """Zhipu speaks the same shape; only the preset differs.
+
+    Verified against the live API on 2026-09-23: embedding-3 returns 2048
+    dimensions unless the request asks for something else, and the provider does
+    not send `dimensions`, so the preset has to declare 2048 or the Qdrant
+    collection would be created with the wrong size.
+    """
+    monkeypatch.setenv("ZHIPU_API_KEY", KEY)
+
+    provider = create_embedding_provider({"rag": {"embedding_preset": "zhipu"}})
+
+    assert provider.name == "openai_compat"
+    assert provider.base_url == "https://open.bigmodel.cn/api/paas/v4"
+    assert provider.model == "embedding-3"
+    assert provider.is_available() is True
+    assert provider.dim == 2048
+
+
 def test_auto_prefers_a_configured_api_and_otherwise_uses_ollama(monkeypatch):
     monkeypatch.setenv("SILICONFLOW_API_KEY", KEY)
 

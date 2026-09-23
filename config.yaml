@@ -65,7 +65,7 @@ rag:
   # auto = 配好的 API provider 优先，否则 Ollama；local = 不启用（本产品不内置本地模型）
   embedding_backend: auto          # auto | openai_compat | ollama | local
   # B2：用户自配 API embedding。密钥只从环境变量读，绝不写进这个文件。
-  embedding_preset: ""             # siliconflow | dashscope | openai（填 base_url/model/dim 默认值）
+  embedding_preset: "zhipu"        # zhipu | siliconflow | dashscope | openai（填 base_url/model/dim 默认值）
   embedding_base_url: ""
   embedding_model: ""
   embedding_api_key_env: ""        # 例：SILICONFLOW_API_KEY；留空则用预设自带的环境变量名
