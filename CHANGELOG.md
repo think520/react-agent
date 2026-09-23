@@ -7,6 +7,13 @@
 ## [未发布]
 
 ### 变更
+- **资料联动轮（2026-09-23）**：按「查看来源 → 落点统一 → 定位提示 → 搜索定位 → PDF 引导」推进。
+  - ① + ② **跳转落点统一**（`ba83123`）：原先**五处**各自手拼 `/library?…&document=…`（来源 chip、右侧来源栏「打开原文」、聊天引用列表、知识地图返回来源、笔记引用），其中两处**已经在传 chunk**——但目标是**资料库列表页**，而它不渲染 sections，所以 `LibraryPage` 里处理 `chunk` 的代码永远拿不到 `[data-chunk-id]` 节点，"跳过去找不到引用段落"。现在统一走 `lib/documentLinks.ts::readerLocation()` → `/library/read/{id}?collection=…&chunk=…`（含 5 条单测）。
+  - ③ **引用定位 + 提示条**（`a30bd11`）：带 `chunk` 进入时顶部显示「已定位到引用段落」并可一键「看原文」。**修法用了五轮才找对**：前五轮都在"命令式查找 + 定时"上加补丁（直接查 → 成功才清 pending → rAF 重试 8 帧）全部失败；埋点实测给出关键两条事实——`highlightedChunk` **从未被设置**（不是设了又被清），而**目标 id 确实在 DOM 里且 URL 参数正确**——于是**换机制**：删掉用 `querySelectorAll` 的 effect，改由**目标 `<section>` 的 ref 回调在挂载那一刻**自己高亮并滚动。live 检查（真实后端 + 真实资料库）通过。
+  - ⑤ **PDF 引用引导**（`929e823`）：提示条区分格式——PDF 明确说明"原件无法高亮，已在「按小节」"。
+  - **lint 归零**（`8df9ee3`）：上一轮声称修好其实把依赖加错了 effect（加到滚动恢复而非加载 effect），这一轮改正，并把 lint 纳入门禁判断。
+  - **④ 的真实状态（更正）**：后端**已有** `POST /api/kb/search`，实测返回 `{chunk_id, document_id, collection, source, score, retrievers}`——**正好是 `readerLocation()` 的输入**。缺的只是前端：资料库那个输入框目前只是标题/来源的客户端过滤（`LibraryPage:796/930`），没有 chunk 级结果列表。所以 ④ 是**接线**（加 api 调用 + 结果列表 + 深链），不是新功能。
+  - **诚实边界**：③⑤ 的 PDF 分支与 ⑤ 的文案只做到类型/构建/live-回归级验证——该资料库没有 PDF，这条分支仍未在真实数据上跑过。
 - **③ DOCX 表格解析修复 + 真实库重新 sync（2026-09-23）**：`docx_parser` 过去只遍历 `doc.paragraphs`，而 python-docx **不把表格单元格放进 paragraphs**——于是 .docx 里的表格**一个字都进不了索引**：既搜不到，也永远不可能成为概念证据（纯静默丢失）。修法：按 body 顺序遍历段落与表格（表格因此留在**它所属的小节**里，而不是被丢到末尾），表格渲染成每行 `|` 分隔，section metadata 记 `table_count`。
   - 复现：新增 `tests/test_docx_tables.py` 两条。**修前失败信号**：同一份含表格的 docx，解析文本只有 `正文段落一\n表格之后的段落`——表格内容整段消失；修后该文件与既有解析报告测试共 `18 passed`。
   - **真实资料库重新 sync**（本目标要求的"证据重定位"检查）：scanned 22 / **updated 0** / error 0 → 现有资料**没有 .docx**，所以这次解析改动对既有数据是 no-op；**签名文件首次写入** `{provider: openai_compat, model: embedding-3, dim: 2048}`；documents 70 / chunks 1857 未变、70/70 仍 `indexed`；概念证据 30 条（其中 15 条带 `chunk_id`）**stale = 0** ✓。
