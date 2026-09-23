@@ -1,0 +1,36 @@
+import { expect, test } from "@playwright/test";
+
+/**
+ * 真实环境检查（默认跳过）：直接打本机正在运行的后端，不 mock 任何接口。
+ *
+ *   .venv\Scripts\python.exe -m cli.web_serve --no-browser --dev --port 8000
+ *   cd web/frontend; $env:BOBODAN_E2E_LIVE = "1"; npx playwright test e2e/live.spec.ts
+ *
+ * CI 里没有后端，也没有真实资料库，所以默认 skip；但它记录的是"页内原文"这条
+ * 主路径在真实数据上的行为，这是 mock 无法替代的那部分证据。
+ */
+test.skip(!process.env.BOBODAN_E2E_LIVE, "需要本机后端：设置 BOBODAN_E2E_LIVE=1");
+
+const BASE = process.env.BOBODAN_E2E_BASE || "http://127.0.0.1:8000";
+
+test("the reader renders the original file for a real document", async ({ page }) => {
+  const registry = await (await page.request.get(BASE + "/api/libraries")).json();
+  const libraryId = registry.active_library_id;
+  const headers = { "X-Bobodan-Library-ID": libraryId };
+
+  const listed = await (await page.request.get(BASE + "/api/kb/documents?collection=material", { headers })).json();
+  const doc = (listed.documents || []).find((item: { has_original?: boolean }) => item.has_original);
+  test.skip(!doc, "这个资料库里没有带原件的资料");
+
+  await page.addInitScript(() => localStorage.setItem("bobodan:onboarding:v1", "complete"));
+  await page.goto(BASE + "/library/read/" + doc.document_id + "?collection=material");
+
+  // 默认就是原文，且是我们自己的排版（不是解析文本）
+  await expect(page.locator(".reader-original")).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator(".reader-view-switch")).toBeVisible();
+
+  // 切到分段视图：原文消失、解析文本出现
+  await page.getByRole("button", { name: "按小节" }).click();
+  await expect(page.locator(".reader-original")).toHaveCount(0);
+  await expect(page.locator(".reader-prose")).toBeVisible();
+});
