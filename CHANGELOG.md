@@ -7,6 +7,10 @@
 ## [未发布]
 
 ### 变更
+- **③ DOCX 表格解析修复 + 真实库重新 sync（2026-09-23）**：`docx_parser` 过去只遍历 `doc.paragraphs`，而 python-docx **不把表格单元格放进 paragraphs**——于是 .docx 里的表格**一个字都进不了索引**：既搜不到，也永远不可能成为概念证据（纯静默丢失）。修法：按 body 顺序遍历段落与表格（表格因此留在**它所属的小节**里，而不是被丢到末尾），表格渲染成每行 `|` 分隔，section metadata 记 `table_count`。
+  - 复现：新增 `tests/test_docx_tables.py` 两条。**修前失败信号**：同一份含表格的 docx，解析文本只有 `正文段落一\n表格之后的段落`——表格内容整段消失；修后该文件与既有解析报告测试共 `18 passed`。
+  - **真实资料库重新 sync**（本目标要求的"证据重定位"检查）：scanned 22 / **updated 0** / error 0 → 现有资料**没有 .docx**，所以这次解析改动对既有数据是 no-op；**签名文件首次写入** `{provider: openai_compat, model: embedding-3, dim: 2048}`；documents 70 / chunks 1857 未变、70/70 仍 `indexed`；概念证据 30 条（其中 15 条带 `chunk_id`）**stale = 0** ✓。
+  - 已知外观限制：纵向合并单元格会把文字在跨越的行中重复一次——**不丢字**，只是可能重复几个词。
 - **④ 图片可渲染 + 一轮代码审查（2026-09-23）**：markdown 里的相对图片现在能显示——新增 `GET /api/kb/documents/{id}/asset?path=<相对文档目录>`（同样做包含性校验），前端把 `img` 的相对 src 重写到它；绝对 / `data:` / `blob:` 源不重写。`<img>` 发不出资料库头，所以库标识以 `?library=` 随 URL 传递。
   - **写完之后做的批判性审查抓出 4 个真问题（同轮修掉，全部有测试）**：
     ① **安全（中）**：`/asset` 只校验"在工作区内"却没校验**文件类型**——工作区根目录的 `.env`、`.knowledge/*.db` 都在区内，一份 markdown 写 `![](../.env)` 就能把密钥读出去。修法：附件**只允许图片扩展名** + 拒绝内部路径段（`.git/.knowledge/.bobodan/node_modules/__pycache__`）；新增测试要求 `.env` / `knowledge.db` / `note.md` 三种都返回 `asset_not_allowed`。
