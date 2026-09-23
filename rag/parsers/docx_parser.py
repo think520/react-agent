@@ -34,15 +34,19 @@ def parse(path: str | Path, base_dir: str | Path = ".") -> list[SourceSection]:
     except Exception:
         return []
 
-    # Extract sections by heading style
+    # Extract sections by heading style, walking the body **in order** so a
+    # table stays inside the section it belongs to.
+    from docx.table import Table
+
     sections: list[SourceSection] = []
     heading_stack: list[tuple[int, str]] = []  # (level, title)
     current_text: list[str] = []
     current_heading_path: list[str] = []
     current_image_count = 0
+    current_table_count = 0
 
     def _flush():
-        nonlocal current_text, current_image_count
+        nonlocal current_text, current_image_count, current_table_count
         text = "\n".join(current_text).strip()
         if text or current_image_count:
             sections.append(SourceSection(
@@ -56,12 +60,24 @@ def parse(path: str | Path, base_dir: str | Path = ".") -> list[SourceSection]:
                     "file_type": "docx",
                     "heading_level": heading_stack[-1][0] if heading_stack else 0,
                     "image_count": current_image_count,
+                    "table_count": current_table_count,
                 },
             ))
         current_text = []
         current_image_count = 0
+        current_table_count = 0
 
-    for para in doc.paragraphs:
+    for block in _iter_blocks(doc):
+        if isinstance(block, Table):
+            # python-docx keeps cell text out of doc.paragraphs, so tables used
+            # to be dropped silently: unsearchable and unusable as evidence.
+            table_text = _table_text(block)
+            if table_text:
+                current_text.append(table_text)
+                current_table_count += 1
+            continue
+
+        para = block
         style_name = para.style.name if para.style else ""
 
         # Detect heading styles
@@ -88,6 +104,32 @@ def parse(path: str | Path, base_dir: str | Path = ".") -> list[SourceSection]:
 
     _flush()
     return sections
+
+
+def _iter_blocks(doc):
+    """Yield paragraphs and tables in document order.
+
+    `doc.paragraphs` and `doc.tables` are separate lists, so their relative
+    position is lost; walking the body children restores it.
+    """
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
+
+    for child in doc.element.body.iterchildren():
+        if child.tag.endswith("}p"):
+            yield Paragraph(child, doc)
+        elif child.tag.endswith("}tbl"):
+            yield Table(child, doc)
+
+
+def _table_text(table) -> str:
+    """Render a table as one pipe-separated line per row."""
+    rows: list[str] = []
+    for row in table.rows:
+        cells = [cell.text.strip().replace("\n", " ") for cell in row.cells]
+        if any(cells):
+            rows.append(" | ".join(cells))
+    return "\n".join(rows)
 
 
 def _para_image_count(paragraph) -> int:
