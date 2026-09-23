@@ -374,19 +374,28 @@ hooks 最小接线（✅ 结果上限落 `after_tool`、白名单门落 `before_
 **当前状态**：`pytest` job 稳定通过（约 5.5 分钟）；`Playwright` 与 `vitest` job 在共享 runner 上仍偶发超时，两个 job 已加 `--retries=2`。
 
 **仍未做（诚实记账）**：① 这两套 UI 测试需要专门去抖（或把慢用例标记隔离），**去抖完成前它们带重试、不作为「确定性」依据**；② Python 侧没有 lock 文件（前端有 `package-lock.json`），依赖漂移还会再来——这是补完 CI 之后最该做的下一件基建；③ `actions/*@v4` 有 Node 20 弃用告警，待统一升级。
-### 「原文查看」交付记录（2026-09-23，进行中）
 
-**做了什么（后端）**：`GET /api/kb/documents/{id}/raw` —— 只读、按 `documents.path` 定位真实文件、**工作区包含性校验**、按扩展名给媒体类型、`inline` 优先（PDF 交给浏览器内置阅读器）。服务层是 `DocumentEditService.resolve_source_path()` + `raw_file()`，复用了编辑功能已有的「从 document_id 找回真实文件」能力。
+### 「原文查看 + 资料联动」交付记录（2026-09-23 完成）
 
-**证据**：`tests/test_document_raw_file.py` 8 条（含三种越界拒绝：工作区外绝对路径、`../` 逃逸、空路径）。全量 1584 passed。
+**做了什么**：让用户**看得到原件**，并让「引用 → 原文」这条路**真的落到位**。
 
-**已完成**：后端只读端点（含包含性校验）+ Reader 的「查看原文」入口（✅ 前端，经 fetch+blob 走资料库头）。
+| 层 | 状态 | 证据 |
+|---|---|---|
+| 只读原件端点 | 已验证 | `GET /api/kb/documents/{id}/raw`：按 `documents.path` 定位真实文件、**resolve 后必须落在工作区内**、按扩展名给媒体类型、`inline` 优先（PDF 直接交给浏览器内置阅读器）。服务层是 `DocumentEditService.resolve_source_path()` + `raw_file()`，复用编辑功能已有的「从 document_id 找回真实文件」能力。`tests/test_document_raw_file.py` 13 条（含三类越界拒绝：工作区外绝对路径、`../` 逃逸、空路径） |
+| 受限附件端点 | 已验证 | `GET /api/kb/documents/{id}/asset?path=`：**只允许图片扩展名**并拒绝 `.git/.knowledge/.bobodan/node_modules/__pycache__`（审查抓出的真实漏洞：只校验"在工作区内"时，markdown 写 `![](../.env)` 就能读走密钥）。`?library=` 兜底**只对** `/asset` 与 `/raw` 两条路径生效——拓宽的是通道，不是权限 |
+| Reader 两段视图 | 已验证 | 「原文 \| 按小节」：`.md/.txt` 页内渲染原文（frontmatter 折叠成「▸ 元数据」、图片走 `/asset`）、`.pdf` 用 `<iframe>` 原生阅读器 + Bobodan 工具条、`.docx/.pptx` 保持分段并给「用系统打开」；偏好用 localStorage **全局**记忆；带 `?chunk=` 进入时强制分段并高亮；原文视图只读；**不能页内显示原件时隐藏切换器**。`_public_document` 增加 `has_original`，**路径不外泄** |
+| ① ② 落点统一 | 已验证 | 原先**五处**各自手拼 `/library?…&document=…`，目标是资料库**列表页**而它不渲染 sections，所以传了 `chunk` 也永远找不到节点。现统一走 `lib/documentLinks.ts::readerLocation()` → `/library/read/{id}?collection=…&chunk=…`（5 条单测） |
+| ③ 定位提示 + 高亮 | 已验证 | 带 `chunk` 进入时顶部显示「已定位到引用段落 · 看原文」。**修法用了五轮才找对**：前五轮都在"命令式查找 + 定时"上加补丁（直接查 → 成功才清 pending → rAF 重试 8 帧）全部失败；埋点实测给出关键两条——`highlightedChunk` **从未被设置**（不是设了又被清），而**目标 id 确实在 DOM 里且 URL 参数正确** → 换机制：删掉 `querySelectorAll` 的 effect，改由**目标 `<section>` 的 ref 回调在挂载那一刻**自己高亮并滚动。**教训**：和绘制抢时序的命令式查找不可靠，挂载时机由 React 告诉你 |
+| ④ 搜索 → 命中片段 | 已验证 | 后端 `POST /api/kb/search` 返回的 `{chunk_id, document_id, collection, source, score, retrievers}` **正好是 `readerLocation()` 的输入**——所以这是接线不是新功能：资料库检索结果列表（300ms 去抖）逐条深链到命中片段，复用 ③ 的通道 |
+| ⑤ PDF 引用引导 | 已验证（限类型/构建/回归级） | 提示条区分格式：PDF 明确说明"原件无法高亮，已在「按小节」" |
+| 视觉返工（用户反馈） | 已验证 | 切换器被指出"不符合本项目的审美和 UI/UX"，改完又指出"还是跟左边两个按钮不一样"。根因：它是件**手写控件**——自拼十六进制色、选中态整块实心蓝、26px/6px 圆角/400 字重，而邻居是 40px/`--radius-md`/13px/650 且选中态走 wash+墨蓝+内侧边（`DESIGN.md`：**从不用实心填充**）。两轮修成 token + 几何对齐 |
 
-**已完成**：后端只读端点 + Reader「查看原文」入口 + **图片可渲染**（`/asset` 受限端点，只允许图片扩展名并拒绝内部路径段）+ **DOCX 表格解析修复**（并按目标在真实库重跑 sync：updated 0、签名首次写入、证据 stale 0）。
+**验证**：pytest **1592 passed**、vitest **91 passed / 15 files**、`tsc --noEmit` 0、eslint 0 problems/0 warnings、生产构建 0、仓库全量 Playwright **88 passed / 11 skipped / 0 failed**；`BOBODAN_E2E_LIVE=1` 的 live 检查（真实后端 + 真实资料库）**3 passed**——默认进原文视图 / 带 `chunk` 进入 → 提示条 + 目标小节高亮 + 「看原文」切回 / 资料库搜索命中 → 点进资料 → 落在命中片段。测试文件：`tests/test_document_raw_file.py`(13)、`web/frontend/src/lib/{readerView,documentLinks,api}.test.ts`、`web/frontend/e2e/live.spec.ts`。
 
-**仍未做**：原文入口与图片的 e2e（需要完整资料库 fixture）；`table_count` 尚未接进提取报告聚合（只在 section metadata 里）；G2 尾巴（429 断点续传、设置页「向量模型」、G4 评测集）。
+**仍未做（诚实记账）**：① ③⑤ 的 PDF 分支与 ⑤ 的文案**没有在真实数据上跑过**——该资料库没有 PDF，只做到类型/构建/回归级验证；② 可进 CI 的 mock e2e 仍缺一个 `activeLibrary` 夹具缝（现在的 live 检查要真实后端 + 真实库，只在 `BOBODAN_E2E_LIVE=1` 时跑）；③ PDF `<iframe>` 的内联 `style` 尚未收进样式表；④ `openDocumentRaw` 已无应用代码调用（仍导出并有测试）；⑤ `table_count` 尚未接进提取报告聚合（只在 section metadata 里）；⑥ G2 尾巴：429 断点续传、设置页「向量模型」、G4 召回评测集。
 
-**明确的不要做**：PDF→图片/自研渲染器（浏览器内置阅读器零成本）；OCR（属 W2 G5）。
+**明确的不要做**：PDF→图片/自研渲染器（浏览器内置阅读器零成本）；OCR（属 W2 G5）；docx/pptx 转换。
+
 ### 单项完成定义
 
 一项路线任务只有同时满足以下条件才能标记为 `已验证`：

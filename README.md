@@ -42,7 +42,7 @@
   <tr>
     <td width="50%" valign="top">
       <img src="docs/assets/screenshots/02-library.png" alt="Bobodan Library 资料库" />
-      <p align="center"><strong>Library · 阅读原始资料</strong><br />按 heading、页码或 slide 定位，并保留原文上下文。</p>
+      <p align="center"><strong>Library · 阅读原始资料</strong><br />页内直接看原件，或按 heading、页码、slide 定位并保留原文上下文。</p>
     </td>
     <td width="50%" valign="top">
       <img src="docs/assets/screenshots/03-practice.png" alt="Bobodan Practice 练习" />
@@ -97,7 +97,7 @@ flowchart LR
 
 | 模块 | 能做什么 | 关键边界 |
 | --- | --- | --- |
-| 资料库 | 管理多个本地资料库，导入 Markdown、TXT、PDF、DOCX、PPTX，并在 Library 中阅读和定位原文 | 原始资料不会被 AI 自动修改、移动或删除 |
+| 资料库 | 管理多个本地资料库，导入 Markdown、TXT、PDF、DOCX、PPTX，并在 Library 中阅读原件、定位引用片段 | 原始资料不会被 AI 自动修改、移动或删除 |
 | 有证据边界的对话 | 调用资料检索、知识地图、个人知识、练习和学习工具 | 区分本地资料、网页来源、AI 补充和待核实内容 |
 | 本地 RAG | SQLite FTS5 中文检索，可选 Qdrant 向量索引和 RRF 混合检索 | 没有可用 embedding 时自动降级为 FTS-only，并把状态交给界面 |
 | 练习与复习 | 单选、判断、简答、自动批改、错题变式、掌握度和间隔复习 | 题目来源确定性保存，模型不能自行伪造来源 |
@@ -113,6 +113,7 @@ flowchart LR
 - `knowledge.db` 保存文档、chunk、heading、页码/slide 和检索记录，是 RAG 的文本真相源。
 - FTS5 使用 NFKC、casefold 和中文 CJK 2-gram，中文查询不依赖空格分词。
 - 支持 `hybrid`、`directory`、`directory + grep` 三种检索路径，既能返回 chunk 证据，也能先定位文档再回到原文片段。
+- 阅读器有两种视图：「原文」页内渲染 Markdown/TXT 原件，PDF 用浏览器内置阅读器，DOCX/PPTX 交给系统打开；「按小节」展示解析后的分段。视图偏好全局记忆，从引用或搜索结果带着 `?chunk=` 进入时自动切到分段并高亮该段落。
 
 ### 练习、掌握度与知识地图
 
