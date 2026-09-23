@@ -217,6 +217,10 @@
 - **Docs cleanup**: 新增 `docs/README.md` 作为文档索引，新增 `docs/DESIGN.md` 作为长期视觉设计参考；将 `docs/OPENAI_AGENT_CODEX_REFERENCE_FOR_BOBODAN.md` 纳入当前工程边界参考；将已实现或历史详细设计移入 `docs/archive/`，当前执行入口收敛到 `docs/NEXT_STEPS_EXECUTION_PLAN.md`。
 - **REPL UI 改进**: thinking 动效增加实时计时器（`⠋ thinking · 3.2s`）。工具调用显示改为 Claude Code 风格（`▸ tool_name(args)` → `✓ preview`），消除多余空白行。thinking 动效在工具执行期间保持可见。
 ### 修复
+- **CI 首跑暴露的两个真问题（2026-09-23）**：新加的 CI 在 main 上第一次运行就把两个「本机永远看不到」的坑照了出来。
+  - ① 仓库根目录的 `test_agent.py` 是手工冒烟脚本，缺 `MINIMAX_API_KEY` 就在 import 时 `exit(1)`；本机有 `.env` 所以一直没事，CI 里直接把整个 pytest 变成 **INTERNALERROR（收集期崩溃）**——仓库此前**没有任何 pytest 配置**，pytest 默认从根目录收集。修法：新增 `pytest.ini` 的 `testpaths = tests`，本机与 CI 从此收集同一批文件。**修前失败信号**：`INTERNALERROR> ... File "test_agent.py", line 17, in <module> / SystemExit: 1`。
+  - ② `requirements.txt` 里 `mcp>=1.0` 没有上界，CI 装到 **2.2.0**，而 `mcp_client/transport_http.py` 与它的测试是按 1.x 的 `streamablehttp_client` 写的；本机是 1.19.0，所以这条永远是绿的。**修前失败信号**：`ImportError: cannot import name 'streamablehttp_client' from 'mcp.client.streamable_http'`。修法：`mcp>=1.0,<2`，并记录「升级 2.x 需要同时改该模块与测试」。
+  - **仍未解决**：Python 侧没有 lock 文件（前端有 `package-lock.json`），同一类漂移还会再出现。这是补完 CI 之后最该做的下一件基建。
 - **A4 止血 · P0-4 静态托管路径穿越（2026-09-14）**：`web/backend/static.py::spa_fallback` 直接 `dist / full_path` 后交给 `FileResponse`。Windows 上带盘符的绝对路径会**整体替换**左侧（`dist / "C:/Windows/win.ini"` 就是那个文件），百分号编码的 `..%2F` 则在所有平台越界。
   - 复现：`tests/test_static_hosting.py` 新增两条用例（百分号编码穿越、Windows 盘符绝对路径），断言越界必须 404 且响应体不含 canary 文件内容。**修前失败信号**：`assert 200 == 404`；另外单独探针确认两种请求都返回 `200` 且响应体就是 canary 原文（不是回退到 SPA index）。
   - 修法：candidate 先 `resolve()`，必须 `is_relative_to(dist)` 才允许返回；越界一律 404，不再回退 SPA index（避免用 200 掩护探测）。
