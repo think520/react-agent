@@ -132,7 +132,7 @@ export function ReaderPage() {
     openTab(selectedId);
     if (pageRef.current) pageRef.current.scrollTop = scrolls[selectedId] || 0;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedId, chunkParam]);
+  }, [selectedId]);
 
   useEffect(() => {
     setSelectionQuote("");
@@ -151,7 +151,8 @@ export function ReaderPage() {
         .catch(() => { if (!cancelled) setRelatedNotes([]); });
     }
     return () => { cancelled = true; };
-  }, [selectedId, collection]);
+    // chunkParam 决定这次进入是否带引用片段（要不要保留高亮），列进依赖。
+  }, [selectedId, collection, chunkParam]);
 
   useEffect(() => {
     if (!activeLibrary || collection !== "material") { setExtractionStatuses({}); return; }
