@@ -1687,41 +1687,47 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
   .bank-answer-grid { grid-template-columns: minmax(0,1fr); }
 }
 
-/* 阅读视图切换：两段控件。之前是裸 <button>：没有样式、也看不出当前在哪一态。 */
+/* 阅读视图切换：与 .km-density-toggle / .mention-tabs 同一套选中语言
+   —— DESIGN.md §913：当前项用墨蓝浅底 + 墨蓝文字 + 清楚边线，不用实心色块。 */
 .reader-view-switch {
   display: inline-flex;
-  align-items: stretch;
-  border: 1px solid rgba(0, 0, 0, 0.12);
-  border-radius: 8px;
-  overflow: hidden;
-  background: #fff;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border, #ddd);
+  border-radius: 6px;
+  background: var(--paper-soft, #faf9f5);
 }
 
 .reader-view-switch button {
   appearance: none;
+  min-height: 26px;
+  padding: 0 10px;
   border: 0;
+  border-radius: 4px;
   background: transparent;
-  color: #5b6472;
+  color: var(--muted, #7a7062);
   font: inherit;
-  line-height: 1;
-  padding: 6px 12px;
+  font-size: 13px;
   cursor: pointer;
 }
 
-.reader-view-switch button + button {
-  border-left: 1px solid rgba(0, 0, 0, 0.12);
+.reader-view-switch button:hover {
+  background: var(--blue-wash, #edf1f6);
+  color: var(--blue, #1b365d);
 }
 
-.reader-view-switch button:hover {
-  background: rgba(0, 0, 0, 0.04);
+.reader-view-switch button:active {
+  transform: scale(.97);
 }
 
 .reader-view-switch button.active {
-  background: #2563eb;
-  color: #fff;
+  background: var(--blue-wash, #edf1f6);
+  color: var(--blue, #1b365d);
   font-weight: 600;
+  box-shadow: inset 0 0 0 1px rgba(27, 54, 93, 0.22);
 }
-/* 从引用跳进来时的定位提示。 */
+/* 从引用跳进来时的定位提示：同样走墨蓝浅底，与选中态同一族。 */
 .reader-citation-bar {
   display: flex;
   align-items: center;
@@ -1729,9 +1735,10 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
   gap: 12px;
   margin: 0 0 12px;
   padding: 8px 12px;
-  border: 1px solid rgba(37, 99, 235, 0.35);
-  border-radius: 8px;
-  background: rgba(37, 99, 235, 0.06);
+  border: 1px solid var(--border, #ddd);
+  border-radius: 6px;
+  background: var(--blue-wash, #edf1f6);
+  color: var(--blue, #1b365d);
   font-size: 13px;
 }
 
