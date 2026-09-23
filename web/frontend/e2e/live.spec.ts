@@ -48,3 +48,26 @@ test("the reader renders the original file for a real document", async ({ page }
   await expect(page.locator(".reader-prose")).toBeVisible();
   await expect(page.locator("section.highlighted")).toHaveCount(1, { timeout: 10_000 });
 });
+test("a citation link lands on the cited chunk and offers the way back", async ({ page }) => {
+  const registry = await (await page.request.get(BASE + "/api/libraries")).json();
+  const headers = { "X-Bobodan-Library-ID": registry.active_library_id };
+  const listed = await (await page.request.get(BASE + "/api/kb/documents?collection=material", { headers })).json();
+  const doc = (listed.documents || []).find((item: { has_original?: boolean }) => item.has_original);
+  test.skip(!doc, "这个资料库里没有带原件的资料");
+
+  await page.addInitScript(() => localStorage.setItem("bobodan:onboarding:v1", "complete"));
+  await page.goto(BASE + "/library/read/" + doc.document_id + "?collection=material");
+  await page.getByRole("button", { name: "按小节" }).click();
+  const chunkId = await page.locator("[data-chunk-id]").first().getAttribute("data-chunk-id");
+  expect(chunkId).toBeTruthy();
+
+  await page.goto(
+    BASE + "/library/read/" + doc.document_id + "?collection=material&chunk=" + encodeURIComponent(chunkId as string),
+  );
+  await expect(page.locator(".reader-citation-bar")).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator("section.highlighted")).toHaveCount(1, { timeout: 10_000 });
+
+  await page.getByRole("button", { name: "看原文" }).click();
+  await expect(page.locator(".reader-original")).toBeVisible();
+  await expect(page.locator(".reader-citation-bar")).toHaveCount(0);
+});

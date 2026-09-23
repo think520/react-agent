@@ -89,6 +89,7 @@ export function ReaderPage() {
   const effectiveView = readerView.view;
   const showOriginal = readerView.view === "original";
   const originalParts = splitFrontmatter(originalText);
+  const arrivedViaCitation = Boolean(chunkParam) && forcedSections;
 
   const scrollToChunk = useCallback((chunkId: string) => {
     const target = Array.from(document.querySelectorAll<HTMLElement>("[data-chunk-id]"))
@@ -130,7 +131,7 @@ export function ReaderPage() {
   useEffect(() => {
     setSelectionQuote("");
     setRelatedNotes([]);
-    setHighlightedChunk(null);
+    if (!chunkParam) setHighlightedChunk(null);
     if (!selectedId) { setSections([]); return; }
     let cancelled = false;
     setDetailLoading(true);
@@ -188,16 +189,15 @@ export function ReaderPage() {
   // 复审发现的 bug：forcedSections 是"本次跳转"的临时状态，换资料必须复位，
   // 否则跳转过一次之后，后面每份资料都会停在分段视图（而偏好并没有变）。
   useEffect(() => {
+    if (chunkParam) return;
     setForcedSections(false);
     setPendingChunk(null);
-  }, [selectedId]);
+  }, [selectedId, chunkParam]);
 
   // 从原文/PDF 视图发起的跳转：等分段视图渲染出 [data-chunk-id] 之后再滚动高亮。
-  useEffect(() => {
-    if (!pendingChunk || showOriginal) return;
-    scrollToChunk(pendingChunk);
-    setPendingChunk(null);
-  }, [pendingChunk, showOriginal, scrollToChunk]);
+  // 引用跳转的落点交给下面那个 section 的 ref 回调：节点挂载那一刻就知道"到了"。
+  // 这里曾经用 useEffect + querySelectorAll 去"找"目标，实测证明它在目标绘制之前
+  // 就把 pending 清掉了（pending=- 而 hl=-、DOM 里却已有 64 个节点）。
 
   // 从别处（聊天的「查看来源」）带着 chunk 进来：落到分段视图并定位那一段。
   // 之前阅读器完全不读这个参数，于是"跳过来找不到引用的段落"。
@@ -443,6 +443,14 @@ export function ReaderPage() {
           <EmptyState compact title="资料不存在" description="这份资料可能已被归档。" state="resting" />
         ) : (
           <article className="reader-article">
+            {arrivedViaCitation && (
+              <div className="reader-citation-bar" role="status">
+                <span>已定位到引用段落</span>
+                <button className="quiet-button" type="button" onClick={() => chooseView("original")}>
+                  看原文
+                </button>
+              </div>
+            )}
             {selectionQuote && <div className="selection-toolbar"><Quote size={15} /><span>已选择 {selectionQuote.length} 个字符</span><button className="quiet-button" onClick={askAboutSelection}>带到对话</button><button className="quiet-button" onClick={createPracticeFromSelection}>基于此出题</button><button className="quiet-button" onClick={() => setSelectionQuote("")}>取消</button></div>}
             {detailLoading && !sections.length ? <LoadingState label="正在打开资料…" state="reading" /> : showOriginal ? (
               inlineOriginal === "pdf" ? (
@@ -502,7 +510,15 @@ export function ReaderPage() {
               const previous = index > 0 ? sections[index - 1] : undefined;
               const showHeading = Boolean(section.heading) && section.heading !== previous?.heading;
               return (
-                <section className={highlightedChunk === section.chunk_id ? "highlighted" : ""} data-chunk-id={section.chunk_id} key={section.chunk_id}>
+                <section className={highlightedChunk === section.chunk_id ? "highlighted" : ""} data-chunk-id={section.chunk_id}
+                  ref={(element) => {
+                    // 只对"这次要跳过去的"那一段动手；挂载即命中，不依赖计时器。
+                    if (element && pendingChunk === section.chunk_id) {
+                      setHighlightedChunk(section.chunk_id);
+                      element.scrollIntoView({ block: "center", behavior: "smooth" });
+                      setPendingChunk(null);
+                    }
+                  }} key={section.chunk_id}>
                   {showHeading && <h3>{section.heading}</h3>}
                   <div className="section-location">{section.page_start ? "第 " + section.page_start + " 页" : section.slide_start ? "第 " + section.slide_start + " 页" : "资料片段"}</div>
                   <div className="reader-section-prose">
