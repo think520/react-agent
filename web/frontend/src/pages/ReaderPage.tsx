@@ -11,13 +11,25 @@ import { useNavigate, useOutletContext, useParams, useSearchParams } from "react
 import type { AppOutletContext } from "../components/AppShell";
 import { EmptyState, ErrorNotice, LoadingState } from "../components/common";
 import { DocumentEditor } from "../components/DocumentEditor";
-import { ApiError, api, documentAssetUrl, openDocumentRaw } from "../lib/api";
+import { ApiError, api, documentAssetUrl, fetchDocumentRawText, openDocumentRaw, splitFrontmatter } from "../lib/api";
 import { useHandoffStore } from "../stores/handoffStore";
 import { useReaderTabsStore } from "../stores/readerTabsStore";
 import { useConfirm } from "../ui/Modal";
 import type { DocumentExtractionStatus, DocumentSection, DocumentSummary, PersonalKnowledgeItem } from "../types";
 
 const EDITABLE_KINDS = new Set(["md", "txt", "markdown", "course_document", "obsidian_note"]);
+
+/** 页内原文视图的状态模型（Q2/Q7 的共识）。 */
+type ReaderView = "original" | "sections";
+const READER_VIEW_KEY = "bobodan:reader-view";
+/** 只有浏览器能当文本渲染的格式才进页内原文；pdf 走 iframe，docx/pptx 走系统打开。 */
+const INLINE_ORIGINAL_EXTENSIONS = new Set(["md", "markdown", "txt"]);
+
+function documentExtension(source: string | undefined): string {
+  const name = (source || "").toLowerCase();
+  const dot = name.lastIndexOf(".");
+  return dot >= 0 ? name.slice(dot + 1) : "";
+}
 
 export function ReaderPage() {
   const { id } = useParams();
@@ -38,6 +50,16 @@ export function ReaderPage() {
   const [editingDocumentId, setEditingDocumentId] = useState<string | null>(null);
   const [startingExtractionId, setStartingExtractionId] = useState<string | null>(null);
   const [extractionStatuses, setExtractionStatuses] = useState<Record<string, DocumentExtractionStatus>>({});
+  const [view, setView] = useState<ReaderView>(() => {
+    try {
+      return window.localStorage.getItem(READER_VIEW_KEY) === "sections" ? "sections" : "original";
+    } catch {
+      return "original";
+    }
+  });
+  const [forcedSections, setForcedSections] = useState(false);
+  const [originalText, setOriginalText] = useState("");
+  const [originalError, setOriginalError] = useState("");
   const [railOpen, setRailOpen] = useState(false);
   const pageRef = useRef<HTMLElement>(null);
   const readingOpenedRef = useRef(false);
@@ -61,6 +83,12 @@ export function ReaderPage() {
 
   const selectedId = id ?? null;
   const selected = documents.find((document) => document.document_id === selectedId) ?? null;
+  const canShowOriginal =
+    Boolean(selected?.has_original) && INLINE_ORIGINAL_EXTENSIONS.has(documentExtension(selected?.source));
+  // 带跳转意图进来（搜索/引用）时强制分段视图，但不动用户偏好。
+  const effectiveView: ReaderView = forcedSections || !canShowOriginal ? "sections" : view;
+  const showOriginal = effectiveView === "original";
+  const originalParts = splitFrontmatter(originalText);
   const selectedIndex = documents.findIndex((document) => document.document_id === selectedId);
   const openTab = useReaderTabsStore((state) => state.open);
   const closeTab = useReaderTabsStore((state) => state.close);
@@ -142,6 +170,45 @@ export function ReaderPage() {
     }, 1000);
     return () => window.clearInterval(timer);
   }, [selectedId, detailLoading, sections.length]);
+
+  // 跳转（搜索/引用）一律走分段视图：高亮靠"一 chunk 一个 DOM 节点"，而 chunk 的
+  // char 偏移是相对 section 文本算的（2026-09-23 验证），映射回整篇文件并不便宜。
+  useEffect(() => {
+    if (highlightedChunk) setForcedSections(true);
+  }, [highlightedChunk]);
+
+  // 复审发现的 bug：forcedSections 是"本次跳转"的临时状态，换资料必须复位，
+  // 否则跳转过一次之后，后面每份资料都会停在分段视图（而偏好并没有变）。
+  useEffect(() => {
+    setForcedSections(false);
+  }, [selectedId]);
+
+  useEffect(() => {
+    setOriginalText("");
+    setOriginalError("");
+    if (!selected || !canShowOriginal || !showOriginal) return;
+    let cancelled = false;
+    void fetchDocumentRawText(selected.document_id)
+      .then((text) => {
+        if (!cancelled) setOriginalText(text);
+      })
+      .catch((reason) => {
+        if (!cancelled) setOriginalError(reason instanceof Error ? reason.message : "无法读取原文。");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selected, canShowOriginal, showOriginal]);
+
+  function chooseView(next: ReaderView) {
+    setForcedSections(false);
+    setView(next);
+    try {
+      window.localStorage.setItem(READER_VIEW_KEY, next);
+    } catch {
+      // 隐私模式：不记住也无妨，默认就是原文
+    }
+  }
 
   function recordReadingProgress() {
     const element = pageRef.current;
@@ -289,17 +356,33 @@ export function ReaderPage() {
               <button className="primary-button reader-extract" disabled={startingExtractionId === selected.document_id || !sections.length} onClick={() => void extractAndReview(selected, true)}><RefreshCw size={15} />重新提取</button>
             )}
             {editAction}
-            {selected && selected.collection === "material" && (
+            {selected && canShowOriginal && (
+              <div className="reader-view-switch" role="group" aria-label="阅读视图">
+                <button
+                  className={effectiveView === "original" ? "active" : ""}
+                  onClick={() => chooseView("original")}
+                >
+                  原文
+                </button>
+                <button
+                  className={effectiveView === "sections" ? "active" : ""}
+                  onClick={() => chooseView("sections")}
+                >
+                  按小节
+                </button>
+              </div>
+            )}
+            {selected && !canShowOriginal && Boolean(selected.has_original) && (
               <button
                 className="quiet-button reader-original"
-                title="打开原件（解析会丢图片与表格，原件才是事实来源）"
+                title="用系统打开原件（这类格式浏览器无法页内渲染）"
                 onClick={() => {
                   void openDocumentRaw(selected.document_id).catch((reason) =>
                     setError(reason instanceof Error ? reason.message : "无法打开原文。"),
                   );
                 }}
               >
-                查看原文
+                用系统打开
               </button>
             )}
           </div>
@@ -332,7 +415,36 @@ export function ReaderPage() {
         ) : (
           <article className="reader-article">
             {selectionQuote && <div className="selection-toolbar"><Quote size={15} /><span>已选择 {selectionQuote.length} 个字符</span><button className="quiet-button" onClick={askAboutSelection}>带到对话</button><button className="quiet-button" onClick={createPracticeFromSelection}>基于此出题</button><button className="quiet-button" onClick={() => setSelectionQuote("")}>取消</button></div>}
-            {detailLoading && !sections.length ? <LoadingState label="正在打开资料…" state="reading" /> : sections.length ? <div className={`reader-prose ${detailLoading ? "refreshing" : ""}`} onMouseUp={captureSelection}>{sections.map((section, index) => {
+            {detailLoading && !sections.length ? <LoadingState label="正在打开资料…" state="reading" /> : showOriginal ? (
+              <div className="reader-prose reader-original" onMouseUp={captureSelection}>
+                {originalParts.meta && (
+                  <details className="reader-meta">
+                    <summary>元数据</summary>
+                    <pre>{originalParts.meta}</pre>
+                  </details>
+                )}
+                {originalParts.body ? (
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      img: ({ src, alt }) => (
+                        <img
+                          src={documentAssetUrl(selected.document_id, src ?? "")}
+                          alt={alt ?? ""}
+                          loading="lazy"
+                        />
+                      ),
+                    }}
+                  >
+                    {originalParts.body}
+                  </ReactMarkdown>
+                ) : originalError ? (
+                  <p className="text-faint">{originalError}</p>
+                ) : (
+                  <LoadingState label="正在读取原文…" state="reading" />
+                )}
+              </div>
+            ) : sections.length ? <div className={`reader-prose ${detailLoading ? "refreshing" : ""}`} onMouseUp={captureSelection}>{sections.map((section, index) => {
               const previous = index > 0 ? sections[index - 1] : undefined;
               const showHeading = Boolean(section.heading) && section.heading !== previous?.heading;
               return (

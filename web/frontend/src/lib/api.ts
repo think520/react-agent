@@ -735,6 +735,32 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
  * resolved path to stay inside the workspace. Absolute/data/blob sources are
  * left alone: they are not ours to rewrite.
  */
+/** The original file's text, for the in-page original view (md/txt only). */
+export async function fetchDocumentRawText(documentId: string): Promise<string> {
+  const response = await fetch(documentRawUrl(documentId), {
+    headers: activeLibraryId ? { "X-Bobodan-Library-ID": activeLibraryId } : undefined,
+  });
+  if (!response.ok) {
+    throw new ApiError(
+      "无法读取原文 (" + response.status + ")",
+      "document_raw_unavailable",
+      response.status,
+    );
+  }
+  return response.text();
+}
+
+/**
+ * Split leading YAML frontmatter so the reader can *fold* it instead of either
+ * dumping it at the top of every article or quietly hiding part of the file.
+ */
+export function splitFrontmatter(text: string): { meta: string; body: string } {
+  const match = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(text || "");
+  if (!match) return { meta: "", body: text || "" };
+  return { meta: match[1].trim(), body: (text || "").slice(match[0].length) };
+}
+
+
 export function documentAssetUrl(documentId: string, source: string): string {
   if (!source || /^(https?:|data:|blob:|\/)/i.test(source)) return source;
   const base =

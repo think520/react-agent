@@ -1,6 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ApiError, RESUME_DELAYS_MS, api, documentAssetUrl, openDocumentRaw, streamChat } from "./api";
+import {
+  ApiError,
+  RESUME_DELAYS_MS,
+  api,
+  documentAssetUrl,
+  openDocumentRaw,
+  splitFrontmatter,
+  streamChat,
+} from "./api";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -238,6 +246,22 @@ describe("api client", () => {
     await expect(openDocumentRaw("doc-1")).rejects.toMatchObject({ code: "popup_blocked" });
     expect(fetchMock).not.toHaveBeenCalled();
     open.mockRestore();
+  });
+
+
+  it("folds YAML frontmatter instead of showing it or dropping it", () => {
+    const withMeta = splitFrontmatter("---\ncourse: 数据结构\ntags: [a]\n---\n# 标题\n正文\n");
+    expect(withMeta.meta).toBe("course: 数据结构\ntags: [a]");
+    expect(withMeta.body.startsWith("# 标题")).toBe(true);
+
+    const plain = splitFrontmatter("# 只是正文\n");
+    expect(plain.meta).toBe("");
+    expect(plain.body).toBe("# 只是正文\n");
+
+    // A document that merely starts with a rule must not lose its first line.
+    const ruleOnly = splitFrontmatter("---\n就是一条分隔线\n");
+    expect(ruleOnly.meta).toBe("");
+    expect(ruleOnly.body).toBe("---\n就是一条分隔线\n");
   });
 
   it("rewrites relative image sources to the asset endpoint", () => {

@@ -105,6 +105,8 @@ export interface DocumentSummary {
   content_hash?: string;
   managed?: boolean;
   origin?: "managed" | "workspace" | "legacy_index" | string;
+  /** 后端判定有没有原件，用于决定页内原文视图（不泄露路径）。 */
+  has_original?: boolean;
   chunk_count?: number;
   collection: "material" | "wiki";
   wiki_type?: "source" | "entity" | "concept" | "analysis" | "question" | "note" | null;
