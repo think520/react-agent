@@ -7,6 +7,7 @@ import {
   documentAssetUrl,
   documentRawEmbedUrl,
   downloadDocumentRaw,
+  openDocumentRaw,
   splitFrontmatter,
   streamChat,
 } from "./api";

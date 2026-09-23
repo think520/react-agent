@@ -815,7 +815,21 @@ export function documentRawUrl(documentId: string): string {
 }
 
 /**
-
+ * Open the original file in a new tab (原文查看).
+ *
+ * Parsing loses images and flattens tables, so the reader has to be able to see
+ * the file itself. A plain <a href> cannot carry the library header, so the
+ * bytes are fetched first and handed to the browser as a blob - PDFs still land
+ * in the built-in viewer, and what arrives is the untouched original.
+ */
+export async function openDocumentRaw(documentId: string): Promise<void> {
+  // Open the tab *synchronously*: once we await, the user gesture is gone and
+  // popup blockers win. "noopener" is set by hand because passing it to
+  // window.open makes the returned handle unusable.
+  const target = window.open("", "_blank");
+  if (!target) {
+    throw new ApiError("浏览器拦截了新标签页", "popup_blocked", 0);
+  }
   target.opener = null;
   try {
     const response = await fetch(documentRawUrl(documentId), {
