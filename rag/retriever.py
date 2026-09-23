@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import os
 import json
+import logging
 import threading
 from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Any
 from knowledge.paths import knowledge_path
+from rag.embedding_signature import mismatch_reason
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -84,10 +88,18 @@ def _retrieval_pipeline_unlocked(workspace: str, config: dict) -> _CachedPipelin
     # P0-15: never construct a second local client for the same directory.
     qdrant = shared_qdrant_store(workspace, config)
     embedding = EmbeddingService(config)
+    provider = embedding.provider
+    # G2: vectors only mean something next to the model that produced them. On a
+    # signature mismatch the vector leg is dropped entirely, so the answer is an
+    # honest FTS5-only one instead of a confident answer built on foreign vectors.
+    reason = mismatch_reason(workspace, embedding.get_model_info())
+    if reason:
+        logger.warning("Semantic search disabled for %s: %s", workspace, reason)
+        provider = None
     orchestrator = RetrievalOrchestrator(
         # B2: the provider contract (is_available + embed) is all the hybrid
         # retriever needs, so it takes the provider rather than a client.
-        HybridRetriever(sqlite, qdrant, embedding.provider, config),
+        HybridRetriever(sqlite, qdrant, provider, config),
         DirectoryRetriever(sqlite, config),
         GrepRetriever(workspace, config),
         config,

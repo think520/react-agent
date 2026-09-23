@@ -21,6 +21,7 @@ from knowledge.import_report import ImportReport, save_import_report
 from knowledge.manifest import save_manifest
 from knowledge.paths import knowledge_dir
 from rag.source_section import SourceSection
+from rag.embedding_signature import write_signature
 from rag.parsers import parse_document, SUPPORTED_EXTENSIONS
 
 logger = logging.getLogger(__name__)
@@ -576,6 +577,11 @@ def sync_sources(
     # pending; because their content never changes again, a plain sync would
     # never write their vectors and semantic search stayed silently absent.
     vectors_backfilled = backfill_vectors(sqlite, qdrant, embedding, embedding_dim)
+    if embedding.is_available() and embedding_dim:
+        # G2: record which model these vectors belong to. A later provider or
+        # model switch is then caught by the retriever instead of silently
+        # mixing two vector spaces.
+        write_signature(workspace, embedding.get_model_info())
 
     # ── Step 6: Read reviewed concept-map status ────────────────────────
     # Source sync no longer writes the retired JSON graph. Concepts only

@@ -37,6 +37,13 @@ STORES: dict[str, dict[str, Any]] = {
         "rebuildable": True,  # reconnect log; losing it only costs a re-render
         "purpose": "Append-only SSE event log for reconnect replay (P1-17)",
     },
+    "embedding_signature.json": {
+        "owner": "rag/embedding_signature.py",
+        "scope": "library",
+        "format": "json",
+        "rebuildable": True,  # re-written by the next sync; losing it just disables the guard
+        "purpose": "Which provider/model/dimension built the vectors in this library (G2)",
+    },
     "bobodan.db": {
         "owner": "memory/personal_store.py",
         "scope": "library",

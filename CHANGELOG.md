@@ -7,6 +7,9 @@
 ## [未发布]
 
 ### 变更
+- **G2 第二块：embedding 签名版本化（2026-09-23）**：向量只在"产生它的那个模型"旁边才有意义，而此前没有任何地方记录这个配对——换 provider 或换模型后，检索会**静默去查另一个向量空间的库**。现在新增 `rag/embedding_signature.py`：sync 结束时把 `{provider, model, dim}` 原子写入工作区的 `embedding_signature.json`；检索构建管线时比对，不一致就**整条向量腿停用**，并留一条带双方数值的 warning（结果退回 FTS5-only，而不是拿外来向量给出自信的错答案）。文件名已登记进 `core/persistence_registry.py`（tripwire 强制）。
+  - 复现：新增 `tests/test_embedding_signature.py` 六条（匹配不误报、改模型同时报出 model/dim 两侧、无签名不阻断、损坏签名当没有而不是崩、provider 报不出维度时不阻断、**端到端**：sync 写入签名 → `semantic_available: True`；把签名改成另一个模型 → 同一查询变 `False`）。**修前失败信号**：`ModuleNotFoundError: rag.embedding_signature`；接线后又暴露两个既有替身缺 `get_model_info()`（已补）。
+  - G2 剩余：429 **断点续传**（当前是有界重试，不是从失败批次续跑）、设置页「向量模型」、召回评测集（G4）。
 - **G2 第一块：批次维度校验 + 429/5xx 退避重试（2026-09-23）**：真实厂商最常见的失败不是"挂了"而是**限流**——一个 429 过去会让一批 chunk 直接失败、文档留在 pending。现在 `_embed_batch` 做有界指数退避重试（默认 3 次，尊重 `Retry-After`，连接错误与 5xx 同等对待，上限 30s）；同时**把维度当契约**：返回维度与配置不符、或同一批里维度不一致，都在**写进 Qdrant 之前**报错并带上两个数字，而不是让错尺寸向量默默进库（那正是"换模型后静默错配"的入口）。
   - 复现：`tests/test_embedding_provider.py` 新增 4 条（429 两次后成功且只发 3 次请求；重试耗尽后抛错且请求数有上界；维度不符被拒且错误信息含 3/1024；同批维度不一致被拒）。**它立刻抓出一条既有夹具的问题**：预设声明 1024 维而夹具只返回 3 维——说明这条校验真的在守门，不是装饰。
   - G2 剩余：embedding/解析器**签名版本化**（把 provider+model+dim 存下来，不匹配时显式报 `embedding_signature_mismatch` 而不是静默用错向量）、断点续传、设置页「向量模型」、召回评测集。
