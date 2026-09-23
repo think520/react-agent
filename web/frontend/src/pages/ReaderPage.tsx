@@ -27,6 +27,7 @@ export function ReaderPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const collection = searchParams.get("collection") === "wiki" ? "wiki" : "material";
+  const chunkParam = searchParams.get("chunk");
   const { activeLibrary, selectedDocumentIds, toggleDocumentScope } = useOutletContext<AppOutletContext>();
 
   const [documents, setDocuments] = useState<DocumentSummary[]>([]);
@@ -197,6 +198,14 @@ export function ReaderPage() {
     scrollToChunk(pendingChunk);
     setPendingChunk(null);
   }, [pendingChunk, showOriginal, scrollToChunk]);
+
+  // 从别处（聊天的「查看来源」）带着 chunk 进来：落到分段视图并定位那一段。
+  // 之前阅读器完全不读这个参数，于是"跳过来找不到引用的段落"。
+  useEffect(() => {
+    if (!chunkParam) return;
+    setForcedSections(true);
+    setPendingChunk(chunkParam);
+  }, [chunkParam]);
 
   useEffect(() => {
     setOriginalText("");

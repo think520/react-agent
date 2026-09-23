@@ -1687,3 +1687,39 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
   .bank-answer-grid { grid-template-columns: minmax(0,1fr); }
 }
 
+/* 阅读视图切换：两段控件。之前是裸 <button>：没有样式、也看不出当前在哪一态。 */
+.reader-view-switch {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.reader-view-switch button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: #5b6472;
+  font: inherit;
+  line-height: 1;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+.reader-view-switch button + button {
+  border-left: 1px solid rgba(0, 0, 0, 0.12);
+}
+
+.reader-view-switch button:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.reader-view-switch button.active {
+  background: #2563eb;
+  color: #fff;
+  font-weight: 600;
+}
+
+
