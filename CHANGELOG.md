@@ -7,6 +7,9 @@
 ## [未发布]
 
 ### 变更
+- **原文查看（前端入口，2026-09-23）**：Reader 工具栏新增「查看原文」。**不能用普通 `<a href>`**——原文端点要带资料库头（`X-Bobodan-Library-ID`），`<a>` 发不出去，所以改为先 `fetch` 再以 blob 交给浏览器开新标签：PDF 依然落在浏览器内置阅读器里，拿到的还是原件；失败（404 / 弹窗被拦）给中文提示，而不是开一个空白页。
+  - 复现：`web/frontend/src/lib/api.test.ts` 新增 2 条（请求打到 `/api/kb/documents/{id}/raw`、`createObjectURL` 被调用、以 `_blank/noopener` 打开；404 时抛 `document_raw_unavailable`）。验证：`tsc --noEmit` 0、vitest **75 passed**、eslint 0、生产构建 0。
+  - 仍未做：**未加 e2e**（Reader 需要完整的资料库 fixture）；markdown 内图片仍不可渲染（需要"按文档相对目录取附件"的受限端点）。
 - **原文查看（后端一半，2026-09-23）**：解析会丢图片、压平表格，而阅读侧只能看解析文本——用户实际上看不到原件（Obsidian 是直接渲染文件的）。现在新增只读端点 `GET /api/kb/documents/{id}/raw`：按 `documents.path` 定位真实文件，**resolve 后必须落在工作区内**（越界一律 `source_not_found`），按扩展名给媒体类型、`Content-Disposition: inline`（PDF 直接交给浏览器内置阅读器，Office 走下载/系统打开）。
   - 复现：新增 `tests/test_document_raw_file.py` 八条：**越界拒绝**（工作区外的绝对路径、`../` 逃逸、空路径）、区内接受（绝对与相对路径都行）、媒体类型与文件名/大小、缺文件、PDF 类型、路由 inline 返回原文、未知文档 404。**修前失败信号**：`AttributeError: 'DocumentEditService' object has no attribute 'resolve_source_path'` + 路由 404。
   - 仍未做（原文查看的前端一半）：Reader 的「查看原文」开关；markdown 内图片可渲染需要一个"按文档相对路径取附件"的受限只读端点（**不能**直接暴露工作区静态目录）。

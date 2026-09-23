@@ -727,6 +727,39 @@ export const RESUME_DELAYS_MS = [300, 900, 2000];
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+export function documentRawUrl(documentId: string): string {
+  return "/api/kb/documents/" + encodeURIComponent(documentId) + "/raw";
+}
+
+/**
+ * Open the original file in a new tab (原文查看).
+ *
+ * Parsing loses images and flattens tables, so the reader has to be able to see
+ * the file itself. A plain <a href> cannot carry the library header, so the
+ * bytes are fetched first and handed to the browser as a blob - PDFs still land
+ * in the built-in viewer, and what arrives is the untouched original.
+ */
+export async function openDocumentRaw(documentId: string): Promise<void> {
+  const response = await fetch(documentRawUrl(documentId), {
+    headers: activeLibraryId ? { "X-Bobodan-Library-ID": activeLibraryId } : undefined,
+  });
+  if (!response.ok) {
+    throw new ApiError(
+      "无法打开原文 (" + response.status + ")",
+      "document_raw_unavailable",
+      response.status,
+    );
+  }
+  const url = URL.createObjectURL(await response.blob());
+  const opened = window.open(url, "_blank", "noopener");
+  if (!opened) {
+    URL.revokeObjectURL(url);
+    throw new ApiError("浏览器拦截了新标签页", "popup_blocked", 0);
+  }
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+
 export function parseFrame(frame: string): ChatStreamEvent | null {
   let event = "message";
   const dataLines: string[] = [];

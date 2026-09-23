@@ -11,7 +11,7 @@ import { useNavigate, useOutletContext, useParams, useSearchParams } from "react
 import type { AppOutletContext } from "../components/AppShell";
 import { EmptyState, ErrorNotice, LoadingState } from "../components/common";
 import { DocumentEditor } from "../components/DocumentEditor";
-import { ApiError, api } from "../lib/api";
+import { ApiError, api, openDocumentRaw } from "../lib/api";
 import { useHandoffStore } from "../stores/handoffStore";
 import { useReaderTabsStore } from "../stores/readerTabsStore";
 import { useConfirm } from "../ui/Modal";
@@ -289,6 +289,19 @@ export function ReaderPage() {
               <button className="primary-button reader-extract" disabled={startingExtractionId === selected.document_id || !sections.length} onClick={() => void extractAndReview(selected, true)}><RefreshCw size={15} />重新提取</button>
             )}
             {editAction}
+            {selected && (
+              <button
+                className="quiet-button reader-original"
+                title="打开原件（解析会丢图片与表格，原件才是事实来源）"
+                onClick={() => {
+                  void openDocumentRaw(selected.document_id).catch((reason) =>
+                    setError(reason instanceof Error ? reason.message : "无法打开原文。"),
+                  );
+                }}
+              >
+                查看原文
+              </button>
+            )}
           </div>
         </header>
 

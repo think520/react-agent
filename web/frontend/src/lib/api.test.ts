@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ApiError, RESUME_DELAYS_MS, api, streamChat } from "./api";
+import { ApiError, RESUME_DELAYS_MS, api, openDocumentRaw, streamChat } from "./api";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -210,6 +210,31 @@ describe("api client", () => {
       "/api/chat/streams/stream-1/cancel",
       expect.objectContaining({ method: "POST" }),
     );
+  });
+
+  it("opens the original file with the library header (原文查看)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("# 原文", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const createObjectURL = vi.fn(() => "blob:original");
+    const revokeObjectURL = vi.fn();
+    Object.assign(URL, { createObjectURL, revokeObjectURL });
+    const open = vi.spyOn(window, "open").mockReturnValue({} as Window);
+
+    await openDocumentRaw("doc-1");
+
+    expect(String(fetchMock.mock.calls[0][0])).toBe("/api/kb/documents/doc-1/raw");
+    expect(createObjectURL).toHaveBeenCalled();
+    expect(open).toHaveBeenCalledWith("blob:original", "_blank", "noopener");
+    open.mockRestore();
+  });
+
+  it("reports a missing original instead of opening a blank tab", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("nope", { status: 404 })));
+
+    await expect(openDocumentRaw("gone")).rejects.toMatchObject({
+      code: "document_raw_unavailable",
+      status: 404,
+    });
   });
 
   it("preserves the stable API error code", async () => {
