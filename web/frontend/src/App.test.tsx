@@ -63,10 +63,13 @@ describe("Bobodan app shell", () => {
     render(<MemoryRouter initialEntries={["/chat"]}><App /></MemoryRouter>);
 
     expect(await screen.findByRole("heading", { name: "今天想学点什么？", level: 2 })).toBeInTheDocument();
-    expect(screen.getAllByRole("link", { name: "对话" }).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("link", { name: "练习" }).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("link", { name: "复习" }).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("link", { name: "资料库" }).length).toBeGreaterThan(0);
+    // The shell renders the heading before the navigation on a slow machine (this
+    // failed on a 2-vCPU CI runner and twice locally under load), so wait for the
+    // links instead of racing them with a synchronous query.
+    expect((await screen.findAllByRole("link", { name: "对话" })).length).toBeGreaterThan(0);
+    expect((await screen.findAllByRole("link", { name: "练习" })).length).toBeGreaterThan(0);
+    expect((await screen.findAllByRole("link", { name: "复习" })).length).toBeGreaterThan(0);
+    expect((await screen.findAllByRole("link", { name: "资料库" })).length).toBeGreaterThan(0);
     expect((await screen.findAllByText("Study Library")).length).toBeGreaterThan(0);
   });
 
