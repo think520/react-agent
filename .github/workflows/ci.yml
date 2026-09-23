@@ -1,0 +1,69 @@
+name: CI
+
+# A4 收口时补上：此前所有验证只在本机跑（.github 里只有 license-check），
+# 回归保护完全依赖人的纪律。三个 job 对应 README 里的三条本地命令。
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python-tests:
+    name: pytest
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+      # tests/conftest.py 的 tripwire 会断言真实工作区库未被测试改动，
+      # 这是防止测试写坏用户数据的唯一机制，必须在 CI 里同样生效。
+      - name: Run tests
+        run: python -m pytest -q
+
+  frontend-tests:
+    name: vitest + lint + build
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: web/frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
+  e2e:
+    name: Playwright
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: web/frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/frontend/package-lock.json
+      - run: npm ci
+      # 每个 spec 都用 page.route 全量 mock /api，webServer 自己起 Vite，
+      # 不需要后端；channel=chrome 用 runner 预装的 Chrome，不需要 playwright install。
+      # --retries=1 是因为这套 spec 对时序敏感（见 playwright.config.ts 的 workers 注释）。
+      - run: npx playwright test --retries=1
