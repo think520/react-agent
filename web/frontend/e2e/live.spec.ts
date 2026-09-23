@@ -71,3 +71,15 @@ test("a citation link lands on the cited chunk and offers the way back", async (
   await expect(page.locator(".reader-original")).toBeVisible();
   await expect(page.locator(".reader-citation-bar")).toHaveCount(0);
 });
+test("searching the library lands on the matched chunk", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("bobodan:onboarding:v1", "complete"));
+  await page.goto(BASE + "/library?collection=material");
+
+  await page.locator(".document-search input").fill("向量检索");
+  const hit = page.locator(".document-hit").first();
+  await expect(hit).toBeVisible({ timeout: 20_000 });
+  await hit.click();
+
+  await expect(page.locator(".reader-citation-bar")).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator("section.highlighted")).toHaveCount(1, { timeout: 15_000 });
+});

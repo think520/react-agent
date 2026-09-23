@@ -1,3 +1,4 @@
+import { readerLocation } from "../lib/documentLinks";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CheckCircle2, FilePlus2, FileText, FolderOpen, Library, MessageCircle, MoreHorizontal, NotebookPen, Pencil, Quote, RefreshCw, Save, Search, Settings2, ShieldCheck, Sparkles, Trash2, Upload, Wrench, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
@@ -67,6 +68,9 @@ export function LibraryPage() {
   const [startingExtractionId, setStartingExtractionId] = useState<string | null>(null);
   const [extractionStatuses, setExtractionStatuses] = useState<Record<string, DocumentExtractionStatus>>({});
   const [documentQuery, setDocumentQuery] = useState("");
+  // ④ 搜索命中 → 定位：标题过滤之外，再问一次后端的原文检索，命中直接深链到阅读器
+  // 的那一段（?chunk= 通道已在 2026-09-23 验证可用）。
+  const [hits, setHits] = useState<Array<{ chunk_id: string; document_id: string; collection?: string; title?: string; source?: string; text?: string }>>([]);
   const [selectionQuote, setSelectionQuote] = useState("");
   const [maintenanceOpen, setMaintenanceOpen] = useState(false);
   const [maintenanceLoading, setMaintenanceLoading] = useState(false);
@@ -800,6 +804,18 @@ export function LibraryPage() {
     return [document.title, document.source, document.course, document.kind]
       .some((value) => value?.toLocaleLowerCase().includes(query));
   });
+  useEffect(() => {
+    const query = documentQuery.trim();
+    if (query.length < 2) { setHits([]); return; }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void api.searchKnowledge(query, collection)
+        .then((result) => { if (!cancelled) setHits((result.results || []).slice(0, 5)); })
+        .catch(() => { if (!cancelled) setHits([]); });
+    }, 300);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [documentQuery, collection]);
+
   const uncoveredCount = documents.length;
   const wikiTypeLabels: Record<NonNullable<DocumentSummary["wiki_type"]>, string> = {
     source: "资料索引",
@@ -928,6 +944,33 @@ export function LibraryPage() {
             <aside className="document-rail">
               <div className="rail-label"><FolderOpen size={15} />{collection === "wiki" ? wikiView === "knowledge" ? "知识页面" : wikiView === "sources" ? "资料索引" : wikiView === "notes" ? "个人笔记" : "全部页面" : "我的资料"} <span>{filteredDocuments.length}</span></div>
               <label className="document-search"><Search size={14} /><input value={documentQuery} onChange={(event) => setDocumentQuery(event.target.value)} placeholder="搜索资料" aria-label="搜索资料" /></label>
+              {hits.length > 0 && (
+                <div className="document-hits" aria-label="原文命中">
+                  {hits.map((hit) => (
+                    <button
+                      key={hit.chunk_id}
+                      className="document-hit"
+                      type="button"
+                      title={hit.text || ""}
+                      onClick={() =>
+                        navigate(
+                          readerLocation({
+                            document_id: hit.document_id,
+                            collection: hit.collection ?? collection,
+                            chunk_id: hit.chunk_id,
+                          }) || "/library",
+                        )
+                      }
+                    >
+                      <Search size={13} />
+                      <span>
+                        <strong>{hit.title || hit.source}</strong>
+                        <small>{(hit.text || "").replace(/\s+/g, " ").slice(0, 56)}</small>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
               {filteredDocuments.map((document) => (
                 <div className={`document-row-wrap ${selectedId === document.document_id ? "active" : ""}`} key={document.document_id}>
                   <button className="document-row" onClick={() => selectDocument(document.document_id)}>

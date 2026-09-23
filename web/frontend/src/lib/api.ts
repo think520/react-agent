@@ -695,6 +695,12 @@ export const api = {
     `/api/graph/extractions/${encodeURIComponent(runId)}/retry`,
     json(body),
   ),
+  /** ④ 原文检索：命中带 chunk_id，可直接深链到阅读器定位那一段。 */
+  searchKnowledge: (query: string, collection = "material") =>
+    request<{ ok: boolean; results: Array<{ chunk_id: string; document_id: string; collection?: string; title?: string; source?: string; text?: string; score?: number }> }>(
+      "/api/kb/search",
+      json({ query, top_k: 10, collection }),
+    ),
   graphSavePositions: (positions: Array<{ concept_id: string; x: number; y: number }>, viewId = "default") =>
     request<{ saved: number }>("/api/graph/positions", json({ positions, view_id: viewId })),
   // P0-1: a run outlives its fetch now, so stopping one is a request to the
