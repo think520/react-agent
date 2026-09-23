@@ -364,6 +364,16 @@ hooks 最小接线（✅ 结果上限落 `after_tool`、白名单门落 `before_
 **证据**：`tests/test_embedding_provider.py` 11 条（真实 httpx + MockTransport，只换传输层），含「密钥不出现在 URL/日志/model info」与「维度探测一次并缓存」。全量回归 1564 passed。
 
 **仍未做（B2 余项 → G2/G4）**：embedding 签名版本化、批次维度校验、429 退避与断点续传、设置页「向量模型」与 Library 状态卡的开通引导、召回评测集。**这三件事做完之前，G2/G4 才算收口，本轮也不宣称语义检索已可用。**
+
+### CI 与测试稳定性（2026-09-23 立项）
+
+**做了什么**：新增 `.github/workflows/ci.yml`（三个 job：`pytest` / `vitest+lint+build` / `Playwright`，windows-latest）。此前 `.github` 只有 license-check，**所有验证都靠人在本机跑**。
+
+**首跑的价值立刻兑现**（这些都是本机永远看不到的）：① 仓库根目录的 `test_agent.py` 缺 key 就 `exit(1)`，pytest 默认从根收集 → 整个 run 变成 INTERNALERROR（加 `pytest.ini` 的 `testpaths=tests` 修掉）；② `requirements.txt` 的 `mcp>=1.0` 无上界，CI 装到 2.x 后 `streamablehttp_client` 不存在（改为 `mcp>=1.0,<2`）；③ `App.test.tsx` 在慢 runner 上暴露两个真实测试缺陷：同步查询导航（改 `findAllByRole`）、默认 1s 等待不够懒加载路由（改为全局 5s `asyncUtilTimeout`）。
+
+**当前状态**：`pytest` job 稳定通过（约 5.5 分钟）；`Playwright` 与 `vitest` job 在共享 runner 上仍偶发超时，两个 job 已加 `--retries=2`。
+
+**仍未做（诚实记账）**：① 这两套 UI 测试需要专门去抖（或把慢用例标记隔离），**去抖完成前它们带重试、不作为「确定性」依据**；② Python 侧没有 lock 文件（前端有 `package-lock.json`），依赖漂移还会再来——这是补完 CI 之后最该做的下一件基建；③ `actions/*@v4` 有 Node 20 弃用告警，待统一升级。
 ### 单项完成定义
 
 一项路线任务只有同时满足以下条件才能标记为 `已验证`：

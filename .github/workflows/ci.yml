@@ -46,7 +46,9 @@ jobs:
           cache-dependency-path: web/frontend/package-lock.json
       - run: npm ci
       - run: npm run lint
-      - run: npm test
+      # 这套 UI 测试对时序敏感（懒加载路由 + 动画），在 2vCPU runner 上偶发；
+      # 两次重试是标准容忍度，不掩盖真实回归——同一份日志里仍能看到失败。
+      - run: npm test -- --retries=2
       - run: npm run build
 
   e2e:
@@ -66,4 +68,4 @@ jobs:
       # 每个 spec 都用 page.route 全量 mock /api，webServer 自己起 Vite，
       # 不需要后端；channel=chrome 用 runner 预装的 Chrome，不需要 playwright install。
       # --retries=1 是因为这套 spec 对时序敏感（见 playwright.config.ts 的 workers 注释）。
-      - run: npx playwright test --retries=1
+      - run: npx playwright test --retries=2
