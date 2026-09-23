@@ -12,6 +12,7 @@ import type { AppOutletContext } from "../components/AppShell";
 import { EmptyState, ErrorNotice, LoadingState } from "../components/common";
 import { DocumentEditor } from "../components/DocumentEditor";
 import { ApiError, api, documentAssetUrl, documentRawEmbedUrl, downloadDocumentRaw, fetchDocumentRawText, splitFrontmatter } from "../lib/api";
+import { READER_VIEW_KEY, resolveReaderView, type ReaderView } from "../lib/readerView";
 import { useHandoffStore } from "../stores/handoffStore";
 import { useReaderTabsStore } from "../stores/readerTabsStore";
 import { useConfirm } from "../ui/Modal";
@@ -19,17 +20,7 @@ import type { DocumentExtractionStatus, DocumentSection, DocumentSummary, Person
 
 const EDITABLE_KINDS = new Set(["md", "txt", "markdown", "course_document", "obsidian_note"]);
 
-/** 页内原文视图的状态模型（Q2/Q7 的共识）。 */
-type ReaderView = "original" | "sections";
-const READER_VIEW_KEY = "bobodan:reader-view";
-/** 只有浏览器能当文本渲染的格式才进页内原文；pdf 走 iframe，docx/pptx 走系统打开。 */
-const INLINE_ORIGINAL_EXTENSIONS = new Set(["md", "markdown", "txt"]);
 
-function documentExtension(source: string | undefined): string {
-  const name = (source || "").toLowerCase();
-  const dot = name.lastIndexOf(".");
-  return dot >= 0 ? name.slice(dot + 1) : "";
-}
 
 export function ReaderPage() {
   const { id } = useParams();
@@ -83,13 +74,18 @@ export function ReaderPage() {
 
   const selectedId = id ?? null;
   const selected = documents.find((document) => document.document_id === selectedId) ?? null;
-  const extension = documentExtension(selected?.source);
-  const inlineOriginal: "markdown" | "pdf" | null =
-    INLINE_ORIGINAL_EXTENSIONS.has(extension) ? "markdown" : extension === "pdf" ? "pdf" : null;
-  const canShowOriginal = Boolean(selected?.has_original) && inlineOriginal !== null;
-  // 带跳转意图进来（搜索/引用）时强制分段视图，但不动用户偏好。
-  const effectiveView: ReaderView = forcedSections || !canShowOriginal ? "sections" : view;
-  const showOriginal = effectiveView === "original";
+  // 视图规则是纯函数（src/lib/readerView.ts）：默认原文、pdf 走内嵌阅读器、
+  // 浏览器排不了的格式不给切换、跳转时强制分段且不动偏好。
+  const readerView = resolveReaderView({
+    hasOriginal: Boolean(selected?.has_original),
+    source: selected?.source,
+    preference: view,
+    forcedSections,
+  });
+  const canShowOriginal = readerView.showSwitch;
+  const inlineOriginal = readerView.inlineKind;
+  const effectiveView = readerView.view;
+  const showOriginal = readerView.view === "original";
   const originalParts = splitFrontmatter(originalText);
   const selectedIndex = documents.findIndex((document) => document.document_id === selectedId);
   const openTab = useReaderTabsStore((state) => state.open);
@@ -374,7 +370,7 @@ export function ReaderPage() {
                 </button>
               </div>
             )}
-            {selected && !canShowOriginal && Boolean(selected.has_original) && (
+            {selected && readerView.offerSystemOpen && (
               <button
                 className="quiet-button reader-original"
                 title="这类格式浏览器无法页内渲染：下载原件，用系统应用打开"
