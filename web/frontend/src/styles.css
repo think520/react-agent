@@ -1687,45 +1687,48 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
   .bank-answer-grid { grid-template-columns: minmax(0,1fr); }
 }
 
-/* 阅读视图切换：与 .km-density-toggle / .mention-tabs 同一套选中语言
-   —— DESIGN.md §913：当前项用墨蓝浅底 + 墨蓝文字 + 清楚边线，不用实心色块。 */
+/* 阅读视图切换：与相邻的 .quiet-button 完全同一套度量（:1146 的 40px / --radius-md /
+   0 13px / 13px 650），选中态按 DESIGN.md §913 用墨蓝浅底 + 墨蓝文字 + 清楚边线。 */
 .reader-view-switch {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
-  padding: 2px;
-  border: 1px solid var(--border, #ddd);
-  border-radius: 6px;
-  background: var(--paper-soft, #faf9f5);
+  gap: 6px;
 }
 
 .reader-view-switch button {
-  appearance: none;
-  min-height: 26px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: 4px;
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  padding: 0 13px;
   background: transparent;
-  color: var(--muted, #7a7062);
+  color: var(--muted);
   font: inherit;
   font-size: 13px;
+  font-weight: 650;
   cursor: pointer;
+  transition: background var(--dur-base) var(--ease-out), border-color var(--dur-base) var(--ease-out), box-shadow var(--dur-base) var(--ease-out), transform var(--dur-fast) var(--spring-micro);
 }
 
 .reader-view-switch button:hover {
-  background: var(--blue-wash, #edf1f6);
-  color: var(--blue, #1b365d);
+  border-color: rgba(27, 54, 93, 0.2);
+  background: var(--blue-wash);
+  color: var(--blue);
+  box-shadow: var(--shadow-lift);
 }
 
 .reader-view-switch button:active {
-  transform: scale(.97);
+  transform: scale(0.97);
 }
 
 .reader-view-switch button.active {
-  background: var(--blue-wash, #edf1f6);
-  color: var(--blue, #1b365d);
-  font-weight: 600;
-  box-shadow: inset 0 0 0 1px rgba(27, 54, 93, 0.22);
+  border-color: rgba(27, 54, 93, 0.2);
+  background: var(--blue-wash);
+  color: var(--blue);
+  box-shadow: inset 0 0 0 1px rgba(27, 54, 93, 0.18);
 }
 /* 从引用跳进来时的定位提示：同样走墨蓝浅底，与选中态同一族。 */
 .reader-citation-bar {
