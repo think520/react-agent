@@ -180,3 +180,32 @@ class TestStats:
         assert stats["collection"] == "bobodan_chunks"
         assert stats["mode"] == "local"
         assert "vectors_count" in stats or "error" in stats
+
+
+def test_get_stats_survives_the_installed_qdrant_client(tmp_path):
+    """Real client, no mock: this is where the version drift actually showed.
+
+    The mocked test above accepts an "error" dict as a pass, so it never noticed
+    that the installed qdrant-client no longer exposes vectors_count.
+    """
+    from rag.qdrant_store import QdrantStore
+
+    store = QdrantStore(
+        str(tmp_path),
+        {"rag": {"vector_db": {"backend": "qdrant", "mode": "local", "collection": "stats_real_check", "distance": "cosine"}}},
+    )
+    try:
+        store.init_collection(3)
+        store.upsert(["chunk-1"], [[0.1, 0.2, 0.3]], [{"document_id": "doc-1", "text": "x"}])
+
+        stats = store.get_stats()
+
+        assert "error" not in stats, stats
+        assert stats["points_count"] == 1
+        # Local Qdrant builds the vector index lazily, so the indexed count can
+        # legitimately still be 0 right after one upsert. What must never happen
+        # is an error dict or a missing field - which is the old behaviour.
+        assert isinstance(stats["vectors_count"], int)
+        assert stats["embedding_dim"] == 3
+    finally:
+        store.close()
