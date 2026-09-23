@@ -257,10 +257,17 @@ class QdrantStore:
         client = self._get_client()
         try:
             info = client.get_collection(self.collection)
+            # qdrant-client moved these fields around between versions:
+            # `vectors_count` is gone in the installed release. Read them
+            # defensively - a version bump must not turn stats into an error
+            # dict (which is exactly what the old mock-based test allowed).
+            vectors_count = getattr(info, "vectors_count", None)
+            if vectors_count is None:
+                vectors_count = getattr(info, "indexed_vectors_count", None)
             return {
                 "collection": self.collection,
-                "vectors_count": info.vectors_count,
-                "points_count": info.points_count,
+                "vectors_count": vectors_count,
+                "points_count": getattr(info, "points_count", None),
                 "mode": self.mode,
                 "embedding_dim": self._embedding_dim,
             }
