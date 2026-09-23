@@ -33,4 +33,18 @@ test("the reader renders the original file for a real document", async ({ page }
   await page.getByRole("button", { name: "按小节" }).click();
   await expect(page.locator(".reader-original")).toHaveCount(0);
   await expect(page.locator(".reader-prose")).toBeVisible();
+
+  // 回到原文，再从章节导航跳一次：必须落到分段视图并且高亮那一段。
+  // （章节导航靠 [data-chunk-id] 定位，那些节点只存在于分段视图——曾经在原文视图里
+  //  点了毫无反应，这条断言就是钉住那次修复的。）
+  await page.getByRole("button", { name: "原文" }).click();
+  await expect(page.locator(".reader-original")).toBeVisible();
+
+  await page.locator(".chapter-rail-zone").hover();
+  await expect(page.locator(".chapter-rail")).toBeVisible();
+  await page.locator(".chapter-rail div button").first().click();
+
+  await expect(page.locator(".reader-original")).toHaveCount(0);
+  await expect(page.locator(".reader-prose")).toBeVisible();
+  await expect(page.locator("section.highlighted")).toHaveCount(1, { timeout: 10_000 });
 });
