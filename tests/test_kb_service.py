@@ -955,6 +955,41 @@ def test_get_document_extraction_returns_stored_report(svc, workspace):
     assert "scanned_or_empty_pages" in result["report"]["warnings"]
 
 
+def test_public_document_says_whether_an_original_file_exists(svc, workspace):
+    """原文视图按"有没有原件"决定，而不是按类型白名单；但路径绝不能泄露。"""
+    import os
+
+    from rag.sqlite_store import KBSQLiteStore
+
+    note = os.path.join(str(workspace), "vault", "note.md")
+    os.makedirs(os.path.dirname(note), exist_ok=True)
+    with open(note, "w", encoding="utf-8") as handle:
+        handle.write("# 标题\n")
+
+    store = KBSQLiteStore(workspace)
+    store.init_db()
+    try:
+        store.upsert_document(
+            document_id="doc-alive", source="vault/note.md", content_hash="h1", title="Alive", path=note
+        )
+        store.upsert_document(
+            document_id="doc-gone",
+            source="vault/gone.md",
+            content_hash="h2",
+            title="Gone",
+            path=os.path.join(str(workspace), "vault", "gone.md"),
+        )
+    finally:
+        store.close()
+
+    result = svc.list_documents()
+    docs = {item["document_id"]: item for item in result["documents"]}
+
+    assert docs["doc-alive"]["has_original"] is True
+    assert docs["doc-gone"]["has_original"] is False
+    assert "path" not in docs["doc-alive"], "路径不能出现在公开文档里"
+
+
 def test_public_document_includes_extraction_status(svc, workspace):
     from rag.sqlite_store import KBSQLiteStore
 

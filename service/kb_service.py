@@ -1554,6 +1554,10 @@ class KBService:
     def _public_document(self, document: dict[str, Any]) -> dict[str, Any]:
         path = document.get("path")
         managed = bool(path and self._is_within_workspace(path, self.managed_sources_dir))
+        # 原文视图按"有没有原件"决定（而不是按类型白名单），但绝不把路径交给前端。
+        candidate = path or ""
+        if candidate and not os.path.isabs(candidate):
+            candidate = os.path.join(self.workspace, candidate)
         public = {
             "document_id": document.get("id"),
             "source": document.get("source", ""),
@@ -1571,6 +1575,7 @@ class KBService:
             "content_hash": document.get("content_hash", ""),
             "managed": managed,
             "origin": "managed" if managed else "workspace",
+            "has_original": bool(candidate) and os.path.isfile(candidate),
         }
         public.update(_document_classification(
             public["source"], public["kind"], public["title"]
