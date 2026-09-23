@@ -111,6 +111,58 @@ class DocumentEditService:
             return None
         return resolved if os.path.isfile(resolved) else None
 
+
+    # 附件只允许图片：否则一份 markdown 里的 ![](../../.env) 就能把工作区里的
+    # 密钥/数据库读出来（包含性校验只保证"在区内"，不保证"该给你看"）。
+    ASSET_MEDIA_TYPES = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+        ".svg": "image/svg+xml",
+    }
+    DENY_ASSET_SEGMENTS = (".git", ".knowledge", ".bobodan", "node_modules", "__pycache__")
+
+    def raw_asset(self, document_id: str, relative_path: str) -> dict[str, Any]:
+        """Resolve an image that sits next to a document, for the reader.
+
+        Markdown is not a trusted path source, so only relative paths are
+        accepted and the result must still resolve inside the workspace.
+        """
+        raw = self._raw_document(document_id)
+        if raw is None:
+            return _err(f"Document not found: {document_id}", code="document_not_found")
+        document_path = self.resolve_source_path(str(raw.get("path") or ""))
+        if document_path is None:
+            return _err(
+                "The original file is not available inside this workspace",
+                code="source_not_found",
+            )
+        if not relative_path or os.path.isabs(relative_path):
+            return _err("Only relative asset paths are allowed", code="asset_not_allowed")
+        if os.path.splitext(relative_path)[1].lower() not in self.ASSET_MEDIA_TYPES:
+            return _err("Only image assets can be served here", code="asset_not_allowed")
+        segments = [
+            part
+            for part in os.path.normcase(relative_path).replace("\\", "/").split("/")
+            if part
+        ]
+        if any(part in self.DENY_ASSET_SEGMENTS for part in segments):
+            return _err("Asset is not available", code="asset_not_allowed")
+        resolved = self.resolve_source_path(
+            os.path.join(os.path.dirname(document_path), relative_path)
+        )
+        if resolved is None:
+            return _err("Asset is not available inside this workspace", code="asset_not_found")
+        extension = os.path.splitext(resolved)[1].lower()
+        return _ok(
+            path=resolved,
+            media_type=self.ASSET_MEDIA_TYPES.get(extension, "application/octet-stream"),
+            filename=os.path.basename(resolved),
+            size=os.path.getsize(resolved),
+        )
+
     def raw_file(self, document_id: str) -> dict[str, Any]:
         """Locate the original file for a document, read-only, or explain why not."""
         raw = self._raw_document(document_id)

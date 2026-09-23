@@ -550,6 +550,26 @@ def document_content(document_id: str, request: Request) -> dict:
     )
 
 
+@router.get("/documents/{document_id}/asset")
+def document_asset(document_id: str, path: str, request: Request) -> FileResponse:
+    """Serve an image next to a document, so rendered markdown keeps its images.
+
+    Same containment rule as the original file itself: markdown is not a trusted
+    path source, and only files inside the workspace are ever returned.
+    """
+    result = unwrap_service_result(
+        DocumentEditService(get_request_workspace(request)).raw_asset(document_id, path),
+        status_code=404,
+        code="asset_not_found",
+    )
+    return FileResponse(
+        result["path"],
+        media_type=result["media_type"],
+        filename=result["filename"],
+        content_disposition_type="inline",
+    )
+
+
 @router.get("/documents/{document_id}/raw")
 def document_raw(document_id: str, request: Request) -> FileResponse:
     """Serve the original file, read-only (原文查看).

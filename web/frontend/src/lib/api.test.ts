@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ApiError, RESUME_DELAYS_MS, api, openDocumentRaw, streamChat } from "./api";
+import { ApiError, RESUME_DELAYS_MS, api, documentAssetUrl, openDocumentRaw, streamChat } from "./api";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -216,25 +216,50 @@ describe("api client", () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response("# 原文", { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     const createObjectURL = vi.fn(() => "blob:original");
-    const revokeObjectURL = vi.fn();
-    Object.assign(URL, { createObjectURL, revokeObjectURL });
-    const open = vi.spyOn(window, "open").mockReturnValue({} as Window);
+    Object.assign(URL, { createObjectURL, revokeObjectURL: vi.fn() });
+    const target = { opener: {} as unknown, location: { href: "" }, close: vi.fn() };
+    const open = vi.spyOn(window, "open").mockReturnValue(target as unknown as Window);
 
     await openDocumentRaw("doc-1");
 
     expect(String(fetchMock.mock.calls[0][0])).toBe("/api/kb/documents/doc-1/raw");
     expect(createObjectURL).toHaveBeenCalled();
-    expect(open).toHaveBeenCalledWith("blob:original", "_blank", "noopener");
+    expect(target.location.href).toBe("blob:original");
+    // The tab must be opened *before* the await, or the blocker eats it.
+    expect(open.mock.invocationCallOrder[0]).toBeLessThan(fetchMock.mock.invocationCallOrder[0]);
     open.mockRestore();
   });
 
-  it("reports a missing original instead of opening a blank tab", async () => {
+  it("refuses to open the original when the popup is blocked", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+
+    await expect(openDocumentRaw("doc-1")).rejects.toMatchObject({ code: "popup_blocked" });
+    expect(fetchMock).not.toHaveBeenCalled();
+    open.mockRestore();
+  });
+
+  it("rewrites relative image sources to the asset endpoint", () => {
+    expect(documentAssetUrl("doc-1", "assets/diagram.png")).toBe(
+      "/api/kb/documents/doc-1/asset?path=assets%2Fdiagram.png",
+    );
+    expect(documentAssetUrl("doc-1", "https://example.com/x.png")).toBe("https://example.com/x.png");
+    expect(documentAssetUrl("doc-1", "data:image/png;base64,AAA")).toBe("data:image/png;base64,AAA");
+    expect(documentAssetUrl("doc-1", "")).toBe("");
+  });
+
+  it("reports a missing original and closes the blank tab", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("nope", { status: 404 })));
+    const target = { opener: {} as unknown, location: { href: "" }, close: vi.fn() };
+    const open = vi.spyOn(window, "open").mockReturnValue(target as unknown as Window);
 
     await expect(openDocumentRaw("gone")).rejects.toMatchObject({
       code: "document_raw_unavailable",
       status: 404,
     });
+    expect(target.close).toHaveBeenCalled();
+    open.mockRestore();
   });
 
   it("preserves the stable API error code", async () => {

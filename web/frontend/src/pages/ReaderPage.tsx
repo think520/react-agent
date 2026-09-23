@@ -11,7 +11,7 @@ import { useNavigate, useOutletContext, useParams, useSearchParams } from "react
 import type { AppOutletContext } from "../components/AppShell";
 import { EmptyState, ErrorNotice, LoadingState } from "../components/common";
 import { DocumentEditor } from "../components/DocumentEditor";
-import { ApiError, api, openDocumentRaw } from "../lib/api";
+import { ApiError, api, documentAssetUrl, openDocumentRaw } from "../lib/api";
 import { useHandoffStore } from "../stores/handoffStore";
 import { useReaderTabsStore } from "../stores/readerTabsStore";
 import { useConfirm } from "../ui/Modal";
@@ -289,7 +289,7 @@ export function ReaderPage() {
               <button className="primary-button reader-extract" disabled={startingExtractionId === selected.document_id || !sections.length} onClick={() => void extractAndReview(selected, true)}><RefreshCw size={15} />重新提取</button>
             )}
             {editAction}
-            {selected && (
+            {selected && selected.collection === "material" && (
               <button
                 className="quiet-button reader-original"
                 title="打开原件（解析会丢图片与表格，原件才是事实来源）"
@@ -339,7 +339,25 @@ export function ReaderPage() {
                 <section className={highlightedChunk === section.chunk_id ? "highlighted" : ""} data-chunk-id={section.chunk_id} key={section.chunk_id}>
                   {showHeading && <h3>{section.heading}</h3>}
                   <div className="section-location">{section.page_start ? "第 " + section.page_start + " 页" : section.slide_start ? "第 " + section.slide_start + " 页" : "资料片段"}</div>
-                  <div className="reader-section-prose"><ReactMarkdown remarkPlugins={[remarkGfm]}>{section.text}</ReactMarkdown></div>
+                  <div className="reader-section-prose">
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      components={{
+                        // Relative image paths only resolve through our asset
+                        // endpoint: parsing kept the markdown, but the file was
+                        // never reachable from the browser before.
+                        img: ({ src, alt }) => (
+                          <img
+                            src={documentAssetUrl(selected.document_id, src ?? "")}
+                            alt={alt ?? ""}
+                            loading="lazy"
+                          />
+                        ),
+                      }}
+                    >
+                      {section.text}
+                    </ReactMarkdown>
+                  </div>
                 </section>
               );
             })}</div> : <EmptyState compact title="没有可阅读的片段" description="这份资料可能仍在建立索引。" state="resting" />}

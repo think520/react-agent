@@ -7,6 +7,14 @@
 ## [未发布]
 
 ### 变更
+- **④ 图片可渲染 + 一轮代码审查（2026-09-23）**：markdown 里的相对图片现在能显示——新增 `GET /api/kb/documents/{id}/asset?path=<相对文档目录>`（同样做包含性校验），前端把 `img` 的相对 src 重写到它；绝对 / `data:` / `blob:` 源不重写。`<img>` 发不出资料库头，所以库标识以 `?library=` 随 URL 传递。
+  - **写完之后做的批判性审查抓出 4 个真问题（同轮修掉，全部有测试）**：
+    ① **安全（中）**：`/asset` 只校验"在工作区内"却没校验**文件类型**——工作区根目录的 `.env`、`.knowledge/*.db` 都在区内，一份 markdown 写 `![](../.env)` 就能把密钥读出去。修法：附件**只允许图片扩展名** + 拒绝内部路径段（`.git/.knowledge/.bobodan/node_modules/__pycache__`）；新增测试要求 `.env` / `knowledge.db` / `note.md` 三种都返回 `asset_not_allowed`。
+    ② **安全（低）**：为 `<img>` 加的 `?library=` 兜底当时对**所有** API 路由生效。修法：只在路径以 `/asset` 或 `/raw` 结尾时接受——**拓宽的是通道，不是权限**。
+    ③ **体验（中）**：`openDocumentRaw` 先 `await fetch` 再 `window.open`，用户手势早被消耗 → 弹窗拦截器大概率拦下（功能等于不可用）。修法：**先同步开空白页**再请求，成功写 `location`、失败 `close()`；测试用 `invocationCallOrder` 钉住"开窗必须早于请求"。
+    ④ **体验（低）**：「查看原文」对生成页（wiki）也显示，而那些文档没有原件。修法：只在 `collection === "material"` 时显示。
+  - 另一处实现失误也记一笔：改 `web/backend/app.py` 中间件时我用了 4 空格缩进，而那一行在 `try:` 内需要 12 空格 → `IndentationError`，由测试立刻暴露并修好。
+  - 验证：pytest **1589 passed**（新增 1 条安全测试）、vitest **77 passed**、tsc/eslint/build 0。
 - **原文查看（前端入口，2026-09-23）**：Reader 工具栏新增「查看原文」。**不能用普通 `<a href>`**——原文端点要带资料库头（`X-Bobodan-Library-ID`），`<a>` 发不出去，所以改为先 `fetch` 再以 blob 交给浏览器开新标签：PDF 依然落在浏览器内置阅读器里，拿到的还是原件；失败（404 / 弹窗被拦）给中文提示，而不是开一个空白页。
   - 复现：`web/frontend/src/lib/api.test.ts` 新增 2 条（请求打到 `/api/kb/documents/{id}/raw`、`createObjectURL` 被调用、以 `_blank/noopener` 打开；404 时抛 `document_raw_unavailable`）。验证：`tsc --noEmit` 0、vitest **75 passed**、eslint 0、生产构建 0。
   - 仍未做：**未加 e2e**（Reader 需要完整的资料库 fixture）；markdown 内图片仍不可渲染（需要"按文档相对目录取附件"的受限端点）。

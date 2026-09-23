@@ -727,6 +727,22 @@ export const RESUME_DELAYS_MS = [300, 900, 2000];
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/**
+ * Asset URL for an image referenced by a document (relative markdown paths).
+ *
+ * <img> cannot carry the library header, so the id travels in the query string -
+ * the backend still requires it to resolve to a registered library, and the
+ * resolved path to stay inside the workspace. Absolute/data/blob sources are
+ * left alone: they are not ours to rewrite.
+ */
+export function documentAssetUrl(documentId: string, source: string): string {
+  if (!source || /^(https?:|data:|blob:|\/)/i.test(source)) return source;
+  const base =
+    "/api/kb/documents/" + encodeURIComponent(documentId) + "/asset?path=" + encodeURIComponent(source);
+  return activeLibraryId ? base + "&library=" + encodeURIComponent(activeLibraryId) : base;
+}
+
+
 export function documentRawUrl(documentId: string): string {
   return "/api/kb/documents/" + encodeURIComponent(documentId) + "/raw";
 }
@@ -740,23 +756,33 @@ export function documentRawUrl(documentId: string): string {
  * in the built-in viewer, and what arrives is the untouched original.
  */
 export async function openDocumentRaw(documentId: string): Promise<void> {
-  const response = await fetch(documentRawUrl(documentId), {
-    headers: activeLibraryId ? { "X-Bobodan-Library-ID": activeLibraryId } : undefined,
-  });
-  if (!response.ok) {
-    throw new ApiError(
-      "无法打开原文 (" + response.status + ")",
-      "document_raw_unavailable",
-      response.status,
-    );
-  }
-  const url = URL.createObjectURL(await response.blob());
-  const opened = window.open(url, "_blank", "noopener");
-  if (!opened) {
-    URL.revokeObjectURL(url);
+  // Open the tab *synchronously*: once we await, the user gesture is gone and
+  // popup blockers win. "noopener" is set by hand because passing it to
+  // window.open makes the returned handle unusable.
+  const target = window.open("", "_blank");
+  if (!target) {
     throw new ApiError("浏览器拦截了新标签页", "popup_blocked", 0);
   }
-  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  target.opener = null;
+  try {
+    const response = await fetch(documentRawUrl(documentId), {
+      headers: activeLibraryId ? { "X-Bobodan-Library-ID": activeLibraryId } : undefined,
+    });
+    if (!response.ok) {
+      throw new ApiError(
+        "无法打开原文 (" + response.status + ")",
+        "document_raw_unavailable",
+        response.status,
+      );
+    }
+    const url = URL.createObjectURL(await response.blob());
+    target.location.href = url;
+    // The viewer needs the URL while it is open; revoke lazily.
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  } catch (error) {
+    target.close();
+    throw error;
+  }
 }
 
 
