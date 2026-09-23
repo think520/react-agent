@@ -766,6 +766,36 @@ export function splitFrontmatter(text: string): { meta: string; body: string } {
  * library header, so the id travels in the query string (the backend accepts it
  * for media routes only, and still requires a registered library).
  */
+/**
+ * Download the original file with its real name.
+ *
+ * Word and PowerPoint files have no in-page renderer, so the honest options are
+ * "download it" or "open it with the system app" - both start here, and neither
+ * pretends the browser can lay the document out.
+ */
+export async function downloadDocumentRaw(documentId: string, filename: string): Promise<void> {
+  const response = await fetch(documentRawUrl(documentId), {
+    headers: activeLibraryId ? { "X-Bobodan-Library-ID": activeLibraryId } : undefined,
+  });
+  if (!response.ok) {
+    throw new ApiError(
+      "无法取回原件 (" + response.status + ")",
+      "document_raw_unavailable",
+      response.status,
+    );
+  }
+  const url = URL.createObjectURL(await response.blob());
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename || documentId;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  // The download needs the URL until it starts; revoke lazily.
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+
 export function documentRawEmbedUrl(documentId: string): string {
   const base = documentRawUrl(documentId);
   return activeLibraryId ? base + "?library=" + encodeURIComponent(activeLibraryId) : base;
@@ -785,21 +815,7 @@ export function documentRawUrl(documentId: string): string {
 }
 
 /**
- * Open the original file in a new tab (原文查看).
- *
- * Parsing loses images and flattens tables, so the reader has to be able to see
- * the file itself. A plain <a href> cannot carry the library header, so the
- * bytes are fetched first and handed to the browser as a blob - PDFs still land
- * in the built-in viewer, and what arrives is the untouched original.
- */
-export async function openDocumentRaw(documentId: string): Promise<void> {
-  // Open the tab *synchronously*: once we await, the user gesture is gone and
-  // popup blockers win. "noopener" is set by hand because passing it to
-  // window.open makes the returned handle unusable.
-  const target = window.open("", "_blank");
-  if (!target) {
-    throw new ApiError("浏览器拦截了新标签页", "popup_blocked", 0);
-  }
+
   target.opener = null;
   try {
     const response = await fetch(documentRawUrl(documentId), {

@@ -6,7 +6,7 @@ import {
   api,
   documentAssetUrl,
   documentRawEmbedUrl,
-  openDocumentRaw,
+  downloadDocumentRaw,
   splitFrontmatter,
   streamChat,
 } from "./api";
@@ -221,32 +221,30 @@ describe("api client", () => {
     );
   });
 
-  it("opens the original file with the library header (原文查看)", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response("# 原文", { status: 200 }));
+  it("downloads the original with its real filename (用系统打开)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("bytes", { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
-    const createObjectURL = vi.fn(() => "blob:original");
-    Object.assign(URL, { createObjectURL, revokeObjectURL: vi.fn() });
-    const target = { opener: {} as unknown, location: { href: "" }, close: vi.fn() };
-    const open = vi.spyOn(window, "open").mockReturnValue(target as unknown as Window);
+    Object.assign(URL, { createObjectURL: vi.fn(() => "blob:original"), revokeObjectURL: vi.fn() });
+    const clicked: HTMLAnchorElement[] = [];
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+      clicked.push(this);
+    });
 
-    await openDocumentRaw("doc-1");
+    await downloadDocumentRaw("doc-1", "报告.docx");
 
     expect(String(fetchMock.mock.calls[0][0])).toBe("/api/kb/documents/doc-1/raw");
-    expect(createObjectURL).toHaveBeenCalled();
-    expect(target.location.href).toBe("blob:original");
-    // The tab must be opened *before* the await, or the blocker eats it.
-    expect(open.mock.invocationCallOrder[0]).toBeLessThan(fetchMock.mock.invocationCallOrder[0]);
-    open.mockRestore();
+    expect(clicked[0]?.download).toBe("报告.docx");
+    expect(String(clicked[0]?.href)).toContain("blob:original");
+    click.mockRestore();
   });
 
-  it("refuses to open the original when the popup is blocked", async () => {
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
-    const open = vi.spyOn(window, "open").mockReturnValue(null);
+  it("reports a missing original instead of downloading an error page", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("nope", { status: 404 })));
+    Object.assign(URL, { createObjectURL: vi.fn(() => "blob:original"), revokeObjectURL: vi.fn() });
 
-    await expect(openDocumentRaw("doc-1")).rejects.toMatchObject({ code: "popup_blocked" });
-    expect(fetchMock).not.toHaveBeenCalled();
-    open.mockRestore();
+    await expect(downloadDocumentRaw("gone", "x.docx")).rejects.toMatchObject({
+      code: "document_raw_unavailable",
+    });
   });
 
 

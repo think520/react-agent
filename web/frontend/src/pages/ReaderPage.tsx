@@ -11,7 +11,7 @@ import { useNavigate, useOutletContext, useParams, useSearchParams } from "react
 import type { AppOutletContext } from "../components/AppShell";
 import { EmptyState, ErrorNotice, LoadingState } from "../components/common";
 import { DocumentEditor } from "../components/DocumentEditor";
-import { ApiError, api, documentAssetUrl, documentRawEmbedUrl, fetchDocumentRawText, openDocumentRaw, splitFrontmatter } from "../lib/api";
+import { ApiError, api, documentAssetUrl, documentRawEmbedUrl, downloadDocumentRaw, fetchDocumentRawText, splitFrontmatter } from "../lib/api";
 import { useHandoffStore } from "../stores/handoffStore";
 import { useReaderTabsStore } from "../stores/readerTabsStore";
 import { useConfirm } from "../ui/Modal";
@@ -377,10 +377,11 @@ export function ReaderPage() {
             {selected && !canShowOriginal && Boolean(selected.has_original) && (
               <button
                 className="quiet-button reader-original"
-                title="用系统打开原件（这类格式浏览器无法页内渲染）"
+                title="这类格式浏览器无法页内渲染：下载原件，用系统应用打开"
                 onClick={() => {
-                  void openDocumentRaw(selected.document_id).catch((reason) =>
-                    setError(reason instanceof Error ? reason.message : "无法打开原文。"),
+                  const name = (selected.source || "").split("/").pop() || selected.document_id;
+                  void downloadDocumentRaw(selected.document_id, name).catch((reason) =>
+                    setError(reason instanceof Error ? reason.message : "无法取回原件。"),
                   );
                 }}
               >
