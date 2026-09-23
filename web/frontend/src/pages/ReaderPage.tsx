@@ -49,6 +49,7 @@ export function ReaderPage() {
     }
   });
   const [forcedSections, setForcedSections] = useState(false);
+  const [pendingChunk, setPendingChunk] = useState<string | null>(null);
   const [originalText, setOriginalText] = useState("");
   const [originalError, setOriginalError] = useState("");
   const [railOpen, setRailOpen] = useState(false);
@@ -87,6 +88,14 @@ export function ReaderPage() {
   const effectiveView = readerView.view;
   const showOriginal = readerView.view === "original";
   const originalParts = splitFrontmatter(originalText);
+
+  const scrollToChunk = useCallback((chunkId: string) => {
+    const target = Array.from(document.querySelectorAll<HTMLElement>("[data-chunk-id]"))
+      .find((element) => element.dataset.chunkId === chunkId);
+    if (!target) return;
+    setHighlightedChunk(chunkId);
+    target.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, []);
   const selectedIndex = documents.findIndex((document) => document.document_id === selectedId);
   const openTab = useReaderTabsStore((state) => state.open);
   const closeTab = useReaderTabsStore((state) => state.close);
@@ -179,7 +188,15 @@ export function ReaderPage() {
   // 否则跳转过一次之后，后面每份资料都会停在分段视图（而偏好并没有变）。
   useEffect(() => {
     setForcedSections(false);
+    setPendingChunk(null);
   }, [selectedId]);
+
+  // 从原文/PDF 视图发起的跳转：等分段视图渲染出 [data-chunk-id] 之后再滚动高亮。
+  useEffect(() => {
+    if (!pendingChunk || showOriginal) return;
+    scrollToChunk(pendingChunk);
+    setPendingChunk(null);
+  }, [pendingChunk, showOriginal, scrollToChunk]);
 
   useEffect(() => {
     setOriginalText("");
@@ -266,11 +283,15 @@ export function ReaderPage() {
   }
 
   function jumpToChunk(chunkId: string) {
-    const target = Array.from(document.querySelectorAll<HTMLElement>("[data-chunk-id]"))
-      .find((element) => element.dataset.chunkId === chunkId);
-    if (!target) return;
-    setHighlightedChunk(chunkId);
-    target.scrollIntoView({ block: "center", behavior: "smooth" });
+    // 章节导航靠 [data-chunk-id] 节点定位，而那些节点只存在于分段视图——原文/PDF
+    // 视图下点了会毫无反应（复审发现的真 bug）。跳转一律先切到分段视图，落到
+    // DOM 之后再滚动高亮，这也正是共识里"跳转 → 分段并高亮"的那条规则。
+    if (showOriginal) {
+      setForcedSections(true);
+      setPendingChunk(chunkId);
+      return;
+    }
+    scrollToChunk(chunkId);
   }
 
   function documentContentVersion(doc: DocumentSummary) {
