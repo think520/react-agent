@@ -374,6 +374,15 @@ hooks 最小接线（✅ 结果上限落 `after_tool`、白名单门落 `before_
 **当前状态**：`pytest` job 稳定通过（约 5.5 分钟）；`Playwright` 与 `vitest` job 在共享 runner 上仍偶发超时，两个 job 已加 `--retries=2`。
 
 **仍未做（诚实记账）**：① 这两套 UI 测试需要专门去抖（或把慢用例标记隔离），**去抖完成前它们带重试、不作为「确定性」依据**；② Python 侧没有 lock 文件（前端有 `package-lock.json`），依赖漂移还会再来——这是补完 CI 之后最该做的下一件基建；③ `actions/*@v4` 有 Node 20 弃用告警，待统一升级。
+### 「原文查看」交付记录（2026-09-23，进行中）
+
+**做了什么（后端）**：`GET /api/kb/documents/{id}/raw` —— 只读、按 `documents.path` 定位真实文件、**工作区包含性校验**、按扩展名给媒体类型、`inline` 优先（PDF 交给浏览器内置阅读器）。服务层是 `DocumentEditService.resolve_source_path()` + `raw_file()`，复用了编辑功能已有的「从 document_id 找回真实文件」能力。
+
+**证据**：`tests/test_document_raw_file.py` 8 条（含三种越界拒绝：工作区外绝对路径、`../` 逃逸、空路径）。全量 1584 passed。
+
+**仍未做**：Reader 的「查看原文」开关；markdown 图片渲染需要"按文档相对路径取附件"的受限端点（**不能**直接暴露工作区静态目录）；DOCX 表格解析修复 + 重新 sync；图片可渲染。
+
+**明确的不要做**：PDF→图片/自研渲染器（浏览器内置阅读器零成本）；OCR（属 W2 G5）。
 ### 单项完成定义
 
 一项路线任务只有同时满足以下条件才能标记为 `已验证`：

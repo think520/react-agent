@@ -7,6 +7,9 @@
 ## [未发布]
 
 ### 变更
+- **原文查看（后端一半，2026-09-23）**：解析会丢图片、压平表格，而阅读侧只能看解析文本——用户实际上看不到原件（Obsidian 是直接渲染文件的）。现在新增只读端点 `GET /api/kb/documents/{id}/raw`：按 `documents.path` 定位真实文件，**resolve 后必须落在工作区内**（越界一律 `source_not_found`），按扩展名给媒体类型、`Content-Disposition: inline`（PDF 直接交给浏览器内置阅读器，Office 走下载/系统打开）。
+  - 复现：新增 `tests/test_document_raw_file.py` 八条：**越界拒绝**（工作区外的绝对路径、`../` 逃逸、空路径）、区内接受（绝对与相对路径都行）、媒体类型与文件名/大小、缺文件、PDF 类型、路由 inline 返回原文、未知文档 404。**修前失败信号**：`AttributeError: 'DocumentEditService' object has no attribute 'resolve_source_path'` + 路由 404。
+  - 仍未做（原文查看的前端一半）：Reader 的「查看原文」开关；markdown 内图片可渲染需要一个"按文档相对路径取附件"的受限只读端点（**不能**直接暴露工作区静态目录）。
 - **G2 第二块：embedding 签名版本化（2026-09-23）**：向量只在"产生它的那个模型"旁边才有意义，而此前没有任何地方记录这个配对——换 provider 或换模型后，检索会**静默去查另一个向量空间的库**。现在新增 `rag/embedding_signature.py`：sync 结束时把 `{provider, model, dim}` 原子写入工作区的 `embedding_signature.json`；检索构建管线时比对，不一致就**整条向量腿停用**，并留一条带双方数值的 warning（结果退回 FTS5-only，而不是拿外来向量给出自信的错答案）。文件名已登记进 `core/persistence_registry.py`（tripwire 强制）。
   - 复现：新增 `tests/test_embedding_signature.py` 六条（匹配不误报、改模型同时报出 model/dim 两侧、无签名不阻断、损坏签名当没有而不是崩、provider 报不出维度时不阻断、**端到端**：sync 写入签名 → `semantic_available: True`；把签名改成另一个模型 → 同一查询变 `False`）。**修前失败信号**：`ModuleNotFoundError: rag.embedding_signature`；接线后又暴露两个既有替身缺 `get_model_info()`（已补）。
   - G2 剩余：429 **断点续传**（当前是有界重试，不是从失败批次续跑）、设置页「向量模型」、召回评测集（G4）。

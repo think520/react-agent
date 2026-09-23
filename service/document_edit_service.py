@@ -75,6 +75,62 @@ class DocumentEditService:
         with open(path, "r", encoding="utf-8") as handle:
             return handle.read()
 
+    # 原文查看用的媒体类型：PDF 交给浏览器内置阅读器，Office 走下载/系统打开。
+    RAW_MEDIA_TYPES = {
+        ".md": "text/markdown; charset=utf-8",
+        ".markdown": "text/markdown; charset=utf-8",
+        ".txt": "text/plain; charset=utf-8",
+        ".json": "application/json; charset=utf-8",
+        ".pdf": "application/pdf",
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+        ".svg": "image/svg+xml",
+        ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    }
+
+    def resolve_source_path(self, path: str) -> str | None:
+        """Map a stored document path to a real file **inside** this workspace.
+
+        解析会丢图片和表格，所以阅读侧要能看原件；而把工作区文件读给前端是
+        本次唯一新增的风险面，所以包含性判断放在这里，只有落在 workspace 里的
+        真实文件才会被返回（绝对路径与相对路径都接受）。
+        """
+        if not path:
+            return None
+        candidate = path if os.path.isabs(path) else os.path.join(self.workspace, path)
+        try:
+            resolved = os.path.realpath(candidate)
+        except OSError:
+            return None
+        root = os.path.realpath(self.workspace)
+        if resolved != root and not resolved.startswith(root + os.sep):
+            return None
+        return resolved if os.path.isfile(resolved) else None
+
+    def raw_file(self, document_id: str) -> dict[str, Any]:
+        """Locate the original file for a document, read-only, or explain why not."""
+        raw = self._raw_document(document_id)
+        if raw is None:
+            return _err(f"Document not found: {document_id}", code="document_not_found")
+        resolved = self.resolve_source_path(str(raw.get("path") or ""))
+        if resolved is None:
+            return _err(
+                "The original file is not available inside this workspace",
+                code="source_not_found",
+            )
+        extension = os.path.splitext(resolved)[1].lower()
+        return _ok(
+            path=resolved,
+            media_type=self.RAW_MEDIA_TYPES.get(extension, "application/octet-stream"),
+            filename=os.path.basename(resolved),
+            size=os.path.getsize(resolved),
+        )
+
+
     def _raw_document(self, document_id: str) -> dict[str, Any] | None:
         from knowledge.paths import knowledge_path
         from rag.sqlite_store import KBSQLiteStore

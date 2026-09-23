@@ -6,6 +6,7 @@ from typing import Literal
 
 from fastapi import APIRouter, File, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from service.kb_service import KBService
@@ -546,6 +547,27 @@ def document_content(document_id: str, request: Request) -> dict:
         DocumentEditService(get_request_workspace(request)).read(document_id),
         status_code=404,
         code="document_not_found",
+    )
+
+
+@router.get("/documents/{document_id}/raw")
+def document_raw(document_id: str, request: Request) -> FileResponse:
+    """Serve the original file, read-only (原文查看).
+
+    Parsing flattens tables and drops images, so the reader has to be able to
+    look at the file itself - the same thing Obsidian shows. Inline disposition
+    is what lets the browser's own PDF viewer take over instead of downloading.
+    """
+    result = unwrap_service_result(
+        DocumentEditService(get_request_workspace(request)).raw_file(document_id),
+        status_code=404,
+        code="document_not_found",
+    )
+    return FileResponse(
+        result["path"],
+        media_type=result["media_type"],
+        filename=result["filename"],
+        content_disposition_type="inline",
     )
 
 
