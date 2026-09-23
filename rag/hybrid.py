@@ -27,7 +27,8 @@ class HybridRetriever:
     ):
         self.sqlite = sqlite_store
         self.qdrant = qdrant_store
-        self.embedding_client = embedding_client  # OllamaEmbeddingClient or None
+        # B2: any EmbeddingProvider (Ollama or an OpenAI-compatible API) or None.
+        self.embedding_client = embedding_client
 
         rag_cfg = (config or {}).get("rag", {})
         ret_cfg = rag_cfg.get("retrieval", {})

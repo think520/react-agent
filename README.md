@@ -234,7 +234,7 @@ python agent.py library list
 | `~/.bobodan/provider.json` | Provider 与模型配置真相源（设置 →「AI 与模型」管理），API key 在此保存 |
 | `.env` | 可选：API key 走环境变量（provider.json 中 key 留空时回退） |
 | `config.yaml` | 配置 Agent、RAG、Skills、MCP 和 specialist；`llm.providers` 仅首次启动迁移用 |
-| `rag.embedding_backend` | 默认为 `auto`；没有本地 embedding 服务时，FTS5 仍可单独工作 |
+| `rag.embedding_backend` | 默认为 `auto`：配好的 API provider 优先 → 否则 Ollama → 都没有则 FTS5 单独工作。API provider 用 `embedding_preset`（`siliconflow` / `dashscope` / `openai`）+ 环境变量密钥（如 `SILICONFLOW_API_KEY`），密钥不写进 `config.yaml` |
 | Qdrant | 默认使用本地模式；远程 Qdrant、Ollama 和 MCP 都是可选项 |
 | `BOBODAN_CONFIG` / `BOBODAN_WORKSPACE` | 指定配置文件和后端工作区 |
 

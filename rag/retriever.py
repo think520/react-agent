@@ -85,7 +85,9 @@ def _retrieval_pipeline_unlocked(workspace: str, config: dict) -> _CachedPipelin
     qdrant = shared_qdrant_store(workspace, config)
     embedding = EmbeddingService(config)
     orchestrator = RetrievalOrchestrator(
-        HybridRetriever(sqlite, qdrant, embedding.client, config),
+        # B2: the provider contract (is_available + embed) is all the hybrid
+        # retriever needs, so it takes the provider rather than a client.
+        HybridRetriever(sqlite, qdrant, embedding.provider, config),
         DirectoryRetriever(sqlite, config),
         GrepRetriever(workspace, config),
         config,

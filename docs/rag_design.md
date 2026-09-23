@@ -10,7 +10,7 @@
 
 Bobodan 的知识库检索升级为完整 RAG 基础设施，支持四种检索方式：
 
-1. **向量检索（设计目标）**：语义相似度检索（当前仅接入 Qdrant + 可选 Ollama；B2 将升级为可配置 embedding provider）。
+1. **向量检索（设计目标）**：语义相似度检索（Qdrant + 可配置 embedding provider：Ollama 或用户自配的 OpenAI 兼容 API；签名/维度校验/评测见 B2 余项）。
 2. **FTS5 检索**：关键词、术语、原文匹配（SQLite FTS5 / BM25）。
 3. **目录索引检索**：文档级路由，根据标题、摘要、关键词 + chunk 聚合判断相关文档。
 4. **grep/rg 检索**：在候选文档中做精确文本搜索，返回原文上下文。
@@ -437,7 +437,7 @@ class RetrievalResult:
 
 ### 6.2 Vector Retriever
 
-> 当前实现只接入 Ollama。用户自配 API provider、embedding 签名与断点续传属于 `ROADMAP.md` B2，以下「目标形态」不得当作已上线能力。
+> provider 层已支持用户自配 API（B2 前半落地）。embedding 签名版本化、批次维度校验、429 退避与断点续传、召回评测集仍未完成（B2 余项），以下「目标形态」不得当作已上线能力。
 
 用途：
 
@@ -926,11 +926,20 @@ RAG = 原文证据和文档检索层
 
 ## 11. 配置
 
-下面是**当前配置形态**。`embedding_backend`、`ollama_url` 和 `ollama_model` 仍对应现有 Ollama 适配器；用户自配 API embedding 的 provider 配置字段由 B2 实施时确定，不能提前写入 `config.yaml` 视为生效。
+下面是**当前配置形态**。**B2 的 provider 层已落地**：`embedding_backend` 取 `auto | openai_compat | ollama | local`，API provider 走 OpenAI 兼容的 `POST {base_url}/embeddings`，`auto` = 配好的 API provider 优先、否则 Ollama、都没有则 FTS5-only。密钥只从环境变量读（`embedding_api_key_env`，留空用预设自带的变量名），**绝不写进 `config.yaml`**（它是受版本控制的文件）。
+
+仍属 B2 未完成部分：embedding 签名版本化、批次维度校验、429 退避与断点续传、召回评测集（G4）。在评测集通过之前，**不得宣称混合检索优于 FTS-only**。
 
 ```yaml
 rag:
-  embedding_backend: auto
+  embedding_backend: auto          # auto | openai_compat | ollama | local
+  embedding_preset: ""             # siliconflow | dashscope | openai
+  embedding_base_url: ""
+  embedding_model: ""
+  embedding_api_key_env: ""        # 例：SILICONFLOW_API_KEY
+  embedding_dim: 0                 # 0 = 用预设或首次探测
+  embedding_batch_size: 32
+  embedding_timeout: 30
   ollama_url: "http://localhost:11434"
   ollama_model: "qwen3-embedding:0.6b"
   probe_timeout: 3

@@ -7,6 +7,10 @@
 ## [未发布]
 
 ### 变更
+- **W2/B2 · 可配置 embedding provider（2026-09-23）**：`EmbeddingService` 此前只能连本地 Ollama，于是**没装 Ollama 的机器一个向量都建不出来**——真实工作区正是这个状态（实测 70 份资料 / 1857 chunk、`vector_status` 全为 `pending`、`.bobodan/qdrant` 不存在）。现在 provider 是注册表里的一项：新增 `rag/embedding_provider.py` 定义 `EmbeddingProvider` 契约（`is_available` / `embed` / `get_model_info`），内置 `OllamaEmbeddingProvider`（把既有客户端原样降格复用，零成本保留）与 `OpenAICompatibleEmbeddingProvider`（`POST {base_url}/embeddings`：批量、按 `index` 归位、返回数量不符即报错），外加四个预设（`siliconflow` bge-m3 / `dashscope` / `openai` / `ollama`）。`auto` 的语义写死为：**配好的 API provider 优先 → 否则 Ollama → 都没有则 FTS5-only**；显式选 `openai_compat` 但缺 key 时**不会**悄悄退回 Ollama，而是 `is_available()=False`——宁可不做向量，也不偷偷换后端。密钥只从环境变量读（`embedding_api_key_env`，留空用预设自带的变量名），`config.yaml` 里永远没有 key。
+  - 复现：新增 `tests/test_embedding_provider.py` 十一条，全部用**真实 httpx + MockTransport**（只换传输层）：预设展开、`auto` 的优先级与显式选择、缺 key 不降级、请求形状（`Authorization: Bearer` 在头里、**不在 URL 里**、body 是 `{model,input}`）、5 条输入按 `batch_size=2` 拆成 3 次请求、响应乱序按 `index` 归位、返回数量不符报错、失败时 `embed_texts` 返回 None **且密钥不出现在日志与 model info 里**（用一个故意回显 `Authorization` 的假服务器验证）、维度来自预设时**不发请求**、维度未知时探测一次并缓存。修前失败信号：`ModuleNotFoundError: rag.embedding_provider`。
+  - 顺带修掉的三处旧契约：`rag/retriever.py` 把 `embedding.client` 传给 `HybridRetriever`（改为传 provider），以及 `tests/test_rag_retrievers.py` 的两个服务替身。它们是「服务对外只暴露 provider」这个新契约的真实调用点，不是顺手重构。
+  - ⏳ 仍未做（B2 余项，按原计划归 G2/G4）：embedding 签名版本化、批次维度校验、429 退避与断点续传、设置页「向量模型」与 Library 状态卡的开通引导、召回评测集。**在评测集通过前，不得宣称混合检索优于 FTS-only。**
 - **A4 批次三 · CLI 超时与 Ctrl+C 接 token（P0-3，2026-09-14）**：CLI 的 agent 跑在 daemon 线程里，超时与 Ctrl+C 只跳出**消费循环**，线程继续烧 token——代码里甚至在自己的提示语中承认了这一点（「后台请求和已经启动的工具操作可能仍在继续」）。
   - 复现：`tests/test_repl.py` 新增一条——把 `core.agent_loop.AgentLoop` 换成会记录实参的 spy，复用既有的 `SlowProvider(delay=10)` + `agent.timeout=1` 场景，断言**循环拿到的 token 在超时后已被取消**且 reason 为 `cli_timeout`，并且新提示语出现。改动前该断言无法成立（`AgentLoop` 根本没收到 `cancel_token`），那条提示语也还是一句免责声明。
   - 修法：`run_agent` 每轮建 `CancelToken` 并交给 `AgentLoop`；超时分支在 break 前 `run_token.cancel("cli_timeout")`；消费循环外包一层 `except KeyboardInterrupt`（设置 `cancelled`、取消 token、给出提示后干净返回，不再只封存当前行）；提示语改为如实描述「已通知后台请求停止（在下一个检查点生效），已启动的工具可能仍会收尾」。

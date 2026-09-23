@@ -1,34 +1,38 @@
-"""EmbeddingService — thin wrapper around OllamaEmbeddingClient.
+"""EmbeddingService — provider-agnostic facade (rag_design B2).
 
-Provides a unified interface for the Qdrant store and HybridRetriever
-to get embeddings. Gracefully returns None when Ollama is unavailable.
+Keeps the old surface (`is_available` / `embed_texts` / `embed_query` /
+`get_model_info`) that the Qdrant store, hybrid retriever and sync backfill
+rely on, but the provider itself now comes from
+`rag.embedding_provider.create_embedding_provider` — Ollama, an
+OpenAI-compatible API, or nothing at all.
+
+The degrade path is unchanged and deliberate: with no available provider,
+`embed_texts` returns None and retrieval stays FTS5-only instead of pretending.
 """
 
 from __future__ import annotations
 
 import logging
 
-from rag.ollama import OllamaEmbeddingClient
+from rag.embedding_provider import create_embedding_provider
 
 logger = logging.getLogger(__name__)
 
 
 class EmbeddingService:
-    """Embedding service backed by Ollama."""
+    """Embedding service backed by whichever provider the config selects."""
 
     def __init__(self, config: dict | None = None):
-        rag_cfg = (config or {}).get("rag", {})
-        self.client = OllamaEmbeddingClient(
-            base_url=rag_cfg.get("ollama_url", "http://localhost:11434"),
-            model=rag_cfg.get("ollama_model", "qwen3-embedding:0.6b"),
-            probe_timeout=rag_cfg.get("probe_timeout", 3),
-            request_timeout=rag_cfg.get("request_timeout", 10),
-        )
+        self.provider = create_embedding_provider(config)
+
+    @property
+    def name(self) -> str:
+        return str(getattr(self.provider, "name", "unknown"))
 
     def is_available(self) -> bool:
-        """Check if Ollama embedding is available."""
+        """True when the configured provider can plausibly serve a request."""
         try:
-            return self.client.is_available()
+            return bool(self.provider.is_available())
         except Exception:
             return False
 
@@ -37,11 +41,12 @@ class EmbeddingService:
         if not texts:
             return []
         try:
-            if not self.client.is_available():
+            if not self.provider.is_available():
                 return None
-            return self.client.embed(texts)
+            return self.provider.embed(texts)
         except Exception as e:
-            logger.warning("Embedding failed: %s", e)
+            # A provider failure must never take down sync or retrieval.
+            logger.warning("Embedding failed via %s: %s", self.name, e)
             return None
 
     def embed_query(self, query: str) -> list[float] | None:
@@ -52,5 +57,21 @@ class EmbeddingService:
         return None
 
     def get_model_info(self) -> dict:
-        """Return model info."""
-        return self.client.get_model_info()
+        """Model metadata, including the dimension Qdrant needs."""
+        try:
+            info = dict(self.provider.get_model_info())
+        except Exception as e:
+            logger.warning("Embedding provider info failed via %s: %s", self.name, e)
+            info = {"name": self.name, "model": "", "dim": None}
+        if not info.get("dim"):
+            # No dimension means init_collection never runs and vectors are
+            # silently never written (the P1-18 trap), so resolve it once.
+            resolve = getattr(self.provider, "resolve_dim", None)
+            if callable(resolve) and self.is_available():
+                try:
+                    resolved = resolve()
+                    if resolved:
+                        info["dim"] = int(resolved)
+                except Exception as e:
+                    logger.warning("Could not resolve embedding dimension: %s", e)
+        return info

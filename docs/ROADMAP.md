@@ -109,7 +109,9 @@
 
 ### W2 检索与 RAG（第十章决策落地）
 
-> 现状：向量腿从未运行（`.knowledge/qdrant/` 为空），产品实际是 FTS5-only。2026-09-03 已拍板：**向量库不动（qdrant 本地模式）、不内置 ONNX 模型、embedding 走用户自配 API**。完整论证见调研报告第十章。
+> 现状（2026-09-23 复测）：向量腿从未运行——真实工作区 70 份资料 / 1857 chunk，`vector_status` **全为 `pending`**，`.bobodan/qdrant` 不存在。产品实际是 FTS5-only。2026-09-03 已拍板：**向量库不动（qdrant 本地模式）、不内置 ONNX 模型、embedding 走用户自配 API**。完整论证见调研报告第十章。
+>
+> 2026-09-23 进展：**B2 的 provider 层已落地**（`rag/embedding_provider.py`：Ollama 之外可用用户自配的 OpenAI 兼容 API，预设 siliconflow/dashscope/openai，密钥走环境变量）。但**尚未在真实资料集上跑通**（需要一个用户侧的 key 才能建向量），G4 召回评测集未建——所以在评测集通过前，「FTS5-only 是当前事实」这句话仍然有效，且不得宣称混合检索更好。
 
 | # | 事项 | 动哪里 | 来源 |
 |---|---|---|---|
@@ -355,6 +357,13 @@ hooks 最小接线（✅ 结果上限落 `after_tool`、白名单门落 `before_
 
 每条先写**会失败的复现测试**再修；断线取消、Qdrant 双开、删除确认、向量补建四类必须用真实集成或故障注入而非 mock；CHANGELOG 记录「复现方式 + 失败信号」；每个批次末尾跑全量验证（pytest + vitest + Playwright + lint + build + `tests/conftest.py` 的真实库 tripwire）后才推送。
 
+### B2 provider 层交付记录（2026-09-23）
+
+**做了什么**：`EmbeddingService` 从「只能连 Ollama」变成「provider 注册表」——`EmbeddingProvider` 契约（`is_available` / `embed` / `get_model_info`）+ `OllamaEmbeddingProvider`（既有客户端原样降格复用）+ `OpenAICompatibleEmbeddingProvider`（OpenAI 兼容 `POST /embeddings`，批量、按 `index` 归位、数量不符报错）+ 四个预设；`auto` 的优先级写死为「配好的 API → 否则 Ollama → 否则 FTS5-only」，显式选择缺 key 时**不降级**。密钥只从环境变量读，`config.yaml` 里没有 key。
+
+**证据**：`tests/test_embedding_provider.py` 11 条（真实 httpx + MockTransport，只换传输层），含「密钥不出现在 URL/日志/model info」与「维度探测一次并缓存」。全量回归 1564 passed。
+
+**仍未做（B2 余项 → G2/G4）**：embedding 签名版本化、批次维度校验、429 退避与断点续传、设置页「向量模型」与 Library 状态卡的开通引导、召回评测集。**这三件事做完之前，G2/G4 才算收口，本轮也不宣称语义检索已可用。**
 ### 单项完成定义
 
 一项路线任务只有同时满足以下条件才能标记为 `已验证`：
