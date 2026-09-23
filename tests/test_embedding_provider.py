@@ -124,7 +124,8 @@ def test_the_key_travels_in_a_header_and_never_in_the_url(monkeypatch):
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(request)
-        return _ok(_vectors(1))
+        # Match the preset's declared dimension: G2 rejects a mismatch.
+        return _ok(_vectors(1, dim=1024))
 
     service = _service_with(monkeypatch, handler, {"embedding_preset": "siliconflow"})
     assert service.embed_texts(["你好"]) is not None
@@ -193,6 +194,71 @@ def test_a_failing_provider_degrades_to_none_without_leaking_the_key(monkeypatch
     assert KEY not in caplog.text
     assert KEY not in json.dumps(service.get_model_info(), ensure_ascii=False)
     assert service.get_model_info()["key_present"] is True
+
+
+def _provider(handler, **kwargs):
+    return OpenAICompatibleEmbeddingProvider(
+        base_url="https://example.invalid/v1",
+        model="m",
+        api_key=KEY,
+        retry_base_seconds=0,
+        client=_client(handler),
+        **kwargs,
+    )
+
+
+def test_a_429_is_retried_until_it_succeeds():
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        if len(calls) <= 2:
+            return httpx.Response(429, headers={"Retry-After": "0"}, json={"error": "slow down"})
+        return _ok(_vectors(1, dim=1024))
+
+    provider = _provider(handler, dim=1024)
+
+    assert provider.embed(["a"]) == [[0.0] * 1024]
+    assert len(calls) == 3
+
+
+def test_retries_are_bounded_and_then_raise():
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(429, headers={"Retry-After": "0"}, json={})
+
+    provider = _provider(handler, dim=1024, max_retries=2)
+
+    with pytest.raises(httpx.HTTPStatusError):
+        provider.embed(["a"])
+    assert len(calls) == 3  # the attempt plus two retries, and no more
+
+
+def test_a_dimension_mismatch_is_rejected_before_it_reaches_the_store():
+    """G2: the configured dimension is the contract, not a suggestion."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return _ok(_vectors(1, dim=3))
+
+    provider = _provider(handler, dim=1024)
+
+    with pytest.raises(RuntimeError, match="3-dimensional vectors but the configured dimension is 1024"):
+        provider.embed(["a"])
+
+
+def test_mixed_dimensions_in_one_batch_are_rejected():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"data": [
+            {"index": 0, "embedding": [1.0, 2.0, 3.0]},
+            {"index": 1, "embedding": [1.0, 2.0]},
+        ]})
+
+    provider = _provider(handler)
+
+    with pytest.raises(RuntimeError, match="mixed dimensions"):
+        provider.embed(["a", "b"])
 
 
 def test_a_short_response_is_rejected(monkeypatch):

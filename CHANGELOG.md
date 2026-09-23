@@ -7,6 +7,9 @@
 ## [未发布]
 
 ### 变更
+- **G2 第一块：批次维度校验 + 429/5xx 退避重试（2026-09-23）**：真实厂商最常见的失败不是"挂了"而是**限流**——一个 429 过去会让一批 chunk 直接失败、文档留在 pending。现在 `_embed_batch` 做有界指数退避重试（默认 3 次，尊重 `Retry-After`，连接错误与 5xx 同等对待，上限 30s）；同时**把维度当契约**：返回维度与配置不符、或同一批里维度不一致，都在**写进 Qdrant 之前**报错并带上两个数字，而不是让错尺寸向量默默进库（那正是"换模型后静默错配"的入口）。
+  - 复现：`tests/test_embedding_provider.py` 新增 4 条（429 两次后成功且只发 3 次请求；重试耗尽后抛错且请求数有上界；维度不符被拒且错误信息含 3/1024；同批维度不一致被拒）。**它立刻抓出一条既有夹具的问题**：预设声明 1024 维而夹具只返回 3 维——说明这条校验真的在守门，不是装饰。
+  - G2 剩余：embedding/解析器**签名版本化**（把 provider+model+dim 存下来，不匹配时显式报 `embedding_signature_mismatch` 而不是静默用错向量）、断点续传、设置页「向量模型」、召回评测集。
 - **智谱接入实测 + 真实资料库建库完成（2026-09-23）**：用户提供智谱（BigModel）key 后验证：v4 接口**OpenAI 兼容**，`embedding-3` 默认 **2048 维**（0.27s/条，批量正常；同模型也支持 `dimensions=1024`，但 provider 暂不发送该参数）。因此只需加一个 `zhipu` 预设（`https://open.bigmodel.cn/api/paas/v4` + `embedding-3` + `ZHIPU_API_KEY` + **dim 2048**——必须与 API 默认一致，否则 Qdrant collection 会按错维度建）。
   - **真实资料库已建成向量**：对 `note/vault`（70 份资料 / 1857 chunk）走 P1-18 的 `backfill_vectors`（只写向量、不重解析、不动原文）：**70/70 `pending` → `indexed`，58 秒，Qdrant points 0 → 1857**；混合检索返回 `retrieval_mode: hybrid / semantic_available: True`，查询「向量检索是怎么工作的」语义命中 `course-2/18-向量数据库与Embedding实战.md`。
   - 配置接线：`config.yaml` 写 `embedding_preset: "zhipu"`（**不含 key**；没有 key 时 `auto` 会安全回退 Ollama → FTS5-only，不会假装能用）；key 放被 gitignore 的 `.env`（`git status` 确认未跟踪）。产品配置实测解析为 `openai_compat | available: True | dim: 2048`。

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from typing import Any, Protocol
 
 import httpx
@@ -29,6 +30,13 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_REQUEST_TIMEOUT = 30
 DEFAULT_BATCH_SIZE = 32
+# G2: embedding endpoints throttle (429) and blip (5xx / timeouts). A bounded
+# retry with backoff is the difference between "one throttled batch loses a
+# document" and "the library actually finishes building".
+DEFAULT_MAX_RETRIES = 3
+DEFAULT_RETRY_BASE_SECONDS = 0.8
+DEFAULT_MAX_RETRY_SECONDS = 30.0
+RETRY_STATUSES = frozenset({408, 409, 425, 429, 500, 502, 503, 504})
 
 # Presets: base URL + default model + the env var that should hold the key.
 # Model ids match what the research report recommended; every field can be
@@ -159,6 +167,9 @@ class OpenAICompatibleEmbeddingProvider:
         dim: int | None = None,
         request_timeout: float = DEFAULT_REQUEST_TIMEOUT,
         batch_size: int = DEFAULT_BATCH_SIZE,
+        max_retries: int = DEFAULT_MAX_RETRIES,
+        retry_base_seconds: float = DEFAULT_RETRY_BASE_SECONDS,
+        max_retry_seconds: float = DEFAULT_MAX_RETRY_SECONDS,
         client: httpx.Client | None = None,
     ) -> None:
         self.base_url = (base_url or "").rstrip("/")
@@ -169,6 +180,9 @@ class OpenAICompatibleEmbeddingProvider:
         self._observed_dim: int | None = None
         self.request_timeout = request_timeout
         self.batch_size = max(1, int(batch_size))
+        self.max_retries = max(0, int(max_retries))
+        self.retry_base_seconds = max(0.0, float(retry_base_seconds))
+        self.max_retry_seconds = max(0.0, float(max_retry_seconds))
         self._client = client or httpx.Client(timeout=request_timeout)
 
     @property
@@ -195,13 +209,50 @@ class OpenAICompatibleEmbeddingProvider:
         return vectors
 
     def _embed_batch(self, texts: list[str]) -> list[list[float]]:
-        response = self._client.post(
-            self.base_url + "/embeddings",
-            headers={"Authorization": "Bearer " + self._api_key},
-            json={"model": self.model, "input": texts},
-            timeout=self.request_timeout,
-        )
-        response.raise_for_status()
+        attempts = self.max_retries + 1
+        for attempt in range(attempts):
+            last = attempt + 1 >= attempts
+            try:
+                response = self._client.post(
+                    self.base_url + "/embeddings",
+                    headers={"Authorization": "Bearer " + self._api_key},
+                    json={"model": self.model, "input": texts},
+                    timeout=self.request_timeout,
+                )
+            except httpx.HTTPError as exc:
+                # Connection resets and read timeouts deserve the same treatment
+                # as a 503: retry a bounded number of times, then surface it.
+                if last:
+                    raise
+                logger.warning(
+                    "Embedding request failed (%s); retrying %d/%d",
+                    type(exc).__name__, attempt + 1, self.max_retries,
+                )
+                self._sleep_before_retry(attempt)
+                continue
+            if response.status_code in RETRY_STATUSES and not last:
+                self._sleep_before_retry(attempt, response)
+                continue
+            response.raise_for_status()
+            return self._parse_batch(response, texts)
+        raise RuntimeError("embedding retry loop exited without a result")
+
+    def _sleep_before_retry(self, attempt: int, response: httpx.Response | None = None) -> float:
+        """Exponential backoff, honouring Retry-After when the vendor sends it."""
+        delay = self.retry_base_seconds * (2 ** attempt)
+        if response is not None:
+            header = response.headers.get("retry-after")
+            if header:
+                try:
+                    delay = max(delay, float(header))
+                except (TypeError, ValueError):
+                    pass
+        delay = min(delay, self.max_retry_seconds) if self.max_retry_seconds else delay
+        if delay > 0:
+            time.sleep(delay)
+        return delay
+
+    def _parse_batch(self, response: httpx.Response, texts: list[str]) -> list[list[float]]:
         payload = response.json()
         rows = payload.get("data") or []
         # Providers are allowed to return rows out of order; index is the truth.
@@ -212,9 +263,34 @@ class OpenAICompatibleEmbeddingProvider:
                 "embedding provider returned " + str(len(vectors))
                 + " vectors for " + str(len(texts)) + " inputs"
             )
-        if vectors and vectors[0]:
-            self._observed_dim = len(vectors[0])
+        self._validate_dimensions(vectors)
         return vectors
+
+    def _validate_dimensions(self, vectors: list[list[float]]) -> None:
+        """G2: a wrong-sized vector must never reach the collection.
+
+        Dimension drift used to be silent: the batch went straight to Qdrant, so
+        a provider that changed model (or a config that declared the wrong dim)
+        produced either an upsert error deep in the store or - worse - a
+        collection built at the wrong size. Fail here, with the numbers.
+        """
+        if not vectors or not vectors[0]:
+            return
+        actual = len(vectors[0])
+        if self._configured_dim and actual != self._configured_dim:
+            raise RuntimeError(
+                "embedding provider returned " + str(actual)
+                + "-dimensional vectors but the configured dimension is "
+                + str(self._configured_dim)
+            )
+        for index, vector in enumerate(vectors):
+            if len(vector) != actual:
+                raise RuntimeError(
+                    "embedding provider returned mixed dimensions in one batch: "
+                    "item 0 has " + str(actual) + ", item " + str(index)
+                    + " has " + str(len(vector))
+                )
+        self._observed_dim = actual
 
     def resolve_dim(self) -> int | None:
         """Dimension for the Qdrant collection.
