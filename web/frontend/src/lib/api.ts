@@ -61,6 +61,9 @@ export interface KnowledgeSyncSummary {
   duplicates_cleaned: string[];
   pending_removal: string[];
   skipped_files: string[];
+  /** 本次扫描看不全（路径读不到，或已登记的来源根此刻不可用）——此时不会移除任何资料。 */
+  scan_incomplete: boolean;
+  incomplete_reasons: string[];
 }
 
 interface ErrorEnvelope {

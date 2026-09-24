@@ -59,9 +59,13 @@ class SyncSummary:
     changed_files: int = 0
     #: Sources removed from the index in this run (confirmed missing twice).
     removed_files: list = field(default_factory=list)
-    #: Removed sources whose content is still indexed under another source:
-    #: these are the duplicate records the scan-rule fix cleans up.
+    #: Removed sources whose content is still indexed under another source
+    #: (a duplicate record — or a rename/move, which ③ will migrate properly).
     duplicates_cleaned: list = field(default_factory=list)
+    #: True when this scan could not see everything (an unreadable path or a
+    #: registered source root that is currently unavailable). No deletions run.
+    scan_incomplete: bool = False
+    incomplete_reasons: list = field(default_factory=list)
     #: Sources that were missing this run but still wait for the second
     #: confirmation (P0-12). Surfaced so the UI can say "待确认移除 N".
     pending_removal: list = field(default_factory=list)
@@ -82,6 +86,8 @@ class SyncSummary:
             "extraction_counts": dict(self.extraction_counts),
             "skipped_files": list(self.skipped_files),
             "changed_files": int(self.changed_files),
+            "scan_incomplete": bool(self.scan_incomplete),
+            "incomplete_reasons": list(self.incomplete_reasons),
             "added_files": list(self.added_files),
             "removed_files": list(self.removed_files),
             "duplicates_cleaned": list(self.duplicates_cleaned),
@@ -363,6 +369,7 @@ def sync_sources(
     vault_path: str,
     course_dir: str | None = None,
     extra_course_dirs: list[str] | None = None,
+    missing_roots: list[str] | None = None,
     mode: str = "incremental",
     config: dict | None = None,
 ) -> SyncSummary:
@@ -378,6 +385,12 @@ def sync_sources(
     # suppresses deletion for this run (absence is not evidence when the scan
     # itself is incomplete).
     scan_errors: list[str] = []
+    # 2026-09-24 (E17 ①): a registered source root that is not on disk right now
+    # (unmounted drive, offline share) must never look like "the user deleted
+    # these files" — an incomplete scan deletes nothing (P0-12).
+    incomplete_reasons: list[str] = [
+        f"来源根不可用：{root}" for root in (missing_roots or []) if root
+    ]
 
     # ── Step 1: Scan vault ──────────────────────────────────────────────
     from .vault import scan_vault
@@ -460,10 +473,11 @@ def sync_sources(
         old_state,
         new_state,
         previous_missing,
-        scan_failed=bool(scan_errors),
+        scan_failed=bool(scan_errors) or bool(incomplete_reasons),
     )
     for scan_error in scan_errors[:5]:
         errors.append({"source": "", "error": f"扫描不完整：{scan_error}"})
+    incomplete_reasons.extend(f"扫描不完整：{item}" for item in scan_errors[:5])
 
     # ── Step 3: Initialize stores ───────────────────────────────────────
     from rag.sqlite_store import KBSQLiteStore
@@ -772,6 +786,8 @@ def sync_sources(
         skipped_files=sorted(set(skipped_sources)),
         changed_files=len(changed_sources),
         added_files=added_sources,
+        scan_incomplete=bool(incomplete_reasons),
+        incomplete_reasons=incomplete_reasons,
         removed_files=list(deleted_sources),
         duplicates_cleaned=duplicates_cleaned,
         pending_removal=sorted(pending_missing),

@@ -55,12 +55,13 @@ def _sources(portable_library):
         store.close()
 
 
-def _sync(portable_library, extra_roots):
+def _sync(portable_library, extra_roots, missing_roots=None):
     return sync_sources(
         workspace=str(portable_library),
         vault_path=str(portable_library),
         course_dir=str(portable_library),
         extra_course_dirs=[str(path) for path in extra_roots],
+        missing_roots=missing_roots,
         mode="full",
     )
 
@@ -221,3 +222,31 @@ def test_a_document_whose_source_left_the_scan_scope_is_cleaned_up(portable_libr
         "失去扫描范围的记录必须能被收回来，否则它永远留在索引里"
     )
     assert "course/README.md" not in sources, "被跳过的元文件同样必须掉出索引"
+
+def test_a_source_root_that_is_offline_suppresses_deletions(portable_library, monkeypatch):
+    """来源根掉线（外接盘未挂载 / 网络盘掉线）时绝不能删记录。
+
+    自愈机制会把「索引里有、扫描里没有」的记录当成删除候选，而一个已登记
+    的来源根如果此刻在磁盘上不可见，它下面的资料会整批落入这个集合 ——
+    按 P0-12 的语义，这属于"扫描不完整"，必须什么都不删，并如实告诉用户。
+    """
+    import shutil
+
+    _hermetic(monkeypatch)
+    pack = portable_library / "course-pack"
+    pack.mkdir()
+    (pack / "lesson.txt").write_text("内容", encoding="utf-8")
+    _register_roots(portable_library, [pack])
+    _sync(portable_library, [pack])
+    assert any(s.endswith("lesson.txt") for s in _sources(portable_library))
+
+    shutil.rmtree(pack)  # 盘掉线：登记还在，目录不可见
+
+    first = _sync(portable_library, [pack], missing_roots=[str(pack)])
+    assert first.scan_incomplete, "必须把这次扫描标成不完整"
+    assert any(str(pack) in reason for reason in first.incomplete_reasons)
+    _sync(portable_library, [pack], missing_roots=[str(pack)])
+
+    assert any(s.endswith("lesson.txt") for s in _sources(portable_library)), (
+        "来源根不可用期间，索引里的资料一条都不能被删掉"
+    )

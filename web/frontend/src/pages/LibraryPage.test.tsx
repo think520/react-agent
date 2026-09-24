@@ -87,6 +87,8 @@ describe("资料库文件夹同步", () => {
       duplicates_cleaned: ["course/course-pack/dup.docx"],
       pending_removal: ["course-2/moved.md"],
       skipped_files: ["course-2/README.md", "course-2/requirements.txt"],
+      scan_incomplete: false,
+      incomplete_reasons: [],
     });
 
     render(
@@ -123,5 +125,36 @@ describe("资料库文件夹同步", () => {
     await waitFor(() => expect(screen.queryByRole("alert")).not.toBeNull());
     expect(screen.getByRole("alert").textContent).toContain("资料库文件夹不可用");
     expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("扫描不完整时明确说明并且不谎报移除", async () => {
+    vi.mocked(api.syncLibrary).mockResolvedValue({
+      ok: true,
+      scanned_files: 47,
+      updated_files: 0,
+      changed_files: 0,
+      error_files: 0,
+      errors: [],
+      extraction_counts: {},
+      added_files: [],
+      removed_files: [],
+      duplicates_cleaned: [],
+      pending_removal: [],
+      skipped_files: [],
+      scan_incomplete: true,
+      incomplete_reasons: ["来源根不可用：D:\\课程包"],
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/library"]}>
+        <LibraryPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: /同步文件夹/ }));
+
+    const summary = await screen.findByRole("status");
+    expect(summary.textContent).toContain("本次扫描看不全");
+    expect(summary.textContent).toContain("来源根不可用");
   });
 });

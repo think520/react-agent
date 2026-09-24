@@ -1244,6 +1244,34 @@ class KBService:
         data = summary.to_dict()
         return _ok(**data)
 
+    def _missing_declared_roots(self) -> list[str]:
+        """已登记、但磁盘上找不到的来源根（外接盘未挂载、网络盘掉线…）。
+
+        2026-09-24（E17 ①）：这些根下的资料会整批从扫描结果里消失，而自愈
+        机制会把「索引里有、扫描里没有」的记录当成删除候选——所以必须先知道
+        有根不见了，并按 P0-12 的「扫描不完整就绝不删除」处理，而不是把用户
+        的资料当成"被删掉了"。
+        """
+        roots = self._load_source_roots()
+        missing: list[str] = []
+        for stored in roots.get("course_dirs") or []:
+            path = str(stored)
+            if not path:
+                continue
+            candidate = path if os.path.isabs(path) else os.path.join(self.workspace, path)
+            if os.path.isdir(os.path.abspath(candidate)):
+                continue
+            # 资料库被移动过：旧绝对路径失效，但同名子目录还在。
+            if os.path.isabs(path) and os.path.isdir(
+                os.path.join(self.workspace, os.path.basename(os.path.normpath(path)))
+            ):
+                continue
+            missing.append(path)
+        vault = roots.get("vault_path")
+        if vault and not os.path.isdir(str(vault)):
+            missing.append(str(vault))
+        return missing
+
     def _sync_registered_sources(self, mode: str, config: dict):
         from obsidian.sync import sync_sources
 
@@ -1255,6 +1283,7 @@ class KBService:
             vault_path=vault_path,
             course_dir=primary_course,
             extra_course_dirs=extra_courses,
+            missing_roots=self._missing_declared_roots(),
             mode=mode,
             config=config,
         )

@@ -1021,3 +1021,22 @@ def test_public_document_includes_extraction_status(svc, workspace):
     assert doc["extraction_status"] == "partial"
     assert doc["extraction_total_units"] == 4
     assert doc["extraction_empty_units"] == 1
+
+def test_missing_declared_roots_are_detected(workspace):
+    """①（E17）的来源根掉线检测：登记里在、磁盘上不在的根必须被认出来。
+
+    自愈机制会把「索引里有、扫描里没有」的记录当删除候选，所以服务层要先
+    知道有根不见了，才能按 P0-12 的「扫描不完整就绝不删除」处理。
+    """
+    library_root = os.path.join(workspace, "library")
+    pack = os.path.join(library_root, "course-pack")
+    os.makedirs(pack)
+    service = KBService(library_root)
+    service._save_source_roots({"vault_path": library_root, "course_dirs": [pack]})
+
+    assert service._missing_declared_roots() == []
+
+    import shutil
+
+    shutil.rmtree(pack)
+    assert service._missing_declared_roots() == [pack]

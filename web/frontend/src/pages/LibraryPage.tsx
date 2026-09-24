@@ -904,12 +904,20 @@ export function LibraryPage() {
               </span>
               <button className="quiet-button" type="button" onClick={() => setSyncSummary(null)}>收起</button>
             </div>
+            {syncSummary.scan_incomplete && (
+              <p className="library-sync-warning">
+                本次扫描看不全，因此没有移除任何资料：{syncSummary.incomplete_reasons.join("；") || "原因未提供"}
+              </p>
+            )}
             <details className="library-sync-details">
               <summary>查看明细</summary>
               <div>
                 <SyncSourceList title="新增" sources={syncSummary.added_files} />
                 <SyncSourceList title="移除" sources={syncSummary.removed_files} />
-                <SyncSourceList title="重复清理" sources={syncSummary.duplicates_cleaned} />
+                <SyncSourceList
+                  title="内容与现存资料相同（可能是移动或改名）"
+                  sources={syncSummary.duplicates_cleaned}
+                />
                 <SyncSourceList title="待确认移除（连续两次缺失才真正移除）" sources={syncSummary.pending_removal} />
                 <SyncSourceList title="跳过（仓库元文件）" sources={syncSummary.skipped_files} />
                 {syncSummary.errors.length > 0 && (
