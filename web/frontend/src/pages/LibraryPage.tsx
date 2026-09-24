@@ -11,7 +11,7 @@ import type { AppOutletContext } from "../components/AppShell";
 import { BrandIllustration, EmptyState, ErrorNotice, IconButton, LoadingState, formatRelativeDate } from "../components/common";
 import { WikiPlanCard } from "../components/WikiPlanCard";
 import { ApiError, api } from "../lib/api";
-import type { ArchivedEntry, KnowledgeSyncSummary, KnowledgeTree, OrganizationProposal } from "../lib/api";
+import type { ArchivedEntry, KnowledgeSyncSummary, KnowledgeTree, OrganizationBatch, OrganizationProposal } from "../lib/api";
 import { LibraryTree } from "../components/LibraryTree";
 import { useReaderTabsStore } from "../stores/readerTabsStore";
 import { Modal, useConfirm } from "../ui/Modal";
@@ -91,7 +91,8 @@ export function LibraryPage() {
   const [archive, setArchive] = useState<ArchivedEntry[]>([]);
   // ⑤：整理建议（只提议 → 执行 → 一键撤销）。
   const [organizeProposals, setOrganizeProposals] = useState<OrganizationProposal[] | null>(null);
-  const [organizeMoves, setOrganizeMoves] = useState<{ document_id: string; from: string; to: string }[]>([]);
+  // ⑤：可撤销的那一步由**服务端台账**说了算（刷新页面后仍然撤销得回来）。
+  const [organizePending, setOrganizePending] = useState<OrganizationBatch | null>(null);
   const [organizeBusy, setOrganizeBusy] = useState(false);
   // ④：阅读区标签页（每篇记住读到哪；关掉最后一个自动收起）。
   // ④：复用既有的标签模型（ReaderPage 也用它）：openIds + 每篇滚动位置。
@@ -208,6 +209,21 @@ export function LibraryPage() {
       setTree(null);
     }
   }, [activeLibrary]);
+
+  // ⑤：可撤销的那一步记在服务端台账里，刷新页面（甚至重启）之后照样撤得回来。
+  const loadOrganizeState = useCallback(async () => {
+    if (!activeLibrary || collection !== "material") {
+      setOrganizePending(null);
+      return;
+    }
+    try {
+      setOrganizePending((await api.organizationState()).pending_undo);
+    } catch {
+      // 读不到"可撤销状态"不该打断阅读：面板里仍然可以看建议、做整理。
+      setOrganizePending(null);
+    }
+  }, [activeLibrary, collection]);
+  useEffect(() => { void loadOrganizeState(); }, [loadOrganizeState]);
 
   useEffect(() => { void loadTree(); }, [loadTree, documentImportVersion]);
 
@@ -899,9 +915,15 @@ export function LibraryPage() {
     setError("");
     try {
       const result = await api.applyOrganization(proposal.items, proposal.suggested_folder);
-      setOrganizeMoves(result.moved);
+      setOrganizePending({
+        batch_id: result.batch_id,
+        created_at: new Date().toISOString(),
+        target_folder: proposal.suggested_folder,
+        moves: result.moved,
+      });
       setOrganizeProposals([]);
       setNotice(`已把 ${result.moved.length} 份资料收进「${proposal.suggested_folder}」；引用与证据已跟着迁移。`);
+      // 台账已经写在服务端了，这里只是把"可撤销"立刻反映到界面上。
       await Promise.all([loadTree(), loadDocuments()]);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "整理失败。");
@@ -914,9 +936,9 @@ export function LibraryPage() {
     setOrganizeBusy(true);
     setError("");
     try {
-      const result = await api.undoOrganization(organizeMoves);
+      const result = await api.undoOrganization();
       setNotice(`已撤销整理，${result.restored.length} 份资料回到原位。`);
-      setOrganizeMoves([]);
+      setOrganizePending(null);
       await Promise.all([loadTree(), loadDocuments()]);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "撤销失败。");
@@ -1245,13 +1267,18 @@ export function LibraryPage() {
                           </div>
                         ))
                       )}
-                      {organizeMoves.length > 0 && (
-                        <button className="quiet-button" type="button" disabled={organizeBusy} onClick={() => void undoOrganize()}>
-                          撤销这一步整理
-                        </button>
-                      )}
                     </div>
                   </details>
+                )}
+                {collection === "material" && organizePending && (
+                  <div className="library-organize-undo">
+                    <button className="quiet-button" type="button" disabled={organizeBusy} onClick={() => void undoOrganize()}>
+                      撤销这一步整理
+                    </button>
+                    <small className="text-faint">
+                      上一步：{organizePending.moves.length} 份资料收进「{organizePending.target_folder}」
+                    </small>
+                  </div>
                 )}
                 {archive.length > 0 && (
                   <details className="library-archive">

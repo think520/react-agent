@@ -545,13 +545,28 @@ def apply_organization(body: dict, request: Request) -> dict:
 
 
 @router.post("/organize/undo")
-def undo_organization(body: dict, request: Request) -> dict:
-    """一键撤销上一步整理（E17 ⑤）。"""
-    moves = body.get("moves") or []
+def undo_organization(body: dict | None = None, request: Request = None) -> dict:
+    """一键撤销上一步整理（E17 ⑤）。
+
+    不传 `moves` 时撤销的是**服务端台账里的最后一步** —— 界面刷新或应用重启后
+    仍然撤销得回来。
+    """
+    payload = body or {}
+    moves = payload.get("moves") or []
     return unwrap_service_result(
-        _service(request).undo_organization([item for item in moves if isinstance(item, dict)], config=get_config()),
+        _service(request).undo_organization(
+            [item for item in moves if isinstance(item, dict)],
+            batch_id=str(payload.get("batch_id") or ""),
+            config=get_config(),
+        ),
         code="organization_undo_failed",
     )
+
+
+@router.get("/organize/state")
+def organization_state(request: Request) -> dict:
+    """还有没有一步可以撤销（E17 ⑤）：界面刷新后据此决定是否显示「撤销」。"""
+    return unwrap_service_result(_service(request).organization_state())
 
 
 @router.get("/organize/proposals")

@@ -2348,3 +2348,42 @@ def test_a_new_message_closes_the_pending_question(backend_client, monkeypatch):
         if m.get("role") == "tool" and m.get("tool_call_id") == "call_003"
     ]
     assert tool_messages
+
+def test_organize_routes_keep_undo_reachable_without_a_client_list(backend_client, tmp_path):
+    """⑤（E17）：撤销要活过"刷新页面" —— HTTP 层只看服务端台账也得撤得回来。
+
+    这条用例同时是**路由存在性**的钉子：`/organize/state` 曾经在一次实现里只写了
+    服务层方法而没挂路由（真机上就是 404），服务层测试全绿也照样漏掉。
+    """
+    library, root = create_test_library(backend_client, tmp_path, "Organize Study")
+    headers = {"X-Bobodan-Library-ID": library["library_id"]}
+    (root / "散落的一课.md").write_text("# 散落的一课\n\n内容够长。", encoding="utf-8")
+
+    state = backend_client.get("/api/kb/organize/state", headers=headers)
+    assert state.status_code == 200, state.text
+    assert state.json()["pending_undo"] is None
+
+    proposals = backend_client.get("/api/kb/organize/proposals", headers=headers)
+    assert proposals.status_code == 200, proposals.text
+    assert proposals.json()["proposals"][0]["items"] == ["散落的一课.md"]
+
+    applied = backend_client.post(
+        "/api/kb/organize/apply",
+        headers=headers,
+        json={"items": ["散落的一课.md"], "target_folder": "未归类"},
+    )
+    assert applied.status_code == 200, applied.text
+    assert (root / "未归类" / "散落的一课.md").is_file()
+
+    # "刷新页面"：调用方手里没有清单，只能靠服务端记得的那一步。
+    pending = backend_client.get("/api/kb/organize/state", headers=headers).json()["pending_undo"]
+    assert pending is not None and pending["target_folder"] == "未归类", pending
+    assert [move["to"] for move in pending["moves"]] == ["未归类/散落的一课.md"]
+
+    undone = backend_client.post("/api/kb/organize/undo", headers=headers, json={})
+    assert undone.status_code == 200, undone.text
+    assert undone.json()["restored"] == ["散落的一课.md"]
+    assert (root / "散落的一课.md").is_file()
+    assert not (root / "未归类" / "散落的一课.md").exists()
+    assert backend_client.get("/api/kb/organize/state", headers=headers).json()["pending_undo"] is None
+

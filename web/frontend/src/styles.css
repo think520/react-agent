@@ -1640,6 +1640,7 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 .library-organize strong { color: var(--ink); font-size: 12.5px; }
 .library-organize p { margin: 2px 0; }
 .library-organize ul { margin: 4px 0; padding-left: 18px; }
+.library-organize-undo { display: grid; gap: 4px; margin-top: 10px; }
 .library-archive { margin-top: 10px; color: var(--muted); font-size: 12.5px; }
 .library-archive > summary { cursor: pointer; }
 .library-archive ul { margin: 6px 0 0; padding: 0; list-style: none; display: grid; gap: 4px; }

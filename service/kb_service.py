@@ -1785,10 +1785,85 @@ class KBService:
             else:
                 shutil.move(source, os.path.join(target_dir, os.path.basename(relative)))
                 moves.append({"document_id": "", "from": relative, "to": destination_relative})
-        return _ok(moved=moves)
+        batch = self._remember_organization(cleaned, moves) if moves else None
+        return _ok(moved=moves, batch_id=(batch or {}).get("batch_id", ""))
 
-    def undo_organization(self, moves: list[dict[str, Any]], config: dict | None = None) -> dict[str, Any]:
-        """一键撤销上一步整理：按 moved 清单把每份资料放回原位（身份同样保留）。"""
+    # --- 整理台账：撤销必须活过刷新与重启（E17 ⑤）------------------------
+
+    def _organize_root(self) -> str:
+        return os.path.join(self.workspace, ".bobodan", "organize")
+
+    def _organize_index_path(self) -> str:
+        # 名字要具体，且必须在 core/persistence_registry.py 里登记（R0.6 tripwire）。
+        return os.path.join(self._organize_root(), "organize_index.json")
+
+    def _load_organize_batches(self) -> list[dict[str, Any]]:
+        path = self._organize_index_path()
+        if not os.path.exists(path):
+            return []
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                data = json.load(handle)
+        except (OSError, json.JSONDecodeError):
+            return []
+        if not isinstance(data, list):
+            return []
+        return [item for item in data if isinstance(item, dict)]
+
+    def _save_organize_batches(self, batches: list[dict[str, Any]]) -> None:
+        from core.atomic_io import atomic_write_json
+
+        os.makedirs(self._organize_root(), exist_ok=True)
+        atomic_write_json(self._organize_index_path(), batches)
+
+    def _remember_organization(self, target_folder: str, moves: list[dict[str, str]]) -> dict[str, Any]:
+        """把这一步整理记在服务端，而不是只交给调用方（刷新就丢）。"""
+        from datetime import datetime, timezone
+        import uuid as _uuid
+
+        batch = {
+            "batch_id": _uuid.uuid4().hex,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "target_folder": target_folder,
+            "moves": moves,
+        }
+        batches = self._load_organize_batches()
+        batches.append(batch)
+        del batches[:-20]  # 只留最近 20 步，台账不是无限日志
+        self._save_organize_batches(batches)
+        return batch
+
+    def _forget_organization(self, batch_id: str) -> None:
+        if not batch_id:
+            return
+        self._save_organize_batches(
+            [batch for batch in self._load_organize_batches() if batch.get("batch_id") != batch_id]
+        )
+
+    def organization_state(self) -> dict[str, Any]:
+        """界面刷新后要知道"还有没有一步可以撤销"（E17 ⑤）。"""
+        batches = self._load_organize_batches()
+        return _ok(pending_undo=batches[-1] if batches else None)
+
+    def undo_organization(
+        self,
+        moves: list[dict[str, Any]] | None = None,
+        batch_id: str = "",
+        config: dict | None = None,
+    ) -> dict[str, Any]:
+        """一键撤销上一步整理：按 moved 清单把每份资料放回原位（身份同样保留）。
+
+        不传清单时，用**服务端台账里的最后一步**——这样刷新页面、甚至重启应用之后，
+        用户仍然点得到「撤销」。
+        """
+        batches = self._load_organize_batches()
+        recorded: dict[str, Any] | None = None
+        if not moves:
+            if batch_id:
+                recorded = next((item for item in batches if item.get("batch_id") == batch_id), None)
+            else:
+                recorded = batches[-1] if batches else None
+            moves = [item for item in (recorded or {}).get("moves") or [] if isinstance(item, dict)]
         restored: list[str] = []
         for move in moves or []:
             destination = self._clean_relative(str(move.get("to") or ""))
@@ -1808,6 +1883,16 @@ class KBService:
                 os.makedirs(os.path.dirname(target), exist_ok=True)
                 shutil.move(source, target)
             restored.append(original)
+        if recorded is not None:
+            self._forget_organization(str(recorded.get("batch_id") or ""))
+        else:
+            # 调用方自带清单（旧调用方式）：把与之相符的那一步台账也清掉，
+            # 否则界面会继续提示"可撤销"，而实际上已经撤销过了。
+            undone = {(str(item.get("from") or ""), str(item.get("to") or "")) for item in moves or []}
+            for candidate in self._load_organize_batches():
+                pairs = {(str(item.get("from") or ""), str(item.get("to") or "")) for item in candidate.get("moves") or []}
+                if pairs and pairs <= undone:
+                    self._forget_organization(str(candidate.get("batch_id") or ""))
         return _ok(restored=restored)
     def create_folder(self, relative_path: str) -> dict[str, Any]:
         """在资料库里新建一个真实文件夹（E17 ③）。"""

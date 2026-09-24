@@ -32,6 +32,7 @@ vi.mock("../lib/api", async (importOriginal) => {
       syncLibrary: vi.fn(),
       knowledgeTree: vi.fn(),
       organizationProposals: vi.fn(),
+      organizationState: vi.fn(),
       applyOrganization: vi.fn(),
       undoOrganization: vi.fn(),
       document: vi.fn(),
@@ -344,6 +345,13 @@ describe("资料库文件夹同步", () => {
     }] } as never);
     vi.mocked(api.applyOrganization).mockResolvedValue({ ok: true, moved: [{ document_id: "d1", from: "散落的一课.md", to: "未归类/散落的一课.md" }] } as never);
     vi.mocked(api.undoOrganization).mockResolvedValue({ ok: true, restored: ["散落的一课.md"] } as never);
+    // 刷新之后：清单不在前端手里了，界面的"可撤销"必须来自服务端台账。
+    vi.mocked(api.organizationState).mockResolvedValue({ ok: true, pending_undo: {
+      batch_id: "batch-1",
+      created_at: "2026-09-24T12:00:00Z",
+      target_folder: "未归类",
+      moves: [{ document_id: "d1", from: "散落的一课.md", to: "未归类/散落的一课.md" }],
+    } } as never);
 
     render(
       <MemoryRouter initialEntries={["/library"]}>
@@ -351,12 +359,17 @@ describe("资料库文件夹同步", () => {
       </MemoryRouter>,
     );
 
+    // 刷新后（进页面就查一次台账）：复盘"上一步"确实可撤销，而不是靠前端记忆。
+    expect(await screen.findByText("撤销这一步整理")).toBeTruthy();
+    expect(screen.getByText(/上一步：1 份资料收进「未归类」/)).toBeTruthy();
+
     fireEvent.click(await screen.findByText("看看有什么可以整理的"));
     expect(await screen.findByText(/库根散落的资料/)).toBeTruthy();
     // 建议面板在 <details> 里（jsdom 不会展开），点按钮用文本定位
     fireEvent.click(screen.getByText("收进「未归类」"));
     await waitFor(() => expect(api.applyOrganization).toHaveBeenCalledWith(["散落的一课.md"], "未归类"));
     fireEvent.click(await screen.findByText("撤销这一步整理"));
-    await waitFor(() => expect(api.undoOrganization).toHaveBeenCalled());
+    // 不带清单：撤销的是服务端记下的那一步。
+    await waitFor(() => expect(api.undoOrganization).toHaveBeenCalledWith());
   });
 });

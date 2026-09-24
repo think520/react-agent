@@ -127,6 +127,14 @@ export interface OrganizationProposal {
   requires_confirmation: boolean;
 }
 
+/** 服务端记下的一步整理（E17 ⑤）：界面刷新后据此决定还能不能撤销。 */
+export interface OrganizationBatch {
+  batch_id: string;
+  created_at: string;
+  target_folder: string;
+  moves: { document_id: string; from: string; to: string }[];
+}
+
 interface ErrorEnvelope {
   error?: { code?: string; message?: string; details?: unknown };
 }
@@ -208,11 +216,17 @@ export const api = {
   applyOrganization: (items: string[], targetFolder: string) => request<{
     ok: boolean;
     moved: { document_id: string; from: string; to: string }[];
+    batch_id: string;
   }>("/api/kb/organize/apply", json({ items, target_folder: targetFolder })),
-  undoOrganization: (moves: { document_id: string; from: string; to: string }[]) => request<{
+  /** 还有没有一步可以撤销（刷新页面后仍要知道）。 */
+  organizationState: () => request<{ ok: boolean; pending_undo: OrganizationBatch | null }>(
+    "/api/kb/organize/state",
+  ),
+  /** 不带清单时撤销服务端台账里的最后一步（刷新 / 重启后依然可撤销）。 */
+  undoOrganization: (moves?: { document_id: string; from: string; to: string }[]) => request<{
     ok: boolean;
     restored: string[];
-  }>("/api/kb/organize/undo", json({ moves })),
+  }>("/api/kb/organize/undo", json(moves ? { moves } : {})),
   createFolder: (path: string) => request<{ ok: boolean; folder: { name: string; path: string } }>(
     "/api/kb/folders",
     json({ path }),

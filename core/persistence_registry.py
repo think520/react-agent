@@ -44,6 +44,13 @@ STORES: dict[str, dict[str, Any]] = {
         "rebuildable": True,  # 归档目录保留了原目录层级，可以从磁盘重建；丢的只是时间戳与标题
         "purpose": "Archive ledger (E17 ③): which material was moved where, so it can be restored",
     },
+    "organize_index.json": {
+        "owner": "service/kb_service.py",
+        "scope": "library",
+        "format": "json",
+        "rebuildable": True,  # 丢的只是"还有哪一步可以撤销"；文件本身没被动过
+        "purpose": "Organization ledger (E17 ⑤): the last applied organize steps, so undo survives a reload",
+    },
     "embedding_signature.json": {
         "owner": "rag/embedding_signature.py",
         "scope": "library",
