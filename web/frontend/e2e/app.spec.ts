@@ -93,12 +93,10 @@ test("first upload creates a portable library before indexing the file", async (
   expect(importLibraryHeader).toBe("new-library");
 });
 
-test("the chapter rail dismisses and does not re-open under the same pointer", async ({ page }, testInfo) => {
-  // The rail is revealed by pointer hover, which the mobile project cannot
-  // produce: it emulates a touch device (hasTouch), so mouse.move never fires
-  // mouseenter. Verified by hand that the rail is visible and closable at a
-  // 412x915 touch viewport; there is no separate mobile acceptance target.
-  test.skip(testInfo.project.name === "mobile", "hover reveal does not fire under touch emulation");
+test("the chapter outline opens from the toolbar, never from hovering the right edge", async ({ page }) => {
+  // 2026-09-24 用户反馈："右边滑动条一放到右边就弹出章节，我想用弹窗快速翻阅都不行。"
+  // 根因：右边缘有一条 64px 悬停带，而滚动条只有 8px、正好压在它下面。
+  // 现在悬停触发整个删掉，只有工具条「目录」按钮 / ] 热键能打开它。
   await page.addInitScript(() => localStorage.setItem("bobodan:onboarding:v1", "complete"));
   const document = {
     document_id: "doc-1", source: "course/lesson.md", kind: "course_document", title: "第一课",
@@ -120,24 +118,26 @@ test("the chapter rail dismisses and does not re-open under the same pointer", a
   await page.goto("/library/read/doc-1");
   await expect(page.getByRole("heading", { name: "第一课" })).toBeVisible();
   await expect(page.locator(".chapter-rail")).toHaveCount(0);
+  await expect(page.locator(".chapter-rail-zone")).toHaveCount(0); // 悬停带已经不存在
 
-  // The rail is revealed by moving to the right edge of the reading column.
-  const zone = await page.locator(".chapter-rail-zone").boundingBox();
-  await page.mouse.move(zone!.x + zone!.width / 2, zone!.y + 200);
+  // 把鼠标扫到最右边（曾经一碰就弹目录的地方）：必须什么都不发生，滚动条才是可用的。
+  const viewport = page.viewportSize()!;
+  await page.mouse.move(viewport.width - 6, 220);
+  await page.mouse.move(viewport.width - 2, 260);
+  await page.waitForTimeout(400);
+  await expect(page.locator(".chapter-rail")).toHaveCount(0);
+
+  // 工具条「目录」按钮能打开，X 能关；] 再开、Esc 关。
+  await page.getByRole("button", { name: "目录" }).click();
   await expect(page.locator(".chapter-rail")).toBeVisible();
   await expect(page.getByRole("button", { name: "第一节 概念" })).toBeVisible();
-
-  // Closing it mounts the hover zone under the pointer. The click must win: the
-  // rail used to re-open instantly because the new zone fired mouseenter from the
-  // very spot the X was clicked (2026-09-14 bug report).
-  await page.getByRole("button", { name: "关闭章节" }).click();
-  await expect(page.locator(".chapter-rail")).toHaveCount(0);
+  await page.getByRole("button", { name: "关闭目录" }).click();
   await expect(page.locator(".chapter-rail")).toHaveCount(0);
 
-  // Leaving the zone and coming back still reveals the rail.
-  await page.mouse.move(zone!.x - 40, zone!.y + 200);
-  await page.mouse.move(zone!.x + zone!.width / 2, zone!.y + 200);
+  await page.keyboard.press("]");
   await expect(page.locator(".chapter-rail")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".chapter-rail")).toHaveCount(0);
 });
 
 

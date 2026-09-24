@@ -294,11 +294,11 @@ describe("资料库文件夹同步", () => {
     await waitFor(() => expect(document.querySelectorAll(".reader-prose section").length).toBeGreaterThan(0));
     expect(await screen.findByRole("tab", { name: "第一课" })).toBeTruthy();
 
-    // 目录：④ 第 3 步之后，资料库页的阅读区就是 DocumentReader 本身，"目录"因此是它的
-    // 章节导轨（右缘悬停区），而不再是页面自己的 <details>。一条断言同时钉住这两件事。
-    const railZone = document.querySelector(".chapter-rail-zone");
-    expect(railZone).not.toBeNull();
-    fireEvent.mouseEnter(railZone!);
+    // 目录：2026-09-24 用户反馈"鼠标一放到右边就弹章节，我连滚动条都拖不了" ——
+    // 悬停带已经删掉，只留工具条按钮 / 热键。下面这段同时钉住"没有悬停带"和"按钮能开"。
+    expect(document.querySelector(".chapter-rail-zone")).toBeNull();
+    expect(document.querySelector(".chapter-rail")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "目录" }));
     const rail = document.querySelector(".chapter-rail");
     expect(rail).not.toBeNull();
     const railButtons = () => Array.from(rail!.querySelectorAll("button"));

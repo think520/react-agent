@@ -7,7 +7,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
-import { NotebookPen, Quote, X } from "lucide-react";
+import { List, NotebookPen, Quote, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { createPortal } from "react-dom";
@@ -70,24 +70,56 @@ export function DocumentReader({
   const [originalText, setOriginalText] = useState("");
   const [originalError, setOriginalError] = useState("");
   const [railOpen, setRailOpen] = useState(false);
+  const [activeChunkId, setActiveChunkId] = useState<string | null>(null);
+  const railListRef = useRef<HTMLDivElement | null>(null);
   const readingOpenedRef = useRef(false);
   const lastProgressRef = useRef(0);
   // Closing the rail mounts the 64px edge zone under the pointer, and the browser
-  // recomputes hover when the element under the cursor changes — so a plain
-  // setRailOpen(false) was immediately undone by the mouseenter it caused and the
-  // X looked dead (2026-09-14 bug report). Remember where the close happened and
-  // ignore the hover that comes from that very spot until the pointer leaves.
-  const railClosePoint = useRef<{ x: number; y: number } | null>(null);
-  const closeRail = useCallback((event?: { clientX: number; clientY: number }) => {
-    railClosePoint.current = event ? { x: event.clientX, y: event.clientY } : null;
-    setRailOpen(false);
-  }, []);
-  const openRail = useCallback((event: { clientX: number; clientY: number }) => {
-    const point = railClosePoint.current;
-    if (point && Math.abs(event.clientX - point.x) < 8 && Math.abs(event.clientY - point.y) < 8) return;
-    railClosePoint.current = null;
+  // 2026-09-24（用户反馈）：原来右边缘有一条 64px 悬停带，鼠标一进去就弹出目录 ——
+  // 而滚动条只有 8px、正好压在带子底下，于是"想拖滚动条翻页"永远变成"弹出目录"。
+  // 悬停触发**整个删掉**：只留工具条按钮与 [ / ] 热键，右边缘彻底还给滚动条。
+  const closeRail = useCallback(() => setRailOpen(false), []);
+
+  /** 打开目录时算一次"我在哪一节"（不做常驻监听）。 */
+  const currentSectionChunkId = useCallback((): string | null => {
+    const scroller = scrollRef?.current;
+    if (!scroller || !sections.length) return null;
+    const top = scroller.getBoundingClientRect().top + 8;
+    const anchors = Array.from(scroller.querySelectorAll<HTMLElement>("[data-chunk-id]"));
+    if (anchors.length) {
+      let current = anchors[0].dataset.chunkId || null;
+      for (const anchor of anchors) {
+        if (anchor.getBoundingClientRect().top <= top) current = anchor.dataset.chunkId || current;
+        else break;
+      }
+      return current;
+    }
+    // 「原文」视图没有分段锚点：按标题文本找 h1–h6。找不到就不高亮 —— 不猜。
+    const normalize = (value: string) => value.replace(/\s+/g, " ").trim();
+    const byHeading = new Map<string, string>();
+    for (const section of sections) {
+      const key = normalize(section.heading || "");
+      if (key && !byHeading.has(key)) byHeading.set(key, section.chunk_id);
+    }
+    let current: string | null = null;
+    for (const heading of Array.from(scroller.querySelectorAll<HTMLElement>("h1, h2, h3, h4, h5, h6"))) {
+      if (heading.getBoundingClientRect().top > top) break;
+      const chunkId = byHeading.get(normalize(heading.textContent || ""));
+      if (chunkId) current = chunkId;
+    }
+    return current;
+  }, [scrollRef, sections]);
+
+  const openRailPanel = useCallback(() => {
+    setActiveChunkId(currentSectionChunkId());
     setRailOpen(true);
-  }, []);
+  }, [currentSectionChunkId]);
+
+  useEffect(() => {
+    if (!railOpen || !activeChunkId) return;
+    const button = railListRef.current?.querySelector<HTMLElement>(`[data-rail-chunk="${activeChunkId}"]`);
+    button?.scrollIntoView?.({ block: "nearest" });
+  }, [railOpen, activeChunkId]);
 
   // selectedId / selected 沿用外壳里的名字，搬过来的调用点一行都不用改。
   const selectedId = documentId;
@@ -237,15 +269,16 @@ export function DocumentReader({
     return () => element.removeEventListener("scroll", recordReadingProgress);
   }, [scrollRef, recordReadingProgress]);
 
-  // 章节导轨的开关键（[ / ]）：顶栏那半边（Esc、Shift+J/K）留在了外壳里。
+  // 章节目录的开关键（] 开、[ 关、Esc 关）：顶栏那半边（Shift+J/K）留在了外壳里。
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "[") closeRail();
-      if (e.key === "]") setRailOpen(true);
+      if (e.key === "]") openRailPanel();
+      if (e.key === "Escape") setRailOpen(false);
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [closeRail]);
+  }, [closeRail, openRailPanel]);
 
   // 选区工具条要**贴着选区**出现（用户反馈：原来钉在正文顶部，选到文章中间时离得很远）。
   // 记下 Range 本身，滚动时按它重算位置 —— Range 会跟着文档走，不需要缓存坐标。
@@ -325,7 +358,7 @@ export function DocumentReader({
   return (
     <>
       <article className="reader-article">
-        {(canShowOriginal || readerView.offerSystemOpen) && (
+        {(canShowOriginal || readerView.offerSystemOpen || sections.length > 0) && (
           <div className="reader-view-row">
             {canShowOriginal && (
               <div className="reader-view-switch" role="group" aria-label="阅读视图">
@@ -342,6 +375,17 @@ export function DocumentReader({
                   按小节
                 </button>
               </div>
+            )}
+            {sections.length > 0 && (
+              <button
+                className={`quiet-button reader-toc-button${railOpen ? " active" : ""}`}
+                type="button"
+                aria-expanded={railOpen}
+                title="章节目录（快捷键 ] 打开、[ 或 Esc 关闭）"
+                onClick={() => (railOpen ? closeRail() : openRailPanel())}
+              >
+                <List size={15} />目录
+              </button>
             )}
             {readerView.offerSystemOpen && (
               <button
@@ -479,29 +523,27 @@ export function DocumentReader({
           会以那一层为准定位（实测整体偏下 68px、滚动时还会跟着走），portal 到 body
           才真正贴住视口。 */}
       {createPortal(
-        <>
-          {!railOpen && (
-            <div
-              className="chapter-rail-zone"
-              onMouseLeave={() => { railClosePoint.current = null; }}
-              onMouseEnter={(event) => openRail(event)}
-            />
-          )}
-          {railOpen && (
-            <aside className="chapter-rail">
-              <header>
-                <span>章节</span>
-                <button className="icon-button" aria-label="关闭章节" onClick={(event) => closeRail(event)}><X size={14} /></button>
-              </header>
-              <div>
-                {sections.filter((section) => section.heading).map((section) => (
-                  <button key={section.chunk_id} onClick={() => jumpToChunk(section.chunk_id)}>{section.heading}</button>
-                ))}
-                {!sections.some((section) => section.heading) && <p className="text-faint">暂无章节标题。</p>}
-              </div>
-            </aside>
-          )}
-        </>,
+        railOpen && (
+          <aside className="chapter-rail" aria-label="章节目录">
+            <header>
+              <span>章节</span>
+              <button className="icon-button" aria-label="关闭目录" onClick={() => closeRail()}><X size={14} /></button>
+            </header>
+            <div ref={railListRef}>
+              {sections.filter((section) => section.heading).map((section) => (
+                <button
+                  key={section.chunk_id}
+                  data-rail-chunk={section.chunk_id}
+                  className={activeChunkId === section.chunk_id ? "active" : ""}
+                  onClick={() => jumpToChunk(section.chunk_id)}
+                >
+                  {section.heading}
+                </button>
+              ))}
+              {!sections.some((section) => section.heading) && <p className="text-faint">暂无章节标题。</p>}
+            </div>
+          </aside>
+        ),
         document.body,
       )}
     </>

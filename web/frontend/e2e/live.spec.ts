@@ -40,7 +40,8 @@ test("the reader renders the original file for a real document", async ({ page }
   await page.getByRole("button", { name: "原文" }).click();
   await expect(page.locator(".reader-original")).toBeVisible();
 
-  await page.locator(".chapter-rail-zone").hover();
+  // 目录现在由工具条按钮打开（右边缘的悬停带 2026-09-24 已删）。
+  await page.getByRole("button", { name: "目录", exact: true }).click();
   await expect(page.locator(".chapter-rail")).toBeVisible();
   await page.locator(".chapter-rail div button").first().click();
 
@@ -161,4 +162,23 @@ test("the library page reads a material in place", async ({ page }) => {
   expect(readerBox!.x).toBeGreaterThanOrEqual(treeBox!.x + treeBox!.width - 1);
   // 资料库只有一套导航：中间的"我的资料"平铺列表已按用户要求去掉（与树重复、还占一栏）。
   await expect(page.locator(".document-rail")).toHaveCount(0);
+
+  // 2026-09-24 用户反馈：右边缘那条 64px 悬停带压在 8px 滚动条上，鼠标一过去就弹目录，
+  // 于是"拖滚动条翻页"永远失败。现在扫过右边缘必须什么都不发生，最右边那几像素也不能被盖住。
+  const viewport = page.viewportSize()!;
+  await page.mouse.move(viewport.width - 8, 260);
+  await page.mouse.move(viewport.width - 2, 300);
+  await page.waitForTimeout(400);
+  await expect(page.locator(".chapter-rail")).toHaveCount(0);
+  const atRightEdge = await page.evaluate(() => {
+    const element = document.elementFromPoint(window.innerWidth - 3, 300);
+    return element ? String(element.className || element.tagName) : "";
+  });
+  expect(atRightEdge).not.toContain("chapter-rail");
+
+  // 目录改由工具条按钮 / ] 打开，Esc 关闭。
+  await page.getByRole("button", { name: "目录", exact: true }).click();
+  await expect(page.locator(".chapter-rail")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".chapter-rail")).toHaveCount(0);
 });
