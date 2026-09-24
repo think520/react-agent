@@ -95,3 +95,16 @@ export function deserialize(raw: string | null): ReaderTabsState {
     return EMPTY_TABS;
   }
 }
+/**
+ * 阅读位置 → 滚动像素（E17 ④）。
+ *
+ * 存的是百分比，恢复时要夹到真实可滚动范围里：容器还没量出来（高度 0）时
+ * 返回 0，绝不写 NaN 或负数进 scrollTop。
+ */
+export function scrollTargetFor(position: number, scrollHeight: number, clientHeight: number): number {
+  if (!Number.isFinite(position) || position <= 0) return 0;
+  const available = scrollHeight - clientHeight;
+  if (!Number.isFinite(available) || available <= 0) return 0;
+  const clamped = Math.max(0, Math.min(100, position));
+  return Math.round((clamped / 100) * available);
+}

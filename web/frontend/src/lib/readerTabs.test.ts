@@ -8,6 +8,7 @@ import {
   openTab,
   positionFor,
   rememberPosition,
+  scrollTargetFor,
   serialize,
 } from "./readerTabs";
 
@@ -71,5 +72,13 @@ describe("阅读区标签页", () => {
     expect(deserialize(JSON.stringify({ tabs: [{ title: "没有 id" }], activeId: "x", positions: { a: "nan" } }))).toEqual(
       { tabs: [], activeId: null, positions: {} },
     );
+  });
+
+  it("阅读位置换算成滚动像素时夹在真实范围内", () => {
+    expect(scrollTargetFor(50, 2000, 1000)).toBe(500);
+    expect(scrollTargetFor(150, 2000, 1000)).toBe(1000);
+    expect(scrollTargetFor(-10, 2000, 1000)).toBe(0);
+    expect(scrollTargetFor(50, 800, 1000)).toBe(0);
+    expect(scrollTargetFor(Number.NaN, 2000, 1000)).toBe(0);
   });
 });

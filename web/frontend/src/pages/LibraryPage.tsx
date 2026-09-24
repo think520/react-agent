@@ -14,6 +14,7 @@ import { ApiError, api } from "../lib/api";
 import type { ArchivedEntry, KnowledgeSyncSummary, KnowledgeTree } from "../lib/api";
 import { LibraryTree } from "../components/LibraryTree";
 import { useReaderTabs } from "../hooks/useReaderTabs";
+import { scrollTargetFor } from "../lib/readerTabs";
 import { Modal, useConfirm } from "../ui/Modal";
 import { useHandoffStore } from "../stores/handoffStore";
 import type { DocumentExtractionStatus, DocumentSection, DocumentSummary, PersonalKnowledgeItem, WikiEditablePage, WikiGenerationMode, WikiHealth, WikiPlan, WikiRepairPlan, WikiRunEstimate, WikiScopeMode, WikiTask } from "../types";
@@ -279,6 +280,21 @@ export function LibraryPage() {
     }, 1000);
     return () => window.clearInterval(timer);
   }, [selectedId, detailLoading, sections.length]);
+
+  // ④：切到一份资料并把内容渲染出来之后，恢复到上次读到的位置。
+  // 只做一次（用 ref 记已恢复的 document_id），避免用户往下读时被反复拽回。
+  const restoredRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!selectedId || detailLoading || sections.length === 0) return;
+    if (restoredRef.current === selectedId) return;
+    restoredRef.current = selectedId;
+    const element = pageRef.current;
+    if (!element) return;
+    const target = scrollTargetFor(tabs.positionOf(selectedId), element.scrollHeight, element.clientHeight);
+    if (target <= 0) return;
+    element.scrollTop = target;
+    lastProgressRef.current = Math.floor((target / Math.max(1, element.scrollHeight - element.clientHeight)) * 100);
+  }, [selectedId, detailLoading, sections.length, tabs]);
 
   function recordReadingProgress() {
     const element = pageRef.current;
