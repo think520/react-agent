@@ -446,4 +446,33 @@ describe("资料库文件夹同步", () => {
     fireEvent.click(await screen.findByText("让 AI 归类"));
     expect(await screen.findByText(/模型这次没能参与/)).toBeTruthy();
   });
+
+  // 2026-09-24 用户截图：窄窗口下"树 + 列表 + 正文"三栏一起挤，正文只剩四百来像素，非常难看。
+  // 规则改成：只有**真的打开了标签页**才算在读 —— 阅读中列表让位给正文（CSS 负责宽度）。
+  it("打开标签才进阅读模式，点「资料列表」又回到列表", async () => {
+    vi.mocked(api.knowledgeTree).mockResolvedValue({ ok: true, tree: {
+      type: "folder", name: "vault", path: "", material_count: 1, indexed_count: 1, ignored_count: 0, ignored_here: [], children: [], files: [],
+    } } as never);
+    vi.mocked(api.documents).mockResolvedValue([{
+      document_id: "doc-1", source: "散落的一课.md", relative_path: "散落的一课.md",
+      kind: "course_document", title: "散落的一课", collection: "material", content_role: "content",
+    }] as never);
+
+    render(
+      <MemoryRouter initialEntries={["/library"]}>
+        <LibraryPage />
+      </MemoryRouter>,
+    );
+
+    const workspace = () => document.querySelector(".library-workspace")!;
+    // 进页面是列表：不自动打开第一份资料（否则窄窗口一进来就被三栏挤扁）。
+    await waitFor(() => expect(workspace().className).toContain("with-tree"));
+    expect(workspace().className).not.toContain("reading");
+
+    fireEvent.click((await screen.findAllByText("散落的一课"))[0]);
+    await waitFor(() => expect(workspace().className).toContain("reading"));
+
+    fireEvent.click(screen.getByRole("button", { name: "资料列表" }));
+    await waitFor(() => expect(workspace().className).not.toContain("reading"));
+  });
 });

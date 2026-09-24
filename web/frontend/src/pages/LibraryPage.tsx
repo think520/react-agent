@@ -1,6 +1,6 @@
 import { readerLocation } from "../lib/documentLinks";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CheckCircle2, FilePlus2, FileText, FolderOpen, Library, MessageCircle, MoreHorizontal, Pencil, RefreshCw, Save, Search, Settings2, ShieldCheck, Sparkles, Trash2, Upload, Wrench, X } from "lucide-react";
+import { CheckCircle2, FilePlus2, FileText, FolderOpen, Library, List, MessageCircle, MoreHorizontal, Pencil, RefreshCw, Save, Search, Settings2, ShieldCheck, Sparkles, Trash2, Upload, Wrench, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useNavigate, useOutletContext, useSearchParams } from "react-router-dom";
@@ -102,6 +102,8 @@ export function LibraryPage() {
   const closeTab = useReaderTabsStore((state) => state.close);
   const scrollFor = useReaderTabsStore((state) => state.scrollFor);
   const [editingDocumentId, setEditingDocumentId] = useState<string | null>(null);
+  // ④："打开"= 有标签页（双击/点击打开），不是"列表里高亮"。
+  const readingOpen = Boolean(selectedId && openIds.includes(selectedId));
   // ④：编辑器保存后让阅读器重新拉一次小节（阅读器自己持有小节加载）。
   const [readerReloadToken, setReaderReloadToken] = useState(0);
   const [startingExtractionId, setStartingExtractionId] = useState<string | null>(null);
@@ -161,20 +163,25 @@ export function LibraryPage() {
       const requestedDocument = nextDocuments.find((item) => item.document_id === requested)
         || nextDocuments.find((item) => item.title === requestedTitle);
       if (collection === "wiki" && requestedDocument) setWikiView(wikiViewForType(requestedDocument.wiki_type));
+      // ④：资料库**不再自动打开第一份资料** —— 进页面就该看见列表，
+      // "打开"是用户动作（双击/点击），只有 wiki 视图才需要一个兜底页面。
+      // 否则窄窗口一进来就变成"树 + 列表 + 正文"三栏挤在一起，正文只剩四百来像素。
       const preferredDocument = collection === "wiki"
         ? nextDocuments.find((item) => matchesWikiView(item, wikiViewRef.current))
-        : nextDocuments[0];
+        : undefined;
       const nextSelected = requestedDocument?.document_id
         || nextDocuments.find((item) => item.document_id === selectedIdRef.current)?.document_id
         || preferredDocument?.document_id
         || null;
+      // 深链接（?document=…）算"明确打开"：进阅读模式并进标签条。
+      if (requestedDocument && collection === "material") openTab(requestedDocument.document_id);
       setSelectedId(nextSelected);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "无法读取资料库。" );
     } finally {
       setLoading(false);
     }
-  }, [activeLibrary, collection]);
+  }, [activeLibrary, collection, openTab]);
 
   useEffect(() => { void loadDocuments(); }, [documentImportVersion, loadDocuments]);
 
@@ -1172,6 +1179,9 @@ export function LibraryPage() {
               "library-workspace"
               + (collection === "material" ? " list-only" : "")
               + (collection === "material" && tree ? " with-tree" : "")
+              // ④：**真正打开了标签页**才算"在读"——页面自动选中第一份资料不算，
+              // 否则一进资料库窄窗口就把列表（含搜索）藏起来，用户会以为资料没了。
+              + (readingOpen ? " reading" : "")
             }
           >
             {collection === "material" && tree && (
@@ -1258,42 +1268,6 @@ export function LibraryPage() {
                 )}
               </aside>
             )}
-            {openIds.length > 0 && (
-              <div className="reader-tabs" role="tablist" aria-label="打开的资料">
-                {openIds.map((tabId) => (
-                  <span key={tabId} className={selectedId === tabId ? "reader-tab active" : "reader-tab"}>
-                    <button
-                      type="button"
-                      role="tab"
-                      aria-selected={selectedId === tabId}
-                      onClick={() => {
-                        selectDocument(tabId);
-                      }}
-                    >
-                      {documents.find((item) => item.document_id === tabId)?.title || tabId}
-                    </button>
-                    <button
-                      type="button"
-                      className="reader-tab-close"
-                      aria-label={`关闭 ${documents.find((item) => item.document_id === tabId)?.title || tabId}`}
-                      onClick={() => {
-                        const wasActive = selectedId === tabId;
-                        closeTab(tabId);
-                        if (wasActive) {
-                          const remaining = openIds.filter((item) => item !== tabId);
-                          const index = openIds.indexOf(tabId);
-                          const next = remaining[index] ?? remaining[index - 1];
-                          if (next) selectDocument(next);
-                          else setSelectedId(null);
-                        }
-                      }}
-                    >
-                      ×
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
             <aside className="document-rail">
               <div className="rail-label"><FolderOpen size={15} />{collection === "wiki" ? wikiView === "knowledge" ? "知识页面" : wikiView === "sources" ? "资料索引" : wikiView === "notes" ? "个人笔记" : "全部页面" : "我的资料"} <span>{filteredDocuments.length}</span></div>
               <label className="document-search"><Search size={14} /><input value={documentQuery} onChange={(event) => setDocumentQuery(event.target.value)} placeholder="搜索资料" aria-label="搜索资料" /></label>
@@ -1353,11 +1327,54 @@ export function LibraryPage() {
               ))}
               {!filteredDocuments.length && <p className="document-search-empty">没有找到匹配的资料。</p>}
             </aside>
+            {/* ④：标签条和阅读区必须是**同一个网格列**。标签条曾经是 .library-workspace 的
+                第 4 个直接子元素，一开标签 3 列网格就自动换行：阅读区被挤到下一行，
+                列表被顶到阅读区的位置（2026-09-24 用户截图发现的布局塌陷）。
+                没有选中资料又没有标签时整列不渲染 —— 否则会留一条空白栏。 */}
+            {(selected || openIds.length > 0) && (
+            <div className="library-reader-column">
+            {openIds.length > 0 && (
+              <div className="reader-tabs" role="tablist" aria-label="打开的资料">
+                {openIds.map((tabId) => (
+                  <span key={tabId} className={selectedId === tabId ? "reader-tab active" : "reader-tab"}>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={selectedId === tabId}
+                      onClick={() => {
+                        selectDocument(tabId);
+                      }}
+                    >
+                      {documents.find((item) => item.document_id === tabId)?.title || tabId}
+                    </button>
+                    <button
+                      type="button"
+                      className="reader-tab-close"
+                      aria-label={`关闭 ${documents.find((item) => item.document_id === tabId)?.title || tabId}`}
+                      onClick={() => {
+                        const wasActive = selectedId === tabId;
+                        closeTab(tabId);
+                        if (wasActive) {
+                          const remaining = openIds.filter((item) => item !== tabId);
+                          const index = openIds.indexOf(tabId);
+                          const next = remaining[index] ?? remaining[index - 1];
+                          if (next) selectDocument(next);
+                          else setSelectedId(null);
+                        }
+                      }}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
             <article className="document-reader">
               {selected && <header>
                 <span>{selected.collection === "wiki" ? `历史整理 · ${selected.wiki_type ? wikiTypeLabels[selected.wiki_type] : "页面"}` : selected.kind || "本地资料"}{selected.course ? ` · ${selected.course}` : ""}</span>
                 <h2>{selected.title || selected.source}</h2>
                 {selected.collection === "material" && <div className="reader-actions">
+                  <button className="quiet-button library-list-toggle" onClick={() => setSelectedId(null)}><List size={15} />资料列表</button>
                   {effectiveExtractionStatus(selected) === "not_started" && (
                     <button className="primary-button reader-extract" disabled={startingExtractionId === selected.document_id || !sections.length} onClick={() => void extractAndReview(selected)}><Sparkles size={15} />{startingExtractionId === selected.document_id ? "正在启动…" : "提取概念"}</button>
                   )}
@@ -1403,6 +1420,8 @@ export function LibraryPage() {
                 />
               )}
             </article>
+            </div>
+            )}
           </div>
         ) : (
           <EmptyState state={collection === "wiki" ? "listening" : "reading"}

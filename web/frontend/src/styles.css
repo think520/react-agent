@@ -1128,7 +1128,8 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 .page-heading h2 { margin: var(--space-1) 0 var(--space-1); color: var(--blue); font-family: var(--font-reading); font-size: 32px; font-weight: 400; line-height: 1.25; }
 .page-heading p { margin: 0; color: var(--muted); font-family: var(--font-reading); font-size: 15px; line-height: 1.7; }
 .heading-actions { display: flex; gap: 8px; }
-.library-container { padding-top: 0; }
+/* 资料库要同时放下「文件夹树 + 列表 + 正文」三栏，1120px 的通用上限会让正文只剩四百来像素。 */
+.library-container { padding-top: 0; width: min(100%, 1600px); }
 .library-toolbar { display: flex; min-height: 64px; align-items: center; justify-content: space-between; gap: 18px; border-bottom: 1px solid var(--border); }
 .library-toolbar-context { display: flex; min-width: 0; align-items: center; gap: var(--space-3); color: var(--blue); }
 .library-toolbar-context > div { display: grid; min-width: 0; gap: 1px; }
@@ -1334,9 +1335,9 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 .document-row-wrap:has(.document-delete) .document-scope { right: 33px; }
 .document-scope.selected { opacity: 1; color: var(--sage-deep); }
 .document-row-wrap:hover .document-delete, .document-row-wrap:focus-within .document-delete, .document-row-wrap:hover .document-scope, .document-row-wrap:focus-within .document-scope { opacity: 1; }
-.document-reader { min-width: 0; padding: 18px 0 60px 42px; }
+.document-reader { min-width: 0; padding: 18px var(--space-4) 60px; }
 .selection-toolbar { position: sticky; z-index: 3; top: 8px; display: flex; width: fit-content; min-height: 42px; align-items: center; gap: 9px; margin: 12px 0 -4px auto; border: 1px solid var(--border-strong); border-radius: 7px; padding: 5px 6px 5px 11px; background: rgba(247,245,239,.96); color: var(--blue); box-shadow: var(--shadow-soft); backdrop-filter: blur(10px); }.selection-toolbar span { color: var(--muted); font-size: 12px; }.selection-toolbar .quiet-button { min-height: 30px; padding: 0 9px; font-size: 13px; }
-.document-reader > header { border-bottom: 1px solid var(--border); padding: 0 0 25px; }.document-reader > header span, .section-location { color: var(--faint); font-size: 12px; }.document-reader > header h2 { margin: 7px 0; color: var(--blue); font-family: var(--font-article); font-size: 28px; font-weight: 500; }.document-reader > header p { margin: 0; color: var(--muted); font-family: var(--font-article); line-height: 1.7; }
+.document-reader > header { max-width: 720px; margin: 0 auto; border-bottom: 1px solid var(--border); padding: 0 0 25px; }.document-reader > header span, .section-location { color: var(--faint); font-size: 12px; }.document-reader > header h2 { margin: 7px 0; color: var(--blue); font-family: var(--font-article); font-size: 28px; font-weight: 500; }.document-reader > header p { margin: 0; color: var(--muted); font-family: var(--font-article); line-height: 1.7; }
 .reader-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
 .reader-actions .reader-extract { box-shadow: 0 4px 14px rgba(27,54,93,.14); }
 .reader-actions .status-completed { border-color: rgba(90,122,106,.35); color: var(--sage-deep); box-shadow: none; }
@@ -1579,6 +1580,9 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 /* ②（E17）：只读文件夹树。树是导航层——它出问题时资料列表照常可用。 */
 .library-workspace.with-tree { grid-template-columns: 260px 270px minmax(0, 1fr); }
 .library-tree-pane { border-right: 1px solid var(--border); padding: var(--space-4) var(--space-3) var(--space-4) 0; min-width: 0; }
+/* ④：标签条 + 阅读区是**一个**网格列。它俩以前是网格的两个孩子，一开标签就变成 4 个，
+   3 列网格自动换行，整个分栏塌陷（2026-09-24 用户截图）。 */
+.library-reader-column { display: flex; flex-direction: column; min-width: 0; }
 .library-tree { list-style: none; margin: 0; padding: 0; font-size: 13px; }
 .library-tree ul { list-style: none; margin: 0; padding: 0; }
 .library-tree-row { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 28px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--ink); text-align: left; cursor: pointer; }
@@ -1649,9 +1653,28 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 
 .library-workspace.list-only { grid-template-columns: minmax(0, 1fr); }
 .library-workspace.list-only .document-rail { max-width: 880px; margin: 0 auto; }
-/* 树在场时资料库是三栏：树 | 资料列表 | 阅读区。这条必须排在 list-only 之后，
-   否则同优先级的单栏规则会把它覆盖掉（审查发现：树与列表会被堆成一列）。 */
-.library-workspace.list-only.with-tree { grid-template-columns: 260px 270px minmax(0, 1fr); }
+/* 资料库的分栏预算（④，2026-09-24 按用户截图重排）：
+   · **不在阅读**：树 | 列表 —— 列表吃满剩余宽度（否则标题被截断，右边还空一大片）；
+   · **在阅读 + 窗口 ≥1520px**：树 | 列表 | 正文，三栏都放得下；
+   · **在阅读 + 窗口更窄**：列表让位给正文（「资料列表」按钮召回）——三栏一起挤的话
+     正文只剩四百来像素，读起来非常难受。
+   下面这些规则必须排在 list-only 那条之后：同优先级下后写的才生效。 */
+.library-workspace.with-tree,
+.library-workspace.list-only.with-tree { grid-template-columns: 260px minmax(0, 1fr); }
+.library-workspace.reading.with-tree,
+.library-workspace.reading.list-only.with-tree { grid-template-columns: 260px minmax(0, 1fr); }
+.library-list-toggle { display: none; }
+@media (min-width: 1520px) {
+  .library-workspace.with-tree,
+  .library-workspace.list-only.with-tree,
+  .library-workspace.reading.with-tree,
+  .library-workspace.reading.list-only.with-tree { grid-template-columns: 260px 270px minmax(0, 1fr); }
+}
+@media (max-width: 1519px) {
+  .library-workspace.reading .document-rail { display: none; }
+  .library-workspace.reading.list-only { grid-template-columns: minmax(0, 1fr); }
+  .library-list-toggle { display: inline-flex; align-items: center; gap: 4px; }
+}
 .library-workspace.list-only.with-tree .document-rail { max-width: none; margin: 0; }
 .document-edit { position: absolute; right: 33px; width: 29px; height: 29px; opacity: 0; color: var(--blue); }
 .document-row-wrap:hover .document-edit, .document-row-wrap:focus-within .document-edit { opacity: 1; }

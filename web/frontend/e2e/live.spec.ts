@@ -150,4 +150,21 @@ test("the library page reads a material in place", async ({ page }) => {
   }
   await expect(page.locator(".document-reader .reader-prose section").first()).toBeVisible({ timeout: 20_000 });
   await expect(page.locator(".reader-tabs .reader-tab")).toHaveCount(1);
+
+  // 布局回归（2026-09-24 用户截图）：标签条曾经是工作区网格的**第 4 个孩子**，一开标签
+  // 3 列网格就自动换行 —— 阅读区被挤到下一行、列表被顶到阅读区的位置，整个分栏塌陷。
+  // 同时钉住正文的可用宽度：三栏一起挤的话正文只剩四百来像素。
+  const readerBox = await page.locator(".document-reader").boundingBox();
+  const treeBox = await page.locator(".library-tree-pane").boundingBox();
+  expect(readerBox!.width).toBeGreaterThan(treeBox!.width * 2);
+  expect(readerBox!.x).toBeGreaterThanOrEqual(treeBox!.x + treeBox!.width - 1);
+  await expect(page.locator(".document-rail")).toBeHidden();
+
+  // 窄窗口下阅读时列表让位给正文；「资料列表」按钮必须能把它召回，并能再回到正文。
+  const listToggle = page.getByRole("button", { name: "资料列表" });
+  await expect(listToggle).toBeVisible();
+  await listToggle.click();
+  await expect(page.locator(".document-rail")).toBeVisible();
+  await tree.locator(".library-tree-open").first().click();
+  await expect(page.locator(".document-reader .reader-prose").first()).toBeVisible({ timeout: 20_000 });
 });
