@@ -1508,6 +1508,134 @@ class KBService:
         tree["name"] = os.path.basename(os.path.normpath(self.workspace)) or "资料库"
         return _ok(tree=tree)
 
+    def _scan_prefix_for(self, absolute: str) -> str:
+        """给一个绝对路径算出它在扫描口径下的 source（与 obsidian/sync.py 完全一致）。"""
+        from obsidian.sync import _course_prefix
+
+        _vault_path, course_dirs = self._registered_roots()
+        candidates: list[tuple[str, str]] = []
+        if course_dirs:
+            candidates.append((course_dirs[0], _course_prefix(course_dirs[0], "course")))
+            for index, extra in enumerate(course_dirs[1:]):
+                candidates.append((extra, _course_prefix(extra, f"course-{index + 2}")))
+        best: tuple[str, str] | None = None
+        for root, prefix in candidates:
+            if not self._is_within_workspace(absolute, root):
+                continue
+            if best is None or len(os.path.abspath(root)) > len(os.path.abspath(best[0])):
+                best = (root, prefix)
+        if best is None:
+            return ""
+        root, prefix = best
+        relative = os.path.relpath(absolute, root).replace(os.sep, "/")
+        if os.path.abspath(root) == os.path.abspath(self.workspace) and relative.startswith("raw/"):
+            relative = relative[len("raw/"):]
+        return f"{prefix}/{relative}"
+
+    def move_document(self, document_id: str, new_relative_path: str, config: dict | None = None) -> dict[str, Any]:
+        """重命名或移动一份资料：文件搬走，**身份保留**，引用与证据跟着迁移（E17 ③）。"""
+        from rag.chunker_v2 import _make_chunk_id
+        from rag.sqlite_store import KBSQLiteStore
+
+        db_path = knowledge_path(self.workspace, "knowledge.db")
+        if not os.path.exists(db_path):
+            return _err(f"Document not found: {document_id}", code="document_not_found")
+        store = KBSQLiteStore(self.workspace)
+        store.init_db()
+        try:
+            document = store.get_document(document_id)
+        finally:
+            store.close()
+        if document is None:
+            return _err(f"Document not found: {document_id}", code="document_not_found")
+
+        path = document.get("path")
+        if not path or not self._is_within_workspace(path, self.workspace) or self._is_internal_path(path):
+            return _err("只能移动资料库里的资料", code="document_read_only")
+
+        cleaned = str(new_relative_path or "").strip().replace("\\", "/").lstrip("/")
+        if not cleaned or ".." in cleaned.split("/") or ":" in cleaned:
+            return _err("目标路径不合法", code="invalid_target")
+        from rag.parsers import SUPPORTED_EXTENSIONS
+
+        if os.path.splitext(cleaned)[1].lower() not in SUPPORTED_EXTENSIONS:
+            return _err("目标扩展名不是资料类型", code="unsupported_file_type")
+        target = os.path.abspath(os.path.join(self.workspace, cleaned))
+        if not self._is_within_workspace(target, self.workspace) or self._is_internal_path(target):
+            return _err("目标路径不合法", code="invalid_target")
+        if os.path.abspath(target) == os.path.abspath(path):
+            return _err("新位置和原位置一样", code="target_unchanged")
+        if os.path.exists(target):
+            return _err("目标位置已经有同名文件", code="target_exists")
+
+        new_source = self._scan_prefix_for(target)
+        if not new_source:
+            return _err("目标不在资料库的扫描范围内", code="invalid_target")
+
+        # 1) 先算 chunk 身份映射：chunk_id 由 (source, index, text) 派生，改名就换身份。
+        store = KBSQLiteStore(self.workspace)
+        store.init_db()
+        try:
+            mapping = {
+                chunk["id"]: _make_chunk_id(
+                    new_source,
+                    int(chunk.get("chunk_index_in_section") or 0),
+                    chunk.get("text") or "",
+                )
+                for chunk in store.get_chunks_by_document(document_id)
+            }
+        finally:
+            store.close()
+
+        # 2) 搬文件
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        shutil.move(path, target)
+
+        # 3) 就地改写位置（id 不变）+ 迁移 chunk 身份
+        store = KBSQLiteStore(self.workspace)
+        store.init_db()
+        try:
+            chunks_remapped = store.remap_chunk_ids(document_id, mapping, new_source)
+            store.update_document_location(document_id, new_source, target, vector_status="pending")
+        finally:
+            store.close()
+
+        # 4) 迁移挂在 chunk_id 上的引用：概念证据与笔记关联
+        from knowledge.paths import knowledge_dir
+        from graph.concept_store import ConceptStore
+        from memory.personal_store import PersonalKnowledgeStore
+
+        # ConceptStore 要的是**数据库路径**（不是工作区），且图谱是可选能力。
+        concept_db_path = os.path.join(knowledge_dir(self.workspace), "concept_graph.db")
+        evidence_remapped = (
+            ConceptStore(concept_db_path).remap_evidence_chunk_ids(mapping)
+            if os.path.exists(concept_db_path)
+            else 0
+        )
+        references_remapped = PersonalKnowledgeStore(self.workspace).remap_reference_chunk_ids(mapping)
+
+        # 5) chunk 身份变了 → 旧向量作废；标 pending 让下一次同步重新嵌入
+        try:
+            from rag.qdrant_store import shared_qdrant_store
+
+            shared_qdrant_store(self.workspace).delete_by_filter(document_id)
+        except Exception as exc:  # noqa: BLE001 - 向量是可选能力，删不掉不影响迁移
+            logger.warning("移动资料时清理旧向量失败（不影响引用迁移）：%s", exc)
+
+        summary = self._sync_registered_sources(mode="incremental", config=config or {})
+        return _ok(
+            migration={
+                "document_id": document_id,
+                "old_source": document.get("source") or "",
+                "new_source": new_source,
+                "relative_path": cleaned,
+                "chunks_remapped": chunks_remapped,
+                "evidence_remapped": evidence_remapped,
+                "references_remapped": references_remapped,
+            },
+            sync=summary.to_dict(),
+        )
+
     def get_document(self, document_id: str) -> dict[str, Any]:
         db_path = knowledge_path(self.workspace, "knowledge.db")
         if os.path.exists(db_path):

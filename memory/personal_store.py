@@ -229,6 +229,34 @@ class PersonalKnowledgeStore:
             "resolved_at": row["resolved_at"],
         }
 
+    def remap_reference_chunk_ids(self, mapping: dict[str, str]) -> int:
+        """E17 ③：资料改名后，把笔记 references 里的 chunk_id 迁到新身份上。"""
+        if not mapping:
+            return 0
+        updated = 0
+        for scope in ("library", "global"):
+            with self._conn(scope) as conn:
+                # `references` 是 SQLite 保留字，必须加引号。
+                rows = conn.execute(
+                    'SELECT id, "references" FROM personal_knowledge'
+                ).fetchall()
+                for row in rows:
+                    references = _loads(row["references"], [])
+                    touched = False
+                    for reference in references:
+                        if not isinstance(reference, dict):
+                            continue
+                        chunk_id = reference.get("chunk_id")
+                        if chunk_id in mapping:
+                            reference["chunk_id"] = mapping[chunk_id]
+                            touched = True
+                    if touched:
+                        conn.execute(
+                            'UPDATE personal_knowledge SET "references" = ? WHERE id = ?',
+                            (_json(references), row["id"]),
+                        )
+                        updated += 1
+        return updated
     def create_item(self, *, scope: str, kind: str, title: str, content: str,
                     pinned: bool = False, confidence: float = 1.0,
                     evidence: list[dict] | None = None, references: list[dict] | None = None,

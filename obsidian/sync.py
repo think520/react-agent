@@ -550,7 +550,12 @@ def sync_sources(
             chunks = chunk_sections(sections, chunk_cfg)
 
             # Derive document metadata
-            document_id = _stable_hash(source)
+            # 2026-09-24 (E17 ③): identity must survive a rename/move. The id is
+            # derived from the source path, so a moved file would mint a new id
+            # and break concept evidence, question sources, note references and
+            # reading progress. Rename/move rewrites source in place *before*
+            # the sync runs, so the row is already there: reuse its id.
+            document_id = sqlite.get_document_id_by_source(source) or _stable_hash(source)
             title = _extract_title(source, sections, kind)
             course = _extract_course(source, sections, kind)
             tags = _extract_tags(sections)

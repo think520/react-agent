@@ -271,6 +271,53 @@ class KBSQLiteStore:
         )
         conn.commit()
 
+    def update_document_location(
+        self,
+        document_id: str,
+        source: str,
+        path: str,
+        *,
+        vector_status: str | None = None,
+    ) -> None:
+        """E17 ③：用户重命名/移动后，就地改写位置（**id 不变**）。
+
+        document_id 是概念证据、题目来源、笔记 references 和阅读进度共同引用的
+        身份；位置变了但身份不变，那些引用才不用重写。
+        """
+        conn = self._get_conn()
+        if vector_status:
+            conn.execute(
+                "UPDATE documents SET source = ?, path = ?, vector_status = ?, updated_at = datetime('now') WHERE id = ?",
+                (source, path, vector_status, document_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE documents SET source = ?, path = ?, updated_at = datetime('now') WHERE id = ?",
+                (source, path, document_id),
+            )
+        conn.commit()
+
+    def remap_chunk_ids(self, document_id: str, mapping: dict[str, str], source: str) -> int:
+        """把一份资料的 chunk 身份整体搬到新 source 派生出的 id 上。
+
+        chunk_id 是 (source, index, text) 的哈希，所以改名会改掉它的身份；
+        证据、笔记 references 与引用深链都挂在 chunk_id 上，必须一起迁移。
+        FTS5 是外部内容索引，改完要重建它的索引行。
+        """
+        if not mapping:
+            return 0
+        conn = self._get_conn()
+        updated = 0
+        for old_id, new_id in mapping.items():
+            cursor = conn.execute(
+                "UPDATE chunks SET id = ?, source = ? WHERE document_id = ? AND id = ?",
+                (new_id, source, document_id, old_id),
+            )
+            updated += cursor.rowcount or 0
+        conn.execute("INSERT INTO chunks_fts(chunks_fts) VALUES('rebuild')")
+        conn.commit()
+        return updated
+
     def get_chunk_by_id(self, chunk_id: str) -> dict | None:
         conn = self._get_conn()
         row = conn.execute(
