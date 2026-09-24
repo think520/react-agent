@@ -1587,8 +1587,8 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 .library-tree ul { list-style: none; margin: 0; padding: 0; }
 .library-tree-row { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 28px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--ink); text-align: left; cursor: pointer; }
 .library-tree-row:hover { background: var(--paper-soft); }
-.library-tree-row.selected { background: var(--blue-wash); color: var(--ink-blue); }
-.library-tree-row.active { background: var(--blue-wash); color: var(--ink-blue); font-weight: 650; }
+.library-tree-row.selected { background: var(--blue-wash); color: var(--blue); }
+.library-tree-row.active { background: var(--blue-wash); color: var(--blue); font-weight: 650; }
 .library-tree-row.file:disabled { cursor: default; color: var(--muted); }
 .library-tree-row .library-tree-name { display: inline-flex; align-items: center; gap: 6px; min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .library-tree-row .library-tree-meta { flex: 0 0 auto; color: var(--muted); font-size: 12px; }
@@ -1622,7 +1622,7 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 /* ④：阅读区标签条（参考项目：tab 条就是面板 header 的名字那一半）。 */
 .reader-tabs { display: flex; gap: 4px; overflow-x: auto; border-bottom: 1px solid var(--border); padding: 0 var(--space-3) var(--space-2); }
 .reader-tab { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 2px; max-width: 220px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--paper); }
-.reader-tab.active { border-color: rgba(27,54,93,0.28); background: var(--blue-wash); color: var(--ink-blue); }
+.reader-tab.active { border-color: rgba(27,54,93,0.28); background: var(--blue-wash); color: var(--blue); }
 .reader-tab > button:first-child { min-width: 0; max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 0; background: transparent; color: inherit; padding: 6px 8px; font-size: 12.5px; cursor: pointer; }
 .reader-tab-close { border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--muted); padding: 4px 6px; font-size: 14px; line-height: 1; cursor: pointer; }
 .reader-tab-close:hover { background: var(--paper-soft); color: var(--ink); }
@@ -1693,7 +1693,9 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 .chapter-rail > div > button:hover { background: var(--blue-wash); color: var(--blue); }
 
 /* Reader tabs (TASKS_LIBRARY_REWORK task 2.3.1). */
-.reader-tabs { position: sticky; top: 0; z-index: 20; display: flex; gap: 4px; overflow-x: auto; border-bottom: 1px solid var(--border); padding: 8px 0; background: var(--bg); }
+/* 吸顶标签栏必须**不透明**：原来写的是不存在的 `--bg`（无 fallback → 声明被丢掉），
+   于是滚动时正文从它下面透出来，看着就是一条挡视野的"透明条"（2026-09-24 用户反馈）。 */
+.reader-tabs { position: sticky; top: 0; z-index: 20; display: flex; gap: 4px; overflow-x: auto; border-bottom: 1px solid var(--border); padding: 8px 0; background: var(--paper); }
 .reader-tab { flex: 0 0 auto; max-width: 200px; overflow: hidden; border: 1px solid var(--border); border-radius: 6px 6px 0 0; padding: 6px 12px; background: transparent; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .reader-tab.active { background: var(--paper-soft); color: var(--blue); border-bottom-color: var(--paper-soft); font-weight: 650; }
 
