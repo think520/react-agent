@@ -7,6 +7,21 @@
 ## [未发布]
 
 ### 变更
+- **⑤d 一键撤销活过刷新：整理台账写在服务端（2026-09-24，E17 ⑤，`2609628`）**：`apply_organization` 此前把 moved 清单**只交给调用方**——刷新页面清单就没了，文件躺在「未归类」里，界面上再无撤销入口。README/CLAUDE.md 写的「只在确认后移动，且永远可一键撤销」**在刷新之后并不成立**。
+  - 现在：执行的那一步记进服务端台账 `.bobodan/organize/organize_index.json`（已在 `core/persistence_registry.py` 登记，只留最近 20 步）；新增 `GET /api/kb/organize/state` 报告还有没有可撤销的一步；`POST /api/kb/organize/undo` **不传清单**时撤销台账里的最后一步（老的"显式传清单"用法保留，并会清掉与之相符的记录）。资料库侧栏的「撤销这一步整理」改由这份**服务端状态**驱动，并显示"上一步：N 份资料收进「X」"。
+  - **验证**：新增 `tests/test_organization_undo_persistence.py` 3 条（重开服务实例、不带清单也能撤销；没有可撤销的东西时不假装撤销过；显式清单同样清台账）+ `tests/test_web_backend.py` 1 条 **HTTP 层**用例。后者顺带钉住**路由存在性**：服务层测试全绿也照样可能漏掉"没挂路由"的 404——真机上重启前的进程正是这种状态（`/api/kb/organize/proposals` 404 而 `/api/kb/tree` 200）。重启后两个新路由都 200。
+  - pytest **1624 → 1625 passed**；tsc **0**、eslint **0**、vitest **107 passed / 17 files**、构建 **0**；live（真实后端 + 真实资料库）**6 passed**。
+  - **自己踩的坑（记下来）**：设计令牌 ratchet 当场抓到我这轮加的 `.library-organize-undo small { font-size: 11.5px }`（§5 硬下限 12px）——**删掉规则**，而不是绕过门禁。
+- **④z 两套阅读实现合一（第 1+2 步）：抽出 `components/DocumentReader.tsx`（2026-09-24，E17 ④，`bcd6b66`）**：`ReaderPage` **612 → 255 行**；文章主体（小节加载、原文/按小节、PDF 内嵌、目录导轨、引用提示条、选区工具条、相关笔记、阅读进度）搬进**唯一**实现 `components/DocumentReader.tsx`（460 行）。props 接口写在文件顶部：`documentId` / `collection` / `chunkId`，另加 5 个桥接 props（`documentSummary` / `scrollRef` / `onError` / `onSectionsLoaded` / `reloadToken`），每个都注明了"为什么必须由外壳传进来"。
+  - **数据获取调用点逐字未改**（`api.document`、`api.knowledgeByDocument`、`fetchDocumentRawText`、`downloadDocumentRaw`、`api.updateReadingProgress`），加载与错误语义不变——所以两条深链接 live 用例与"就地阅读"用例继续绿。
+  - **一处有意的可见改动**：原文/按小节与「用系统打开」从顶栏移进正文上方的 `.reader-view-row`（右对齐，与 720px 正文列对齐）——视图切换归组件所有，第 3 步的 `LibraryPage` 才能免费拿到它。文案未改，真实浏览器截图核对过。
+  - **验证**：tsc **0**、eslint **0**、vitest **107 passed / 17 files**、构建 **0**、live（真实后端 + 真实资料库）**6 passed**；另外 `e2e/app.spec.ts -g "chapter rail"` 1 passed（mock 的目录导轨用例现在由 DocumentReader 提供）。
+  - **④ 仍未做**：第 3 步——`LibraryPage` 的阅读区改为渲染同一个 `DocumentReader`（替换它自己的小节渲染与目录浮层）。这一条做完，`/library` 与 `/library/read/:id` 才算真正"一套渲染、两条路由"。
+- **⑤c 整理入口接上界面：看建议 → 执行 → 一键撤销（2026-09-24，E17 ⑤，`537580a`）**：⑤a/⑤b 的两个端点（`/organize/proposals`、`/organize/apply`、`/organize/undo`）此前**前端零调用**——用户看不到建议，也无从执行或撤销。现在资料库侧栏多了一个折叠的「整理建议」面板：点「看看有什么可以整理的」按需拉取（不是进页面就打），逐条显示建议标题、理由、涉及的文件（超过 8 份折叠成「…… 其余 N 份」），一键「收进「未归类」」执行，执行后**当场出现**「撤销这一步整理」。
+  - `api.ts` 补上 `OrganizationProposal` 类型与 `organizationProposals()` / `applyOrganization()` / `undoOrganization()` 三个封装。
+  - **验证**：页面测试新增 1 条（`LibraryPage.test.tsx` 7 passed）—— 断言建议标题出现在界面上、点执行时 `applyOrganization` 收到 `(["散落的一课.md"], "未归类")`、撤销按钮出现且点击后调用 `undoOrganization`。tsc **0**、eslint **0**、vitest **107 passed / 17 files**、构建 **0**；live（真实后端 + 真实资料库）**6 passed**。
+  - **写这条测试时踩到的真问题**：整理面板挂在「有资料 + 有文件夹树」的工作区里，测试里 `documents` 为空则面板根本不渲染——第一次跑就是 5 秒超时。这不是测试写法问题，是**面板的渲染条件**：空库时它确实不该出现（没有可整理的对象）。断言因此显式 mock 了一份资料。
+  - **⑤ 仍未做**：① AI 归类（在确定性建议之上，且必须走同一套确认与撤销）；② **撤销清单的持久化**——现在 `organizeMoves` 由页面 state 持有，**刷新页面就丢**，与 README 里"永远可一键撤销"的承诺还有距离（已知限制，下一轮先补这条）。
 - **⑤b 整理建议的「执行 → 一键撤销」（2026-09-24，E17 ⑤）**：`POST /api/kb/organize/apply` 与 `/undo` —— 把散落在库根的資料收进目标文件夹，并**返回一份 moved 清单**（每条含 `document_id` / `from` / `to`），撤销就按这份清单放回原位。
   - **关键点：执行走的仍是 ③b 的身份迁移**（有索引的资料调 `move_document`：document_id 保留、chunk 身份重映射、概念证据与笔记引用一起迁移），所以"整理"不会像早期那样打断引用链；没有索引的文件才直接搬。
   - **验证**：新增 `tests/test_organization_apply.py` 2 条 —— ① 执行后文件进文件夹，且**document_id 不变**、`relative_path` 变成 `未归类/散落的一课.md`、返回的 moved 清单与预期逐字相等；② 撤销后文件回到原位、文件夹里不再有它、同一 document_id 的 `relative_path` 复原。pytest 全绿。
