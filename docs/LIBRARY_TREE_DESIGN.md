@@ -120,3 +120,28 @@
 ## 8. 小项默认值（用户可否决）
 
 排序＝文件夹优先 + 名称（不做自定义排序）；长列表不分页（库规模小）；「已归档」与版本历史入口放设置页「记忆与数据」旁 + 树底部一个「已归档」节点；标签页不设硬上限（超过 8 个折成下拉）。
+## 9. ④ 合并执行手册（2026-09-24 实测坐标，交给下一轮）
+
+> 这一节是为了让任何人（或下一个 agent 会话）**不必重新推导**就能动手。所有行号来自当日实测，代码变动后以实际为准。
+
+**目标**：资料库页（`/library`）与阅读页（`/library/read/:id`）共用同一套阅读区；`readerTabsStore` 是**唯一**的标签模型；深链接（5 处发送端 + 搜索结果）行为不变。
+
+**必须先写的复现测试（当前会失败）**：
+1. **组件级**（`src/pages/LibraryPage.test.tsx`）：mock `api.documents` 返回一份资料、mock `api.document` 返回 2 个小节 → 点击该资料 → 断言阅读区出现 `.reader-prose section`（至少 1 个）且**没有发生路由跳转**。
+2. **live 级**（`e2e/live.spec.ts`，真实库）：`/library` 点树里的文件 → URL 仍以 `/library` 开头、`.reader-tabs .reader-tab` ≥ 1、阅读区出现正文。
+
+**已查清的事实（别再重查）**：
+- `LibraryPage` 里 `selectDocument`（约 666 行）对 material 分支**直接 `navigate('/library/read/:id')`** —— 这就是标签条与阅读区"够不着"的根因。
+- 阅读区的渲染闸门是 `{selected && <header>…}` 与 `sections.length ? …`（约 1344-1358 行）；`selected` 来自 `documents.find(d => d.document_id === selectedId)`（约 930 行）。
+- 小节加载链已存在：`useEffect`（约 253-257 行）在 `selectedId` 变化时 `api.document(selectedId).then(r => setSections(r.sections))`。
+- **2026-09-24 实测**：把 material 分支改成"就地选中 + `setSearchParams({collection, document})`"后，URL 与标签条都对了（`tabs=1`），**但 `sections=0` 且 header 没渲染** → 说明 `selected` 仍为 null（`documents` 与 `selectedId` 没接上）。**先解决这一条，再动路由。**
+- 现有标签模型：`stores/readerTabsStore.ts`（`openIds`/`open`/`close`/`scrolls`/`setScroll`/`scrollFor`，persist 名 `bobodan:reader-tabs`）；`ReaderPage.tsx:133` 已用它恢复滚动位置。
+- **要删的重复实现**：`lib/readerTabs.ts`、`lib/readerTabs.test.ts`、`hooks/useReaderTabs.ts`（④a/④b 造的第二套，与既有 store 重叠且有 7 条测试）——等 LibraryPage 改用 `readerTabsStore` 之后再删。
+
+**动刀顺序（每步都要能独立验证）**：
+1. 修"选中 → 加载 → 渲染"这条链（先让测试 1 绿）；
+2. 把 LibraryPage 的阅读区改用 `readerTabsStore`（删第二套模型）；
+3. material 分支不再 navigate（保留「在阅读页打开」出口，深链接不动）；
+4. 把阅读页的**原文/按小节切换、PDF 内嵌、章节导航**抽成共享组件，两处复用（这一步最大，做好后再删 `ReaderPage` 的重复壳）。
+
+**纪律（这两轮用血换的）**：长 JSX 改动**只能用带精确 `old_string` 的编辑工具**，禁止按行号程序化切片（已两次切坏文件）；每次改完必须跑**真实动线**（Playwright 对真实库）而不是只看测试绿——两个"全绿但用户看不到"的提交就是这么产生的。
