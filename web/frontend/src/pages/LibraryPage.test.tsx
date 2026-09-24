@@ -31,6 +31,9 @@ vi.mock("../lib/api", async (importOriginal) => {
       graphExtractionStatuses: vi.fn(),
       syncLibrary: vi.fn(),
       knowledgeTree: vi.fn(),
+      organizationProposals: vi.fn(),
+      applyOrganization: vi.fn(),
+      undoOrganization: vi.fn(),
       document: vi.fn(),
     },
   };
@@ -315,5 +318,45 @@ describe("资料库文件夹同步", () => {
     // jsdom 不实现 <details> 的展开，折叠内容对 getByRole 是 hidden —— 断言它确实列出了各小节。
     expect(screen.getByRole("button", { name: "第一节", hidden: true })).toBeTruthy();
     expect(screen.getByRole("button", { name: "第二节", hidden: true })).toBeTruthy();
+  });
+
+  it("整理建议：看建议 → 执行 → 再撤销", async () => {
+    // 整理面板只挂在「有资料 + 有文件夹树」的工作区里，所以这里必须有真实列表。
+    vi.mocked(api.knowledgeTree).mockResolvedValue({ ok: true, tree: {
+      type: "folder", name: "vault", path: "", material_count: 1, indexed_count: 1, ignored_count: 0, ignored_here: [], children: [], files: [],
+    } } as never);
+    vi.mocked(api.documents).mockResolvedValue([{
+      document_id: "doc-1",
+      source: "散落的一课.md",
+      relative_path: "散落的一课.md",
+      kind: "course_document",
+      title: "散落的一课",
+      collection: "material",
+      content_role: "content",
+    }] as never);
+    vi.mocked(api.organizationProposals).mockResolvedValue({ ok: true, proposals: [{
+      kind: "loose_materials",
+      title: "库根散落的资料",
+      reason: "这些资料直接躺在资料库根目录。",
+      items: ["散落的一课.md"],
+      suggested_folder: "未归类",
+      requires_confirmation: true,
+    }] } as never);
+    vi.mocked(api.applyOrganization).mockResolvedValue({ ok: true, moved: [{ document_id: "d1", from: "散落的一课.md", to: "未归类/散落的一课.md" }] } as never);
+    vi.mocked(api.undoOrganization).mockResolvedValue({ ok: true, restored: ["散落的一课.md"] } as never);
+
+    render(
+      <MemoryRouter initialEntries={["/library"]}>
+        <LibraryPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByText("看看有什么可以整理的"));
+    expect(await screen.findByText(/库根散落的资料/)).toBeTruthy();
+    // 建议面板在 <details> 里（jsdom 不会展开），点按钮用文本定位
+    fireEvent.click(screen.getByText("收进「未归类」"));
+    await waitFor(() => expect(api.applyOrganization).toHaveBeenCalledWith(["散落的一课.md"], "未归类"));
+    fireEvent.click(await screen.findByText("撤销这一步整理"));
+    await waitFor(() => expect(api.undoOrganization).toHaveBeenCalled());
   });
 });

@@ -117,6 +117,16 @@ export interface ArchivedEntry {
   size: number;
 }
 
+/** 一条整理建议（E17 ⑤）：只提议，等用户确认才执行。 */
+export interface OrganizationProposal {
+  kind: string;
+  title: string;
+  reason: string;
+  items: string[];
+  suggested_folder: string;
+  requires_confirmation: boolean;
+}
+
 interface ErrorEnvelope {
   error?: { code?: string; message?: string; details?: unknown };
 }
@@ -191,6 +201,18 @@ export const api = {
   ),
   /** 只读文件夹树（E17 ②）：真实文件夹 + 资料徽章 + 已忽略计数。 */
   /** 新建文件夹 / 删文件夹（只删容器）/ 重命名移动（E17 ③）。 */
+  /** 整理建议：只提议，不动文件（E17 ⑤）。 */
+  organizationProposals: () => request<{ ok: boolean; proposals: OrganizationProposal[] }>(
+    "/api/kb/organize/proposals",
+  ),
+  applyOrganization: (items: string[], targetFolder: string) => request<{
+    ok: boolean;
+    moved: { document_id: string; from: string; to: string }[];
+  }>("/api/kb/organize/apply", json({ items, target_folder: targetFolder })),
+  undoOrganization: (moves: { document_id: string; from: string; to: string }[]) => request<{
+    ok: boolean;
+    restored: string[];
+  }>("/api/kb/organize/undo", json({ moves })),
   createFolder: (path: string) => request<{ ok: boolean; folder: { name: string; path: string } }>(
     "/api/kb/folders",
     json({ path }),

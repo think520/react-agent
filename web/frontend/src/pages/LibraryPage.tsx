@@ -11,7 +11,7 @@ import type { AppOutletContext } from "../components/AppShell";
 import { BrandIllustration, EmptyState, ErrorNotice, IconButton, LoadingState, formatRelativeDate } from "../components/common";
 import { WikiPlanCard } from "../components/WikiPlanCard";
 import { ApiError, api } from "../lib/api";
-import type { ArchivedEntry, KnowledgeSyncSummary, KnowledgeTree } from "../lib/api";
+import type { ArchivedEntry, KnowledgeSyncSummary, KnowledgeTree, OrganizationProposal } from "../lib/api";
 import { LibraryTree } from "../components/LibraryTree";
 import { useReaderTabsStore } from "../stores/readerTabsStore";
 import { Modal, useConfirm } from "../ui/Modal";
@@ -89,6 +89,10 @@ export function LibraryPage() {
   const [selectedFolder, setSelectedFolder] = useState("");
   // ③：已归档的资料（归档只是移走，永远可恢复）。
   const [archive, setArchive] = useState<ArchivedEntry[]>([]);
+  // ⑤：整理建议（只提议 → 执行 → 一键撤销）。
+  const [organizeProposals, setOrganizeProposals] = useState<OrganizationProposal[] | null>(null);
+  const [organizeMoves, setOrganizeMoves] = useState<{ document_id: string; from: string; to: string }[]>([]);
+  const [organizeBusy, setOrganizeBusy] = useState(false);
   // ④：阅读区标签页（每篇记住读到哪；关掉最后一个自动收起）。
   // ④：复用既有的标签模型（ReaderPage 也用它）：openIds + 每篇滚动位置。
   const openIds = useReaderTabsStore((state) => state.openIds);
@@ -877,6 +881,50 @@ export function LibraryPage() {
     }
   }
 
+  async function loadOrganizeProposals() {
+    setOrganizeBusy(true);
+    setError("");
+    try {
+      const result = await api.organizationProposals();
+      setOrganizeProposals(result.proposals);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "读取整理建议失败。");
+    } finally {
+      setOrganizeBusy(false);
+    }
+  }
+
+  async function applyProposal(proposal: OrganizationProposal) {
+    setOrganizeBusy(true);
+    setError("");
+    try {
+      const result = await api.applyOrganization(proposal.items, proposal.suggested_folder);
+      setOrganizeMoves(result.moved);
+      setOrganizeProposals([]);
+      setNotice(`已把 ${result.moved.length} 份资料收进「${proposal.suggested_folder}」；引用与证据已跟着迁移。`);
+      await Promise.all([loadTree(), loadDocuments()]);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "整理失败。");
+    } finally {
+      setOrganizeBusy(false);
+    }
+  }
+
+  async function undoOrganize() {
+    setOrganizeBusy(true);
+    setError("");
+    try {
+      const result = await api.undoOrganization(organizeMoves);
+      setNotice(`已撤销整理，${result.restored.length} 份资料回到原位。`);
+      setOrganizeMoves([]);
+      await Promise.all([loadTree(), loadDocuments()]);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "撤销失败。");
+    } finally {
+      setOrganizeBusy(false);
+    }
+  }
+
   async function syncLibraryFolder() {
     if (!activeLibrary || syncingFolder) return;
     setSyncingFolder(true);
@@ -1172,6 +1220,39 @@ export function LibraryPage() {
                   onCreateFolder={(path) => void createFolder(path)}
                   onDeleteFolder={(path) => void deleteFolder(path)}
                 />
+                {collection === "material" && (
+                  <details className="library-organize">
+                    <summary>整理建议</summary>
+                    <div>
+                      {organizeProposals === null ? (
+                        <button className="quiet-button" type="button" disabled={organizeBusy} onClick={() => void loadOrganizeProposals()}>
+                          看看有什么可以整理的
+                        </button>
+                      ) : organizeProposals.length === 0 ? (
+                        <p className="text-faint">资料库已经很整齐了。</p>
+                      ) : (
+                        organizeProposals.map((proposal) => (
+                          <div key={proposal.kind}>
+                            <strong>{proposal.title}（{proposal.items.length} 份）</strong>
+                            <p>{proposal.reason}</p>
+                            <ul>
+                              {proposal.items.slice(0, 8).map((item) => <li key={item}>{item}</li>)}
+                              {proposal.items.length > 8 && <li className="text-faint">…… 其余 {proposal.items.length - 8} 份</li>}
+                            </ul>
+                            <button className="quiet-button" type="button" disabled={organizeBusy} onClick={() => void applyProposal(proposal)}>
+                              收进「{proposal.suggested_folder}」
+                            </button>
+                          </div>
+                        ))
+                      )}
+                      {organizeMoves.length > 0 && (
+                        <button className="quiet-button" type="button" disabled={organizeBusy} onClick={() => void undoOrganize()}>
+                          撤销这一步整理
+                        </button>
+                      )}
+                    </div>
+                  </details>
+                )}
                 {archive.length > 0 && (
                   <details className="library-archive">
                     <summary>已归档 {archive.length} 份</summary>

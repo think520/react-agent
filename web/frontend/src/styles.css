@@ -1633,6 +1633,13 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 .library-tree-actions > div { position: absolute; z-index: 20; right: 0; top: 22px; display: grid; min-width: 190px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); padding: 4px; background: var(--paper); box-shadow: var(--shadow-float); }
 .library-tree-actions button { border: 0; border-radius: var(--radius-sm); padding: 7px 9px; background: transparent; color: var(--ink); text-align: left; font-size: 12.5px; cursor: pointer; }
 .library-tree-actions button:hover { background: var(--paper-soft); }
+/* ⑤：整理建议面板（树上，只提议 → 执行 → 撤销）。 */
+.library-organize { margin-top: 10px; color: var(--muted); font-size: 12.5px; }
+.library-organize > summary { cursor: pointer; }
+.library-organize > div { display: grid; gap: 8px; margin-top: 6px; }
+.library-organize strong { color: var(--ink); font-size: 12.5px; }
+.library-organize p { margin: 2px 0; }
+.library-organize ul { margin: 4px 0; padding-left: 18px; }
 .library-archive { margin-top: 10px; color: var(--muted); font-size: 12.5px; }
 .library-archive > summary { cursor: pointer; }
 .library-archive ul { margin: 6px 0 0; padding: 0; list-style: none; display: grid; gap: 4px; }
