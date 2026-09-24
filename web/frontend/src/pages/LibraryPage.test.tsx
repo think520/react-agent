@@ -31,6 +31,7 @@ vi.mock("../lib/api", async (importOriginal) => {
       graphExtractionStatuses: vi.fn(),
       syncLibrary: vi.fn(),
       knowledgeTree: vi.fn(),
+      document: vi.fn(),
     },
   };
 });
@@ -64,6 +65,7 @@ beforeEach(() => {
   hoisted.ctx = buildContext();
   vi.mocked(api.documents).mockResolvedValue([]);
   vi.mocked(api.graphExtractionStatuses).mockResolvedValue({ documents: {} } as never);
+  vi.mocked(api.document).mockResolvedValue({ ok: true, document: {}, sections: [] } as never);
 });
 
 afterEach(() => {
@@ -261,5 +263,48 @@ describe("资料库文件夹同步", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "关闭 第一课" }));
     await waitFor(() => expect(screen.queryByRole("tab", { name: "第一课" })).toBeNull());
+  });
+
+  // ④（E17）待修：资料库页选一份资料，选中→加载→渲染这条链必须跑通。
+  // 2026-09-24 真实动线实测：把 selectDocument 的 material 分支从 navigate 改成就地
+  // 选中之后，URL 与标签条都对了（tabs=1），但 sections=0 且 header 没渲染 ——
+  // 说明 selected 仍为 null（documents 与 selectedId 没接上）。
+  // 去掉 .skip 就是这条链的复现测试；它红了才说明修好了（详见设计文档 §9 执行手册）。
+  it.skip("选中资料后，资料库页的阅读区必须渲染出正文", async () => {
+    vi.mocked(api.knowledgeTree).mockResolvedValue({ ok: true, tree: {
+      type: "folder", name: "vault", path: "", material_count: 1, indexed_count: 1, ignored_count: 0, ignored_here: [], children: [], files: [],
+    } } as never);
+    vi.mocked(api.documents).mockResolvedValue([{
+      document_id: "doc-1",
+      source: "course-2/第一课.md",
+      relative_path: "第一课.md",
+      kind: "course_document",
+      title: "第一课",
+      collection: "material",
+      content_role: "content",
+    }] as never);
+    vi.mocked(api.document).mockResolvedValue({
+      ok: true,
+      document: {
+        document_id: "doc-1",
+        source: "course-2/第一课.md",
+        kind: "course_document",
+        title: "第一课",
+        collection: "material",
+        content_role: "content",
+      },
+      sections: [{ chunk_id: "c1", text: "第一节正文", heading: "第一节" }],
+    } as never);
+
+    render(
+      <MemoryRouter initialEntries={["/library"]}>
+        <LibraryPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByText("第一课"));
+
+    await waitFor(() => expect(document.querySelectorAll(".reader-prose section").length).toBeGreaterThan(0));
+    expect(await screen.findByRole("tab", { name: "第一课" })).toBeTruthy();
   });
 });
