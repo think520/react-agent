@@ -1150,7 +1150,9 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
   /* overflow-x: hidden 是护栏：正文里有宽表格/图片时，scrollIntoView（引用跳转、小节定位）
      会把整个阅读列**横向**滚走 —— 用户看到的就是"文字左边被切掉、右边多出一块空白"（2026-09-24）。
      宁可让宽内容自己在块内处理，也不许整列平移。 */
-  .library-scroll .library-reader-column { overflow-x: hidden; overflow-y: auto; min-height: 0; position: relative; scrollbar-width: none; }
+  /* 网格列是这层"不滚动的壳"，它才是滑块的定位父层；真正的滚动容器是里面的列。 */
+  .library-scroll .library-reader-wrap { display: flex; min-width: 0; min-height: 0; position: relative; }
+  .library-scroll .library-reader-column { flex: 1 1 auto; overflow-x: hidden; overflow-y: auto; min-height: 0; scrollbar-width: none; }
   .library-scroll .library-reader-column::-webkit-scrollbar { display: none; }
   .library-scroll .library-reader-placeholder { overflow-y: auto; }
 }

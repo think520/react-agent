@@ -1332,11 +1332,13 @@ export function LibraryPage() {
                 第 4 个直接子元素，一开标签 3 列网格就自动换行：阅读区被挤到下一行，
                 列表被顶到阅读区的位置（2026-09-24 用户截图发现的布局塌陷）。
                 没有选中资料又没有标签时整列不渲染 —— 否则会留一条空白栏。 */}
+            {/* 两层是必须的（2026-09-24 用户反馈"只有滚到最上面才看得见滑动条"）：
+                滑块如果直接放在滚动容器里，它会**跟着内容一起滚走**（实测滚 1500px 后
+                轨道 y 从 133 变成 -1367）。所以外面套一层不滚动的定位父层，滑块挂它身上。 */}
             {(selected || openIds.length > 0) && (
-            <div className="library-reader-column" ref={(node) => { readerScrollRef.current = node; }}>
-            {/* 原生滚动条在 Windows 11 + Chromium 上一定是覆盖式（实测改不动），
-                所以阅读区自己画一条：常驻可见、可拖，滚轮与键盘照旧。 */}
+            <div className="library-reader-wrap">
             <ScrollIndicator targetRef={readerScrollRef} />
+            <div className="library-reader-column" ref={(node) => { readerScrollRef.current = node; }}>
             {openIds.length > 0 && (
               <div className="reader-tabs" role="tablist" aria-label="打开的资料">
                 {openIds.map((tabId) => (
@@ -1423,6 +1425,7 @@ export function LibraryPage() {
                 />
               )}
             </article>
+            </div>
             </div>
             )}
           </div>
