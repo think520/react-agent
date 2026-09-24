@@ -1390,6 +1390,124 @@ class KBService:
         public.sort(key=lambda item: (item.get("title") or item.get("source") or "").casefold())
         return _ok(documents=public)
 
+# --- 只读文件夹树（E17 ②）---------------------------------------------
+
+    #: 每个文件夹最多列出多少条"已忽略"明细（计数不受此限制）。
+    #: 真实库实测：50 条时树接口 141 KB；20 条足够核对，别把导航层做胖。
+    TREE_IGNORED_SAMPLE = 20
+
+    def tree(self) -> dict[str, Any]:
+        """只读文件夹树：真实文件夹 + 资料文件 + 已忽略计数 + 索引徽章。
+
+        设计见 `docs/LIBRARY_TREE_DESIGN.md` §3.1 / §3.3：
+        - 树建在真实文件系统上，文件夹就是用户在资源管理器里看到的文件夹；
+        - 隐藏 Bobodan 内部结构（`.bobodan/`、`wiki/`、点目录）与标记文件；
+        - 非资料文件不出现，但按文件夹给出「另有 N 个文件已忽略」与原因；
+        - 每份资料带索引徽章；**未索引的资料也要看得见**（否则用户以为没进去）；
+        - 绝不下发绝对路径。
+        """
+        from datetime import datetime, timezone
+
+        from obsidian.scan_policy import is_repo_metadata
+        from obsidian.sync import _LIBRARY_INTERNAL_DIRS
+        from rag.parsers import SUPPORTED_EXTENSIONS
+
+        indexed: dict[str, dict[str, Any]] = {}
+        db_path = knowledge_path(self.workspace, "knowledge.db")
+        if os.path.exists(db_path):
+            from rag.sqlite_store import KBSQLiteStore
+
+            store = KBSQLiteStore(self.workspace)
+            store.init_db()
+            try:
+                for document in store.list_documents():
+                    stored = document.get("path") or ""
+                    if not stored:
+                        continue
+                    candidate = stored if os.path.isabs(stored) else os.path.join(self.workspace, stored)
+                    candidate = os.path.abspath(candidate)
+                    if not self._is_within_workspace(candidate, self.workspace):
+                        continue
+                    relative = os.path.relpath(candidate, self.workspace).replace(os.sep, "/")
+                    indexed[relative] = {
+                        "document_id": document.get("id"),
+                        "title": document.get("title") or "",
+                        "extraction_status": document.get("extraction_status") or "complete",
+                        "chunk_count": int(document.get("chunk_count") or 0),
+                    }
+            finally:
+                store.close()
+
+        hidden_names = set(_LIBRARY_INTERNAL_DIRS) | {"BOBODAN_LIBRARY.yaml", "WIKI_SCHEMA.md"}
+
+        def build(absolute: str, relative: str) -> dict[str, Any]:
+            node: dict[str, Any] = {
+                "type": "folder",
+                "name": os.path.basename(absolute) or relative,
+                "path": relative,
+                "children": [],
+                "files": [],
+                # material_count / indexed_count / ignored_count 是**含子目录**的
+                # 合计（文件夹行上的徽章就用它们）；ignored_here 只列本层明细。
+                "material_count": 0,
+                "indexed_count": 0,
+                "ignored_count": 0,
+                "ignored_here": [],
+            }
+            try:
+                entries = sorted(os.scandir(absolute), key=lambda item: item.name.casefold())
+            except OSError:
+                return node
+            for entry in entries:
+                name = entry.name
+                if name.startswith(".") or name in hidden_names:
+                    continue
+                child_relative = f"{relative}/{name}" if relative else name
+                if entry.is_dir(follow_symlinks=False):
+                    child = build(entry.path, child_relative)
+                    node["children"].append(child)
+                    node["material_count"] += child["material_count"]
+                    node["indexed_count"] += child["indexed_count"]
+                    node["ignored_count"] += child["ignored_count"]
+                    continue
+                extension = os.path.splitext(name)[1].lower()
+                metadata = is_repo_metadata(name)
+                if extension not in SUPPORTED_EXTENSIONS or metadata:
+                    node["ignored_count"] += 1
+                    if len(node["ignored_here"]) < self.TREE_IGNORED_SAMPLE:
+                        node["ignored_here"].append({
+                            "name": name,
+                            "path": child_relative,
+                            "reason": "repo_metadata" if metadata else "unsupported_type",
+                        })
+                    continue
+                try:
+                    stat = entry.stat()
+                except OSError:
+                    continue
+                badge = indexed.get(child_relative) or {}
+                node["files"].append({
+                    "type": "file",
+                    "name": name,
+                    "path": child_relative,
+                    "size": stat.st_size,
+                    "modified_at": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
+                    "indexed": bool(badge),
+                    "document_id": badge.get("document_id"),
+                    "title": badge.get("title", ""),
+                    "extraction_status": badge.get("extraction_status"),
+                    "chunk_count": badge.get("chunk_count", 0),
+                })
+                node["material_count"] += 1
+                if badge:
+                    node["indexed_count"] += 1
+            node["files"].sort(key=lambda item: item["name"].casefold())
+            return node
+
+        tree = build(self.workspace, "")
+        tree["name"] = os.path.basename(os.path.normpath(self.workspace)) or "资料库"
+        return _ok(tree=tree)
+
     def get_document(self, document_id: str) -> dict[str, Any]:
         db_path = knowledge_path(self.workspace, "knowledge.db")
         if os.path.exists(db_path):
@@ -1587,9 +1705,18 @@ class KBService:
         candidate = path or ""
         if candidate and not os.path.isabs(candidate):
             candidate = os.path.join(self.workspace, candidate)
+        # 显示层用的**真实相对路径**（E17 ②）：`source` 是索引身份，由扫描根
+        # 前缀决定（`course-2/…`、`course/inbox/…`），对用户毫无意义；树和
+        # 列表要显示的是文件在资料库里的真实位置。绝对路径依旧不外泄。
+        relative_path = ""
+        if candidate:
+            resolved = os.path.abspath(candidate)
+            if self._is_within_workspace(resolved, self.workspace):
+                relative_path = os.path.relpath(resolved, self.workspace).replace(os.sep, "/")
         public = {
             "document_id": document.get("id"),
             "source": document.get("source", ""),
+            "relative_path": relative_path,
             "kind": document.get("kind", ""),
             "title": document.get("title", ""),
             "course": document.get("course"),

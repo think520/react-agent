@@ -66,6 +66,44 @@ export interface KnowledgeSyncSummary {
   incomplete_reasons: string[];
 }
 
+/** 只读文件夹树（E17 ②）。计数是**含子目录**的合计；ignored_here 只列本层。 */
+export interface KnowledgeTreeFile {
+  type: "file";
+  name: string;
+  /** 相对资料库根的真实路径（不含盘符，绝不外泄绝对路径）。 */
+  path: string;
+  size: number;
+  modified_at: string;
+  indexed: boolean;
+  document_id: string | null;
+  title: string;
+  extraction_status: string | null;
+  chunk_count: number;
+}
+
+export interface KnowledgeTreeIgnored {
+  name: string;
+  path: string;
+  reason: "repo_metadata" | "unsupported_type";
+}
+
+export interface KnowledgeTreeFolder {
+  type: "folder";
+  name: string;
+  path: string;
+  children: KnowledgeTreeFolder[];
+  files: KnowledgeTreeFile[];
+  material_count: number;
+  indexed_count: number;
+  ignored_count: number;
+  ignored_here: KnowledgeTreeIgnored[];
+}
+
+export interface KnowledgeTree extends KnowledgeTreeFolder {
+  /** 库名，只用于展示。 */
+  name: string;
+}
+
 interface ErrorEnvelope {
   error?: { code?: string; message?: string; details?: unknown };
 }
@@ -138,6 +176,8 @@ export const api = {
     `/api/libraries/${encodeURIComponent(id)}/activate`,
     { method: "POST" },
   ),
+  /** 只读文件夹树（E17 ②）：真实文件夹 + 资料徽章 + 已忽略计数。 */
+  knowledgeTree: () => request<{ ok: boolean; tree: KnowledgeTree }>("/api/kb/tree"),
   syncLibrary: (id: string) => request<KnowledgeSyncSummary>(
     `/api/libraries/${encodeURIComponent(id)}/sync`,
     { method: "POST" },

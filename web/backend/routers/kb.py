@@ -187,6 +187,12 @@ async def import_files(request: Request, files: list[UploadFile] = File(...)) ->
     return result
 
 
+@router.get("/tree")
+def knowledge_tree(request: Request) -> dict:
+    """只读文件夹树（E17 ②）：真实文件夹 + 资料徽章 + 已忽略计数。"""
+    return unwrap_service_result(_service(request).tree())
+
+
 @router.get("/documents")
 def documents(request: Request, course: str | None = None, collection: str = "all") -> dict:
     return unwrap_service_result(_service(request).list_documents(

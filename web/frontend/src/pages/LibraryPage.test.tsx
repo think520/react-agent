@@ -30,6 +30,7 @@ vi.mock("../lib/api", async (importOriginal) => {
       documents: vi.fn(),
       graphExtractionStatuses: vi.fn(),
       syncLibrary: vi.fn(),
+      knowledgeTree: vi.fn(),
     },
   };
 });
@@ -156,5 +157,81 @@ describe("资料库文件夹同步", () => {
     const summary = await screen.findByRole("status");
     expect(summary.textContent).toContain("本次扫描看不全");
     expect(summary.textContent).toContain("来源根不可用");
+  });
+
+  it("选中文件夹后，右侧列表只显示这个文件夹里的资料", async () => {
+    vi.mocked(api.knowledgeTree).mockResolvedValue({
+      ok: true,
+      tree: {
+        type: "folder",
+        name: "vault",
+        path: "",
+        material_count: 2,
+        indexed_count: 2,
+        ignored_count: 0,
+        ignored_here: [],
+        files: [],
+        children: [
+          {
+            type: "folder",
+            name: "课程包",
+            path: "课程包",
+            material_count: 1,
+            indexed_count: 1,
+            ignored_count: 0,
+            ignored_here: [],
+            children: [],
+            files: [
+              {
+                type: "file",
+                name: "第一课.md",
+                path: "课程包/第一课.md",
+                size: 10,
+                modified_at: "2026-09-24T00:00:00+00:00",
+                indexed: true,
+                document_id: "doc-in",
+                title: "第一课",
+                extraction_status: "complete",
+                chunk_count: 2,
+              },
+            ],
+          },
+        ],
+      },
+    });
+    vi.mocked(api.documents).mockResolvedValue([
+      {
+        document_id: "doc-in",
+        source: "course-2/第一课.md",
+        relative_path: "课程包/第一课.md",
+        kind: "course_document",
+        title: "文件夹里的资料",
+        collection: "material",
+        content_role: "content",
+      },
+      {
+        document_id: "doc-out",
+        source: "course-2/第二课.md",
+        relative_path: "另一门课/第二课.md",
+        kind: "course_document",
+        title: "文件夹外的资料",
+        collection: "material",
+        content_role: "content",
+      },
+    ] as never);
+
+    render(
+      <MemoryRouter initialEntries={["/library"]}>
+        <LibraryPage />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("文件夹里的资料")).toBeTruthy();
+    expect(screen.getByText("文件夹外的资料")).toBeTruthy();
+
+    fireEvent.click(await screen.findByRole("button", { name: "课程包" }));
+
+    expect(screen.getByText("文件夹里的资料")).toBeTruthy();
+    expect(screen.queryByText("文件夹外的资料")).toBeNull();
   });
 });

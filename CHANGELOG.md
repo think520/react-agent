@@ -7,6 +7,13 @@
 ## [未发布]
 
 ### 变更
+- **② 只读文件夹树（2026-09-24，E17 ②）**：资料库主区从「一张平铺列表」变成「真实文件夹树 | 当前文件夹的资料 | 阅读区」，树上直接看到层级与状态。
+  - **后端 `GET /api/kb/tree`**：按真实文件系统建树（`os.scandir`，不做哈希）：文件夹给「资料数 + N 份未提取 + 另有 N 个文件已忽略」，资料文件给索引徽章（是否已索引 / 提取状态 / 片段数 / 更新时间）；隐藏 `.bobodan/`、`wiki/`、点目录与标记文件；**绝不下发绝对路径**（沿用既有约定）。
+  - **显示层真实相对路径**（① 的最后一项）：`_public_document` 增加 `relative_path` —— 列表与树显示的是 `raw/inbox/paper.pdf`、`正则表达式.md` 这样的真实位置，而不是由扫描根前缀派生的索引身份 `course-2/…`。
+  - **前端**：新增 `components/LibraryTree.tsx`（展开状态记 localStorage；搜索时过滤树并**保留命中项的祖先链**——folders are not a filter, they are a location）；选中文件夹后右侧列表按真实路径前缀过滤；`api.knowledgeTree()` 接线。
+  - **写完之后的自审抓出两个真问题（同轮修掉）**：① **布局被 CSS 顺序吃掉**——`.library-workspace.list-only` 与新的 `.with-tree` 同优先级且排在后面，三栏会退化成单栏（树与列表被堆成一列）；**截图验证时才发现**，已补 `.list-only.with-tree` 规则并再次截图确认（树 260px | 列表 270px | 阅读区）。② **同步后树不刷新**——徽章与计数会停在旧值，改为与资料列表一起 `Promise.all([loadDocuments(), loadTree()])`。
+  - 顺带：树接口载荷实测 **141 KB**，把每层「已忽略」明细抽样从 50 降到 20。
+  - **验证**：pytest **1604 passed**（新增 5 条树/路径复现测试）、vitest **103 passed / 17 files**（新增 7 条树组件 + 1 条页面过滤）、tsc/lint/build 0；live **5 passed**（新增"真实库的树显示 ai-agents-from-zero 与 raw、隐藏 wiki 与 .bobodan、点文件夹后列表被过滤"）。
 - **① 扫描规则 + 同步入口 + 重复治理（2026-09-24，E17 ① / `LIBRARY_TREE_DESIGN.md`）**：把「资料库文件夹」变成真入口，并修掉三处让列表变脏或变死的缺陷。
   - **重复索引（真 bug）**：`.bobodan/source_roots.json` 把 `ai-agents-from-zero`（它本身是库根的**子目录**）登记成独立来源根，而 `_scan_library_root` 没有像 vault 扫描（`obsidian/vault.py:64`）那样跳过已登记的来源根 → 同一份文件两条记录、两个 `document_id`（实测 7 组）。修法：把 `skip_roots`（已登记来源根的绝对路径）传给两个材料扫描器。**真实现场：资料 76 → 47。**
   - **删除确认计数永远到不了第 2 次（既有 bug，本轮实测发现）**：`_resolve_deletions` 只遍历 `old_state`，而状态里的 `files` 每次同步都被新扫描覆盖 —— 一个 source 第一次缺失后就从 `old_state` 消失，计数永远到不了 `DELETION_CONFIRMATIONS=2`，下一次同步还会把 `missing` 里那条一起丢掉。现场证据：真实库 29 条该移除的记录既没被删除、也不在待确认列表，`sync_state.json` 显示 `files=47 / missing=0`。修法：候选集合改为 `old_state ∪ previous_missing`。

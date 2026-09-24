@@ -1576,8 +1576,37 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 .sidebar-rel-item:hover .rel-delete { opacity: 1; }
 
 /* Library rework (task 1): list/reader split + reader page. */
+/* ②（E17）：只读文件夹树。树是导航层——它出问题时资料列表照常可用。 */
+.library-workspace.with-tree { grid-template-columns: 260px 270px minmax(0, 1fr); }
+.library-tree-pane { border-right: 1px solid var(--border); padding: var(--space-4) var(--space-3) var(--space-4) 0; min-width: 0; }
+.library-tree { list-style: none; margin: 0; padding: 0; font-size: 13px; }
+.library-tree ul { list-style: none; margin: 0; padding: 0; }
+.library-tree-row { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 28px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--ink); text-align: left; cursor: pointer; }
+.library-tree-row:hover { background: var(--paper-soft); }
+.library-tree-row.selected { background: var(--blue-wash); color: var(--ink-blue); }
+.library-tree-row.active { background: var(--blue-wash); color: var(--ink-blue); font-weight: 650; }
+.library-tree-row.file:disabled { cursor: default; color: var(--muted); }
+.library-tree-row .library-tree-name { display: inline-flex; align-items: center; gap: 6px; min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.library-tree-row .library-tree-meta { flex: 0 0 auto; color: var(--muted); font-size: 12px; }
+.library-tree-row .library-tree-meta em { font-style: normal; color: var(--clay); }
+.library-tree-disclosure { display: inline-flex; width: 18px; height: 18px; align-items: center; justify-content: center; border: 0; border-radius: 4px; background: transparent; color: var(--muted); cursor: pointer; }
+.library-tree-dot { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; background: var(--border-strong); }
+.library-tree-dot.complete { background: var(--sage-deep); }
+.library-tree-dot.pending { background: var(--clay); }
+.library-tree-dot.failed { background: var(--danger); }
+.library-tree-dot.empty { background: var(--border-strong); }
+.library-tree-ignored { margin: 2px 0 6px; color: var(--muted); font-size: 12px; }
+.library-tree-ignored > summary { cursor: pointer; }
+.library-tree-ignored ul { margin: 4px 0 0; padding-left: 22px; }
+.library-tree-ignored li { display: flex; gap: 6px; overflow-wrap: anywhere; }
+.library-tree-ignored small { color: var(--faint); }
+
 .library-workspace.list-only { grid-template-columns: minmax(0, 1fr); }
 .library-workspace.list-only .document-rail { max-width: 880px; margin: 0 auto; }
+/* 树在场时资料库是三栏：树 | 资料列表 | 阅读区。这条必须排在 list-only 之后，
+   否则同优先级的单栏规则会把它覆盖掉（审查发现：树与列表会被堆成一列）。 */
+.library-workspace.list-only.with-tree { grid-template-columns: 260px 270px minmax(0, 1fr); }
+.library-workspace.list-only.with-tree .document-rail { max-width: none; margin: 0; }
 .document-edit { position: absolute; right: 33px; width: 29px; height: 29px; opacity: 0; color: var(--blue); }
 .document-row-wrap:hover .document-edit, .document-row-wrap:focus-within .document-edit { opacity: 1; }
 

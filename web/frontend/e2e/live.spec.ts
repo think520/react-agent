@@ -102,3 +102,28 @@ test("the library folder sync button scans the folder and reports the result", a
   await summary.getByText("查看明细").click();
   await expect(summary).toContainText(/跳过（仓库元文件）/);
 });
+test("the library page shows the real folder tree", async ({ page }) => {
+  // ②（E17）：树建在真实文件系统上——它必须显示资料库里的真实文件夹，
+  // 并且**隐藏** Bobodan 自己的内部结构（.bobodan / wiki）。
+  await page.addInitScript(() => localStorage.setItem("bobodan:onboarding:v1", "complete"));
+  await page.goto(BASE + "/library?collection=material");
+
+  const tree = page.locator(".library-tree");
+  await expect(tree).toBeVisible({ timeout: 20_000 });
+  // 真实库里有 ai-agents-from-zero 与 raw 两个真实文件夹
+  // （Playwright 的 name 默认是子串匹配，会和"展开 …"的 aria-label 撞车，所以用 exact）
+  await expect(tree.getByRole("button", { name: "ai-agents-from-zero", exact: true })).toBeVisible();
+  await expect(tree.getByRole("button", { name: "raw", exact: true })).toBeVisible();
+  // 内部结构不出现在树里
+  await expect(tree.getByRole("button", { name: "wiki", exact: true })).toHaveCount(0);
+  await expect(tree.getByRole("button", { name: ".bobodan", exact: true })).toHaveCount(0);
+
+  // 选中文件夹后右侧列表跟着过滤：raw/ 下有上传的 PDF 与 raw/notes 那份笔记，
+  // 但一定比整库少。断言"真的被过滤了"，而不是写死数量（资料库会变）。
+  const rows = page.locator(".document-rail .document-row");
+  const before = await rows.count();
+  expect(before).toBeGreaterThan(1);
+  await tree.getByRole("button", { name: "raw", exact: true }).click();
+  await expect(rows.filter({ hasText: "Obsidian-AI" })).toHaveCount(1, { timeout: 15_000 });
+  await expect.poll(async () => rows.count()).toBeLessThan(before);
+});

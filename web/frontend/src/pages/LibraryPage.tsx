@@ -11,7 +11,8 @@ import type { AppOutletContext } from "../components/AppShell";
 import { BrandIllustration, EmptyState, ErrorNotice, IconButton, LoadingState, formatRelativeDate } from "../components/common";
 import { WikiPlanCard } from "../components/WikiPlanCard";
 import { ApiError, api } from "../lib/api";
-import type { KnowledgeSyncSummary } from "../lib/api";
+import type { KnowledgeSyncSummary, KnowledgeTree } from "../lib/api";
+import { LibraryTree } from "../components/LibraryTree";
 import { Modal, useConfirm } from "../ui/Modal";
 import { useHandoffStore } from "../stores/handoffStore";
 import type { DocumentExtractionStatus, DocumentSection, DocumentSummary, PersonalKnowledgeItem, WikiEditablePage, WikiGenerationMode, WikiHealth, WikiPlan, WikiRepairPlan, WikiRunEstimate, WikiScopeMode, WikiTask } from "../types";
@@ -82,6 +83,9 @@ export function LibraryPage() {
   // 需要有一个明确入口去发现它们，并看到「这次到底动了什么」。
   const [syncingFolder, setSyncingFolder] = useState(false);
   const [syncSummary, setSyncSummary] = useState<KnowledgeSyncSummary | null>(null);
+  // ②（E17）：只读文件夹树 + 当前选中的文件夹（"" = 根）。
+  const [tree, setTree] = useState<KnowledgeTree | null>(null);
+  const [selectedFolder, setSelectedFolder] = useState("");
   const [editingDocumentId, setEditingDocumentId] = useState<string | null>(null);
   const [highlightedChunk, setHighlightedChunk] = useState<string | null>(null);
   const [startingExtractionId, setStartingExtractionId] = useState<string | null>(null);
@@ -160,6 +164,22 @@ export function LibraryPage() {
   }, [activeLibrary, collection]);
 
   useEffect(() => { void loadDocuments(); }, [documentImportVersion, loadDocuments]);
+
+  const loadTree = useCallback(async () => {
+    if (!activeLibrary) {
+      setTree(null);
+      return;
+    }
+    try {
+      const result = await api.knowledgeTree();
+      setTree(result.tree);
+    } catch {
+      // 树只是导航层：读不到时保持资料列表可用，不把整页变成错误页。
+      setTree(null);
+    }
+  }, [activeLibrary]);
+
+  useEffect(() => { void loadTree(); }, [loadTree, documentImportVersion]);
 
   useEffect(() => {
     if (!activeLibrary || collection !== "material") {
@@ -761,7 +781,7 @@ export function LibraryPage() {
     try {
       const summary = await api.syncLibrary(activeLibrary.library_id);
       setSyncSummary(summary);
-      await loadDocuments();
+      await Promise.all([loadDocuments(), loadTree()]);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "同步资料库文件夹失败。");
     } finally {
@@ -833,6 +853,11 @@ export function LibraryPage() {
   }
   const filteredDocuments = documents.filter((document) => {
     if (collection === "wiki" && !matchesWikiView(document, wikiView)) return false;
+    // ②：选中某个文件夹时，右侧只显示这个文件夹里的资料（按真实相对路径前缀）。
+    if (collection === "material" && selectedFolder) {
+      const prefix = selectedFolder + "/";
+      if (!(document.relative_path || "").startsWith(prefix)) return false;
+    }
     const query = documentQuery.trim().toLocaleLowerCase();
     if (!query) return true;
     return [document.title, document.source, document.course, document.kind]
@@ -1022,7 +1047,26 @@ export function LibraryPage() {
         {documentImportError && <ErrorNotice message={documentImportError} />}
         {error && <ErrorNotice message={error} action={<button className="quiet-button" onClick={() => void loadDocuments()}>重试</button>} />}
         {loading ? <div className="illustrated-loading"><BrandIllustration state="reading" size={76} /><LoadingState label={collection === "wiki" ? "正在整理 Wiki…" : "正在读取本地资料…"} /></div> : documents.length ? (
-          <div className={"library-workspace" + (collection === "material" ? " list-only" : "")}>
+          <div
+            className={
+              "library-workspace"
+              + (collection === "material" ? " list-only" : "")
+              + (collection === "material" && tree ? " with-tree" : "")
+            }
+          >
+            {collection === "material" && tree && (
+              <aside className="library-tree-pane" aria-label="资料库文件夹">
+                <div className="rail-label"><FolderOpen size={15} />文件夹</div>
+                <LibraryTree
+                  tree={tree}
+                  query={documentQuery}
+                  selectedFolder={selectedFolder}
+                  onSelectFolder={setSelectedFolder}
+                  activeDocumentId={selectedId}
+                  onOpenDocument={(documentId) => selectDocument(documentId)}
+                />
+              </aside>
+            )}
             <aside className="document-rail">
               <div className="rail-label"><FolderOpen size={15} />{collection === "wiki" ? wikiView === "knowledge" ? "知识页面" : wikiView === "sources" ? "资料索引" : wikiView === "notes" ? "个人笔记" : "全部页面" : "我的资料"} <span>{filteredDocuments.length}</span></div>
               <label className="document-search"><Search size={14} /><input value={documentQuery} onChange={(event) => setDocumentQuery(event.target.value)} placeholder="搜索资料" aria-label="搜索资料" /></label>
