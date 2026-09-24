@@ -1542,6 +1542,132 @@ class KBService:
                 return _ok(report=report)
         return _err(f"Document not found: {document_id}", code="document_not_found")
 
+    # --- 归档：所有资料都能归档，且永远可恢复（E17 ③）--------------------
+
+    def _archive_root(self) -> str:
+        return os.path.join(self.workspace, ".bobodan", "archive")
+
+    def _archive_index_path(self) -> str:
+        # 名字要具体：`index.json` 太泛，且 tripwire 要求每个持久化文件都能在
+        # core/persistence_registry.py 里被认出（R0.6）。
+        return os.path.join(self._archive_root(), "archive_index.json")
+
+    def _load_archive_index(self) -> list[dict[str, Any]]:
+        path = self._archive_index_path()
+        if not os.path.exists(path):
+            return []
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                data = json.load(handle)
+        except (OSError, json.JSONDecodeError):
+            return []
+        if not isinstance(data, list):
+            return []
+        return [item for item in data if isinstance(item, dict)]
+
+    def _save_archive_index(self, entries: list[dict[str, Any]]) -> None:
+        from core.atomic_io import atomic_write_json
+
+        os.makedirs(self._archive_root(), exist_ok=True)
+        atomic_write_json(self._archive_index_path(), entries)
+
+    def _relative_to_workspace(self, path: str) -> str:
+        return os.path.relpath(os.path.abspath(path), self.workspace).replace(os.sep, "/")
+
+    def _is_internal_path(self, path: str) -> bool:
+        """Bobodan 自己的结构（索引与生成页）不是用户的资料，不许归档。
+
+        例外：上传收件区（旧工作区是 `.bobodan/sources`）装的是用户上传的资料，
+        它虽然物理上在 `.bobodan/` 里，但属于用户。
+        """
+        absolute = os.path.abspath(path)
+        if self._is_within_workspace(absolute, self.managed_sources_dir):
+            return False
+        return any(
+            self._is_within_workspace(absolute, os.path.join(self.workspace, name))
+            for name in (".bobodan", "wiki")
+        )
+
+    def list_archive(self) -> dict[str, Any]:
+        """已归档的资料（E17 ③）：归档只是移走，永远可以恢复。"""
+        entries = sorted(
+            self._load_archive_index(),
+            key=lambda item: str(item.get("archived_at") or ""),
+            reverse=True,
+        )
+        return _ok(entries=entries)
+
+    def archive_path(
+        self,
+        path: str,
+        *,
+        reason: str = "user",
+        document: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """把一份资料移进归档区，**保留它在资料库里的原目录层级**并记一条可恢复条目。
+
+        2026-09-24（E17 ③）：旧实现只允许归档 `raw/` 下的文件（Bobodan 自己收进来
+        的那些），用户剪进资料库的文件在 App 里删不掉。现在所有资料都能归档；
+        文件名冲突不再是问题，因为归档路径带着原目录结构。
+        """
+        import uuid
+        from datetime import datetime, timezone
+
+        absolute = os.path.abspath(path) if path else ""
+        if (
+            not absolute
+            or not self._is_within_workspace(absolute, self.workspace)
+            or self._is_internal_path(absolute)
+        ):
+            return _err("只能归档资料库里的资料", code="document_read_only")
+        if not os.path.isfile(absolute):
+            return _err("文件已经不在磁盘上", code="document_file_missing")
+
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        original_relative = self._relative_to_workspace(absolute)
+        destination = os.path.join(self._archive_root(), stamp, original_relative)
+        os.makedirs(os.path.dirname(destination), exist_ok=True)
+        shutil.move(absolute, destination)
+
+        entry = {
+            "entry_id": uuid.uuid4().hex[:12],
+            "archived_at": datetime.now(timezone.utc).isoformat(),
+            "reason": reason,
+            "document_id": (document or {}).get("id") or "",
+            "source": (document or {}).get("source") or "",
+            "title": (document or {}).get("title") or os.path.basename(absolute),
+            "original_path": original_relative,
+            "archived_path": self._relative_to_workspace(destination),
+            "size": os.path.getsize(destination),
+        }
+        entries = self._load_archive_index()
+        entries.append(entry)
+        self._save_archive_index(entries)
+        return _ok(entry=entry)
+
+    def restore_archived(self, entry_id: str, config: dict | None = None) -> dict[str, Any]:
+        """把一份已归档的资料放回**原来的位置**并重新索引。"""
+        entries = self._load_archive_index()
+        entry = next((item for item in entries if item.get("entry_id") == entry_id), None)
+        if entry is None:
+            return _err("找不到这条归档记录", code="archive_entry_not_found")
+
+        archived = os.path.join(self.workspace, str(entry.get("archived_path") or ""))
+        if not os.path.isfile(archived):
+            return _err("归档文件已经不在磁盘上", code="archive_file_missing")
+
+        target = os.path.join(self.workspace, str(entry.get("original_path") or ""))
+        if os.path.exists(target):
+            return _err("原位置已经有同名文件了，请先处理它", code="restore_target_exists")
+
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        shutil.move(archived, target)
+        self._save_archive_index(
+            [item for item in entries if item.get("entry_id") != entry_id]
+        )
+        summary = self._sync_registered_sources(mode="incremental", config=config or {})
+        return _ok(restored=entry, sync=summary.to_dict())
+
     def delete_document(self, document_id: str, config: dict | None = None) -> dict[str, Any]:
         db_path = knowledge_path(self.workspace, "knowledge.db")
         if not os.path.exists(db_path):
@@ -1562,32 +1688,27 @@ class KBService:
             return impact
 
         path = document.get("path")
-        if not path or not self._is_within_workspace(path, self.managed_sources_dir):
-            return _err(
-                "This knowledge source is read-only and cannot be deleted here",
-                code="document_read_only",
-            )
-        if os.path.isfile(path):
-            if self.is_portable_library:
-                from datetime import datetime, timezone
-                import shutil
+        # 没有原件（旧索引条目 / 外部来源）或原件在资料库之外：依旧只读。
+        if not path or not self._is_within_workspace(path, self.workspace) or self._is_internal_path(path):
+            return _err("只能归档资料库里的资料", code="document_read_only")
 
-                archive_dir = os.path.join(
-                    self.workspace,
-                    ".bobodan",
-                    "archive",
-                    "raw",
-                    datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ"),
-                )
-                os.makedirs(archive_dir, exist_ok=True)
-                target = os.path.join(archive_dir, os.path.basename(path))
-                shutil.move(path, target)
-                self._mark_wiki_sources_stale(document_id, document.get("source") or path)
-            else:
-                os.remove(path)
+        # E17 ③：所有资料都能归档（不只是 raw/ 里的）；保留原目录层级，条目可恢复。
+        # 文件已经不在磁盘上时不拦：那条记录交给 P0-12 的两次确认通道清掉。
+        archived = None
+        if os.path.isfile(path):
+            result = self.archive_path(path, reason="user", document=document)
+            if not result.get("ok"):
+                return result
+            archived = result.get("entry")
+            self._mark_wiki_sources_stale(document_id, document.get("source") or path)
 
         summary = self._sync_registered_sources(mode="incremental", config=config or {})
-        return _ok(document_id=document_id, impact=impact.get("affected_pages", []), sync=summary.to_dict())
+        return _ok(
+            document_id=document_id,
+            impact=impact.get("affected_pages", []),
+            archive=archived,
+            sync=summary.to_dict(),
+        )
 
     def document_impact(self, document_id: str, document: dict[str, Any] | None = None) -> dict[str, Any]:
         if document is None:

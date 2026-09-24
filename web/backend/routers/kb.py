@@ -531,6 +531,22 @@ def document_impact(document_id: str, request: Request) -> dict:
     )
 
 
+@router.get("/archive")
+def list_archive(request: Request) -> dict:
+    """已归档的资料（E17 ③）：归档只是移走，永远可以恢复。"""
+    return unwrap_service_result(_service(request).list_archive())
+
+
+@router.post("/archive/{entry_id}/restore")
+def restore_archive(entry_id: str, request: Request) -> dict:
+    result = unwrap_service_result(
+        _service(request).restore_archived(entry_id, config=get_config()),
+        code="archive_restore_failed",
+    )
+    result["sync"] = _public_sync(result["sync"])
+    return result
+
+
 @router.delete("/documents/{document_id}")
 def delete_document(document_id: str, request: Request) -> dict:
     result = unwrap_service_result(

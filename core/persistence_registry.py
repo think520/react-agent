@@ -37,6 +37,13 @@ STORES: dict[str, dict[str, Any]] = {
         "rebuildable": True,  # reconnect log; losing it only costs a re-render
         "purpose": "Append-only SSE event log for reconnect replay (P1-17)",
     },
+    "archive_index.json": {
+        "owner": "service/kb_service.py",
+        "scope": "library",
+        "format": "json",
+        "rebuildable": True,  # 归档目录保留了原目录层级，可以从磁盘重建；丢的只是时间戳与标题
+        "purpose": "Archive ledger (E17 ③): which material was moved where, so it can be restored",
+    },
     "embedding_signature.json": {
         "owner": "rag/embedding_signature.py",
         "scope": "library",

@@ -893,7 +893,10 @@ def test_portable_library_delete_archives_raw_and_marks_wiki_stale(tmp_path, mon
 
     assert result["ok"]
     assert not source.exists()
-    assert list((root / ".bobodan" / "archive" / "raw").rglob("lesson.md"))
+    # E17 ③：归档路径保留**原目录层级**（旧实现是 archive/raw/<时间戳>/<文件名>，
+    # 文件名冲突时会互相覆盖），并记一条可恢复条目。
+    assert list((root / ".bobodan" / "archive").rglob("raw/inbox/lesson.md"))
+    assert result["archive"]["original_path"] == "raw/inbox/lesson.md"
     assert "status: needs_update" in wiki_page.read_text(encoding="utf-8")
 
 
