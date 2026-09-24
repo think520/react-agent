@@ -7,6 +7,12 @@
 ## [未发布]
 
 ### 变更
+- **④g/h 把失败读清楚（2026-09-24，未改代码）**：两轮排查后终于拿到真实报错 —— 不过滤输出、用 verbose 重跑那条复现测试，得到 **Test timed out in 5000ms**（既不是断言失败，也不是 Unable to find element）。测试环境全局 asyncUtilTimeout 也是 5s，两个超时打平，所以可以判定：**findByText 在 5 秒内始终没等到资料列表那一行**。
+  - 这把范围收窄：**不是**阅读区小节加载的问题，而是**列表那一行压根没渲染出来** —— 要么页面停在加载态（loading 没落到 false），要么被过滤/错误态挡住。
+  - 静态排查也排除了一个嫌疑：唯一带 searchParams 依赖的 effect（LibraryPage 245-248 行）有守卫（只在真的不同时才 setCollection），**不是环路**。
+  - 下轮最省的一步：渲染后立刻断言 `document.querySelectorAll(".document-row").length > 0`（超时给 10s），并同时断言 `.illustrated-loading` 是否存在 —— 一眼区分「卡在 loading」与「渲染了但没有这一行」。
+  - 流程教训（同类第三次）：**过滤测试输出等于自己删证据**。前两轮把它当成渲染链超时来推演，方向是错的。以后读失败一律先无过滤读最后 40 行。
+  - **本轮与上一轮都无代码改动**（工作树已复原，测试保持 .skip 版本，树上绿）。
 - **④f 判定实验结果（2026-09-24，未改代码）**：去掉复现测试的 .skip、加 30s 超时与两处探针后运行，拿到决定性信号——失败点**就是**「阅读区没有小节」这条断言（`expected 0 to be greater than 0`），而不是「找不到资料行」或「点击没生效」（那两种会以 Unable to find 失败）。
   - 含义：**点击确实发生了**（资料行存在、事件派发成功），但阅读区**一个小节都没渲染**，与真实动线里 header 也没出现一致。三选一的嫌疑：`selectedId` 没落地 / `selected` 推导失败 / 小节 effect 没跑或没写回。下轮用「一次只改一处 + 断言中间态」逐条排除：`vi.mocked(api.document).mock.calls.length` 判 effect 有没有跑；`.document-row-wrap.active` 判选中落没落地。
   - 干扰记一笔：探针的 console.log 没有出现在 vitest 失败输出的过滤结果里，下轮建议**用断言代替打印**（失败信息更可靠）。
