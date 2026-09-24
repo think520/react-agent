@@ -4,6 +4,8 @@
 （参考项目原话：a container's ⋯ must not be able to destroy work）。
 """
 
+import os
+
 import pytest
 
 from service.kb_service import KBService
@@ -70,3 +72,60 @@ def test_delete_folder_refuses_the_root_and_internal_dirs(library):
     assert service.delete_folder("")["code"] == "invalid_target"
     assert service.delete_folder(".bobodan")["code"] == "invalid_target"
     assert service.delete_folder("wiki")["code"] == "invalid_target"
+
+def test_delete_folder_ungroup_keeps_identity_and_migrates_references(library, monkeypatch):
+    """删除容器时把资料移回库根，必须和 move_document 一样迁移身份。
+
+    审查发现的缺口：delete_folder 原先只是把文件从磁盘搬走，于是资料以新 source
+    重新索引 → document_id 变化 → 挂在它上面的概念证据与笔记引用断掉。
+    同一个「移动」，两条路径的行为必须一致。
+    """
+    from unittest.mock import MagicMock
+
+    import sqlite3
+
+    from graph.concept_store import ConceptStore
+    from knowledge.paths import knowledge_dir
+    from obsidian.sync import sync_sources
+
+    monkeypatch.setattr("rag.qdrant_store.QdrantStore", MagicMock())
+    monkeypatch.setattr(
+        "rag.embedding_service.EmbeddingService",
+        lambda *a, **k: type("Embedding", (), {"is_available": lambda self: False})(),
+    )
+
+    (library / "课程包").mkdir()
+    (library / "课程包" / "第一课.md").write_text("# 第一课\n\n内容足够长，能切出一段。", encoding="utf-8")
+    sync_sources(workspace=str(library), vault_path=str(library), course_dir=str(library), mode="full")
+
+    service = KBService(str(library))
+    document = next(
+        item for item in service.list_documents(collection="all")["documents"]
+        if item["relative_path"] == "课程包/第一课.md"
+    )
+    chunk_id = service.get_document(document["document_id"])["sections"][0]["chunk_id"]
+
+    concept_db = os.path.join(knowledge_dir(str(library)), "concept_graph.db")
+    concepts = ConceptStore(concept_db)
+    raw = sqlite3.connect(concept_db)
+    raw.execute("PRAGMA foreign_keys=OFF")
+    raw.execute(
+        "INSERT INTO evidence (evidence_id, rel_id, document_id, chunk_id, document_title,"
+        " excerpt, location_type, location_value, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+        ("e-folder", "rel-1", document["document_id"], chunk_id, "第一课", "", "", "", 0.0),
+    )
+    raw.commit()
+    raw.close()
+
+    result = service.delete_folder("课程包")
+
+    assert result["ok"], result
+    documents = service.list_documents(collection="all")["documents"]
+    moved = next((item for item in documents if item["document_id"] == document["document_id"]), None)
+    assert moved is not None, "身份必须保留，不能被当成新资料重新索引"
+    assert moved["relative_path"] == "第一课.md"
+
+    new_ids = {section["chunk_id"] for section in service.get_document(document["document_id"])["sections"]}
+    assert new_ids and chunk_id not in new_ids
+    evidence = concepts.evidence_for_relationship("rel-1")
+    assert evidence[0]["chunk_id"] in new_ids, "证据必须跟着迁移"

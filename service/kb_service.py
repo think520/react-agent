@@ -1644,6 +1644,54 @@ class KBService:
             return ""
         return cleaned
 
+    def _migrate_relocated_document(self, document: dict[str, Any], destination: str) -> dict[str, int]:
+        """文件已经在磁盘上搬好之后：保留身份，并迁移挂在 chunk 上的引用。
+
+        2026-09-24（E17 ③，审查发现）：delete_folder（ungroup）与 move_document 是
+        同一个「移动」，两条路径必须行为一致 —— 否则被移出的资料会以新 source
+        重新索引，document_id 变化，概念证据与笔记引用一起断。
+        """
+        from rag.chunker_v2 import _make_chunk_id
+        from rag.sqlite_store import KBSQLiteStore
+
+        document_id = str(document.get("id") or "")
+        new_source = self._scan_prefix_for(destination)
+        if not document_id or not new_source:
+            return {"chunks_remapped": 0, "evidence_remapped": 0, "references_remapped": 0}
+
+        store = KBSQLiteStore(self.workspace)
+        store.init_db()
+        try:
+            mapping = {
+                chunk["id"]: _make_chunk_id(
+                    new_source,
+                    int(chunk.get("chunk_index_in_section") or 0),
+                    chunk.get("text") or "",
+                )
+                for chunk in store.get_chunks_by_document(document_id)
+            }
+            chunks_remapped = store.remap_chunk_ids(document_id, mapping, new_source)
+            store.update_document_location(document_id, new_source, destination, vector_status="pending")
+        finally:
+            store.close()
+
+        from knowledge.paths import knowledge_dir
+        from graph.concept_store import ConceptStore
+        from memory.personal_store import PersonalKnowledgeStore
+
+        concept_db_path = os.path.join(knowledge_dir(self.workspace), "concept_graph.db")
+        evidence_remapped = (
+            ConceptStore(concept_db_path).remap_evidence_chunk_ids(mapping)
+            if os.path.exists(concept_db_path)
+            else 0
+        )
+        references_remapped = PersonalKnowledgeStore(self.workspace).remap_reference_chunk_ids(mapping)
+        return {
+            "chunks_remapped": chunks_remapped,
+            "evidence_remapped": evidence_remapped,
+            "references_remapped": references_remapped,
+        }
+
     def create_folder(self, relative_path: str) -> dict[str, Any]:
         """在资料库里新建一个真实文件夹（E17 ③）。"""
         cleaned = self._clean_relative(relative_path)
@@ -1677,6 +1725,20 @@ class KBService:
         from rag.parsers import SUPPORTED_EXTENSIONS
 
         moved: list[str] = []
+        # 先取索引里已知的 (真实路径 → 文档)，搬完要按同一个身份迁移引用。
+        from rag.sqlite_store import KBSQLiteStore
+
+        probe = KBSQLiteStore(self.workspace)
+        probe.init_db()
+        try:
+            indexed_by_path = {
+                os.path.abspath(str(item.get("path") or "")): item
+                for item in probe.list_documents()
+                if item.get("path")
+            }
+        finally:
+            probe.close()
+
         for root, _dirs, files in os.walk(target):
             for filename in files:
                 extension = os.path.splitext(filename)[1].lower()
@@ -1689,7 +1751,11 @@ class KBService:
                 while os.path.exists(destination):
                     destination = os.path.join(self.workspace, f"{stem} ({counter}){suffix}")
                     counter += 1
+                document = indexed_by_path.get(os.path.abspath(source_path))
                 shutil.move(source_path, destination)
+                if document is not None:
+                    # 与 move_document 完全相同的身份迁移（别再走一遍"当成新资料"）
+                    self._migrate_relocated_document(document, destination)
                 moved.append(self._relative_to_workspace(source_path))
 
         # 自底向上收掉空目录；还有东西就留着（不静默丢东西）。
