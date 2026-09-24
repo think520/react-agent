@@ -7,6 +7,11 @@
 ## [未发布]
 
 ### 变更
+- **④n 更正 ④l：列表那一行确实没渲染（2026-09-24，未改代码）**：把判定改成**紧随 click 的同步断言**（打印 article / sections / docCalls 三个计数）后重跑 —— 输出里**没有出现任何断言 diff**，测试仍旧只是 5.02 秒超时。含义只有一个：**那句断言根本没被执行**，即 `fireEvent.click(await screen.findByText("第一课"))` 里的 `findByText` **从未解析成功**。
+  - 所以 **④h 的结论（列表那一行没渲染）成立**，而 **④l 的结论（列表没问题、卡在小节加载）作废** —— 我在 ④l 里把另一条用例的 mock 记错了（它的 documents 标题并不是「第一课」）。这一节以 ④n 为准。
+  - 硬证据的判别方法也记一笔：**同步断言若执行了，失败会立刻打印 diff 并在毫秒级结束**；测试跑到夹具的 5 秒天花板且无任何 diff，就说明**断言之前的那一步（await）没完成** —— 这条推理不需要任何额外观测。
+  - 因此下一步方向确定：**查"为什么这份资料的行没有被渲染"** —— 从 mock 被谁消费、`documents` 是否真的进到 state 入手；建议直接断言 `document.querySelectorAll(".document-row").length`（同步，紧贴 render 之后），一次运行即可确认。
+  - 本轮所有编辑均已回读确认并复原，工作树干净。
 - **④m 判定成功：小节加载器确实跑了，但结果没进 DOM（2026-09-24，未改代码）**：在 click 之后插入**同步断言** `expect(vi.mocked(api.document).mock.calls.length).toBeGreaterThan(0)`，重跑 —— 测试**仍然耗时 5.02 秒**。这条耗时就是证据：**如果该断言失败，测试会在 0.2 秒内结束**。所以：
   - ✅ `api.document(selectedId)` **被调用了**（加载 effect 跑了，依赖与提前 return 都没问题）；
   - ❌ 小节**最终没有出现在 DOM 里**（`.reader-prose section` 仍为 0，等到夹具的 5 秒天花板被杀）。
