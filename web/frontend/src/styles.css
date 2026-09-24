@@ -1601,6 +1601,13 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 .library-tree-ignored li { display: flex; gap: 6px; overflow-wrap: anywhere; }
 .library-tree-ignored small { color: var(--faint); }
 
+/* ④：阅读区标签条（参考项目：tab 条就是面板 header 的名字那一半）。 */
+.reader-tabs { display: flex; gap: 4px; overflow-x: auto; border-bottom: 1px solid var(--border); padding: 0 var(--space-3) var(--space-2); }
+.reader-tab { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 2px; max-width: 220px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--paper); }
+.reader-tab.active { border-color: rgba(27,54,93,0.28); background: var(--blue-wash); color: var(--ink-blue); }
+.reader-tab > button:first-child { min-width: 0; max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 0; background: transparent; color: inherit; padding: 6px 8px; font-size: 12.5px; cursor: pointer; }
+.reader-tab-close { border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--muted); padding: 4px 6px; font-size: 14px; line-height: 1; cursor: pointer; }
+.reader-tab-close:hover { background: var(--paper-soft); color: var(--ink); }
 /* ③：树上的写操作（新建文件夹 / 行内重命名 / 行操作菜单）与已归档列表。 */
 .library-tree-create { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; color: var(--muted); font-size: 12.5px; }
 .library-tree-create input { min-width: 0; flex: 1; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 5px 8px; background: var(--paper); color: var(--ink); font-size: 12.5px; }

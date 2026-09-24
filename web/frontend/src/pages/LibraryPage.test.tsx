@@ -234,4 +234,32 @@ describe("资料库文件夹同步", () => {
     expect(screen.getByText("文件夹里的资料")).toBeTruthy();
     expect(screen.queryByText("文件夹外的资料")).toBeNull();
   });
+
+  it("打开的资料进标签条，关掉最后一个就收起", async () => {
+    vi.mocked(api.knowledgeTree).mockResolvedValue({ ok: true, tree: {
+      type: "folder", name: "vault", path: "", material_count: 1, indexed_count: 1, ignored_count: 0, ignored_here: [], children: [], files: [],
+    } } as never);
+    vi.mocked(api.documents).mockResolvedValue([{
+      document_id: "doc-1",
+      source: "course-2/第一课.md",
+      relative_path: "第一课.md",
+      kind: "course_document",
+      title: "第一课",
+      collection: "material",
+      content_role: "content",
+    }] as never);
+
+    render(
+      <MemoryRouter initialEntries={["/library"]}>
+        <LibraryPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByText("第一课"));
+    const tab = await screen.findByRole("tab", { name: "第一课" });
+    expect(tab.getAttribute("aria-selected")).toBe("true");
+
+    fireEvent.click(screen.getByRole("button", { name: "关闭 第一课" }));
+    await waitFor(() => expect(screen.queryByRole("tab", { name: "第一课" })).toBeNull());
+  });
 });

@@ -13,6 +13,7 @@ import { WikiPlanCard } from "../components/WikiPlanCard";
 import { ApiError, api } from "../lib/api";
 import type { ArchivedEntry, KnowledgeSyncSummary, KnowledgeTree } from "../lib/api";
 import { LibraryTree } from "../components/LibraryTree";
+import { useReaderTabs } from "../hooks/useReaderTabs";
 import { Modal, useConfirm } from "../ui/Modal";
 import { useHandoffStore } from "../stores/handoffStore";
 import type { DocumentExtractionStatus, DocumentSection, DocumentSummary, PersonalKnowledgeItem, WikiEditablePage, WikiGenerationMode, WikiHealth, WikiPlan, WikiRepairPlan, WikiRunEstimate, WikiScopeMode, WikiTask } from "../types";
@@ -88,6 +89,8 @@ export function LibraryPage() {
   const [selectedFolder, setSelectedFolder] = useState("");
   // ③：已归档的资料（归档只是移走，永远可恢复）。
   const [archive, setArchive] = useState<ArchivedEntry[]>([]);
+  // ④：阅读区标签页（每篇记住读到哪；关掉最后一个自动收起）。
+  const tabs = useReaderTabs(activeLibrary?.library_id);
   const [editingDocumentId, setEditingDocumentId] = useState<string | null>(null);
   const [highlightedChunk, setHighlightedChunk] = useState<string | null>(null);
   const [startingExtractionId, setStartingExtractionId] = useState<string | null>(null);
@@ -283,6 +286,8 @@ export function LibraryPage() {
     const available = element.scrollHeight - element.clientHeight;
     const raw = available > 0 ? Math.round((element.scrollTop / available) * 100) : 100;
     const progress = raw >= 100 ? 100 : Math.floor(raw / 10) * 10;
+    // ④：本地的"读到哪"比后端进度更细，且关掉标签页也留着。
+    tabs.remember(selectedId, raw);
     if (progress < 10 || progress <= lastProgressRef.current) return;
     lastProgressRef.current = progress;
     void api.updateReadingProgress(selectedId, progress).catch(() => undefined);
@@ -643,6 +648,9 @@ export function LibraryPage() {
   }
 
   function selectDocument(documentId: string) {
+    // ④：打开阅读区的一个标签页（已开只激活）。
+    const target = documents.find((item) => item.document_id === documentId);
+    tabs.open(documentId, target?.title || target?.relative_path || "");
     // TASKS_LIBRARY_REWORK task 1: material documents open the full reader page.
     if (collection === "material") {
       saveListScroll();
@@ -1173,6 +1181,43 @@ export function LibraryPage() {
                   </details>
                 )}
               </aside>
+            )}
+            {tabs.tabs.length > 0 && (
+              <div className="reader-tabs" role="tablist" aria-label="打开的资料">
+                {tabs.tabs.map((tab) => (
+                  <span key={tab.documentId} className={tabs.activeId === tab.documentId ? "reader-tab active" : "reader-tab"}>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={tabs.activeId === tab.documentId}
+                      onClick={() => {
+                        tabs.activate(tab.documentId);
+                        selectDocument(tab.documentId);
+                      }}
+                    >
+                      {tab.title || tab.documentId}
+                    </button>
+                    <button
+                      type="button"
+                      className="reader-tab-close"
+                      aria-label={`关闭 ${tab.title || tab.documentId}`}
+                      onClick={() => {
+                        const wasActive = tabs.activeId === tab.documentId;
+                        tabs.close(tab.documentId);
+                        if (wasActive) {
+                          const remaining = tabs.tabs.filter((item) => item.documentId !== tab.documentId);
+                          const index = tabs.tabs.findIndex((item) => item.documentId === tab.documentId);
+                          const next = remaining[index] ?? remaining[index - 1];
+                          if (next) selectDocument(next.documentId);
+                          else setSelectedId(null);
+                        }
+                      }}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
             )}
             <aside className="document-rail">
               <div className="rail-label"><FolderOpen size={15} />{collection === "wiki" ? wikiView === "knowledge" ? "知识页面" : wikiView === "sources" ? "资料索引" : wikiView === "notes" ? "个人笔记" : "全部页面" : "我的资料"} <span>{filteredDocuments.length}</span></div>
