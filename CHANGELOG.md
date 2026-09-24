@@ -7,6 +7,11 @@
 ## [未发布]
 
 ### 变更
+- **④c 审查发现：我把已有的东西重做了一遍（2026-09-24，已回滚，未改代码）**：准备统一标签模型时发现 `stores/readerTabsStore.ts`（TASKS_LIBRARY_REWORK 2.3.1）**早就有** `openIds` / `close` / `scrolls` / `setScroll` / `scrollFor`，而且 ReaderPage 第 133 行**已经在恢复滚动位置**（`pageRef.current.scrollTop = scrolls[selectedId] || 0`）。也就是说：
+  - **④a（标签模型）是重复实现**：`6959879` 新建的 `lib/readerTabs.ts` + `hooks/useReaderTabs.ts` 与既有 store 重叠；
+  - **④b（位置还原）不是缺口**：真实动线里 ④b 的能力本来就有，`f845825` 加的是够不着的第二份。
+  - **我尝试做减法**（删重复文件 + 摘掉 LibraryPage 里那套死代码），两次都在**多行 JSX 的程序化切片**上把文件切坏，已 `git checkout` 全量回滚——**本轮没有代码改动，只留这份记账**。教训与前几轮同类错误相同：长 JSX 改动只能用带精确 old_string 的编辑工具，绝不能按行号切片。
+  - **下一步的正确形状**：④ 合并时**复用** `readerTabsStore`（不要新建模型），LibraryPage 的阅读区改成读同一个 store；等合并落地，再删掉 `readerTabs.ts`/`useReaderTabs.ts` 这两个重复文件。
 - **审计发现（2026-09-24，真实端到端模拟）：④a/④b 的标签条与位置还原在当前动线里"够不着"** —— 用 Playwright 对真实后端 + 真实资料库走了一遍：点树里的文件会**直接跳到 `/library/read/{id}`**（ReaderPage），URL 从 `/library?collection=material` 变成 `/library/read/5f0a6bc7…`，资料库页的阅读区（连同标签条、位置还原）**从未被渲染**。
   - 也就是说：`6959879` 与 `f845825` 的实现是**对的**（纯函数有 7 条测试、`tabs.open` 确实被调用），但**在真实动线上用户看不到它们** —— 因为 ④ 最大的一块（`/library` 与 `/library/read/:id` 合并成同一套组件）还没做。**这两块在合并完成前不算交付。**
   - 顺带在同一轮审计里确认正常的部分：树可见、顶层文件夹正确、**新建文件夹真的建出来了**、控制台无错误。
