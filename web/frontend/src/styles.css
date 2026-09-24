@@ -1137,7 +1137,9 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 .page-heading p { margin: 0; color: var(--muted); font-family: var(--font-reading); font-size: 15px; line-height: 1.7; }
 .heading-actions { display: flex; gap: 8px; }
 /* 资料库要同时放下「文件夹树 + 列表 + 正文」三栏，1120px 的通用上限会让正文只剩四百来像素。 */
-.library-container { padding-top: 0; width: min(100%, 1600px); }
+/* 资料库是工作区而不是一篇文章：让它铺满可用宽度（原来卡 1600px，宽屏下画布右侧会多出
+   一条空白、滚动条也落在画布边缘而不在窗口边，2026-09-24 用户截图）。正文本身仍有 800px 量度。 */
+.library-container { padding-top: 0; width: 100%; max-width: none; }
 /* 资料库页自己管滚动（2026-09-24 用户：'文章继续往下划的时候，左边文件树是不动的'，像 Obsidian）：
    整页不再滚，改成**树栏固定并自己滚、正文自己滚**。窄屏（≤767px）仍走原来的整页滚动。 */
 @media (min-width: 768px) {
@@ -1145,7 +1147,10 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
   .library-scroll .library-container { display: flex; height: 100%; flex-direction: column; }
   .library-scroll .library-workspace { flex: 1 1 auto; min-height: 0; }
   .library-scroll .library-tree-pane { overflow-y: auto; min-height: 0; }
-  .library-scroll .library-reader-column { overflow-y: auto; min-height: 0; position: relative; scrollbar-width: none; }
+  /* overflow-x: hidden 是护栏：正文里有宽表格/图片时，scrollIntoView（引用跳转、小节定位）
+     会把整个阅读列**横向**滚走 —— 用户看到的就是"文字左边被切掉、右边多出一块空白"（2026-09-24）。
+     宁可让宽内容自己在块内处理，也不许整列平移。 */
+  .library-scroll .library-reader-column { overflow-x: hidden; overflow-y: auto; min-height: 0; position: relative; scrollbar-width: none; }
   .library-scroll .library-reader-column::-webkit-scrollbar { display: none; }
   .library-scroll .library-reader-placeholder { overflow-y: auto; }
 }
@@ -1160,7 +1165,7 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 .library-more-menu > summary { display: inline-flex; min-height: 36px; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0 var(--space-3); color: var(--muted); font-size: 13px; cursor: pointer; list-style: none; transition: border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
 .library-more-menu > summary::-webkit-details-marker { display: none; }
 .library-more-menu[open] > summary, .library-more-menu > summary:hover { border-color: var(--border-strong); color: var(--blue); }
-.library-more-menu > div { position: absolute; z-index: 12; top: calc(100% + 6px); right: 0; display: grid; min-width: 158px; overflow: hidden; border: 1px solid var(--border-strong); border-radius: var(--radius-md); padding: var(--space-1); background: var(--paper-soft); box-shadow: var(--shadow-float); }
+.library-more-menu > div { position: absolute; z-index: 40; top: calc(100% + 6px); right: 0; display: grid; min-width: 158px; overflow: hidden; border: 1px solid var(--border-strong); border-radius: var(--radius-md); padding: var(--space-1); background: var(--paper-soft); box-shadow: var(--shadow-float); }
 .library-more-menu > div button { display: flex; min-height: 34px; align-items: center; gap: var(--space-2); border: 0; border-radius: var(--radius-sm); padding: 0 var(--space-2); background: transparent; color: var(--ink); font: inherit; font-size: 13px; text-align: left; }
 .library-more-menu > div button:hover { background: var(--blue-wash); color: var(--blue); }
 .primary-button, .quiet-button { display: inline-flex; min-height: 40px; align-items: center; justify-content: center; gap: 7px; border-radius: var(--radius-md); padding: 0 13px; font-size: 13px; font-weight: 650; transition: background var(--dur-base) var(--ease-out), border-color var(--dur-base) var(--ease-out), box-shadow var(--dur-base) var(--ease-out), transform var(--dur-fast) var(--spring-micro); }
@@ -1599,8 +1604,10 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 .sidebar-rel-item:hover .rel-delete { opacity: 1; }
 
 /* Library rework (task 1): list/reader split + reader page. */
-/* ②（E17）：只读文件夹树。树是导航层——它出问题时资料列表照常可用。 */
-.library-workspace.with-tree { grid-template-columns: 260px 270px minmax(0, 1fr); }
+/* ②（E17）：只读文件夹树。树是导航层——它出问题时资料列表照常可用。
+   （这里原来还有一条 `.library-workspace.with-tree { 260px 270px 1fr }` 的三列声明：
+   中间的"我的资料"列表早在 2026-09-24 就删了，它只会在某些类名组合下凭空多出一个空列，
+   所以一并删除；列宽统一由文件下方"资料库分栏"那一段负责。） */
 .library-tree-pane { border-right: 1px solid var(--border); padding: var(--space-4) var(--space-3) var(--space-4) 0; min-width: 0; }
 /* ④：标签条 + 阅读区是**一个**网格列。它俩以前是网格的两个孩子，一开标签就变成 4 个，
    3 列网格自动换行，整个分栏塌陷（2026-09-24 用户截图）。 */
@@ -1727,7 +1734,9 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 /* Reader tabs (TASKS_LIBRARY_REWORK task 2.3.1). */
 /* 吸顶标签栏必须**不透明**：原来写的是不存在的 `--bg`（无 fallback → 声明被丢掉），
    于是滚动时正文从它下面透出来，看着就是一条挡视野的"透明条"（2026-09-24 用户反馈）。 */
-.reader-tabs { position: sticky; top: 0; z-index: 20; display: flex; gap: 4px; overflow-x: auto; border-bottom: 1px solid var(--border); padding: 8px 0; background: var(--paper); }
+/* flex: 0 0 auto 是必须的：阅读列是 flex 容器，标签条作为子项会被压缩 ——
+   实测它曾被压成 18px 高（按钮 31px 直接溢出），用户看到的就是"导航条变窄了"（2026-09-24）。 */
+.reader-tabs { position: sticky; top: 0; z-index: 20; display: flex; flex: 0 0 auto; gap: 4px; overflow-x: auto; border-bottom: 1px solid var(--border); padding: 8px 0; background: var(--paper); }
 .reader-tab { flex: 0 0 auto; max-width: 200px; overflow: hidden; border: 1px solid var(--border); border-radius: 6px 6px 0 0; padding: 6px 12px; background: transparent; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .reader-tab.active { background: var(--paper-soft); color: var(--blue); border-bottom-color: var(--paper-soft); font-weight: 650; }
 
