@@ -1,6 +1,6 @@
 import { readerLocation } from "../lib/documentLinks";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CheckCircle2, FilePlus2, FileText, FolderOpen, Library, List, MessageCircle, MoreHorizontal, Pencil, RefreshCw, Save, Search, Settings2, ShieldCheck, Sparkles, Trash2, Upload, Wrench, X } from "lucide-react";
+import { CheckCircle2, FilePlus2, FileText, FolderOpen, Library, MessageCircle, MoreHorizontal, Pencil, RefreshCw, Save, Search, Settings2, ShieldCheck, Sparkles, Trash2, Upload, Wrench, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useNavigate, useOutletContext, useSearchParams } from "react-router-dom";
@@ -77,7 +77,6 @@ export function LibraryPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [deletingId, setDeletingId] = useState<string | null>(null);
   // ①（E17）：文件夹同步 —— 用户在资源管理器里把资料剪进资料库文件夹后，
   // 需要有一个明确入口去发现它们，并看到「这次到底动了什么」。
   const [syncingFolder, setSyncingFolder] = useState(false);
@@ -102,8 +101,6 @@ export function LibraryPage() {
   const closeTab = useReaderTabsStore((state) => state.close);
   const scrollFor = useReaderTabsStore((state) => state.scrollFor);
   const [editingDocumentId, setEditingDocumentId] = useState<string | null>(null);
-  // ④："打开"= 有标签页（双击/点击打开），不是"列表里高亮"。
-  const readingOpen = Boolean(selectedId && openIds.includes(selectedId));
   // ④：编辑器保存后让阅读器重新拉一次小节（阅读器自己持有小节加载）。
   const [readerReloadToken, setReaderReloadToken] = useState(0);
   const [startingExtractionId, setStartingExtractionId] = useState<string | null>(null);
@@ -916,32 +913,6 @@ export function LibraryPage() {
     }
   }
 
-  async function deleteDocument(document: DocumentSummary) {
-    if (!document.managed || deletingId) return;
-    setDeletingId(document.document_id);
-    setError("");
-    setNotice("");
-    try {
-      const impact = await api.documentImpact(document.document_id);
-      const affected = impact.affected_pages.slice(0, 4).map((item) => item.title).join("、");
-      const impactMessage = impact.affected_count
-        ? `这会影响 ${impact.affected_count} 个 Wiki 页面${affected ? `：${affected}` : ""}。这些页面只会标记为待更新，不会自动删除。`
-        : "";
-      if (!(await confirm({ title: `归档资料“${document.title || document.source}”？`, detail: <>原文件会移入资料库归档区，并从当前索引移除。{impactMessage && <p>{impactMessage}</p>}</>, confirmLabel: "归档资料", danger: true }))) return;
-      await api.deleteDocument(document.document_id);
-      setNotice("资料已归档，本地索引已更新；关联 Wiki 已标记为待检查。");
-      if (selectedId === document.document_id) {
-        setSelectedId(null);
-        setSearchParams({}, { replace: true });
-      }
-      await loadDocuments();
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "无法删除这份资料。");
-    } finally {
-      setDeletingId(null);
-    }
-  }
-
   const selected = documents.find((document) => document.document_id === selectedId);
   function effectiveExtractionStatus(document: DocumentSummary) {
     const status = extractionStatuses[document.document_id];
@@ -959,25 +930,6 @@ export function LibraryPage() {
     return status ? status.status : "not_started" as const;
   }
 
-  function extractionStatusLabel(document: DocumentSummary) {
-    const status = extractionStatuses[document.document_id];
-    switch (effectiveExtractionStatus(document)) {
-      case "extracting": return "正在提取";
-      case "review": return `待审查 ${status?.pending_count || ""}`.trim();
-      case "completed": return "已提取";
-      case "failed": return "提取失败";
-      case "stale": return "内容已更新";
-      default: return "尚未提取";
-    }
-  }
-  function textExtractionLabel(document: DocumentSummary) {
-    switch (document.extraction_status) {
-      case "empty": return "无可检索文本";
-      case "partial": return `部分可检索（${document.extraction_extracted_units ?? 0}/${document.extraction_total_units ?? 0}）`;
-      case "error": return "提取失败";
-      default: return null;
-    }
-  }
   const filteredDocuments = documents.filter((document) => {
     if (collection === "wiki" && !matchesWikiView(document, wikiView)) return false;
     // ②：选中某个文件夹时，右侧只显示这个文件夹里的资料（按真实相对路径前缀）。
@@ -1179,14 +1131,41 @@ export function LibraryPage() {
               "library-workspace"
               + (collection === "material" ? " list-only" : "")
               + (collection === "material" && tree ? " with-tree" : "")
-              // ④：**真正打开了标签页**才算"在读"——页面自动选中第一份资料不算，
-              // 否则一进资料库窄窗口就把列表（含搜索）藏起来，用户会以为资料没了。
-              + (readingOpen ? " reading" : "")
+
             }
           >
             {collection === "material" && tree && (
               <aside className="library-tree-pane" aria-label="资料库文件夹">
-                <div className="rail-label"><FolderOpen size={15} />文件夹</div>
+                <div className="rail-label"><FolderOpen size={15} />文件夹 <span>{tree.material_count}</span></div>
+                
+                <label className="document-search"><Search size={14} /><input value={documentQuery} onChange={(event) => setDocumentQuery(event.target.value)} placeholder="搜索资料" aria-label="搜索资料" /></label>
+                {hits.length > 0 && (
+                  <div className="document-hits" aria-label="原文命中">
+                    {hits.map((hit) => (
+                      <button
+                        key={hit.chunk_id}
+                        className="document-hit"
+                        type="button"
+                        title={hit.text || ""}
+                        onClick={() =>
+                          navigate(
+                            readerLocation({
+                              document_id: hit.document_id,
+                              collection: hit.collection ?? collection,
+                              chunk_id: hit.chunk_id,
+                            }) || "/library",
+                          )
+                        }
+                      >
+                        <Search size={13} />
+                        <span>
+                          <strong>{hit.title || hit.source}</strong>
+                          <small>{(hit.text || "").replace(/\s+/g, " ").slice(0, 56)}</small>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <LibraryTree
                   tree={tree}
                   query={documentQuery}
@@ -1268,8 +1247,11 @@ export function LibraryPage() {
                 )}
               </aside>
             )}
+            {/* 资料库不再有"我的资料"平铺列表：它和左边的文件夹树功能重复，还白占一栏
+                （2026-09-24 用户要求）。wiki 的三个视图仍然用这一栏。 */}
+            {collection === "wiki" && (
             <aside className="document-rail">
-              <div className="rail-label"><FolderOpen size={15} />{collection === "wiki" ? wikiView === "knowledge" ? "知识页面" : wikiView === "sources" ? "资料索引" : wikiView === "notes" ? "个人笔记" : "全部页面" : "我的资料"} <span>{filteredDocuments.length}</span></div>
+              <div className="rail-label"><FolderOpen size={15} />{wikiView === "knowledge" ? "知识页面" : wikiView === "sources" ? "资料索引" : wikiView === "notes" ? "个人笔记" : "全部页面"} <span>{filteredDocuments.length}</span></div>
               <label className="document-search"><Search size={14} /><input value={documentQuery} onChange={(event) => setDocumentQuery(event.target.value)} placeholder="搜索资料" aria-label="搜索资料" /></label>
               {hits.length > 0 && (
                 <div className="document-hits" aria-label="原文命中">
@@ -1302,31 +1284,25 @@ export function LibraryPage() {
                 <div className={`document-row-wrap ${selectedId === document.document_id ? "active" : ""}`} key={document.document_id}>
                   <button className="document-row" onClick={() => selectDocument(document.document_id)}>
                     <span className="document-kind"><FileText size={17} /></span>
-                    <span><strong>{document.title || document.source}</strong><small>{collection === "wiki" ? (document.wiki_type ? wikiTypeLabels[document.wiki_type] : "历史整理") : document.course || (document.origin === "legacy_index" ? "已有知识库" : document.kind || "资料")} · {document.chunk_count ? `${document.chunk_count} 个片段` : formatRelativeDate(document.updated_at)}</small></span>
-                    {collection === "material" ? (
-                      <>
-                        <span
-                          className={`document-extraction-state ${effectiveExtractionStatus(document)}`}
-                          title={extractionStatusLabel(document)}
-                        >
-                          {extractionStatusLabel(document)}
-                        </span>
-                        {textExtractionLabel(document) && (
-                          <span className={`document-text-extraction ${document.extraction_status}`} title={`文本提取：${textExtractionLabel(document)}`}>
-                            {textExtractionLabel(document)}
-                          </span>
-                        )}
-                      </>
-                    ) : (
-                      <i className={document.vector_status === "error" ? "error" : "ready"} title={document.vector_status || "已建立索引"} />
-                    )}
+                    {/* 这一栏现在只服务 wiki 三个视图：资料的阅读入口在文件夹树里。 */}
+                    <span><strong>{document.title || document.source}</strong><small>{(document.wiki_type ? wikiTypeLabels[document.wiki_type] : "历史整理")} · {document.chunk_count ? `${document.chunk_count} 个片段` : formatRelativeDate(document.updated_at)}</small></span>
+                    <i className={document.vector_status === "error" ? "error" : "ready"} title={document.vector_status || "已建立索引"} />
                   </button>
-                  {collection === "material" && (document.kind === "md" || document.kind === "txt" || document.kind === "markdown") && <IconButton className="document-edit" label={`编辑 ${document.title || document.source}`} onClick={(event) => { event.stopPropagation(); setEditingDocumentId(document.document_id); }}><Pencil size={14} /></IconButton>}
-                  {collection === "material" && document.managed && <IconButton className="document-delete" label={`删除 ${document.title || document.source}`} disabled={deletingId === document.document_id} onClick={() => void deleteDocument(document)}><Trash2 size={14} /></IconButton>}
                 </div>
               ))}
               {!filteredDocuments.length && <p className="document-search-empty">没有找到匹配的资料。</p>}
             </aside>
+            )}
+            {/* 资料库没有列表栏时，右栏不能空着一条白条 —— 给一句"从哪开始"的指引。 */}
+            {collection === "material" && !(selected || openIds.length > 0) && (
+              <div className="library-reader-placeholder">
+                <EmptyState
+                  state="reading"
+                  title="从左边选一份资料开始阅读"
+                  description="文件夹树里点一份资料，它会在这一栏打开；打开过的资料会留在标签条里。"
+                />
+              </div>
+            )}
             {/* ④：标签条和阅读区必须是**同一个网格列**。标签条曾经是 .library-workspace 的
                 第 4 个直接子元素，一开标签 3 列网格就自动换行：阅读区被挤到下一行，
                 列表被顶到阅读区的位置（2026-09-24 用户截图发现的布局塌陷）。
@@ -1374,7 +1350,6 @@ export function LibraryPage() {
                 <span>{selected.collection === "wiki" ? `历史整理 · ${selected.wiki_type ? wikiTypeLabels[selected.wiki_type] : "页面"}` : selected.kind || "本地资料"}{selected.course ? ` · ${selected.course}` : ""}</span>
                 <h2>{selected.title || selected.source}</h2>
                 {selected.collection === "material" && <div className="reader-actions">
-                  <button className="quiet-button library-list-toggle" onClick={() => setSelectedId(null)}><List size={15} />资料列表</button>
                   {effectiveExtractionStatus(selected) === "not_started" && (
                     <button className="primary-button reader-extract" disabled={startingExtractionId === selected.document_id || !sections.length} onClick={() => void extractAndReview(selected)}><Sparkles size={15} />{startingExtractionId === selected.document_id ? "正在启动…" : "提取概念"}</button>
                   )}

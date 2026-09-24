@@ -118,14 +118,15 @@ test("the library page shows the real folder tree", async ({ page }) => {
   await expect(tree.getByRole("button", { name: "wiki", exact: true })).toHaveCount(0);
   await expect(tree.getByRole("button", { name: ".bobodan", exact: true })).toHaveCount(0);
 
-  // 选中文件夹后右侧列表跟着过滤：raw/ 下有上传的 PDF 与 raw/notes 那份笔记，
-  // 但一定比整库少。断言"真的被过滤了"，而不是写死数量（资料库会变）。
-  const rows = page.locator(".document-rail .document-row");
-  const before = await rows.count();
-  expect(before).toBeGreaterThan(1);
-  await tree.getByRole("button", { name: "raw", exact: true }).click();
-  await expect(rows.filter({ hasText: "Obsidian-AI" })).toHaveCount(1, { timeout: 15_000 });
-  await expect.poll(async () => rows.count()).toBeLessThan(before);
+  // 2026-09-24 用户要求：中间的"我的资料"平铺列表与树功能重复、还占一栏，去掉了。
+  // 资料库因此只有一套导航；搜索入口搬进了树面板（原来长在列表里），必须仍然好用。
+  await expect(page.locator(".document-rail")).toHaveCount(0);
+  const search = page.locator(".library-tree-pane .document-search input");
+  await expect(search).toBeVisible();
+  await search.fill("Dijkstra");
+  await expect(tree.locator(".library-tree-name", { hasText: "Dijkstra" }).first()).toBeVisible({ timeout: 20_000 });
+  await search.fill("");
+  await expect(tree.locator(".library-tree-name", { hasText: "正则表达式" }).first()).toBeVisible({ timeout: 20_000 });
 });
 test("the library page reads a material in place", async ({ page }) => {
   // ④（E17）：点资料不再跳走 —— 资料库页自己渲染正文，并进标签条。
@@ -158,13 +159,6 @@ test("the library page reads a material in place", async ({ page }) => {
   const treeBox = await page.locator(".library-tree-pane").boundingBox();
   expect(readerBox!.width).toBeGreaterThan(treeBox!.width * 2);
   expect(readerBox!.x).toBeGreaterThanOrEqual(treeBox!.x + treeBox!.width - 1);
-  await expect(page.locator(".document-rail")).toBeHidden();
-
-  // 窄窗口下阅读时列表让位给正文；「资料列表」按钮必须能把它召回，并能再回到正文。
-  const listToggle = page.getByRole("button", { name: "资料列表" });
-  await expect(listToggle).toBeVisible();
-  await listToggle.click();
-  await expect(page.locator(".document-rail")).toBeVisible();
-  await tree.locator(".library-tree-open").first().click();
-  await expect(page.locator(".document-reader .reader-prose").first()).toBeVisible({ timeout: 20_000 });
+  // 资料库只有一套导航：中间的"我的资料"平铺列表已按用户要求去掉（与树重复、还占一栏）。
+  await expect(page.locator(".document-rail")).toHaveCount(0);
 });

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { LibraryPage } from "./LibraryPage";
 import { api } from "../lib/api";
+import { useReaderTabsStore } from "../stores/readerTabsStore";
 
 /**
  * ①（E17）：资料库文件夹同步的入口与摘要。
@@ -67,6 +68,9 @@ function buildContext() {
 }
 
 beforeEach(() => {
+  // 标签条是模块级 zustand store（跨用例存活）：不清掉的话，上一个用例打开的标签
+  // 会让下一个用例一进页面就渲染阅读区，断言"进页面只有树与提示"就假失败。
+  useReaderTabsStore.setState({ openIds: [], scrolls: {} });
   hoisted.ctx = buildContext();
   vi.mocked(api.documents).mockResolvedValue([]);
   vi.mocked(api.graphExtractionStatuses).mockResolvedValue({ documents: {} } as never);
@@ -79,6 +83,22 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
 });
+
+
+/** 树里的一个文件（② 的只读树是资料库唯一的导航：平铺列表已按用户要求去掉）。 */
+function treeFile(name: string, documentId: string, title: string) {
+  return {
+    type: "file", name, path: name, size: 10, modified_at: "2026-09-24T00:00:00+00:00",
+    indexed: true, document_id: documentId, title, extraction_status: "complete", chunk_count: 2,
+  };
+}
+
+function treeWith(files: unknown[]) {
+  return { ok: true, tree: {
+    type: "folder", name: "vault", path: "", material_count: files.length, indexed_count: files.length,
+    ignored_count: 0, ignored_here: [], children: [], files,
+  } };
+}
 
 describe("资料库文件夹同步", () => {
   it("按钮会同步并渲染可行动的摘要", async () => {
@@ -166,86 +186,10 @@ describe("资料库文件夹同步", () => {
     expect(summary.textContent).toContain("来源根不可用");
   });
 
-  it("选中文件夹后，右侧列表只显示这个文件夹里的资料", async () => {
-    vi.mocked(api.knowledgeTree).mockResolvedValue({
-      ok: true,
-      tree: {
-        type: "folder",
-        name: "vault",
-        path: "",
-        material_count: 2,
-        indexed_count: 2,
-        ignored_count: 0,
-        ignored_here: [],
-        files: [],
-        children: [
-          {
-            type: "folder",
-            name: "课程包",
-            path: "课程包",
-            material_count: 1,
-            indexed_count: 1,
-            ignored_count: 0,
-            ignored_here: [],
-            children: [],
-            files: [
-              {
-                type: "file",
-                name: "第一课.md",
-                path: "课程包/第一课.md",
-                size: 10,
-                modified_at: "2026-09-24T00:00:00+00:00",
-                indexed: true,
-                document_id: "doc-in",
-                title: "第一课",
-                extraction_status: "complete",
-                chunk_count: 2,
-              },
-            ],
-          },
-        ],
-      },
-    });
-    vi.mocked(api.documents).mockResolvedValue([
-      {
-        document_id: "doc-in",
-        source: "course-2/第一课.md",
-        relative_path: "课程包/第一课.md",
-        kind: "course_document",
-        title: "文件夹里的资料",
-        collection: "material",
-        content_role: "content",
-      },
-      {
-        document_id: "doc-out",
-        source: "course-2/第二课.md",
-        relative_path: "另一门课/第二课.md",
-        kind: "course_document",
-        title: "文件夹外的资料",
-        collection: "material",
-        content_role: "content",
-      },
-    ] as never);
-
-    render(
-      <MemoryRouter initialEntries={["/library"]}>
-        <LibraryPage />
-      </MemoryRouter>,
-    );
-
-    expect((await screen.findAllByText("文件夹里的资料")).length).toBeGreaterThan(0);
-    expect(screen.getByText("文件夹外的资料")).toBeTruthy();
-
-    fireEvent.click(await screen.findByRole("button", { name: "课程包" }));
-
-    expect(screen.getAllByText("文件夹里的资料").length).toBeGreaterThan(0);
-    expect(screen.queryByText("文件夹外的资料")).toBeNull();
-  });
-
-  it("打开的资料进标签条，关掉最后一个就收起", async () => {
-    vi.mocked(api.knowledgeTree).mockResolvedValue({ ok: true, tree: {
-      type: "folder", name: "vault", path: "", material_count: 1, indexed_count: 1, ignored_count: 0, ignored_here: [], children: [], files: [],
-    } } as never);
+  // 2026-09-24 用户要求：「我的资料」平铺列表和文件夹树功能重复、还占一栏，去掉了。
+  // 这条钉住"资料库只有一套导航（树）"，以及树里的搜索框仍然在（它原来长在列表里）。
+  it("资料库只有文件夹树这一套导航，没有重复的平铺列表", async () => {
+    vi.mocked(api.knowledgeTree).mockResolvedValue(treeWith([treeFile("第一课.md", "doc-1", "第一课")]) as never);
     vi.mocked(api.documents).mockResolvedValue([{
       document_id: "doc-1",
       source: "course-2/第一课.md",
@@ -262,7 +206,32 @@ describe("资料库文件夹同步", () => {
       </MemoryRouter>,
     );
 
-    fireEvent.click((await screen.findAllByText("第一课"))[0]);
+    expect(await screen.findByText("文件夹")).toBeTruthy(); // 树面板
+    expect(await screen.findByText("第一课.md")).toBeTruthy();
+    expect(screen.getByLabelText("搜索资料")).toBeTruthy(); // 搜索框搬进了树面板
+    expect(document.querySelector(".document-rail")).toBeNull();
+    expect(screen.queryByText("我的资料")).toBeNull();
+  });
+
+  it("打开的资料进标签条，关掉最后一个就收起", async () => {
+    vi.mocked(api.knowledgeTree).mockResolvedValue(treeWith([treeFile("第一课.md", "doc-1", "第一课")]) as never);
+    vi.mocked(api.documents).mockResolvedValue([{
+      document_id: "doc-1",
+      source: "course-2/第一课.md",
+      relative_path: "第一课.md",
+      kind: "course_document",
+      title: "第一课",
+      collection: "material",
+      content_role: "content",
+    }] as never);
+
+    render(
+      <MemoryRouter initialEntries={["/library"]}>
+        <LibraryPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByText("第一课.md"));
     const tab = await screen.findByRole("tab", { name: "第一课" });
     expect(tab.getAttribute("aria-selected")).toBe("true");
 
@@ -276,9 +245,7 @@ describe("资料库文件夹同步", () => {
   // 说明 selected 仍为 null（documents 与 selectedId 没接上）。
   // 去掉 .skip 就是这条链的复现测试；它红了才说明修好了（详见设计文档 §9 执行手册）。
   it("选中资料后，资料库页的阅读区必须渲染出正文", async () => {
-    vi.mocked(api.knowledgeTree).mockResolvedValue({ ok: true, tree: {
-      type: "folder", name: "vault", path: "", material_count: 1, indexed_count: 1, ignored_count: 0, ignored_here: [], children: [], files: [],
-    } } as never);
+    vi.mocked(api.knowledgeTree).mockResolvedValue(treeWith([treeFile("第一课.md", "doc-1", "第一课")]) as never);
     vi.mocked(api.documents).mockResolvedValue([{
       document_id: "doc-1",
       source: "course-2/第一课.md",
@@ -310,7 +277,7 @@ describe("资料库文件夹同步", () => {
       </MemoryRouter>,
     );
 
-    fireEvent.click((await screen.findAllByText("第一课"))[0]);
+    fireEvent.click(await screen.findByText("第一课.md"));
 
     await waitFor(() => expect(document.querySelectorAll(".reader-prose section").length).toBeGreaterThan(0));
     expect(await screen.findByRole("tab", { name: "第一课" })).toBeTruthy();
@@ -339,9 +306,7 @@ describe("资料库文件夹同步", () => {
 
   it("整理建议：看建议 → 执行 → 再撤销", async () => {
     // 整理面板只挂在「有资料 + 有文件夹树」的工作区里，所以这里必须有真实列表。
-    vi.mocked(api.knowledgeTree).mockResolvedValue({ ok: true, tree: {
-      type: "folder", name: "vault", path: "", material_count: 1, indexed_count: 1, ignored_count: 0, ignored_here: [], children: [], files: [],
-    } } as never);
+    vi.mocked(api.knowledgeTree).mockResolvedValue(treeWith([treeFile("第一课.md", "doc-1", "第一课")]) as never);
     vi.mocked(api.documents).mockResolvedValue([{
       document_id: "doc-1",
       source: "散落的一课.md",
@@ -390,9 +355,7 @@ describe("资料库文件夹同步", () => {
   });
 
   it("AI 归类：界面如实说明这是 AI 提的，而且没确认前一份文件都不动", async () => {
-    vi.mocked(api.knowledgeTree).mockResolvedValue({ ok: true, tree: {
-      type: "folder", name: "vault", path: "", material_count: 1, indexed_count: 1, ignored_count: 0, ignored_here: [], children: [], files: [],
-    } } as never);
+    vi.mocked(api.knowledgeTree).mockResolvedValue(treeWith([treeFile("第一课.md", "doc-1", "第一课")]) as never);
     vi.mocked(api.documents).mockResolvedValue([{
       document_id: "doc-1", source: "散落的一课.md", relative_path: "散落的一课.md",
       kind: "course_document", title: "散落的一课", collection: "material", content_role: "content",
@@ -421,9 +384,7 @@ describe("资料库文件夹同步", () => {
   });
 
   it("模型不可用时，界面说清楚这次是规则建议", async () => {
-    vi.mocked(api.knowledgeTree).mockResolvedValue({ ok: true, tree: {
-      type: "folder", name: "vault", path: "", material_count: 1, indexed_count: 1, ignored_count: 0, ignored_here: [], children: [], files: [],
-    } } as never);
+    vi.mocked(api.knowledgeTree).mockResolvedValue(treeWith([treeFile("第一课.md", "doc-1", "第一课")]) as never);
     vi.mocked(api.documents).mockResolvedValue([{
       document_id: "doc-1", source: "散落的一课.md", relative_path: "散落的一课.md",
       kind: "course_document", title: "散落的一课", collection: "material", content_role: "content",
@@ -447,16 +408,19 @@ describe("资料库文件夹同步", () => {
     expect(await screen.findByText(/模型这次没能参与/)).toBeTruthy();
   });
 
-  // 2026-09-24 用户截图：窄窗口下"树 + 列表 + 正文"三栏一起挤，正文只剩四百来像素，非常难看。
-  // 规则改成：只有**真的打开了标签页**才算在读 —— 阅读中列表让位给正文（CSS 负责宽度）。
-  it("打开标签才进阅读模式，点「资料列表」又回到列表", async () => {
-    vi.mocked(api.knowledgeTree).mockResolvedValue({ ok: true, tree: {
-      type: "folder", name: "vault", path: "", material_count: 1, indexed_count: 1, ignored_count: 0, ignored_here: [], children: [], files: [],
-    } } as never);
+  // 2026-09-24 用户截图：三栏一起挤，正文只剩四百来像素；随后用户要求把重复的平铺列表去掉。
+  // 现在的规则：进页面是"树 + 提示"，点树里的资料才出现正文；列表那一栏彻底不存在。
+  it("进页面只有树与提示，点树里的资料才出现正文", async () => {
+    vi.mocked(api.knowledgeTree).mockResolvedValue(treeWith([treeFile("散落的一课.md", "doc-1", "散落的一课")]) as never);
     vi.mocked(api.documents).mockResolvedValue([{
       document_id: "doc-1", source: "散落的一课.md", relative_path: "散落的一课.md",
       kind: "course_document", title: "散落的一课", collection: "material", content_role: "content",
     }] as never);
+    vi.mocked(api.document).mockResolvedValue({
+      ok: true,
+      document: { document_id: "doc-1", source: "散落的一课.md", kind: "course_document", title: "散落的一课", collection: "material", content_role: "content" },
+      sections: [{ chunk_id: "c1", text: "正文", heading: "第一节" }],
+    } as never);
 
     render(
       <MemoryRouter initialEntries={["/library"]}>
@@ -464,15 +428,15 @@ describe("资料库文件夹同步", () => {
       </MemoryRouter>,
     );
 
-    const workspace = () => document.querySelector(".library-workspace")!;
-    // 进页面是列表：不自动打开第一份资料（否则窄窗口一进来就被三栏挤扁）。
-    await waitFor(() => expect(workspace().className).toContain("with-tree"));
-    expect(workspace().className).not.toContain("reading");
+    // 进页面：不自动打开第一份资料，右侧是一句"从哪开始"的提示，而不是空白栏。
+    expect(await screen.findByText("从左边选一份资料开始阅读")).toBeTruthy();
+    expect(document.querySelector(".document-reader")).toBeNull();
+    expect(document.querySelector(".document-rail")).toBeNull();
 
-    fireEvent.click((await screen.findAllByText("散落的一课"))[0]);
-    await waitFor(() => expect(workspace().className).toContain("reading"));
+    fireEvent.click(await screen.findByText("散落的一课.md"));
 
-    fireEvent.click(screen.getByRole("button", { name: "资料列表" }));
-    await waitFor(() => expect(workspace().className).not.toContain("reading"));
+    await waitFor(() => expect(document.querySelector(".document-reader")).not.toBeNull());
+    await waitFor(() => expect(document.querySelectorAll(".reader-tabs .reader-tab").length).toBe(1));
+    expect(document.querySelector(".document-rail")).toBeNull();
   });
 });

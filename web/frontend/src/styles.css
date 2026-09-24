@@ -1653,28 +1653,14 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 
 .library-workspace.list-only { grid-template-columns: minmax(0, 1fr); }
 .library-workspace.list-only .document-rail { max-width: 880px; margin: 0 auto; }
-/* 资料库的分栏预算（④，2026-09-24 按用户截图重排）：
-   · **不在阅读**：树 | 列表 —— 列表吃满剩余宽度（否则标题被截断，右边还空一大片）；
-   · **在阅读 + 窗口 ≥1520px**：树 | 列表 | 正文，三栏都放得下；
-   · **在阅读 + 窗口更窄**：列表让位给正文（「资料列表」按钮召回）——三栏一起挤的话
-     正文只剩四百来像素，读起来非常难受。
-   下面这些规则必须排在 list-only 那条之后：同优先级下后写的才生效。 */
+/* 资料库分栏（④，2026-09-24 按用户要求收敛）：
+   · **资料**：文件夹树 | 正文 —— 原来中间还有一栏"我的资料"平铺列表，
+     它和树功能重复、还白占一栏，已经删掉；搜索框搬进了树面板；
+   · **wiki**：列表 | 正文（树只在资料集合里渲染）。
+   这条必须排在 list-only 那条之后：同优先级下后写的才生效。 */
 .library-workspace.with-tree,
 .library-workspace.list-only.with-tree { grid-template-columns: 260px minmax(0, 1fr); }
-.library-workspace.reading.with-tree,
-.library-workspace.reading.list-only.with-tree { grid-template-columns: 260px minmax(0, 1fr); }
-.library-list-toggle { display: none; }
-@media (min-width: 1520px) {
-  .library-workspace.with-tree,
-  .library-workspace.list-only.with-tree,
-  .library-workspace.reading.with-tree,
-  .library-workspace.reading.list-only.with-tree { grid-template-columns: 260px 270px minmax(0, 1fr); }
-}
-@media (max-width: 1519px) {
-  .library-workspace.reading .document-rail { display: none; }
-  .library-workspace.reading.list-only { grid-template-columns: minmax(0, 1fr); }
-  .library-list-toggle { display: inline-flex; align-items: center; gap: 4px; }
-}
+.library-reader-placeholder { display: flex; align-items: center; justify-content: center; min-width: 0; }
 .library-workspace.list-only.with-tree .document-rail { max-width: none; margin: 0; }
 .document-edit { position: absolute; right: 33px; width: 29px; height: 29px; opacity: 0; color: var(--blue); }
 .document-row-wrap:hover .document-edit, .document-row-wrap:focus-within .document-edit { opacity: 1; }
