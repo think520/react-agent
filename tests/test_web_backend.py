@@ -2387,3 +2387,41 @@ def test_organize_routes_keep_undo_reachable_without_a_client_list(backend_clien
     assert not (root / "未归类" / "散落的一课.md").exists()
     assert backend_client.get("/api/kb/organize/state", headers=headers).json()["pending_undo"] is None
 
+
+def test_model_organization_route_only_proposes_validated_groups(backend_client, tmp_path, monkeypatch):
+    """⑤（E17）：AI 归类走 HTTP 层时，**只提议、一份文件都不动**，且服务端说了算。
+
+    模型返回一个不存在的文件名，它必须被丢掉（不许凭空造资料）。
+    """
+    library, root = create_test_library(backend_client, tmp_path, "AI Organize")
+    headers = {"X-Bobodan-Library-ID": library["library_id"]}
+    (root / "散落的一课.md").write_text("# 散落的一课\n\n内容够长。", encoding="utf-8")
+
+    class FakeProvider:
+        def complete(self, messages, **kwargs):
+            return SimpleNamespace(content=(
+                '{"groups":[{"folder":"课程笔记","items":["散落的一课.md","不存在.md"],'
+                '"reason":"看起来是同一门课"}]}'
+            ))
+
+    monkeypatch.setattr(
+        "web.backend.routers.kb._runtime_for",
+        lambda workspace: SimpleNamespace(create_provider=lambda *a, **k: FakeProvider()),
+    )
+
+    response = backend_client.post(
+        "/api/kb/organize/proposals", headers=headers, json={"use_model": True}
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["source"] == "model", body
+    assert body["proposals"][0]["suggested_folder"] == "课程笔记"
+    assert body["proposals"][0]["items"] == ["散落的一课.md"], "不存在的文件必须被丢掉"
+    assert (root / "散落的一课.md").is_file(), "提议阶段一份文件都不许动"
+
+    # 不带 use_model 时仍旧是确定性规则（不调模型、不花 Token）。
+    rules = backend_client.post("/api/kb/organize/proposals", headers=headers, json={})
+    assert rules.status_code == 200, rules.text
+    assert rules.json()["source"] == "rules"
+

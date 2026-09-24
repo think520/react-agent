@@ -531,6 +531,11 @@ def document_impact(document_id: str, request: Request) -> dict:
     )
 
 
+class OrganizeProposalRequest(BaseModel):
+    use_model: bool = False
+    provider: str | None = None
+
+
 @router.post("/organize/apply")
 def apply_organization(body: dict, request: Request) -> dict:
     """执行整理建议：把散落资料收进文件夹（身份保留），返回可撤销清单（E17 ⑤）。"""
@@ -573,6 +578,25 @@ def organization_state(request: Request) -> dict:
 def organization_proposals(request: Request) -> dict:
     """整理建议（E17 ⑤ 前半）：给出可复核的建议，**一份文件都不动**。"""
     return unwrap_service_result(_service(request).propose_organization())
+
+
+@router.post("/organize/proposals")
+def organization_proposals_with_model(body: OrganizeProposalRequest, request: Request) -> dict:
+    """让模型提出归类（E17 ⑤）：仍然**一份文件都不动**，且只提议。
+
+    模型拿不到任何写权限：文件清单由服务端给，服务端也只接受真实存在的文件与
+    合法的目标文件夹；模型不可用时如实降级回规则建议（`source` / `degraded`
+    会说明这次到底是谁提的）。
+    """
+    service = _service(request)
+    if not body.use_model:
+        return unwrap_service_result(service.propose_organization())
+    workspace = get_request_workspace(request)
+    try:
+        provider = _runtime_for(workspace).create_provider(*_preferred_provider(body.provider))
+    except ValueError as exc:
+        raise APIError(409, "provider_unavailable", str(exc)) from exc
+    return unwrap_service_result(service.propose_organization(llm_provider=provider))
 
 
 @router.post("/folders")

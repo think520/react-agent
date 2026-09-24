@@ -1694,26 +1694,26 @@ class KBService:
 
     # --- 整理建议（E17 ⑤ 前半：只提议，不动文件）-------------------------
 
-    def propose_organization(self) -> dict[str, Any]:
-        """给出可复核的整理建议，**一份文件都不动**（E17 ⑤）。
+    #: 交给模型归类的文件数上限（提示词要短；整理不是批量搬迁）
+    ORGANIZE_MODEL_LIMIT = 60
 
-        形状与设计一致：提议 → 预览 → 用户确认 → 执行 → 一键撤销。这里只做
-        第一步，而且是**确定性规则**（不是模型即兴发挥）：先把最明显的一类
-        说出来 —— 散落在资料库根目录的资料（没有归到任何文件夹里的那些）。
-        真正的"AI 归类"要在这一步之上，并且必须走同一套确认与撤销。
-        """
+    def _loose_root_materials(self) -> tuple[list[str], list[str]]:
+        """库根那一层的资料文件，以及现有顶层文件夹名（给模型当参考）。"""
         from obsidian.scan_policy import is_repo_metadata
         from rag.parsers import SUPPORTED_EXTENSIONS
 
-        proposals: list[dict[str, Any]] = []
         loose: list[str] = []
+        folders: list[str] = []
         try:
             entries = sorted(os.scandir(self.workspace), key=lambda item: item.name.casefold())
         except OSError:
             entries = []
         for entry in entries:
             name = entry.name
-            if name.startswith(".") or entry.is_dir(follow_symlinks=False):
+            if name.startswith("."):
+                continue
+            if entry.is_dir(follow_symlinks=False):
+                folders.append(name)
                 continue
             if name in {"BOBODAN_LIBRARY.yaml", "WIKI_SCHEMA.md"}:
                 continue
@@ -1721,17 +1721,102 @@ class KBService:
             if extension not in SUPPORTED_EXTENSIONS or is_repo_metadata(name):
                 continue
             loose.append(name)
+        return loose, folders
 
-        if loose:
+    def _rule_organization_proposals(self, loose: list[str]) -> list[dict[str, Any]]:
+        """确定性规则：先把最明显的一类说出来（散落在库根的资料）。"""
+        if not loose:
+            return []
+        return [{
+            "kind": "loose_materials",
+            "title": "库根散落的资料",
+            "reason": "这些资料直接躺在资料库根目录，没有归到任何文件夹里；放进一个按课程或主题命名的文件夹会更好找。",
+            "items": loose,
+            "suggested_folder": "未归类",
+            "requires_confirmation": True,
+        }]
+
+    def _model_organization_proposals(
+        self, llm_provider: Any, loose: list[str], folders: list[str]
+    ) -> tuple[list[dict[str, Any]], str]:
+        """让模型把库根散落的资料分到几个文件夹里 —— 只提议，且逐条验证。
+
+        模型在这里**没有任何动手能力**：它只能从给定的真实文件名里挑，服务端再
+        把不存在的文件、越界或内部目录全部丢掉。剩下的才进"预览 → 用户确认"。
+        """
+        from core.llm_json import parse_llm_object
+
+        system = (
+            "你是个人知识库的整理助手，只输出 JSON。"
+            "把资料库根目录里散落的文件分组到少量有意义的文件夹里。"
+            "硬性要求：只能使用给定的文件名，不得新增、改写或猜测文件名；"
+            "文件夹名用简短中文，不得以点开头，不得包含路径符号；"
+            "宁少勿多——无法归类的文件不要放进任何组。"
+        )
+        user = json.dumps({
+            "files": loose[: self.ORGANIZE_MODEL_LIMIT],
+            "existing_folders": folders,
+            "output_format": {"groups": [{"folder": "文件夹名", "items": ["文件名"], "reason": "一句话理由"}]},
+        }, ensure_ascii=False)
+        try:
+            response = llm_provider.complete([
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ])
+        except Exception as exc:  # provider 的失败方式很多，一律如实降级（不假装是模型给的）
+            logger.warning("organize: 模型归类不可用：%s", exc)
+            return [], "model_unavailable"
+
+        content = getattr(response, "content", "") or ""
+        data = parse_llm_object(content if isinstance(content, str) else str(content)) or {}
+        groups = data.get("groups") if isinstance(data, dict) else None
+        if not isinstance(groups, list):
+            return [], "model_returned_nothing"
+
+        allowed = set(loose)
+        used: set[str] = set()
+        proposals: list[dict[str, Any]] = []
+        for group in groups:
+            if not isinstance(group, dict):
+                continue
+            folder = self._clean_relative(str(group.get("folder") or ""))
+            if not folder or folder.startswith("."):
+                continue
+            target = os.path.abspath(os.path.join(self.workspace, folder))
+            if not self._is_within_workspace(target, self.workspace) or self._is_internal_path(target):
+                continue
+            items = [
+                str(item) for item in (group.get("items") or [])
+                if str(item) in allowed and str(item) not in used
+            ]
+            if not items:
+                continue
+            used.update(items)
             proposals.append({
-                "kind": "loose_materials",
-                "title": "库根散落的资料",
-                "reason": "这些资料直接躺在资料库根目录，没有归到任何文件夹里；放进一个按课程或主题命名的文件夹会更好找。",
-                "items": loose,
-                "suggested_folder": "未归类",
+                "kind": "ai_group",
+                "title": f"归到「{folder}」",
+                "reason": str(group.get("reason") or "模型建议的归类。"),
+                "items": items,
+                "suggested_folder": folder,
                 "requires_confirmation": True,
+                "source": "model",
             })
-        return _ok(proposals=proposals)
+        return proposals, ("" if proposals else "model_returned_nothing")
+
+    def propose_organization(self, llm_provider: Any = None) -> dict[str, Any]:
+        """给出可复核的整理建议，**一份文件都不动**（E17 ⑤）。
+
+        形状与设计一致：提议 → 预览 → 用户确认 → 执行 → 一键撤销。
+        传了 `llm_provider` 就走**模型归类**；模型不可用或没说人话时，如实降级回
+        确定性规则，并在 `degraded` 里说明原因（不假装那是模型给的）。
+        """
+        loose, folders = self._loose_root_materials()
+        degraded = ""
+        if llm_provider is not None and loose:
+            proposals, degraded = self._model_organization_proposals(llm_provider, loose, folders)
+            if proposals:
+                return _ok(proposals=proposals, source="model", degraded=degraded)
+        return _ok(proposals=self._rule_organization_proposals(loose), source="rules", degraded=degraded)
 
     def _document_by_path(self, absolute: str) -> dict[str, Any] | None:
         from rag.sqlite_store import KBSQLiteStore
@@ -1762,10 +1847,12 @@ class KBService:
         target_dir = os.path.abspath(os.path.join(self.workspace, cleaned))
         if not self._is_within_workspace(target_dir, self.workspace) or self._is_internal_path(target_dir):
             return _err("目标文件夹不合法", code="invalid_target")
+        created_folders: list[str] = []
         if not os.path.isdir(target_dir):
             created = self.create_folder(cleaned)
             if not created.get("ok"):
                 return created
+            created_folders.append(cleaned)
 
         moves: list[dict[str, str]] = []
         for name in items or []:
@@ -1785,7 +1872,7 @@ class KBService:
             else:
                 shutil.move(source, os.path.join(target_dir, os.path.basename(relative)))
                 moves.append({"document_id": "", "from": relative, "to": destination_relative})
-        batch = self._remember_organization(cleaned, moves) if moves else None
+        batch = self._remember_organization(cleaned, moves, created_folders) if moves else None
         return _ok(moved=moves, batch_id=(batch or {}).get("batch_id", ""))
 
     # --- 整理台账：撤销必须活过刷新与重启（E17 ⑤）------------------------
@@ -1816,7 +1903,12 @@ class KBService:
         os.makedirs(self._organize_root(), exist_ok=True)
         atomic_write_json(self._organize_index_path(), batches)
 
-    def _remember_organization(self, target_folder: str, moves: list[dict[str, str]]) -> dict[str, Any]:
+    def _remember_organization(
+        self,
+        target_folder: str,
+        moves: list[dict[str, str]],
+        created_folders: list[str] | None = None,
+    ) -> dict[str, Any]:
         """把这一步整理记在服务端，而不是只交给调用方（刷新就丢）。"""
         from datetime import datetime, timezone
         import uuid as _uuid
@@ -1826,6 +1918,8 @@ class KBService:
             "created_at": datetime.now(timezone.utc).isoformat(),
             "target_folder": target_folder,
             "moves": moves,
+            # 这一步自己建了哪些文件夹：撤销时要把它们收回去（用户自己的文件夹不在此列）。
+            "created_folders": list(created_folders or []),
         }
         batches = self._load_organize_batches()
         batches.append(batch)
@@ -1870,9 +1964,12 @@ class KBService:
             original = self._clean_relative(str(move.get("from") or ""))
             if not destination or not original:
                 continue
-            document_id = str(move.get("document_id") or "")
-            if document_id and self._document_by_path(os.path.join(self.workspace, destination)):
-                result = self.move_document(document_id, original, config=config)
+            # 撤销**以"文件现在在哪"为准**：移动之后索引可能给这份资料重新分配身份，
+            # 台账里记下的 document_id 不一定还查得到 —— 2026-09-24 在真实资料库上
+            # 就是这样 404 的（文件躺在「未归类」里撤不回来）。台账仍保留该 id 供审计。
+            current = self._document_by_path(os.path.abspath(os.path.join(self.workspace, destination)))
+            if current is not None:
+                result = self.move_document(str(current.get("id") or ""), original, config=config)
                 if not result.get("ok"):
                     return result
             else:
@@ -1883,7 +1980,9 @@ class KBService:
                 os.makedirs(os.path.dirname(target), exist_ok=True)
                 shutil.move(source, target)
             restored.append(original)
+        cleanup: list[str] = []
         if recorded is not None:
+            cleanup = [str(item) for item in recorded.get("created_folders") or []]
             self._forget_organization(str(recorded.get("batch_id") or ""))
         else:
             # 调用方自带清单（旧调用方式）：把与之相符的那一步台账也清掉，
@@ -1892,7 +1991,18 @@ class KBService:
             for candidate in self._load_organize_batches():
                 pairs = {(str(item.get("from") or ""), str(item.get("to") or "")) for item in candidate.get("moves") or []}
                 if pairs and pairs <= undone:
+                    cleanup.extend(str(item) for item in candidate.get("created_folders") or [])
                     self._forget_organization(str(candidate.get("batch_id") or ""))
+        # 撤销要把这一步**自己建的空文件夹**一起收回去 —— 但用户原本就有的文件夹一根汗毛都不动。
+        for folder in cleanup:
+            target = os.path.abspath(os.path.join(self.workspace, folder))
+            if not self._is_within_workspace(target, self.workspace) or self._is_internal_path(target):
+                continue
+            try:
+                if os.path.isdir(target) and not os.listdir(target):
+                    os.rmdir(target)
+            except OSError as exc:
+                logger.warning("organize: 撤销后清不掉空文件夹 %s：%s", folder, exc)
         return _ok(restored=restored)
     def create_folder(self, relative_path: str) -> dict[str, Any]:
         """在资料库里新建一个真实文件夹（E17 ③）。"""

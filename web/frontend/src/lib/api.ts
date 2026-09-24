@@ -125,6 +125,16 @@ export interface OrganizationProposal {
   items: string[];
   suggested_folder: string;
   requires_confirmation: boolean;
+  /** "model" = 模型提的，"rules" = 确定性规则提的（E17 ⑤）。 */
+  source?: string;
+}
+
+/** 整理建议的来源与降级原因（E17 ⑤）：界面必须如实说明是谁提的。 */
+export interface OrganizationProposalResult {
+  ok: boolean;
+  proposals: OrganizationProposal[];
+  source: string;
+  degraded: string;
 }
 
 /** 服务端记下的一步整理（E17 ⑤）：界面刷新后据此决定还能不能撤销。 */
@@ -210,8 +220,13 @@ export const api = {
   /** 只读文件夹树（E17 ②）：真实文件夹 + 资料徽章 + 已忽略计数。 */
   /** 新建文件夹 / 删文件夹（只删容器）/ 重命名移动（E17 ③）。 */
   /** 整理建议：只提议，不动文件（E17 ⑤）。 */
-  organizationProposals: () => request<{ ok: boolean; proposals: OrganizationProposal[] }>(
+  organizationProposals: () => request<OrganizationProposalResult>(
     "/api/kb/organize/proposals",
+  ),
+  /** 让模型归类（E17 ⑤）：仍然只提议，**一份文件都不动**，执行前还要用户确认。 */
+  aiOrganizationProposals: () => request<OrganizationProposalResult>(
+    "/api/kb/organize/proposals",
+    json({ use_model: true }),
   ),
   applyOrganization: (items: string[], targetFolder: string) => request<{
     ok: boolean;

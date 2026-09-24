@@ -92,6 +92,9 @@ export function LibraryPage() {
   // ⑤：可撤销的那一步由**服务端台账**说了算（刷新页面后仍然撤销得回来）。
   const [organizePending, setOrganizePending] = useState<OrganizationBatch | null>(null);
   const [organizeBusy, setOrganizeBusy] = useState(false);
+  // ⑤：这份建议到底是谁提的（模型 / 规则），以及模型为什么没参与 —— 界面要如实说。
+  const [organizeSource, setOrganizeSource] = useState("");
+  const [organizeDegraded, setOrganizeDegraded] = useState("");
   // ④：阅读区标签页（每篇记住读到哪；关掉最后一个自动收起）。
   // ④：复用既有的标签模型（ReaderPage 也用它）：openIds + 每篇滚动位置。
   const openIds = useReaderTabsStore((state) => state.openIds);
@@ -829,8 +832,26 @@ export function LibraryPage() {
     try {
       const result = await api.organizationProposals();
       setOrganizeProposals(result.proposals);
+      setOrganizeSource(result.source);
+      setOrganizeDegraded(result.degraded);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "读取整理建议失败。");
+    } finally {
+      setOrganizeBusy(false);
+    }
+  }
+
+  /** ⑤：让模型归类 —— 仍然只提议；模型不可用时如实降级，并说明这次是规则建议。 */
+  async function loadAiProposals() {
+    setOrganizeBusy(true);
+    setError("");
+    try {
+      const result = await api.aiOrganizationProposals();
+      setOrganizeProposals(result.proposals);
+      setOrganizeSource(result.source);
+      setOrganizeDegraded(result.degraded);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "AI 归类失败。");
     } finally {
       setOrganizeBusy(false);
     }
@@ -1173,13 +1194,26 @@ export function LibraryPage() {
                     <summary>整理建议</summary>
                     <div>
                       {organizeProposals === null ? (
-                        <button className="quiet-button" type="button" disabled={organizeBusy} onClick={() => void loadOrganizeProposals()}>
-                          看看有什么可以整理的
-                        </button>
+                        <>
+                          <button className="quiet-button" type="button" disabled={organizeBusy} onClick={() => void loadOrganizeProposals()}>
+                            看看有什么可以整理的
+                          </button>
+                          <button className="quiet-button" type="button" disabled={organizeBusy} onClick={() => void loadAiProposals()}>
+                            让 AI 归类
+                          </button>
+                        </>
                       ) : organizeProposals.length === 0 ? (
                         <p className="text-faint">资料库已经很整齐了。</p>
                       ) : (
-                        organizeProposals.map((proposal) => (
+                        <>
+                        <p className="text-faint">
+                          {organizeSource === "model"
+                            ? "AI 提议 —— 执行前由你确认，执行后可一键撤销。"
+                            : organizeDegraded
+                              ? "模型这次没能参与，下面是规则建议 —— 执行前由你确认，执行后可一键撤销。"
+                              : "规则建议 —— 执行前由你确认，执行后可一键撤销。"}
+                        </p>
+                        {organizeProposals.map((proposal) => (
                           <div key={proposal.kind}>
                             <strong>{proposal.title}（{proposal.items.length} 份）</strong>
                             <p>{proposal.reason}</p>
@@ -1191,7 +1225,8 @@ export function LibraryPage() {
                               收进「{proposal.suggested_folder}」
                             </button>
                           </div>
-                        ))
+                        ))}
+                        </>
                       )}
                     </div>
                   </details>

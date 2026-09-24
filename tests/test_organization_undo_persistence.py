@@ -85,3 +85,68 @@ def test_undoing_with_an_explicit_list_also_clears_the_record(library, monkeypat
     assert undone["ok"], undone
     assert undone["restored"] == ["散落的一课.md"]
     assert service.organization_state()["pending_undo"] is None, "撤销过就不该再提示可撤销"
+
+def test_undo_removes_the_folder_that_apply_itself_created(library):
+    """真实资料库上发现的缺口：整理建了「未归类」，撤销把文件放回去了，却把空文件夹留下。"""
+    (library / "散落的一课.md").write_text("# 散落的一课\n\n内容足够长，能切出一段。", encoding="utf-8")
+    service = KBService(str(library))
+    assert not (library / "未归类").exists()
+
+    applied = service.apply_organization(["散落的一课.md"], "未归类")
+    assert applied["ok"], applied
+    assert (library / "未归类").is_dir()
+
+    undone = service.undo_organization()
+
+    assert undone["ok"], undone
+    assert (library / "散落的一课.md").is_file()
+    assert not (library / "未归类").exists(), "整理自己建的空文件夹不该留在用户的资料库里"
+
+
+def test_undo_never_deletes_a_folder_the_user_already_had(library):
+    (library / "已存在").mkdir()
+    (library / "已存在" / "别动我.md").write_text("# 别动我\n\n无关资料。", encoding="utf-8")
+    (library / "散落的一课.md").write_text("# 散落的一课\n\n内容足够长，能切出一段。", encoding="utf-8")
+    service = KBService(str(library))
+
+    applied = service.apply_organization(["散落的一课.md"], "已存在")
+    assert applied["ok"], applied
+    undone = service.undo_organization()
+
+    assert undone["ok"], undone
+    assert (library / "已存在").is_dir(), "用户自己的文件夹绝不能被撤销顺手删掉"
+    assert (library / "已存在" / "别动我.md").is_file()
+    assert (library / "散落的一课.md").is_file()
+
+def test_undo_resolves_the_current_identity_instead_of_the_recorded_one(library, monkeypatch):
+    """真机（2026-09-24）发现的缺口：移动之后索引会重新分配身份。
+
+    真实资料库上执行整理后，台账里记的 `document_id` 已经查不到了，于是
+    `undo_organization()` 直接 404（`document_not_found`）——文件躺在「未归类」里
+    撤不回来。撤销必须**以"文件现在在哪"重新解析身份**，记下的 id 只是台账。
+    """
+    from rag.sqlite_store import KBSQLiteStore
+
+    service = _prepare(library, monkeypatch)
+    applied = service.apply_organization(["散落的一课.md"], "未归类")
+    assert applied["ok"], applied
+    recorded_id = applied["moved"][0]["document_id"]
+
+    # 模拟索引在移动后重新分配了身份：台账里那个 id 从此查不到（真机就是这个状态）。
+    store = KBSQLiteStore(str(library))
+    store.init_db()
+    try:
+        conn = store._get_conn()
+        conn.execute("PRAGMA foreign_keys = OFF")
+        conn.execute("UPDATE documents SET id = ? WHERE id = ?", ("reindexed0000000", recorded_id))
+        conn.commit()
+    finally:
+        store.close()
+    assert KBSQLiteStore(str(library)).get_document(recorded_id) is None
+
+    undone = service.undo_organization()
+
+    assert undone["ok"], undone
+    assert undone["restored"] == ["散落的一课.md"]
+    assert (library / "散落的一课.md").is_file()
+    assert not (library / "未归类").exists()

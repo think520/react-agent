@@ -32,6 +32,7 @@ vi.mock("../lib/api", async (importOriginal) => {
       syncLibrary: vi.fn(),
       knowledgeTree: vi.fn(),
       organizationProposals: vi.fn(),
+      aiOrganizationProposals: vi.fn(),
       organizationState: vi.fn(),
       applyOrganization: vi.fn(),
       undoOrganization: vi.fn(),
@@ -386,5 +387,63 @@ describe("资料库文件夹同步", () => {
     fireEvent.click(await screen.findByText("撤销这一步整理"));
     // 不带清单：撤销的是服务端记下的那一步。
     await waitFor(() => expect(api.undoOrganization).toHaveBeenCalledWith());
+  });
+
+  it("AI 归类：界面如实说明这是 AI 提的，而且没确认前一份文件都不动", async () => {
+    vi.mocked(api.knowledgeTree).mockResolvedValue({ ok: true, tree: {
+      type: "folder", name: "vault", path: "", material_count: 1, indexed_count: 1, ignored_count: 0, ignored_here: [], children: [], files: [],
+    } } as never);
+    vi.mocked(api.documents).mockResolvedValue([{
+      document_id: "doc-1", source: "散落的一课.md", relative_path: "散落的一课.md",
+      kind: "course_document", title: "散落的一课", collection: "material", content_role: "content",
+    }] as never);
+    vi.mocked(api.aiOrganizationProposals).mockResolvedValue({ ok: true, source: "model", degraded: "", proposals: [{
+      kind: "ai_group",
+      title: "归到「课程笔记」",
+      reason: "看起来是同一门课。",
+      items: ["散落的一课.md"],
+      suggested_folder: "课程笔记",
+      requires_confirmation: true,
+      source: "model",
+    }] } as never);
+
+    render(
+      <MemoryRouter initialEntries={["/library"]}>
+        <LibraryPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByText("让 AI 归类"));
+    expect(await screen.findByText(/AI 提议/)).toBeTruthy();
+    expect(screen.getByText("收进「课程笔记」")).toBeTruthy();
+    expect(api.aiOrganizationProposals).toHaveBeenCalled();
+    expect(api.applyOrganization).not.toHaveBeenCalled(); // 确认之前，一份文件都不许动
+  });
+
+  it("模型不可用时，界面说清楚这次是规则建议", async () => {
+    vi.mocked(api.knowledgeTree).mockResolvedValue({ ok: true, tree: {
+      type: "folder", name: "vault", path: "", material_count: 1, indexed_count: 1, ignored_count: 0, ignored_here: [], children: [], files: [],
+    } } as never);
+    vi.mocked(api.documents).mockResolvedValue([{
+      document_id: "doc-1", source: "散落的一课.md", relative_path: "散落的一课.md",
+      kind: "course_document", title: "散落的一课", collection: "material", content_role: "content",
+    }] as never);
+    vi.mocked(api.aiOrganizationProposals).mockResolvedValue({ ok: true, source: "rules", degraded: "model_unavailable", proposals: [{
+      kind: "loose_materials",
+      title: "库根散落的资料",
+      reason: "这些资料直接躺在资料库根目录。",
+      items: ["散落的一课.md"],
+      suggested_folder: "未归类",
+      requires_confirmation: true,
+    }] } as never);
+
+    render(
+      <MemoryRouter initialEntries={["/library"]}>
+        <LibraryPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByText("让 AI 归类"));
+    expect(await screen.findByText(/模型这次没能参与/)).toBeTruthy();
   });
 });
