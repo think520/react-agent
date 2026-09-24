@@ -7,6 +7,12 @@
 ## [未发布]
 
 ### 变更
+- **④r 定位完成：这条红测试验证的是"尚未实现的行为"，而卡点是 `selected` 仍为空（2026-09-24，未改代码）**：用唯一锚点探针实测（点击后放行一拍）：`docCalls: 1, sections: 0, article: 0`。
+  - `article: 0` 说明 `{selected ? <article …/> : …}` 里的 **`selected` 为空** ⇒ 页面被卸载了：因为**当前代码对 material 资料仍然 `navigate()` 跳走**（那条 1 次 `api.document` 是点击前自动选中第一份资料时调用的）。**所以这条测试是"目标行为的红测试"，不是 bug 复现** —— 它天然要求先实现"就地阅读"。
+  - 把 ④e 的改动（material 不再 navigate）重新落上并跑这条快速回路后，**测试仍然红**（5.55s 超时）——与真实动线的观测完全一致：页面留下了，但头部与正文都没出现，**`selected` 依旧为空**。
+  - **下一步唯一的观测（一次运行）**：在同样的位置打印 `{ activeRow: document.querySelectorAll(".document-row-wrap.active").length, rows: document.querySelectorAll(".document-row").length, docCalls: vi.mocked(api.documents).mock.calls.length }` —— 若 `activeRow` 为 0，说明 `setSelectedId` 之后又被别处改回/清空（查 `loadDocuments` 里 `setSelectedId(nextSelected)` 与 URL 相关 effect）；若 `activeRow` 为 1 而 `article` 为 0，则查 `documents` 与 `selectedId` 的匹配（`_public_document` 的 `document_id` 与树/列表传入的 id 是否同一套）。
+  - **本轮的方法论进展**：终于建立了"**唯一锚点插探针 → 等异步条件 → 同步打印状态**"的可靠观测回路（见 ④q/④r），并且用真实数据作废了此前基于错位探针的三条结论。
+  - 工作树已复原（树上绿），**本轮无代码改动提交**。
 - **④q 用正确的观测手段拿到事实（2026-09-24，未改代码）**：改用**唯一锚点**的 `tools.edit` 插探针（不再用 `String.replace`），并用"故意不可能的期望值"把状态打印出来，终于观测到真实数据：
   - **列表渲染是好的**：`render()` 之后等 `api.documents` 被调用、再放行一拍，DOM 里 `rows: 1`、`loading: 0`、rail 文本 = `我的资料 1第一课course_document`（117ms 内就绪）。→ **④h / ④n 的"列表没渲染"结论作废**（作废原因见 ④p：探针一直插错用例）。
   - **渲染闸门也是好的**：点击之后，断言失败的输出里能看到 `.reader-article` 与其内部 `<header>` 元素存在 —— 说明 `selected` 派生成功、`{selected && …}` 通过。
