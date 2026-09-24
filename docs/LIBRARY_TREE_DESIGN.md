@@ -168,3 +168,19 @@ expect(vi.mocked(api.document).mock.calls.length).toBeGreaterThan(0);
 - 编辑之后**回读文件确认**（我有两次「改了但没生效」还直接去跑）；
 - 长 JSX 改动只用带精确 `old_string` 的编辑工具，**禁止按行号程序化切片**（切坏过文件两次）；
 - 每次改完跑**真实动线**（Playwright + 真实库），因为「测试绿但用户看不到」的提交这个功能里已经出现过两个。
+### 9.2 ④ 最后一件：两套阅读实现合一（2026-09-24 交接，含行号）
+
+**现状**：
+- `/library`（`LibraryPage`）现在能**就地阅读** material（④v，`1297` 那层 collection 条件已去掉），阅读区类名 `.document-reader`；它具备：标题/提取状态动作、目录浮层（④w）、小节渲染（`.reader-prose section`）、标签条（用 `readerTabsStore`，④x）。
+- `/library/read/:id`（`ReaderPage`，约 800 行）是**第二套实现**，能力更全：原文/按小节切换、PDF 内嵌 `<iframe>`、章节导轨、引用提示条、选区工具条、上一份/下一份。
+- 5 处发送端 + 搜索结果都指向 `/library/read/:id`（**深链接必须不破**，现有 live 2 条在守：`the reader renders the original file…`、`a citation link lands on the cited chunk…`）。
+
+**目标**：一套渲染，两条路由。
+
+**建议顺序（每步都能独立验证）**：
+1. 从 `ReaderPage` 里把**文章主体**抽成 `components/DocumentReader.tsx`（入参 `documentId` / `collection` / `chunkId`，内部自带 sections 加载、原文/按小节、PDF 内嵌、目录、选区）。抽的时候先只搬 JSX 与它直接依赖的 state/派生，**不动数据获取层的调用点**，保证 `ReaderPage` 仍能通过这些 props 工作。
+2. `ReaderPage` 改为薄壳：解析路由参数 → 渲染 `DocumentReader`。跑 live 的 2 条深链接用例 + `the library page reads a material in place`，**三条都必须继续绿**。
+3. `LibraryPage` 的阅读区改为渲染同一个 `DocumentReader`（替换现有的 `.document-reader` 分支），删掉重复的小节渲染与目录浮层代码。跑页面测试 6 条 + live 6 条。
+4. 只在第 3 步绿了之后，才考虑把 `/library/read/:id` 改成"渲染资料库页并选中该资料"（真正的两路由一组件）；若担心首屏（树+列表）开销，可以保留薄壳版本作为深链接入口——**两者都满足"同一套渲染"**，先选改动小的。
+
+**纪律**：① 每一步都先跑上面点名的用例；② 长 JSX 只用带精确 `old_string` 的编辑工具；③ 失败信息写文件再读（`> $env:TEMP\out.txt 2>&1; Get-Content $env:TEMP\out.txt -Tail 40`）；④ 任何一步弄红两条以上用例就立刻 `git checkout` 回滚，不带着半成品往下走。

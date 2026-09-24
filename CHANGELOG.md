@@ -7,6 +7,10 @@
 ## [未发布]
 
 ### 变更
+- **④y ④ 的最后一件已写成执行级交接（2026-09-24，未改代码）**：剩下的唯一一项是"`/library` 与 `/library/read/:id` 共用同一套渲染"。现状与计划已写进 `docs/LIBRARY_TREE_DESIGN.md` §9.2（精确到 `ReaderPage` 的抽法、`LibraryPage` 要替换的分支、以及每步该跑哪几条用例）。
+  - 为什么这轮不动手：以当前会话剩余上下文，这个重构（抽 800 行组件的文章主体 + 两处替换）大概率以回滚收场；而前 35 轮已经证明"改一半再回滚"比不动更糟。**交接写清楚比硬做更负责。**
+  - 现状盘点（都已验证）：④ 已交付**就地阅读**（`5540301`，live 新增用例在守）、**工具条收口**（`cd52917`）、**目录浮层**（`01a5523`）、**标签模型统一**（`d420828`，净删 254 行）；深度链接的 2 条 live 用例持续保护 5 处发送端。
+  - **本轮无代码改动**，最后一次提交仍是 `d420828`（前端 tsc/lint/vitest 106/build 0、live 6 passed、pytest 1617 passed）。
 - **④x 标签模型统一：删掉重复实现，改用既有 `readerTabsStore`（2026-09-24）**：④a/④b 当初新建的 `lib/readerTabs.ts` + `hooks/useReaderTabs.ts`（含 7 条测试）与仓库里**早就存在**的 `stores/readerTabsStore.ts`（`openIds` / `open` / `close` / `scrolls` / `setScroll` / `scrollFor`，ReaderPage 一直在用）重叠。现在资料库页直接读同一个 store，并删掉那两个文件与它们的测试。
   - 具体：标签条改由 `openIds` 驱动、激活态用页面自己的 `selectedId`、标题从 `documents` 查、滚动位置记/取都用 store 的 `setScroll`/`scrollFor`；顺手删掉因此失效的 `scrollTargetFor` 与一个未使用变量（eslint 抓出来的）。
   - **验证**：tsc 0、eslint 0、前端全量 vitest **106 passed / 18 files**（比上轮少 7 条，正是被删掉的重复模型测试）、构建 0；live（真实后端 + 真实资料库）**6 passed**。
