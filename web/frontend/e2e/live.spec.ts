@@ -140,6 +140,14 @@ test("the library page reads a material in place", async ({ page }) => {
   await tree.locator(".library-tree-open").first().click();
 
   await expect(page).toHaveURL(/\/library\?/);
+  // ④ 第 3 步之后，资料库页的阅读区就是 DocumentReader 本身：它先按用户偏好选视图，
+  // 有原件的资料默认落在「原文」。所以这里先断言正文出现，再切到「按小节」断言分段 ——
+  // 这同时钉住了"资料库页也拿到了原文/按小节切换"这件新能力。
+  await expect(page.locator(".document-reader .reader-prose").first()).toBeVisible({ timeout: 20_000 });
+  const sectionsSwitch = page.locator(".document-reader .reader-view-switch").getByRole("button", { name: "按小节" });
+  if (await sectionsSwitch.count()) {
+    await sectionsSwitch.click();
+  }
   await expect(page.locator(".document-reader .reader-prose section").first()).toBeVisible({ timeout: 20_000 });
   await expect(page.locator(".reader-tabs .reader-tab")).toHaveCount(1);
 });

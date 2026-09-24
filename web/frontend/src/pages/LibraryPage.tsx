@@ -1,6 +1,6 @@
 import { readerLocation } from "../lib/documentLinks";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CheckCircle2, FilePlus2, FileText, FolderOpen, Library, MessageCircle, MoreHorizontal, NotebookPen, Pencil, Quote, RefreshCw, Save, Search, Settings2, ShieldCheck, Sparkles, Trash2, Upload, Wrench, X } from "lucide-react";
+import { CheckCircle2, FilePlus2, FileText, FolderOpen, Library, MessageCircle, MoreHorizontal, Pencil, RefreshCw, Save, Search, Settings2, ShieldCheck, Sparkles, Trash2, Upload, Wrench, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useNavigate, useOutletContext, useSearchParams } from "react-router-dom";
@@ -12,11 +12,12 @@ import { BrandIllustration, EmptyState, ErrorNotice, IconButton, LoadingState, f
 import { WikiPlanCard } from "../components/WikiPlanCard";
 import { ApiError, api } from "../lib/api";
 import type { ArchivedEntry, KnowledgeSyncSummary, KnowledgeTree, OrganizationBatch, OrganizationProposal } from "../lib/api";
+import { DocumentReader } from "../components/DocumentReader";
 import { LibraryTree } from "../components/LibraryTree";
 import { useReaderTabsStore } from "../stores/readerTabsStore";
 import { Modal, useConfirm } from "../ui/Modal";
 import { useHandoffStore } from "../stores/handoffStore";
-import type { DocumentExtractionStatus, DocumentSection, DocumentSummary, PersonalKnowledgeItem, WikiEditablePage, WikiGenerationMode, WikiHealth, WikiPlan, WikiRepairPlan, WikiRunEstimate, WikiScopeMode, WikiTask } from "../types";
+import type { DocumentExtractionStatus, DocumentSection, DocumentSummary, WikiEditablePage, WikiGenerationMode, WikiHealth, WikiPlan, WikiRepairPlan, WikiRunEstimate, WikiScopeMode, WikiTask } from "../types";
 
 type WikiView = "knowledge" | "sources" | "notes" | "all";
 
@@ -58,7 +59,6 @@ export function LibraryPage() {
     documentImportError,
     documentImportVersion,
     selectedDocumentIds,
-    toggleDocumentScope,
     setDocumentScope,
   } = useOutletContext<AppOutletContext>();
   const navigate = useNavigate();
@@ -74,9 +74,7 @@ export function LibraryPage() {
   });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [sections, setSections] = useState<DocumentSection[]>([]);
-  const [relatedNotes, setRelatedNotes] = useState<PersonalKnowledgeItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -99,17 +97,16 @@ export function LibraryPage() {
   const openIds = useReaderTabsStore((state) => state.openIds);
   const openTab = useReaderTabsStore((state) => state.open);
   const closeTab = useReaderTabsStore((state) => state.close);
-  const setTabScroll = useReaderTabsStore((state) => state.setScroll);
   const scrollFor = useReaderTabsStore((state) => state.scrollFor);
   const [editingDocumentId, setEditingDocumentId] = useState<string | null>(null);
-  const [highlightedChunk, setHighlightedChunk] = useState<string | null>(null);
+  // ④：编辑器保存后让阅读器重新拉一次小节（阅读器自己持有小节加载）。
+  const [readerReloadToken, setReaderReloadToken] = useState(0);
   const [startingExtractionId, setStartingExtractionId] = useState<string | null>(null);
   const [extractionStatuses, setExtractionStatuses] = useState<Record<string, DocumentExtractionStatus>>({});
   const [documentQuery, setDocumentQuery] = useState("");
   // ④ 搜索命中 → 定位：标题过滤之外，再问一次后端的原文检索，命中直接深链到阅读器
   // 的那一段（?chunk= 通道已在 2026-09-23 验证可用）。
   const [hits, setHits] = useState<Array<{ chunk_id: string; document_id: string; collection?: string; title?: string; source?: string; text?: string }>>([]);
-  const [selectionQuote, setSelectionQuote] = useState("");
   const [maintenanceOpen, setMaintenanceOpen] = useState(false);
   const [maintenanceLoading, setMaintenanceLoading] = useState(false);
   const [wikiHealth, setWikiHealth] = useState<WikiHealth | null>(null);
@@ -128,8 +125,6 @@ export function LibraryPage() {
   const [wikiTopic, setWikiTopic] = useState("");
   const [wikiScopeMode, setWikiScopeMode] = useState<WikiScopeMode>("uncovered");
   const pageRef = useRef<HTMLElement>(null);
-  const readingOpenedRef = useRef(false);
-  const lastProgressRef = useRef(0);
   const selectedIdRef = useRef(selectedId);
   const searchParamsRef = useRef(searchParams);
   const wikiViewRef = useRef(wikiView);
@@ -271,45 +266,17 @@ export function LibraryPage() {
     if (requestedCollection !== collection) setCollection(requestedCollection);
   }, [collection, searchParams]);
 
+  // ④：小节加载、相关笔记、阅读进度、选区工具条、目录都归 DocumentReader（唯一实现）。
+  // 外壳只留两件事：知道"当前这份资料的小节"（提取概念要用），以及恢复标签的滚动位置。
   useEffect(() => {
-    setSelectionQuote("");
-    setRelatedNotes([]);
-    if (!selectedId) { setSections([]); return; }
-    let cancelled = false;
-    setDetailLoading(true);
-    void api.document(selectedId)
-      .then((result) => { if (!cancelled) setSections(result.sections); })
-      .catch((reason: Error) => { if (!cancelled) setError(reason.message); })
-      .finally(() => { if (!cancelled) setDetailLoading(false); });
-    // 资料 → 笔记联动：加载关联到这份资料的个人笔记
-    if (collection === "material") {
-      void api.knowledgeByDocument(selectedId)
-        .then((result) => { if (!cancelled) setRelatedNotes(result.items); })
-        .catch(() => { if (!cancelled) setRelatedNotes([]); });
-    }
-    return () => { cancelled = true; };
-  }, [selectedId, collection]);
-
-  useEffect(() => {
-    readingOpenedRef.current = false;
-    lastProgressRef.current = 0;
-    if (!selectedId || detailLoading || !sections.length) return;
-    let visibleSeconds = 0;
-    const timer = window.setInterval(() => {
-      if (document.visibilityState !== "visible") return;
-      visibleSeconds += 1;
-      if (visibleSeconds < 10 || readingOpenedRef.current) return;
-      readingOpenedRef.current = true;
-      void api.updateReadingProgress(selectedId, lastProgressRef.current, true).catch(() => undefined);
-    }, 1000);
-    return () => window.clearInterval(timer);
-  }, [selectedId, detailLoading, sections.length]);
+    setSections([]);
+  }, [selectedId]);
 
   // ④：切到一份资料并把内容渲染出来之后，恢复到上次读到的位置。
   // 只做一次（用 ref 记已恢复的 document_id），避免用户往下读时被反复拽回。
   const restoredRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!selectedId || detailLoading || sections.length === 0) return;
+    if (!selectedId || sections.length === 0) return;
     if (restoredRef.current === selectedId) return;
     restoredRef.current = selectedId;
     const element = pageRef.current;
@@ -317,31 +284,7 @@ export function LibraryPage() {
     const target = scrollFor(selectedId);
     if (target <= 0) return;
     element.scrollTop = target;
-    lastProgressRef.current = Math.floor((target / Math.max(1, element.scrollHeight - element.clientHeight)) * 100);
-  }, [selectedId, detailLoading, sections.length, scrollFor]);
-
-  function recordReadingProgress() {
-    const element = pageRef.current;
-    if (!element || !selectedId || !readingOpenedRef.current) return;
-    const available = element.scrollHeight - element.clientHeight;
-    const raw = available > 0 ? Math.round((element.scrollTop / available) * 100) : 100;
-    const progress = raw >= 100 ? 100 : Math.floor(raw / 10) * 10;
-    // ④：本地的"读到哪"比后端进度更细，且关掉标签页也留着。
-    setTabScroll(selectedId, element.scrollTop);
-    if (progress < 10 || progress <= lastProgressRef.current) return;
-    lastProgressRef.current = progress;
-    void api.updateReadingProgress(selectedId, progress).catch(() => undefined);
-  }
-
-  useEffect(() => {
-    const chunkId = searchParams.get("chunk");
-    if (detailLoading || !chunkId || !sections.length) return;
-    const target = Array.from(document.querySelectorAll<HTMLElement>("[data-chunk-id]"))
-      .find((element) => element.dataset.chunkId === chunkId);
-    if (!target) return;
-    setHighlightedChunk(chunkId);
-    target.scrollIntoView({ block: "center", behavior: "smooth" });
-  }, [detailLoading, searchParams, sections]);
+  }, [selectedId, sections.length, scrollFor]);
 
   async function checkWiki() {
     setMaintenanceLoading(true);
@@ -691,7 +634,6 @@ export function LibraryPage() {
     // ④：打开阅读区的一个标签页（已开只激活）。
     openTab(documentId);
     setSelectedId(documentId);
-    setHighlightedChunk(null);
     setSearchParams({ collection, document: documentId, ...(collection === "wiki" ? { wikiView } : {}) }, { replace: true });
   }
 
@@ -711,22 +653,6 @@ export function LibraryPage() {
     setSelectedId(first?.document_id || null);
     setSections([]);
     setSearchParams({ collection: "wiki", wikiView: next, ...(first ? { document: first.document_id } : {}) }, { replace: true });
-  }
-
-  function captureSelection() {
-    const text = window.getSelection()?.toString().trim() || "";
-    setSelectionQuote(text.slice(0, 1200));
-  }
-
-  function askAboutSelection() {
-    if (!selectionQuote || !selected) return;
-    useHandoffStore.getState().setChatDraft(
-      `请结合资料《${selected.title || selected.source}》解释下面这段内容：\n\n> ${selectionQuote.replace(/\n/g, "\n> ")}`,
-    );
-    if (!selectedDocumentIds.includes(selected.document_id) && selected.collection === "material") {
-      toggleDocumentScope(selected.document_id);
-    }
-    navigate("/chat");
   }
 
   function askAboutDocument() {
@@ -1059,7 +985,7 @@ export function LibraryPage() {
   };
 
   return (
-    <section className="page-scroll" ref={pageRef} onScroll={recordReadingProgress}>
+    <section className="page-scroll" ref={pageRef}>
       <div className="page-container library-container">
         <header className="library-toolbar">
           <div className="library-toolbar-context">
@@ -1397,28 +1323,6 @@ export function LibraryPage() {
                 <span>{selected.collection === "wiki" ? `历史整理 · ${selected.wiki_type ? wikiTypeLabels[selected.wiki_type] : "页面"}` : selected.kind || "本地资料"}{selected.course ? ` · ${selected.course}` : ""}</span>
                 <h2>{selected.title || selected.source}</h2>
                 {selected.collection === "material" && <div className="reader-actions">
-                  {sections.length > 1 && (
-                    <details className="reader-toc">
-                      <summary aria-label="目录" title="跳到某个小节">目录</summary>
-                      <div>
-                        {sections.map((section, index) => (
-                          <button
-                            key={section.chunk_id}
-                            type="button"
-                            onClick={() => {
-                              const target = document.querySelector<HTMLElement>(
-                                `[data-chunk-id="${section.chunk_id}"]`,
-                              );
-                              target?.scrollIntoView({ block: "start", behavior: "smooth" });
-                            }}
-                          >
-                            {section.heading ||
-                              (section.page_start ? `第 ${section.page_start} 页` : `第 ${index + 1} 节`)}
-                          </button>
-                        ))}
-                      </div>
-                    </details>
-                  )}
                   {effectiveExtractionStatus(selected) === "not_started" && (
                     <button className="primary-button reader-extract" disabled={startingExtractionId === selected.document_id || !sections.length} onClick={() => void extractAndReview(selected)}><Sparkles size={15} />{startingExtractionId === selected.document_id ? "正在启动…" : "提取概念"}</button>
                   )}
@@ -1449,33 +1353,20 @@ export function LibraryPage() {
                   )}
                 </div>}
                 {selected.summary && <p>{selected.summary}</p>}
-                {selected.collection === "material" && relatedNotes.length > 0 && (
-                  <div className="reader-related-notes">
-                    <span><NotebookPen size={14} />相关笔记</span>
-                    {relatedNotes.map((note) => (
-                      <div key={note.id}>
-                        <strong>{note.title}</strong>
-                        <p>{note.content}</p>
-                        <small>更新于 {new Date(note.updated_at).toLocaleString("zh-CN")}</small>
-                      </div>
-                    ))}
-                  </div>
-                )}
               </header>}
-              {selectionQuote && <div className="selection-toolbar"><Quote size={15} /><span>已选择 {selectionQuote.length} 个字符</span><button className="quiet-button" onClick={askAboutSelection}>带到对话</button></div>}
-              {detailLoading && !sections.length ? <LoadingState label="正在打开资料…" /> : sections.length ? <div className={`reader-prose ${detailLoading ? "refreshing" : ""}`} onMouseUp={captureSelection}>{sections.map((section, index) => {
-                // 同一标题的相邻切片只显示一次 heading，避免切片边界造成
-                // 重复标题的"断开感"（2026-08-12 阅读体验决策）。
-                const previous = index > 0 ? sections[index - 1] : undefined;
-                const showHeading = Boolean(section.heading) && section.heading !== previous?.heading;
-                return (
-                  <section className={highlightedChunk === section.chunk_id ? "highlighted" : ""} data-chunk-id={section.chunk_id} key={section.chunk_id}>
-                    {showHeading && <h3>{section.heading}</h3>}
-                    <div className="section-location">{section.page_start ? `第 ${section.page_start} 页` : section.slide_start ? `第 ${section.slide_start} 页` : "资料片段"}</div>
-                    <div className="reader-section-prose"><ReactMarkdown remarkPlugins={[remarkGfm]}>{section.text}</ReactMarkdown></div>
-                  </section>
-                );
-              })}</div> : <EmptyState compact title="没有可阅读的片段" description="这份资料可能仍在建立索引，刷新后再试一次。" state="resting" />}
+              {selected && (
+                <DocumentReader
+                  key={selected.document_id}
+                  documentId={selected.document_id}
+                  collection={selected.collection === "wiki" ? "wiki" : "material"}
+                  chunkId={searchParams.get("chunk")}
+                  documentSummary={selected}
+                  scrollRef={pageRef}
+                  onError={setError}
+                  onSectionsLoaded={setSections}
+                  reloadToken={readerReloadToken}
+                />
+              )}
             </article>
           </div>
         ) : (
@@ -1494,12 +1385,7 @@ export function LibraryPage() {
           onSaved={() => {
             setEditingDocumentId(null);
             void loadDocuments();
-            if (selectedId) {
-              setDetailLoading(true);
-              void api.document(selectedId)
-                .then((result) => setSections(result.sections))
-                .finally(() => setDetailLoading(false));
-            }
+            setReaderReloadToken((token) => token + 1);
           }}
         />
       )}

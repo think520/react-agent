@@ -314,11 +314,26 @@ describe("资料库文件夹同步", () => {
     await waitFor(() => expect(document.querySelectorAll(".reader-prose section").length).toBeGreaterThan(0));
     expect(await screen.findByRole("tab", { name: "第一课" })).toBeTruthy();
 
-    // 目录浮层：列出这份资料自己的小节，点一下跳到那一段
-    fireEvent.click(screen.getByLabelText("目录"));
-    // jsdom 不实现 <details> 的展开，折叠内容对 getByRole 是 hidden —— 断言它确实列出了各小节。
-    expect(screen.getByRole("button", { name: "第一节", hidden: true })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "第二节", hidden: true })).toBeTruthy();
+    // 目录：④ 第 3 步之后，资料库页的阅读区就是 DocumentReader 本身，"目录"因此是它的
+    // 章节导轨（右缘悬停区），而不再是页面自己的 <details>。一条断言同时钉住这两件事。
+    const railZone = document.querySelector(".chapter-rail-zone");
+    expect(railZone).not.toBeNull();
+    fireEvent.mouseEnter(railZone!);
+    const rail = document.querySelector(".chapter-rail");
+    expect(rail).not.toBeNull();
+    const railButtons = () => Array.from(rail!.querySelectorAll("button"));
+    expect(railButtons().map((button) => button.textContent)).toEqual(
+      expect.arrayContaining(["第一节", "第二节"]),
+    );
+    // 点一下真的会跳到那一段（jsdom 没有 scrollIntoView，补个记录落点的桩）。
+    const landed: string[] = [];
+    const originalScrollIntoView = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function recordLanding() {
+      landed.push((this as HTMLElement).dataset.chunkId || "");
+    };
+    fireEvent.click(railButtons().find((button) => button.textContent === "第二节")!);
+    Element.prototype.scrollIntoView = originalScrollIntoView;
+    expect(landed).toContain("c2");
   });
 
   it("整理建议：看建议 → 执行 → 再撤销", async () => {
