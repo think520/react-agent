@@ -7,6 +7,10 @@
 ## [未发布]
 
 ### 变更
+- **④v 打通「就地阅读」：三处改动 + 一处死代码清理（2026-09-24）**：从第 6 轮卡到现在的 ④ 主阻塞解决。根因是 `LibraryPage.tsx:1297` 的一行 `{collection === "wiki" && <article className="document-reader">}` —— **资料库页的阅读区从来只为 wiki 渲染过**。
+  - **改动**：① 去掉那层 collection 条件（并补上配对的 `}`，否则整个文件解析失败）；② `selectDocument` 不再对 material `navigate` 到 `/library/read/:id`（改为就地选中）；③ 三条测试查询改为 `findAllByText(...)[0]` / `getAllByText`（标题现在会同时出现在列表与阅读区，`getByText` 会因多元素报错）；④ 删掉因此变成死代码的 `saveListScroll`（eslint 抓出来的）。
+  - **验证**：`tests/…/LibraryPage.test.tsx` **6 passed**（含那条从 ④ 一开始就写好的「选中资料后阅读区必须渲染出正文」）；前端全量 vitest **113 passed / 18 files**、tsc 0、eslint 0、构建 0；pytest **1617 passed**；**live（真实后端 + 真实资料库）6 passed** —— 新增一条 `the library page reads a material in place`：点树里的资料后 **URL 仍在 `/library`**、`.document-reader .reader-prose section` 可见、标签条 1 个。
+  - **④ 仍未做**：目录浮层；`/library` 与 `/library/read/:id` 合并成**同一套渲染**（现在两条路由各自有一套阅读实现——阅读页能力更全：原文/按小节、PDF 内嵌、章节导航）；以及复用既有 `readerTabsStore` 后删掉 ④a/④b 造的重复模型（`lib/readerTabs.ts`、`hooks/useReaderTabs.ts`）。
 - **④u 距离完成只差一条断言（2026-09-24，未改代码）**：把 ④t 的改动 + **三条受影响的查询一起调整**（`findByText` → `findAllByText(...)[0]`，因为标题现在会同时出现在列表与阅读区）后重跑，结果是 **1 failed | 5 passed，整个文件 3.74 秒（不再有 5 秒超时）** —— 即**两条曾被弄坏的用例已经修好**，只剩我自己那条在**快速失败（约 780ms，不是超时）**。
   - 探针已证明这条链是通的（`pane:1, prose:1, sections:1, docArg:\"doc-1\"`），所以剩下的只是那条用例的一个断言写法问题：候选是最后那句（我一度改成 `.reader-tabs .reader-tab` 计数）与 `waitFor(.reader-prose section)` 的时序。
   - **未能读到失败详情**：vitest 的失败块始终落在 `Select-Object -Last N` 之外/被截断，我连试三次都没打印出来。**下轮第一步**：用 `npx vitest run src/pages/LibraryPage.test.tsx --reporter=basic > out.txt 2>&1; Get-Content out.txt -Tail 60`（**写文件再读**，绕开管道截断），先拿到那条断言的真实报错，再收尾。

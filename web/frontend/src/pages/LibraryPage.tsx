@@ -667,21 +667,9 @@ export function LibraryPage() {
     // ④：打开阅读区的一个标签页（已开只激活）。
     const target = documents.find((item) => item.document_id === documentId);
     tabs.open(documentId, target?.title || target?.relative_path || "");
-    // TASKS_LIBRARY_REWORK task 1: material documents open the full reader page.
-    if (collection === "material") {
-      saveListScroll();
-      navigate(`/library/read/${documentId}?collection=material`);
-      return;
-    }
     setSelectedId(documentId);
     setHighlightedChunk(null);
     setSearchParams({ collection, document: documentId, ...(collection === "wiki" ? { wikiView } : {}) }, { replace: true });
-  }
-
-  // Preserve the list scroll position across list <-> reader navigation.
-  function saveListScroll() {
-    const element = pageRef.current;
-    if (element) localStorage.setItem("bobodan:library-scroll", String(element.scrollTop));
   }
 
   function selectCollection(next: "material" | "wiki") {
@@ -1294,7 +1282,7 @@ export function LibraryPage() {
               ))}
               {!filteredDocuments.length && <p className="document-search-empty">没有找到匹配的资料。</p>}
             </aside>
-            {collection === "wiki" && <article className="document-reader">
+            <article className="document-reader">
               {selected && <header>
                 <span>{selected.collection === "wiki" ? `历史整理 · ${selected.wiki_type ? wikiTypeLabels[selected.wiki_type] : "页面"}` : selected.kind || "本地资料"}{selected.course ? ` · ${selected.course}` : ""}</span>
                 <h2>{selected.title || selected.source}</h2>
@@ -1356,7 +1344,7 @@ export function LibraryPage() {
                   </section>
                 );
               })}</div> : <EmptyState compact title="没有可阅读的片段" description="这份资料可能仍在建立索引，刷新后再试一次。" state="resting" />}
-            </article>}
+            </article>
           </div>
         ) : (
           <EmptyState state={collection === "wiki" ? "listening" : "reading"}

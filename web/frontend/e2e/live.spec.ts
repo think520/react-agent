@@ -127,3 +127,19 @@ test("the library page shows the real folder tree", async ({ page }) => {
   await expect(rows.filter({ hasText: "Obsidian-AI" })).toHaveCount(1, { timeout: 15_000 });
   await expect.poll(async () => rows.count()).toBeLessThan(before);
 });
+test("the library page reads a material in place", async ({ page }) => {
+  // ④（E17）：点资料不再跳走 —— 资料库页自己渲染正文，并进标签条。
+  // 这是 2026-09-24 审计发现的缺口（当时会 navigate 到 /library/read/:id）。
+  await page.addInitScript(() => localStorage.setItem("bobodan:onboarding:v1", "complete"));
+  await page.goto(BASE + "/library?collection=material");
+
+  const tree = page.locator(".library-tree");
+  await expect(tree).toBeVisible({ timeout: 20_000 });
+  await tree.getByRole("button", { name: "ai-agents-from-zero", exact: true }).click();
+  await tree.getByRole("button", { name: /^展开 ai-agents-from-zero$/ }).click();
+  await tree.locator(".library-tree-open").first().click();
+
+  await expect(page).toHaveURL(/\/library\?/);
+  await expect(page.locator(".document-reader .reader-prose section").first()).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator(".reader-tabs .reader-tab")).toHaveCount(1);
+});

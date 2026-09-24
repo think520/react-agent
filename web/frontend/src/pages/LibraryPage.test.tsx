@@ -228,12 +228,12 @@ describe("资料库文件夹同步", () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByText("文件夹里的资料")).toBeTruthy();
+    expect((await screen.findAllByText("文件夹里的资料")).length).toBeGreaterThan(0);
     expect(screen.getByText("文件夹外的资料")).toBeTruthy();
 
     fireEvent.click(await screen.findByRole("button", { name: "课程包" }));
 
-    expect(screen.getByText("文件夹里的资料")).toBeTruthy();
+    expect(screen.getAllByText("文件夹里的资料").length).toBeGreaterThan(0);
     expect(screen.queryByText("文件夹外的资料")).toBeNull();
   });
 
@@ -257,7 +257,7 @@ describe("资料库文件夹同步", () => {
       </MemoryRouter>,
     );
 
-    fireEvent.click(await screen.findByText("第一课"));
+    fireEvent.click((await screen.findAllByText("第一课"))[0]);
     const tab = await screen.findByRole("tab", { name: "第一课" });
     expect(tab.getAttribute("aria-selected")).toBe("true");
 
@@ -270,7 +270,7 @@ describe("资料库文件夹同步", () => {
   // 选中之后，URL 与标签条都对了（tabs=1），但 sections=0 且 header 没渲染 ——
   // 说明 selected 仍为 null（documents 与 selectedId 没接上）。
   // 去掉 .skip 就是这条链的复现测试；它红了才说明修好了（详见设计文档 §9 执行手册）。
-  it.skip("选中资料后，资料库页的阅读区必须渲染出正文", async () => {
+  it("选中资料后，资料库页的阅读区必须渲染出正文", async () => {
     vi.mocked(api.knowledgeTree).mockResolvedValue({ ok: true, tree: {
       type: "folder", name: "vault", path: "", material_count: 1, indexed_count: 1, ignored_count: 0, ignored_here: [], children: [], files: [],
     } } as never);
@@ -302,7 +302,7 @@ describe("资料库文件夹同步", () => {
       </MemoryRouter>,
     );
 
-    fireEvent.click(await screen.findByText("第一课"));
+    fireEvent.click((await screen.findAllByText("第一课"))[0]);
 
     await waitFor(() => expect(document.querySelectorAll(".reader-prose section").length).toBeGreaterThan(0));
     expect(await screen.findByRole("tab", { name: "第一课" })).toBeTruthy();
