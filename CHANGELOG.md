@@ -7,6 +7,10 @@
 ## [未发布]
 
 ### 变更
+- **④aa 两套阅读实现合一（第 3 步，④ 收官）：`LibraryPage` 阅读区就是 `DocumentReader`（2026-09-24，E17 ④，`309b0b2`）**：资料库页删掉自己那一份小节渲染、相关笔记、选区工具条与 `<details>目录`，改为渲染**同一个** `components/DocumentReader`。页面只剩真正属于它的东西：资料列表、标签条、带提取动作的页头（小节由 `onSectionsLoaded` 回传）、以及标签滚动位置恢复；`pageRef` 作为 `scrollRef` 交给组件，**阅读进度从此只有一个写入者**（此前页面 onScroll 与组件各写一份）。
+  - **用户可见的变化**：就地阅读区现在**尊重「原文/按小节」偏好**，并**免费获得**视图切换、章节导轨与 PDF 内嵌。因此 live 的那条用例被如实改写：先断言正文出现，**再切到「按小节」**才断言 `section` —— 旧断言假设"这个面板永远渲染分段"，在共享实现按偏好默认落在「原文」之后已经不成立。
+  - **验证**：`LibraryPage.tsx` 净删 **145 行**；tsc **0**、eslint **0**、vitest **107 passed / 17 files**、构建 **0**、live（真实后端 + 真实资料库）**6 passed**、mock e2e **13 passed**；页面测试里 ④w 的目录断言改成钉"章节导轨"（`mouseEnter` 打开 → 断言小节按钮 → 点击真的落到 `c2`，jsdom 的 `scrollIntoView` 用桩记录落点）。
+  - **④ 到此完成**：`/library` 与 `/library/read/:id` 现在是**一套渲染、两条路由**，深链接 2 条 live 用例持续在守。
 - **⑤d 一键撤销活过刷新：整理台账写在服务端（2026-09-24，E17 ⑤，`2609628`）**：`apply_organization` 此前把 moved 清单**只交给调用方**——刷新页面清单就没了，文件躺在「未归类」里，界面上再无撤销入口。README/CLAUDE.md 写的「只在确认后移动，且永远可一键撤销」**在刷新之后并不成立**。
   - 现在：执行的那一步记进服务端台账 `.bobodan/organize/organize_index.json`（已在 `core/persistence_registry.py` 登记，只留最近 20 步）；新增 `GET /api/kb/organize/state` 报告还有没有可撤销的一步；`POST /api/kb/organize/undo` **不传清单**时撤销台账里的最后一步（老的"显式传清单"用法保留，并会清掉与之相符的记录）。资料库侧栏的「撤销这一步整理」改由这份**服务端状态**驱动，并显示"上一步：N 份资料收进「X」"。
   - **验证**：新增 `tests/test_organization_undo_persistence.py` 3 条（重开服务实例、不带清单也能撤销；没有可撤销的东西时不假装撤销过；显式清单同样清台账）+ `tests/test_web_backend.py` 1 条 **HTTP 层**用例。后者顺带钉住**路由存在性**：服务层测试全绿也照样可能漏掉"没挂路由"的 404——真机上重启前的进程正是这种状态（`/api/kb/organize/proposals` 404 而 `/api/kb/tree` 200）。重启后两个新路由都 200。
