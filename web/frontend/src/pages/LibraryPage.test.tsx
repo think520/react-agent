@@ -293,7 +293,10 @@ describe("资料库文件夹同步", () => {
         collection: "material",
         content_role: "content",
       },
-      sections: [{ chunk_id: "c1", text: "第一节正文", heading: "第一节" }],
+      sections: [
+        { chunk_id: "c1", text: "第一节正文", heading: "第一节" },
+        { chunk_id: "c2", text: "第二节正文", heading: "第二节" },
+      ],
     } as never);
 
     render(
@@ -306,5 +309,11 @@ describe("资料库文件夹同步", () => {
 
     await waitFor(() => expect(document.querySelectorAll(".reader-prose section").length).toBeGreaterThan(0));
     expect(await screen.findByRole("tab", { name: "第一课" })).toBeTruthy();
+
+    // 目录浮层：列出这份资料自己的小节，点一下跳到那一段
+    fireEvent.click(screen.getByLabelText("目录"));
+    // jsdom 不实现 <details> 的展开，折叠内容对 getByRole 是 hidden —— 断言它确实列出了各小节。
+    expect(screen.getByRole("button", { name: "第一节", hidden: true })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "第二节", hidden: true })).toBeTruthy();
   });
 });

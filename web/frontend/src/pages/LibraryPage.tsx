@@ -1287,6 +1287,28 @@ export function LibraryPage() {
                 <span>{selected.collection === "wiki" ? `历史整理 · ${selected.wiki_type ? wikiTypeLabels[selected.wiki_type] : "页面"}` : selected.kind || "本地资料"}{selected.course ? ` · ${selected.course}` : ""}</span>
                 <h2>{selected.title || selected.source}</h2>
                 {selected.collection === "material" && <div className="reader-actions">
+                  {sections.length > 1 && (
+                    <details className="reader-toc">
+                      <summary aria-label="目录" title="跳到某个小节">目录</summary>
+                      <div>
+                        {sections.map((section, index) => (
+                          <button
+                            key={section.chunk_id}
+                            type="button"
+                            onClick={() => {
+                              const target = document.querySelector<HTMLElement>(
+                                `[data-chunk-id="${section.chunk_id}"]`,
+                              );
+                              target?.scrollIntoView({ block: "start", behavior: "smooth" });
+                            }}
+                          >
+                            {section.heading ||
+                              (section.page_start ? `第 ${section.page_start} 页` : `第 ${index + 1} 节`)}
+                          </button>
+                        ))}
+                      </div>
+                    </details>
+                  )}
                   {effectiveExtractionStatus(selected) === "not_started" && (
                     <button className="primary-button reader-extract" disabled={startingExtractionId === selected.document_id || !sections.length} onClick={() => void extractAndReview(selected)}><Sparkles size={15} />{startingExtractionId === selected.document_id ? "正在启动…" : "提取概念"}</button>
                   )}

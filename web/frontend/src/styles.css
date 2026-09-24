@@ -1601,6 +1601,14 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 .library-tree-ignored li { display: flex; gap: 6px; overflow-wrap: anywhere; }
 .library-tree-ignored small { color: var(--faint); }
 
+/* ④：阅读区目录浮层（每份资料自己的小节列表，点击跳段）。 */
+.reader-toc { position: relative; }
+.reader-toc > summary { display: inline-flex; min-height: 40px; align-items: center; border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0 13px; background: var(--paper); color: var(--ink); font-size: 13px; font-weight: 650; list-style: none; cursor: pointer; }
+.reader-toc > summary::-webkit-details-marker { display: none; }
+.reader-toc > summary:hover { background: var(--paper-soft); }
+.reader-toc > div { position: absolute; z-index: 30; right: 0; top: 44px; display: grid; max-height: 60vh; overflow-y: auto; min-width: 220px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); padding: 4px; background: var(--paper); box-shadow: var(--shadow-float); }
+.reader-toc button { border: 0; border-radius: var(--radius-sm); padding: 7px 9px; background: transparent; color: var(--ink); text-align: left; font-size: 12.5px; cursor: pointer; }
+.reader-toc button:hover { background: var(--paper-soft); }
 /* ④：工具条只放「读」的动作，「改」的收进 ⋯ 菜单。 */
 .reader-more-actions { position: relative; }
 .reader-more-actions > summary { display: inline-flex; min-height: 40px; align-items: center; border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0 11px; background: var(--paper); color: var(--muted); font-size: 14px; list-style: none; cursor: pointer; }

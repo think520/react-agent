@@ -7,6 +7,11 @@
 ## [未发布]
 
 ### 变更
+- **④w 阅读区目录浮层（2026-09-24）**：资料库页阅读区的工具条多了「目录」——展开是**这份资料自己的小节列表**（有标题显示标题，否则显示页码/节号），点一下平滑滚动到那一段（`[data-chunk-id]` 已在渲染里）。这是 ④ 里"目录 = 工具条按钮 → 浮层，每份资料各一份"那条验收。
+  - **它当场抓出我自己写的一个真 bug**：标签表达式 `section.heading || section.page_start ? … : …` 因为运算符优先级，**有标题的小节也会显示成"第 N 节"**。是页面测试逼我把它改成 `section.heading || (section.page_start ? 页码 : 节号)`。
+  - 一条环境事实记下来：jsdom 不实现 `<details>` 的展开，折叠内容对 `getByRole` 是 hidden —— 断言目录内容要用 `{ hidden: true }`（我先踩了一次"找不到按钮"）。
+  - **验证**：页面测试 **6 passed**、前端全量 vitest **113 passed / 18 files**、tsc **0**、eslint **0**、构建 **0**；live（真实后端 + 真实资料库）**6 passed**。后端本轮未改动（pytest 仍是上一轮的 1617 passed）。
+  - **④ 仍未做**：`/library` 与 `/library/read/:id` 合并成同一套渲染（深链接仍走阅读页，它能力更全：原文/按小节、PDF 内嵌、章节导航）；复用既有 `readerTabsStore` 后删掉 ④a/④b 造的重复模型。
 - **④v 打通「就地阅读」：三处改动 + 一处死代码清理（2026-09-24）**：从第 6 轮卡到现在的 ④ 主阻塞解决。根因是 `LibraryPage.tsx:1297` 的一行 `{collection === "wiki" && <article className="document-reader">}` —— **资料库页的阅读区从来只为 wiki 渲染过**。
   - **改动**：① 去掉那层 collection 条件（并补上配对的 `}`，否则整个文件解析失败）；② `selectDocument` 不再对 material `navigate` 到 `/library/read/:id`（改为就地选中）；③ 三条测试查询改为 `findAllByText(...)[0]` / `getAllByText`（标题现在会同时出现在列表与阅读区，`getByText` 会因多元素报错）；④ 删掉因此变成死代码的 `saveListScroll`（eslint 抓出来的）。
   - **验证**：`tests/…/LibraryPage.test.tsx` **6 passed**（含那条从 ④ 一开始就写好的「选中资料后阅读区必须渲染出正文」）；前端全量 vitest **113 passed / 18 files**、tsc 0、eslint 0、构建 0；pytest **1617 passed**；**live（真实后端 + 真实资料库）6 passed** —— 新增一条 `the library page reads a material in place`：点树里的资料后 **URL 仍在 `/library`**、`.document-reader .reader-prose section` 可见、标签条 1 个。
