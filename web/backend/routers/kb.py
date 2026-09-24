@@ -531,6 +531,29 @@ def document_impact(document_id: str, request: Request) -> dict:
     )
 
 
+@router.post("/organize/apply")
+def apply_organization(body: dict, request: Request) -> dict:
+    """执行整理建议：把散落资料收进文件夹（身份保留），返回可撤销清单（E17 ⑤）。"""
+    return unwrap_service_result(
+        _service(request).apply_organization(
+            [str(item) for item in (body.get("items") or [])],
+            str(body.get("target_folder") or ""),
+            config=get_config(),
+        ),
+        code="organization_failed",
+    )
+
+
+@router.post("/organize/undo")
+def undo_organization(body: dict, request: Request) -> dict:
+    """一键撤销上一步整理（E17 ⑤）。"""
+    moves = body.get("moves") or []
+    return unwrap_service_result(
+        _service(request).undo_organization([item for item in moves if isinstance(item, dict)], config=get_config()),
+        code="organization_undo_failed",
+    )
+
+
 @router.get("/organize/proposals")
 def organization_proposals(request: Request) -> dict:
     """整理建议（E17 ⑤ 前半）：给出可复核的建议，**一份文件都不动**。"""

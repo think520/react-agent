@@ -7,6 +7,10 @@
 ## [未发布]
 
 ### 变更
+- **⑤b 整理建议的「执行 → 一键撤销」（2026-09-24，E17 ⑤）**：`POST /api/kb/organize/apply` 与 `/undo` —— 把散落在库根的資料收进目标文件夹，并**返回一份 moved 清单**（每条含 `document_id` / `from` / `to`），撤销就按这份清单放回原位。
+  - **关键点：执行走的仍是 ③b 的身份迁移**（有索引的资料调 `move_document`：document_id 保留、chunk 身份重映射、概念证据与笔记引用一起迁移），所以"整理"不会像早期那样打断引用链；没有索引的文件才直接搬。
+  - **验证**：新增 `tests/test_organization_apply.py` 2 条 —— ① 执行后文件进文件夹，且**document_id 不变**、`relative_path` 变成 `未归类/散落的一课.md`、返回的 moved 清单与预期逐字相等；② 撤销后文件回到原位、文件夹里不再有它、同一 document_id 的 `relative_path` 复原。pytest 全绿。
+  - **⑤ 仍未做**：AI 归类（在确定性建议之上，必须走同一套确认与撤销）、整理入口 UI（把 proposals/apply/undo 接到界面上）、以及**撤销清单的持久化**（现在由调用方持有，刷新页面就丢——这是已知且已记账的限制）。
 - **⑤a 整理建议（只提议，不动文件）（2026-09-24，E17 ⑤ 前半）**：`GET /api/kb/organize/proposals` + `KBService.propose_organization()` —— 按设计 §3.5 决定 22 的形状「提议 → 预览 → 确认 → 执行 → 撤销」，先落地**第一步**，并且用**确定性规则**（不是模型即兴发挥）：指出**散落在资料库根目录的资料**，给出建议文件夹名与理由，`requires_confirmation: true`。
   - **一份文件都不动**：测试显式断言调用前后**整棵目录树逐项相同**（连非资料文件也不碰）。
   - **验证**：新增 `tests/test_organization_proposals.py` 2 条（散落资料被指出 + 整理过的库返回空建议）；pytest 全绿。

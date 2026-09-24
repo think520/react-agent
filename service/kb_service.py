@@ -1733,6 +1733,82 @@ class KBService:
             })
         return _ok(proposals=proposals)
 
+    def _document_by_path(self, absolute: str) -> dict[str, Any] | None:
+        from rag.sqlite_store import KBSQLiteStore
+
+        store = KBSQLiteStore(self.workspace)
+        store.init_db()
+        try:
+            for document in store.list_documents():
+                stored = document.get("path") or ""
+                if not stored:
+                    continue
+                candidate = stored if os.path.isabs(stored) else os.path.join(self.workspace, stored)
+                if os.path.abspath(candidate) == os.path.abspath(absolute):
+                    return document
+        finally:
+            store.close()
+        return None
+
+    def apply_organization(self, items: list[str], target_folder: str, config: dict | None = None) -> dict[str, Any]:
+        """把散落的资料收进一个文件夹，并返回**可撤销的动作清单**（E17 ⑤）。
+
+        只处理资料库根目录那一层的文件；有索引的走 ③b 的 move_document（身份与
+        引用一起迁移），没索引的直接搬。永远返回 moved 清单，供一键撤销。
+        """
+        cleaned = self._clean_relative(target_folder)
+        if not cleaned:
+            return _err("目标文件夹不合法", code="invalid_target")
+        target_dir = os.path.abspath(os.path.join(self.workspace, cleaned))
+        if not self._is_within_workspace(target_dir, self.workspace) or self._is_internal_path(target_dir):
+            return _err("目标文件夹不合法", code="invalid_target")
+        if not os.path.isdir(target_dir):
+            created = self.create_folder(cleaned)
+            if not created.get("ok"):
+                return created
+
+        moves: list[dict[str, str]] = []
+        for name in items or []:
+            relative = self._clean_relative(name)
+            if not relative or "/" in relative:
+                continue
+            source = os.path.abspath(os.path.join(self.workspace, relative))
+            if not os.path.isfile(source):
+                continue
+            destination_relative = f"{cleaned}/{os.path.basename(relative)}"
+            document = self._document_by_path(source)
+            if document is not None:
+                result = self.move_document(str(document.get("id")), destination_relative, config=config)
+                if not result.get("ok"):
+                    return result
+                moves.append({"document_id": str(document.get("id")), "from": relative, "to": destination_relative})
+            else:
+                shutil.move(source, os.path.join(target_dir, os.path.basename(relative)))
+                moves.append({"document_id": "", "from": relative, "to": destination_relative})
+        return _ok(moved=moves)
+
+    def undo_organization(self, moves: list[dict[str, Any]], config: dict | None = None) -> dict[str, Any]:
+        """一键撤销上一步整理：按 moved 清单把每份资料放回原位（身份同样保留）。"""
+        restored: list[str] = []
+        for move in moves or []:
+            destination = self._clean_relative(str(move.get("to") or ""))
+            original = self._clean_relative(str(move.get("from") or ""))
+            if not destination or not original:
+                continue
+            document_id = str(move.get("document_id") or "")
+            if document_id and self._document_by_path(os.path.join(self.workspace, destination)):
+                result = self.move_document(document_id, original, config=config)
+                if not result.get("ok"):
+                    return result
+            else:
+                source = os.path.abspath(os.path.join(self.workspace, destination))
+                if not os.path.isfile(source):
+                    continue
+                target = os.path.abspath(os.path.join(self.workspace, original))
+                os.makedirs(os.path.dirname(target), exist_ok=True)
+                shutil.move(source, target)
+            restored.append(original)
+        return _ok(restored=restored)
     def create_folder(self, relative_path: str) -> dict[str, Any]:
         """在资料库里新建一个真实文件夹（E17 ③）。"""
         cleaned = self._clean_relative(relative_path)
