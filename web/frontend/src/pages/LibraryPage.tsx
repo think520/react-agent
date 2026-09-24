@@ -1,6 +1,6 @@
 import { readerLocation } from "../lib/documentLinks";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CheckCircle2, FilePlus2, FileText, FolderOpen, Library, MessageCircle, MoreHorizontal, Pencil, RefreshCw, Save, Search, Settings2, ShieldCheck, Sparkles, Trash2, Upload, Wrench, X } from "lucide-react";
+import { CheckCircle2, FilePlus2, FileText, FolderOpen, FolderTree, Library, MessageCircle, MoreHorizontal, Pencil, RefreshCw, Save, Search, Settings2, ShieldCheck, Sparkles, Trash2, Upload, Wrench, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useNavigate, useOutletContext, useSearchParams } from "react-router-dom";
@@ -100,6 +100,14 @@ export function LibraryPage() {
   const openTab = useReaderTabsStore((state) => state.open);
   const closeTab = useReaderTabsStore((state) => state.close);
   const scrollFor = useReaderTabsStore((state) => state.scrollFor);
+  // ④：树栏可收起（用户："文件树那一栏占用了很多"）。选择记在本地，下次照旧。
+  const [treeCollapsed, setTreeCollapsed] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem("bobodan:library-tree:collapsed") === "1";
+    } catch {
+      return false;
+    }
+  });
   const [editingDocumentId, setEditingDocumentId] = useState<string | null>(null);
   // ④：编辑器保存后让阅读器重新拉一次小节（阅读器自己持有小节加载）。
   const [readerReloadToken, setReaderReloadToken] = useState(0);
@@ -226,6 +234,13 @@ export function LibraryPage() {
     }
   }, [activeLibrary, collection]);
   useEffect(() => { void loadOrganizeState(); }, [loadOrganizeState]);
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("bobodan:library-tree:collapsed", treeCollapsed ? "1" : "0");
+    } catch {
+      // 无痕模式等写不了 localStorage：只是记不住，不该影响阅读。
+    }
+  }, [treeCollapsed]);
 
   useEffect(() => { void loadTree(); }, [loadTree, documentImportVersion]);
 
@@ -980,6 +995,17 @@ export function LibraryPage() {
           <div className="library-toolbar-actions">
             {collection === "wiki" && <button className="quiet-button" onClick={() => selectCollection("material")}>返回资料</button>}
             {activeLibrary && <IconButton label="刷新资料" onClick={() => void loadDocuments()}><RefreshCw size={16} /></IconButton>}
+            {collection === "material" && tree && (
+              <button
+                className="quiet-button"
+                type="button"
+                aria-pressed={!treeCollapsed}
+                title={treeCollapsed ? "显示文件夹树" : "收起文件夹树，把宽度留给正文"}
+                onClick={() => setTreeCollapsed((collapsed) => !collapsed)}
+              >
+                <FolderTree size={15} />文件夹
+              </button>
+            )}
             {collection === "material" && activeLibrary && (
               <button className="quiet-button" type="button" disabled={syncingFolder} onClick={() => void syncLibraryFolder()}>
                 <FolderOpen size={15} />{syncingFolder ? "正在同步文件夹…" : "同步文件夹"}
@@ -1130,11 +1156,12 @@ export function LibraryPage() {
             className={
               "library-workspace"
               + (collection === "material" ? " list-only" : "")
-              + (collection === "material" && tree ? " with-tree" : "")
+              // 收起树时**不给 with-tree**：网格自然回到单栏，正文拿到全部宽度。
+              + (collection === "material" && tree && !treeCollapsed ? " with-tree" : "")
 
             }
           >
-            {collection === "material" && tree && (
+            {collection === "material" && tree && !treeCollapsed && (
               <aside className="library-tree-pane" aria-label="资料库文件夹">
                 <div className="rail-label"><FolderOpen size={15} />文件夹 <span>{tree.material_count}</span></div>
                 

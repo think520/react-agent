@@ -1336,8 +1336,11 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 .document-scope.selected { opacity: 1; color: var(--sage-deep); }
 .document-row-wrap:hover .document-delete, .document-row-wrap:focus-within .document-delete, .document-row-wrap:hover .document-scope, .document-row-wrap:focus-within .document-scope { opacity: 1; }
 .document-reader { min-width: 0; padding: 18px var(--space-4) 60px; }
+/* 贴着选区出现的气泡（2026-09-24）：位置由 components/DocumentReader.tsx 按选区 Range 算，
+   left/top 直接来自选区矩形，再往上抬一个气泡的高度。 */
+.selection-toolbar.floating { position: fixed; z-index: 40; margin: 0; transform: translate(-50%, -100%); box-shadow: var(--shadow-lift); }
 .selection-toolbar { position: sticky; z-index: 3; top: 8px; display: flex; width: fit-content; min-height: 42px; align-items: center; gap: 9px; margin: 12px 0 -4px auto; border: 1px solid var(--border-strong); border-radius: 7px; padding: 5px 6px 5px 11px; background: rgba(247,245,239,.96); color: var(--blue); box-shadow: var(--shadow-soft); backdrop-filter: blur(10px); }.selection-toolbar span { color: var(--muted); font-size: 12px; }.selection-toolbar .quiet-button { min-height: 30px; padding: 0 9px; font-size: 13px; }
-.document-reader > header { max-width: 720px; margin: 0 auto; border-bottom: 1px solid var(--border); padding: 0 0 25px; }.document-reader > header span, .section-location { color: var(--faint); font-size: 12px; }.document-reader > header h2 { margin: 7px 0; color: var(--blue); font-family: var(--font-article); font-size: 28px; font-weight: 500; }.document-reader > header p { margin: 0; color: var(--muted); font-family: var(--font-article); line-height: 1.7; }
+.document-reader > header { max-width: 800px; margin: 0 auto; border-bottom: 1px solid var(--border); padding: 0 0 25px; }.document-reader > header span, .section-location { color: var(--faint); font-size: 12px; }.document-reader > header h2 { margin: 7px 0; color: var(--blue); font-family: var(--font-article); font-size: 28px; font-weight: 500; }.document-reader > header p { margin: 0; color: var(--muted); font-family: var(--font-article); line-height: 1.7; }
 .reader-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
 .reader-actions .reader-extract { box-shadow: 0 4px 14px rgba(27,54,93,.14); }
 .reader-actions .status-completed { border-color: rgba(90,122,106,.35); color: var(--sage-deep); box-shadow: none; }
@@ -1659,7 +1662,7 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
    · **wiki**：列表 | 正文（树只在资料集合里渲染）。
    这条必须排在 list-only 那条之后：同优先级下后写的才生效。 */
 .library-workspace.with-tree,
-.library-workspace.list-only.with-tree { grid-template-columns: 260px minmax(0, 1fr); }
+.library-workspace.list-only.with-tree { grid-template-columns: 240px minmax(0, 1fr); }
 .library-reader-placeholder { display: flex; align-items: center; justify-content: center; min-width: 0; }
 .library-workspace.list-only.with-tree .document-rail { max-width: none; margin: 0; }
 .document-edit { position: absolute; right: 33px; width: 29px; height: 29px; opacity: 0; color: var(--blue); }
@@ -1673,7 +1676,9 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 .reader-topbar-title h2 { margin: var(--space-1) 0 0; overflow: hidden; color: var(--blue); font-family: var(--font-reading); font-size: 20px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .reader-topbar-actions { display: flex; align-items: center; gap: 6px; }
 .reader-article { padding: 24px 0 60px; }
-.reader-article .reader-prose { margin: 0 auto; }
+/* 阅读量度（2026-09-24 用户反馈"文章不够大"）：正文列 720 → 800px、字号 17 → 18px，
+   正文与顶部的视图行、页头保持同一条中轴。 */
+.reader-article .reader-prose { max-width: 800px; margin: 0 auto; font-size: 18px; }
 
 /* DocumentEditor split-pane (TASKS_LIBRARY_REWORK task 3.4.2). */
 .document-editor-header-actions { display: flex; gap: 2px; }
@@ -1829,7 +1834,7 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 }
 /* 阅读控件行：视图切换（原文/按小节）与「用系统打开」跟着正文列宽右对齐
    （控件由 components/DocumentReader.tsx 持有）。 */
-.reader-view-row { display: flex; align-items: center; justify-content: flex-end; gap: 6px; max-width: 720px; margin: 0 auto 12px; }
+.reader-view-row { display: flex; align-items: center; justify-content: flex-end; gap: 6px; max-width: 800px; margin: 0 auto 12px; }
 
 /* 从引用跳进来时的定位提示：同样走墨蓝浅底，与选中态同一族。 */
 .reader-citation-bar {

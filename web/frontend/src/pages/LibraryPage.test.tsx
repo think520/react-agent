@@ -71,6 +71,8 @@ beforeEach(() => {
   // 标签条是模块级 zustand store（跨用例存活）：不清掉的话，上一个用例打开的标签
   // 会让下一个用例一进页面就渲染阅读区，断言"进页面只有树与提示"就假失败。
   useReaderTabsStore.setState({ openIds: [], scrolls: {} });
+  // 树栏折叠状态也存在 localStorage：用例之间必须清干净，否则"点树里的文件"会找不到树。
+  window.localStorage.removeItem("bobodan:library-tree:collapsed");
   hoisted.ctx = buildContext();
   vi.mocked(api.documents).mockResolvedValue([]);
   vi.mocked(api.graphExtractionStatuses).mockResolvedValue({ documents: {} } as never);
@@ -206,11 +208,21 @@ describe("资料库文件夹同步", () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByText("文件夹")).toBeTruthy(); // 树面板
+    await waitFor(() => expect(document.querySelector(".library-tree-pane")).not.toBeNull());
     expect(await screen.findByText("第一课.md")).toBeTruthy();
     expect(screen.getByLabelText("搜索资料")).toBeTruthy(); // 搜索框搬进了树面板
     expect(document.querySelector(".document-rail")).toBeNull();
     expect(screen.queryByText("我的资料")).toBeNull();
+
+    // ④：树栏可收起（用户："文件树那一栏占用了很多"）—— 收起后不给 with-tree，
+    // 网格回到单栏，正文拿到全部宽度；选择写进 localStorage，下次照旧。
+    fireEvent.click(screen.getByRole("button", { name: "文件夹" }));
+    await waitFor(() => expect(document.querySelector(".library-tree-pane")).toBeNull());
+    expect(document.querySelector(".library-workspace")!.className).not.toContain("with-tree");
+    expect(window.localStorage.getItem("bobodan:library-tree:collapsed")).toBe("1");
+
+    fireEvent.click(screen.getByRole("button", { name: "文件夹" }));
+    await waitFor(() => expect(document.querySelector(".library-tree-pane")).not.toBeNull());
   });
 
   it("打开的资料进标签条，关掉最后一个就收起", async () => {

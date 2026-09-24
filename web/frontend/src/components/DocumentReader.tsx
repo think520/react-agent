@@ -10,6 +10,7 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from "react"
 import { NotebookPen, Quote, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { createPortal } from "react-dom";
 import { useNavigate, useOutletContext } from "react-router-dom";
 
 import type { AppOutletContext } from "./AppShell";
@@ -246,10 +247,48 @@ export function DocumentReader({
     return () => window.removeEventListener("keydown", handler);
   }, [closeRail]);
 
+  // 选区工具条要**贴着选区**出现（用户反馈：原来钉在正文顶部，选到文章中间时离得很远）。
+  // 记下 Range 本身，滚动时按它重算位置 —— Range 会跟着文档走，不需要缓存坐标。
+  const selectionRangeRef = useRef<Range | null>(null);
+  const [selectionAnchor, setSelectionAnchor] = useState<{ x: number; y: number } | null>(null);
+
   function captureSelection() {
-    const text = window.getSelection()?.toString().trim() || "";
+    const selection = window.getSelection();
+    const text = selection?.toString().trim() || "";
     setSelectionQuote(text.slice(0, 1200));
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed || !text) {
+      selectionRangeRef.current = null;
+      setSelectionAnchor(null);
+      return;
+    }
+    const range = selection.getRangeAt(0).cloneRange();
+    selectionRangeRef.current = range;
+    const rect = range.getBoundingClientRect();
+    setSelectionAnchor({ x: rect.left + rect.width / 2, y: rect.top });
   }
+
+  useEffect(() => {
+    const reposition = () => {
+      const range = selectionRangeRef.current;
+      if (!range) return;
+      const rect = range.getBoundingClientRect();
+      setSelectionAnchor({ x: rect.left + rect.width / 2, y: rect.top });
+    };
+    window.addEventListener("scroll", reposition, true);
+    window.addEventListener("resize", reposition);
+    return () => {
+      window.removeEventListener("scroll", reposition, true);
+      window.removeEventListener("resize", reposition);
+    };
+  }, []);
+
+  /** 气泡的落点：贴着选区上沿，并且始终留在视口内（选到很靠边时也要点得到）。 */
+  const selectionToolbarStyle = selectionAnchor
+    ? {
+        left: Math.min(Math.max(selectionAnchor.x, 160), Math.max(160, window.innerWidth - 160)),
+        top: Math.min(Math.max(selectionAnchor.y - 10, 64), Math.max(64, window.innerHeight - 24)),
+      }
+    : undefined;
 
   function askAboutSelection() {
     if (!selectionQuote || !selected) return;
@@ -328,7 +367,7 @@ export function DocumentReader({
             </button>
           </div>
         )}
-        {selectionQuote && <div className="selection-toolbar"><Quote size={15} /><span>已选择 {selectionQuote.length} 个字符</span><button className="quiet-button" onClick={askAboutSelection}>带到对话</button><button className="quiet-button" onClick={createPracticeFromSelection}>基于此出题</button><button className="quiet-button" onClick={() => setSelectionQuote("")}>取消</button></div>}
+        {selectionQuote && createPortal(<div className={selectionAnchor ? "selection-toolbar floating" : "selection-toolbar"} style={selectionToolbarStyle}><Quote size={15} /><span>已选择 {selectionQuote.length} 个字符</span><button className="quiet-button" onClick={askAboutSelection}>带到对话</button><button className="quiet-button" onClick={createPracticeFromSelection}>基于此出题</button><button className="quiet-button" onClick={() => setSelectionQuote("")}>取消</button></div>, document.body)}
         {detailLoading && !sections.length ? <LoadingState label="正在打开资料…" state="reading" /> : showOriginal ? (
           inlineOriginal === "pdf" ? (
             <div className="reader-pdf">
@@ -433,27 +472,37 @@ export function DocumentReader({
       {/* TASKS_LIBRARY_REWORK task 2: chapter rail (right-edge 64px hover zone).
           The zone only exists while the rail is closed. Because it lands directly
           under the pointer that just closed the rail, onMouseEnter has to ignore
-          the hover coming from exactly where the X was (openRail / closeRail). */}
-      {!railOpen && (
-        <div
-          className="chapter-rail-zone"
-          onMouseLeave={() => { railClosePoint.current = null; }}
-          onMouseEnter={(event) => openRail(event)}
-        />
-      )}
-      {railOpen && (
-        <aside className="chapter-rail">
-          <header>
-            <span>章节</span>
-            <button className="icon-button" aria-label="关闭章节" onClick={(event) => closeRail(event)}><X size={14} /></button>
-          </header>
-          <div>
-            {sections.filter((section) => section.heading).map((section) => (
-              <button key={section.chunk_id} onClick={() => jumpToChunk(section.chunk_id)}>{section.heading}</button>
-            ))}
-            {!sections.some((section) => section.heading) && <p className="text-faint">暂无章节标题。</p>}
-          </div>
-        </aside>
+          the hover coming from exactly where the X was (openRail / closeRail).
+
+          2026-09-24：导轨与选区气泡都改从 body 渲染。路由过渡层 `.route-fade` 带
+          transform + will-change，会**成为 fixed 元素的包含块** —— 留在页面里时它们
+          会以那一层为准定位（实测整体偏下 68px、滚动时还会跟着走），portal 到 body
+          才真正贴住视口。 */}
+      {createPortal(
+        <>
+          {!railOpen && (
+            <div
+              className="chapter-rail-zone"
+              onMouseLeave={() => { railClosePoint.current = null; }}
+              onMouseEnter={(event) => openRail(event)}
+            />
+          )}
+          {railOpen && (
+            <aside className="chapter-rail">
+              <header>
+                <span>章节</span>
+                <button className="icon-button" aria-label="关闭章节" onClick={(event) => closeRail(event)}><X size={14} /></button>
+              </header>
+              <div>
+                {sections.filter((section) => section.heading).map((section) => (
+                  <button key={section.chunk_id} onClick={() => jumpToChunk(section.chunk_id)}>{section.heading}</button>
+                ))}
+                {!sections.some((section) => section.heading) && <p className="text-faint">暂无章节标题。</p>}
+              </div>
+            </aside>
+          )}
+        </>,
+        document.body,
       )}
     </>
   );
