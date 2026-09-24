@@ -73,6 +73,31 @@
 
 ---
 
+### 案例 2：资料库文件树 + 分栏阅读（2026-09-24）
+
+背景：Bobodan 的 Library 是一张平铺列表（看不出文件夹层级、生成页与资料混排、同一份文件被重复索引两次）。要决定「树 + 阅读区」的形态、写操作范围与撤销语义。
+
+| 议题 | DeepTutor | openhanako | OpenMAIC |
+|---|---|---|---|
+| 树在哪里 | 主区左栏，220px ↔ 44px 图标条，折叠态进 localStorage（`web/hooks/useCollapsiblePanel.ts:12-59`） | **最右栏** 260px（200–600 可拖），阅读栏夹在聊天与树之间（`desktop/src/react/hooks/use-sidebar-resize.ts:29-32`） | 最左 rail 252px（200–360，`lib/workbench/workspace-navigation.ts:51-54`） |
+| 点文件 | 单击即内联预览、**不跳页**（`KbFilesTab.tsx:28-30`） | **双击**开进标签页，单击只选中（`desk/DeskTree.tsx:384-402`） | 点课程 = 加 tab + 展开右栏 + push `?course=`（`WorkspaceShell.tsx:457-466`） |
+| 多开 | 无 | tabs + 关最后一个自动收起 + 每篇记阅读位置 + contentHash 校验（`stores/preview-actions.ts:157-204`） | tabs 无上限、最小宽 86px、超出横向滚动（`WorkspaceCourseTabs.tsx:3-46`） |
+| 文件状态 | 文件行**零状态**，状态只在库级且挂着修复动作（`lib/knowledge-helpers.ts:311-356`） | 文件行零状态（它不建索引）；文件消失 → `missing` 占位（`preview-file-refresh.ts:76-99`） | 逐项失败 + 重试（`stage/scene-sidebar.tsx:340-433`） |
+| 范围选择 | sticky chip + 一次性引用两层，**不能选文件夹**（`chat/home/KnowledgeSelector.tsx:8-22`） | **没有范围对象**，多选只用于批量操作与拖拽；限范围靠拖成附件（≤9） | 只有消息级 pill（`compose-extras.tsx:325-415`） |
+| 搜索 | 树里**没有**搜索框 | 树上方名字搜索 180ms 防抖，点结果展开祖先（`desk/DeskToolbar.tsx:209-278`） | 树上方过滤 + **搜索时打平层级**（`WorkspaceRail.tsx:1034-1043`） |
+| 重命名/移动 | 只能建文件夹，**无重命名** | 内联重命名 + 拖拽移动 + 系统回收站删除（`desk-actions.ts:1149-1188`） | 内联重命名 + 拖拽归档 + **删文件夹默认 ungroup 保留内容**（`workspace-folder-seam.ts:49-65`） |
+| AI 整理 | 无（只输出只读 Markdown） | 无（但有"可编辑草稿卡 + 确认/取消"范式，`chat/AssistantMessage.tsx:1067-1160`） | 有，但 **agent 直接写库、无提议/确认/撤销**（`agent-runtime/curriculum-tools.ts:88-121`） |
+
+**共同结论（可借鉴）**：① 树 + 右栏阅读的主从结构是通用解，但**打开方式要显式**（单击选中、双击打开），否则单击就替换会丢失阅读位置；② **「文档内目录」必须独立成层**，不能复用资料库树（DeepTutor 的警告 + openhanako 的 `ChapterRail`）；③ 阅读区状态要版本化：tabs + 每篇阅读位置 + 内容哈希校验 + "文件被移走"的占位；④ 破坏性操作要"明说后果 + 可恢复"（OpenMAIC 的 ungroup 默认、openhanako 的按文件版本历史）。
+
+**不一致处的取舍**：范围对象三家都没有做成"树里选文件夹"（DeepTutor 有 sticky chip 但不能选文件夹，openhanako 干脆没有，OpenMAIC 只有消息级）——**Bobodan 两者都要，且把选择动作放进树里（支持文件夹级）**，因为我们的资料天然按课程/章节分文件夹。
+
+**不要照搬**：DeepTutor 的"文件夹不影响检索"（我们的文件夹参与范围）；openhanako 的"删除交给系统回收站、应用内无撤销"与无面包屑的单列树；OpenMAIC 的"agent 直接写库、不等确认、无撤销"。
+
+**Bobodan 结论**：22 项定案写进 [`LIBRARY_TREE_DESIGN.md`](LIBRARY_TREE_DESIGN.md)，按 ①→⑤ 实施。
+
+---
+
 ## 4. 使用纪律与边界
 
 - **默认只参考机制，不复制代码**。三份克隆的许可证为 Apache-2.0 / MIT；若确需复制代码，必须先做许可证评估，并把声明补进 `THIRD_PARTY_NOTICES.md`（`scripts/check_licenses.py` 会拦截 GPL/AGPL 依赖）。
