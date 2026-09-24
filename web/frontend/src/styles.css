@@ -1601,6 +1601,23 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 .library-tree-ignored li { display: flex; gap: 6px; overflow-wrap: anywhere; }
 .library-tree-ignored small { color: var(--faint); }
 
+/* ③：树上的写操作（新建文件夹 / 行内重命名 / 行操作菜单）与已归档列表。 */
+.library-tree-create { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; color: var(--muted); font-size: 12.5px; }
+.library-tree-create input { min-width: 0; flex: 1; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 5px 8px; background: var(--paper); color: var(--ink); font-size: 12.5px; }
+.library-tree-rename { min-width: 0; flex: 1; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 4px 6px; background: var(--paper); color: var(--ink); font-size: 13px; }
+.library-tree-open { display: inline-flex; align-items: center; gap: 6px; min-width: 0; flex: 1; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.library-tree-actions { position: relative; flex: 0 0 auto; }
+.library-tree-actions > summary { display: inline-flex; width: 20px; height: 20px; align-items: center; justify-content: center; border-radius: var(--radius-sm); color: var(--muted); cursor: pointer; list-style: none; }
+.library-tree-actions > summary::-webkit-details-marker { display: none; }
+.library-tree-actions > div { position: absolute; z-index: 20; right: 0; top: 22px; display: grid; min-width: 190px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); padding: 4px; background: var(--paper); box-shadow: var(--shadow-float); }
+.library-tree-actions button { border: 0; border-radius: var(--radius-sm); padding: 7px 9px; background: transparent; color: var(--ink); text-align: left; font-size: 12.5px; cursor: pointer; }
+.library-tree-actions button:hover { background: var(--paper-soft); }
+.library-archive { margin-top: 10px; color: var(--muted); font-size: 12.5px; }
+.library-archive > summary { cursor: pointer; }
+.library-archive ul { margin: 6px 0 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.library-archive li { display: flex; align-items: center; gap: 6px; }
+.library-archive li span { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 .library-workspace.list-only { grid-template-columns: minmax(0, 1fr); }
 .library-workspace.list-only .document-rail { max-width: 880px; margin: 0 auto; }
 /* 树在场时资料库是三栏：树 | 资料列表 | 阅读区。这条必须排在 list-only 之后，

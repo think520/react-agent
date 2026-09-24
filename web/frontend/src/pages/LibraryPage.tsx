@@ -11,7 +11,7 @@ import type { AppOutletContext } from "../components/AppShell";
 import { BrandIllustration, EmptyState, ErrorNotice, IconButton, LoadingState, formatRelativeDate } from "../components/common";
 import { WikiPlanCard } from "../components/WikiPlanCard";
 import { ApiError, api } from "../lib/api";
-import type { KnowledgeSyncSummary, KnowledgeTree } from "../lib/api";
+import type { ArchivedEntry, KnowledgeSyncSummary, KnowledgeTree } from "../lib/api";
 import { LibraryTree } from "../components/LibraryTree";
 import { Modal, useConfirm } from "../ui/Modal";
 import { useHandoffStore } from "../stores/handoffStore";
@@ -86,6 +86,8 @@ export function LibraryPage() {
   // ②（E17）：只读文件夹树 + 当前选中的文件夹（"" = 根）。
   const [tree, setTree] = useState<KnowledgeTree | null>(null);
   const [selectedFolder, setSelectedFolder] = useState("");
+  // ③：已归档的资料（归档只是移走，永远可恢复）。
+  const [archive, setArchive] = useState<ArchivedEntry[]>([]);
   const [editingDocumentId, setEditingDocumentId] = useState<string | null>(null);
   const [highlightedChunk, setHighlightedChunk] = useState<string | null>(null);
   const [startingExtractionId, setStartingExtractionId] = useState<string | null>(null);
@@ -164,6 +166,22 @@ export function LibraryPage() {
   }, [activeLibrary, collection]);
 
   useEffect(() => { void loadDocuments(); }, [documentImportVersion, loadDocuments]);
+
+  const loadArchive = useCallback(async () => {
+    if (!activeLibrary) {
+      setArchive([]);
+      return;
+    }
+    try {
+      const result = await api.knowledgeArchive();
+      setArchive(result.entries);
+    } catch {
+      // 归档列表读不到不影响浏览；不把整页变成错误页。
+      setArchive([]);
+    }
+  }, [activeLibrary]);
+
+  useEffect(() => { void loadArchive(); }, [loadArchive]);
 
   const loadTree = useCallback(async () => {
     if (!activeLibrary) {
@@ -774,6 +792,76 @@ export function LibraryPage() {
     }
   }
 
+  async function createFolder(relativePath: string) {
+    if (!activeLibrary) return;
+    try {
+      await api.createFolder(relativePath);
+      await Promise.all([loadTree(), loadDocuments()]);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "新建文件夹失败。");
+    }
+  }
+
+  async function deleteFolder(relativePath: string) {
+    if (!activeLibrary) return;
+    const confirmed = await confirm({
+      title: `删掉文件夹「${relativePath}」？`,
+      detail: "只是删掉这个容器：里面的资料会移回资料库根目录，一份都不会删。如果还有非资料文件，文件夹会保留。",
+      confirmLabel: "删文件夹",
+    });
+    if (!confirmed) return;
+    try {
+      const result = await api.deleteFolder(relativePath);
+      setNotice(
+        result.kept_directory
+          ? `已移出 ${result.moved.length} 份资料；文件夹因为还有非资料文件而保留。`
+          : `已移出 ${result.moved.length} 份资料，并删掉空文件夹。`,
+      );
+      if (selectedFolder === relativePath) setSelectedFolder("");
+      await Promise.all([loadTree(), loadDocuments()]);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "删文件夹失败。");
+    }
+  }
+
+  async function moveDocument(documentId: string, newRelativePath: string) {
+    if (!activeLibrary) return;
+    try {
+      const result = await api.moveDocument(documentId, newRelativePath);
+      setNotice(`已移动「${result.migration.relative_path}」；引用与证据已跟着迁移。`);
+      await Promise.all([loadTree(), loadDocuments()]);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "移动失败。");
+    }
+  }
+
+  async function archiveDocument(documentId: string, title: string) {
+    if (!activeLibrary) return;
+    const confirmed = await confirm({
+      title: `归档「${title}」？`,
+      detail: "文件会移进资料库归档区并从索引移除；随时可以在「已归档」里恢复原位。",
+      confirmLabel: "归档",
+    });
+    if (!confirmed) return;
+    try {
+      await api.deleteDocument(documentId);
+      setNotice("已归档，可在「已归档」里恢复。");
+      await Promise.all([loadTree(), loadDocuments(), loadArchive()]);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "归档失败。");
+    }
+  }
+
+  async function restoreArchived(entryId: string) {
+    try {
+      await api.restoreArchived(entryId);
+      setNotice("已恢复到原来的位置并重新索引。");
+      await Promise.all([loadTree(), loadDocuments(), loadArchive()]);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "恢复失败。");
+    }
+  }
+
   async function syncLibraryFolder() {
     if (!activeLibrary || syncingFolder) return;
     setSyncingFolder(true);
@@ -1064,7 +1152,26 @@ export function LibraryPage() {
                   onSelectFolder={setSelectedFolder}
                   activeDocumentId={selectedId}
                   onOpenDocument={(documentId) => selectDocument(documentId)}
+                  onMoveDocument={(documentId, path) => void moveDocument(documentId, path)}
+                  onArchiveDocument={(documentId, title) => void archiveDocument(documentId, title)}
+                  onCreateFolder={(path) => void createFolder(path)}
+                  onDeleteFolder={(path) => void deleteFolder(path)}
                 />
+                {archive.length > 0 && (
+                  <details className="library-archive">
+                    <summary>已归档 {archive.length} 份</summary>
+                    <ul>
+                      {archive.slice(0, 30).map((entry) => (
+                        <li key={entry.entry_id}>
+                          <span title={entry.original_path}>{entry.title || entry.original_path}</span>
+                          <button className="quiet-button" type="button" onClick={() => void restoreArchived(entry.entry_id)}>
+                            恢复
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
               </aside>
             )}
             <aside className="document-rail">

@@ -104,6 +104,19 @@ export interface KnowledgeTree extends KnowledgeTreeFolder {
   name: string;
 }
 
+/** 一条归档记录（E17 ③）：文件被移到了哪里，以及怎么放回去。 */
+export interface ArchivedEntry {
+  entry_id: string;
+  archived_at: string;
+  reason: string;
+  document_id: string;
+  source: string;
+  title: string;
+  original_path: string;
+  archived_path: string;
+  size: number;
+}
+
 interface ErrorEnvelope {
   error?: { code?: string; message?: string; details?: unknown };
 }
@@ -177,6 +190,25 @@ export const api = {
     { method: "POST" },
   ),
   /** 只读文件夹树（E17 ②）：真实文件夹 + 资料徽章 + 已忽略计数。 */
+  /** 新建文件夹 / 删文件夹（只删容器）/ 重命名移动（E17 ③）。 */
+  createFolder: (path: string) => request<{ ok: boolean; folder: { name: string; path: string } }>(
+    "/api/kb/folders",
+    json({ path }),
+  ),
+  deleteFolder: (path: string) => request<{ ok: boolean; moved: string[]; kept_directory: boolean }>(
+    "/api/kb/folders/delete",
+    json({ path, mode: "ungroup" }),
+  ),
+  moveDocument: (documentId: string, path: string) => request<{
+    ok: boolean;
+    migration: { document_id: string; new_source: string; relative_path: string };
+  }>(`/api/kb/documents/${encodeURIComponent(documentId)}/move`, json({ path })),
+  /** 已归档的资料（归档只是移走，永远可以恢复）。 */
+  knowledgeArchive: () => request<{ ok: boolean; entries: ArchivedEntry[] }>("/api/kb/archive"),
+  restoreArchived: (entryId: string) => request<{ ok: boolean; restored: ArchivedEntry }>(
+    `/api/kb/archive/${encodeURIComponent(entryId)}/restore`,
+    { method: "POST" },
+  ),
   knowledgeTree: () => request<{ ok: boolean; tree: KnowledgeTree }>("/api/kb/tree"),
   syncLibrary: (id: string) => request<KnowledgeSyncSummary>(
     `/api/libraries/${encodeURIComponent(id)}/sync`,

@@ -157,4 +157,33 @@ describe("资料库文件夹树", () => {
     expect(hit?.children.map((child) => child.name)).toEqual(["ai-agents-from-zero"]);
     expect(hit?.children[0].children.map((child) => child.name)).toEqual(["assets"]);
   });
+
+  it("树上能新建文件夹、重命名与归档", () => {
+    const onCreateFolder = vi.fn();
+    const onMoveDocument = vi.fn();
+    const onArchiveDocument = vi.fn();
+    render(
+      <LibraryTree
+        tree={tree}
+        selectedFolder="ai-agents-from-zero"
+        onSelectFolder={() => {}}
+        onOpenDocument={() => {}}
+        onCreateFolder={onCreateFolder}
+        onMoveDocument={onMoveDocument}
+        onArchiveDocument={onArchiveDocument}
+      />,
+    );
+
+    // 新建文件夹：在当前选中的文件夹里建
+    const input = screen.getByLabelText("新建文件夹");
+    fireEvent.change(input, { target: { value: "第一章" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onCreateFolder).toHaveBeenCalledWith("ai-agents-from-zero/第一章");
+
+    // 展开后对文件做归档
+    fireEvent.click(screen.getByRole("button", { name: /展开 ai-agents-from-zero/ }));
+    fireEvent.click(screen.getByLabelText("1-1-学习.md 的更多操作"));
+    fireEvent.click(screen.getByText("归档（可从「已归档」恢复）"));
+    expect(onArchiveDocument).toHaveBeenCalledWith("doc-1", "1-1-学习.md");
+  });
 });
