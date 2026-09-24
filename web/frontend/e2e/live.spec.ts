@@ -83,3 +83,22 @@ test("searching the library lands on the matched chunk", async ({ page }) => {
   await expect(page.locator(".reader-citation-bar")).toBeVisible({ timeout: 20_000 });
   await expect(page.locator("section.highlighted")).toHaveCount(1, { timeout: 15_000 });
 });
+test("the library folder sync button scans the folder and reports the result", async ({ page }) => {
+  // ①（E17）：修前 `api.syncLibrary()` 全前端零调用——用户在资源管理器里把
+  // 资料剪进资料库文件夹后，界面里没有任何办法发现它们。这条 live 检查对
+  // 真实后端 + 真实资料库点一次按钮，要求它真的扫描并给出可读摘要。
+  await page.addInitScript(() => localStorage.setItem("bobodan:onboarding:v1", "complete"));
+  await page.goto(BASE + "/library?collection=material");
+
+  const button = page.getByRole("button", { name: /同步文件夹/ });
+  await expect(button).toBeVisible({ timeout: 20_000 });
+  await button.click();
+
+  const summary = page.locator(".library-sync-summary");
+  await expect(summary).toBeVisible({ timeout: 120_000 });
+  await expect(summary).toContainText(/已扫描 \d+ 份资料/);
+  await expect(summary).toContainText(/跳过 \d+/);
+
+  await summary.getByText("查看明细").click();
+  await expect(summary).toContainText(/跳过（仓库元文件）/);
+});

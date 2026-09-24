@@ -4,6 +4,7 @@ import os
 from dataclasses import dataclass
 
 from .parser import ParsedNote, parse_markdown_note
+from .scan_policy import is_repo_metadata
 
 
 SKIP_DIRS = {".git", ".obsidian", ".trash", "__pycache__", ".venv", "venv"}
@@ -23,7 +24,12 @@ def _hash_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def scan_vault(vault_path: str, errors: list[str] | None = None) -> list[ScannedNote]:
+def scan_vault(
+    vault_path: str,
+    errors: list[str] | None = None,
+    *,
+    skipped: list[str] | None = None,
+) -> list[ScannedNote]:
     """Scan a vault directory and parse all Markdown notes.
 
     P0-12: unreadable directories and files are reported through `errors`
@@ -60,13 +66,21 @@ def scan_vault(vault_path: str, errors: list[str] | None = None) -> list[Scanned
             name for name in dirs
             if name not in SKIP_DIRS
             and not name.startswith(".")
-            and not (portable_library and name in {"raw", "templates"})
+            # `wiki/` holds AI 生成页：2026-09-24 用户决定 wiki 停用，生成页
+            # 不再作为资料进入索引与检索（文件保留在磁盘上）。
+            and not (portable_library and name in {"raw", "templates", "wiki"})
             and not (portable_library and root == vault_path and name in registered_source_names)
         ]
         for filename in files:
             if not filename.lower().endswith(".md"):
                 continue
             if portable_library and root == vault_path and filename in {"WIKI_SCHEMA.md"}:
+                continue
+            if is_repo_metadata(filename):
+                if skipped is not None:
+                    skipped.append(os.path.relpath(
+                        os.path.join(root, filename), vault_path
+                    ).replace(os.sep, "/"))
                 continue
             abs_path = os.path.join(root, filename)
             rel_path = os.path.relpath(abs_path, vault_path).replace(os.sep, "/")

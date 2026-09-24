@@ -1153,6 +1153,16 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 .error-notice, .success-notice { display: flex; align-items: flex-start; gap: 10px; border: 1px solid rgba(147,77,67,0.2); border-radius: 8px; margin: 16px 0; padding: 12px 14px; background: rgba(147,77,67,0.04); color: var(--danger); font-size: 13px; }
 .error-notice > div { min-width: 0; flex: 1; }.error-notice strong { display: block; }.error-notice p { margin: 2px 0 0; color: var(--muted); line-height: 1.55; }
 .success-notice { border-color: rgba(122,155,118,0.25); background: var(--sage-wash); color: var(--sage-deep); }
+/* ①（E17）：文件夹同步的摘要条。数字要能对上用户能看到的东西，
+   明细默认收起，不抢资料列表的位置。 */
+.library-sync-summary { display: grid; gap: 8px; margin: 0 0 12px; border: 1px solid rgba(122,155,118,0.25); border-radius: var(--radius-md); padding: 10px 12px; background: var(--sage-wash); color: var(--sage-deep); font-size: 13px; line-height: 1.6; }
+.library-sync-line { display: flex; align-items: center; gap: 10px; }
+.library-sync-line span { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.library-sync-details > summary { cursor: pointer; color: var(--muted); font-size: 12.5px; }
+.library-sync-details > div { display: grid; gap: 8px; margin-top: 8px; }
+.library-sync-group strong { display: block; margin-bottom: 4px; font-size: 12.5px; font-weight: 650; }
+.library-sync-group ul { margin: 0; padding-left: 18px; color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; }
+
 /* App-level notice surface (E1): an operation that fails inside a chat card,
    dialog or side panel stays visible wherever the user is looking. */
 .notice-center { position: fixed; z-index: 130; right: 18px; bottom: 18px; display: grid; gap: 8px; width: min(360px, calc(100vw - 32px)); }

@@ -302,3 +302,37 @@ describe("api client", () => {
     } satisfies Partial<ApiError>);
   });
 });
+describe("syncLibrary", () => {
+  it("POSTs to the library sync endpoint and returns the actionable summary", async () => {
+    // ① 的前端一半：App 里此前**没有任何入口**能触发文件夹同步
+    // （api.ts 里的 syncLibrary 零调用），用户在资源管理器里把资料剪进
+    // 资料库文件夹后，界面永远发现不了它们。
+    const body = JSON.stringify({
+      ok: true,
+      scanned_files: 47,
+      updated_files: 3,
+      changed_files: 2,
+      error_files: 1,
+      errors: [{ source: "course-2/broken.pdf", error: "解析失败" }],
+      extraction_counts: { complete: 1, partial: 0, empty: 1, error: 0 },
+      added_files: ["course-2/new.md"],
+      removed_files: ["course/course-pack/dup.docx"],
+      duplicates_cleaned: ["course/course-pack/dup.docx"],
+      pending_removal: ["course-2/moved.md"],
+      skipped_files: ["course-2/README.md", "course-2/requirements.txt"],
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(body, { status: 200 })));
+
+    const summary = await api.syncLibrary("lib-1");
+
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith(
+      "/api/libraries/lib-1/sync",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(summary.changed_files).toBe(2);
+    expect(summary.removed_files).toEqual(["course/course-pack/dup.docx"]);
+    expect(summary.duplicates_cleaned).toEqual(["course/course-pack/dup.docx"]);
+    expect(summary.skipped_files).toEqual(["course-2/README.md", "course-2/requirements.txt"]);
+    expect(summary.errors[0].source).toBe("course-2/broken.pdf");
+  });
+});

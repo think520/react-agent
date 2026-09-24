@@ -42,6 +42,27 @@ import type {
   WebArtifact,
 } from "../types";
 
+/**
+ * 资料库文件夹同步的摘要（E17 ①）。
+ *
+ * 每个数字都要对得上用户能看到的东西：新增 / 更新 / 移除 / 待确认移除 /
+ * 跳过（仓库元文件）/ 重复清理 / 失败（含每份的原因）。
+ */
+export interface KnowledgeSyncSummary {
+  ok: boolean;
+  scanned_files: number;
+  updated_files: number;
+  changed_files: number;
+  error_files: number;
+  errors: { source?: string; error?: string }[];
+  extraction_counts: Record<string, number>;
+  added_files: string[];
+  removed_files: string[];
+  duplicates_cleaned: string[];
+  pending_removal: string[];
+  skipped_files: string[];
+}
+
 interface ErrorEnvelope {
   error?: { code?: string; message?: string; details?: unknown };
 }
@@ -114,7 +135,7 @@ export const api = {
     `/api/libraries/${encodeURIComponent(id)}/activate`,
     { method: "POST" },
   ),
-  syncLibrary: (id: string) => request<Record<string, unknown>>(
+  syncLibrary: (id: string) => request<KnowledgeSyncSummary>(
     `/api/libraries/${encodeURIComponent(id)}/sync`,
     { method: "POST" },
   ),

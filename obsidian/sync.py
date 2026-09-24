@@ -24,6 +24,8 @@ from rag.source_section import SourceSection
 from rag.embedding_signature import write_signature
 from rag.parsers import parse_document, SUPPORTED_EXTENSIONS
 
+from .scan_policy import is_repo_metadata
+
 logger = logging.getLogger(__name__)
 
 _COURSE_SKIP_DIRS = {".git", "__pycache__", ".venv", "venv", ".knowledge", ".bobodan", "templates"}
@@ -31,6 +33,9 @@ _COURSE_SKIP_DIRS = {".git", "__pycache__", ".venv", "venv", ".knowledge", ".bob
 # Library-internal structure that must never be indexed as user material.
 # (wiki pages are surfaced through the vault scan / wiki classification.)
 _LIBRARY_INTERNAL_DIRS = _COURSE_SKIP_DIRS | {"wiki"}
+
+#: Repository metadata rule lives in `scan_policy` so the vault scan and the
+#: material scans cannot drift apart (2026-09-24, E17 ①).
 
 
 @dataclass
@@ -45,6 +50,21 @@ class SyncSummary:
     error_files: int = 0
     errors: list = field(default_factory=list)
     extraction_counts: dict = field(default_factory=dict)
+    #: 2026-09-24: repo metadata files that were deliberately not indexed.
+    skipped_files: list = field(default_factory=list)
+    #: Sources that entered the index for the first time in this run.
+    added_files: list = field(default_factory=list)
+    #: Sources whose content changed in this run (excludes removals, so the
+    #: summary can say 更新 N and 移除 N without double counting).
+    changed_files: int = 0
+    #: Sources removed from the index in this run (confirmed missing twice).
+    removed_files: list = field(default_factory=list)
+    #: Removed sources whose content is still indexed under another source:
+    #: these are the duplicate records the scan-rule fix cleans up.
+    duplicates_cleaned: list = field(default_factory=list)
+    #: Sources that were missing this run but still wait for the second
+    #: confirmation (P0-12). Surfaced so the UI can say "待确认移除 N".
+    pending_removal: list = field(default_factory=list)
     #: P1-18: documents whose vectors were written by the backfill pass.
     vectors_backfilled: int = 0
 
@@ -60,6 +80,12 @@ class SyncSummary:
             "error_files": self.error_files,
             "errors": self.errors,
             "extraction_counts": dict(self.extraction_counts),
+            "skipped_files": list(self.skipped_files),
+            "changed_files": int(self.changed_files),
+            "added_files": list(self.added_files),
+            "removed_files": list(self.removed_files),
+            "duplicates_cleaned": list(self.duplicates_cleaned),
+            "pending_removal": list(self.pending_removal),
         }
 
 
@@ -111,7 +137,18 @@ def _resolve_deletions(
     """
     deleted: list[str] = []
     pending: dict[str, int] = {}
-    for source in old_state:
+    # 2026-09-24 (E17 ①): `files` is overwritten by every scan, so a source
+    # that goes missing leaves `old_state` after the *first* pass. Iterating
+    # `old_state` alone meant the confirmation counter could never reach
+    # DELETION_CONFIRMATIONS and nothing was ever removed — measured on the real
+    # library: 29 stale records (7 duplicate sources + 17 wiki pages + …)
+    # survived two syncs while `missing` was silently emptied. Previously
+    # missing sources are therefore re-checked until they come back or the
+    # confirmation count is reached.
+    candidates = set(old_state) | {
+        source for source in previous_missing if source not in old_state
+    }
+    for source in sorted(candidates):
         if source in new_state:
             continue
         seen = int(previous_missing.get(source, 0) or 0)
@@ -134,12 +171,20 @@ def _stable_hash(text: str) -> str:
 def _scan_course_files(
     root_dir: str,
     errors: list[str] | None = None,
+    *,
+    skip_roots: frozenset[str] = frozenset(),
+    skipped: list[str] | None = None,
 ) -> list[tuple[str, str, str]]:
     """Return supported course files as (relative source, path, content hash).
 
     P0-12: unreadable directories and files are recorded in `errors` instead of
     being swallowed, because a file that only *looks* absent must never be
     treated as deleted.
+
+    2026-09-24 (E17 ①): `skip_roots` holds absolute paths of directories that
+    another scan root already covers — walking into them would index the same
+    file twice under two sources (two `document_id`s). `skipped` collects repo
+    metadata files that were deliberately ignored so the summary can list them.
     """
     root_dir = os.path.abspath(root_dir)
     files = []
@@ -151,14 +196,18 @@ def _scan_course_files(
     for root, dirs, filenames in os.walk(root_dir, onerror=_on_error):
         dirs[:] = [
             name for name in dirs
-            if name not in _COURSE_SKIP_DIRS and not name.startswith(".")
+            if name not in _COURSE_SKIP_DIRS
+            and not name.startswith(".")
+            and os.path.abspath(os.path.join(root, name)) not in skip_roots
         ]
         for filename in filenames:
             if os.path.splitext(filename)[1].lower() not in SUPPORTED_EXTENSIONS:
                 continue
             path = os.path.join(root, filename)
             relative = os.path.relpath(path, root_dir).replace(os.sep, "/")
-            if os.path.basename(os.path.normpath(root_dir)) == "raw" and relative == "README.md":
+            if is_repo_metadata(filename):
+                if skipped is not None:
+                    skipped.append(relative)
                 continue
             try:
                 with open(path, "rb") as handle:
@@ -179,6 +228,9 @@ def _course_prefix(root_dir: str, default: str) -> str:
 def _scan_library_root(
     root_dir: str,
     errors: list[str] | None = None,
+    *,
+    skip_roots: frozenset[str] = frozenset(),
+    skipped: list[str] | None = None,
 ) -> list[tuple[str, str, str]]:
     """Scan a portable library root for materials of every supported format.
 
@@ -191,7 +243,13 @@ def _scan_library_root(
     - markdown outside `raw/` is handled by the vault scan, so this pass
       skips it (avoids duplicate obsidian/course sources);
     - files under `raw/` keep their legacy relative path (no `raw/` prefix),
-      so existing `course/inbox/...` sources and document ids stay stable.
+      so existing `course/inbox/...` sources and document ids stay stable;
+    - 2026-09-24 (E17 ①) a registered extra source root that happens to live
+      **inside** this folder is skipped: the vault scan already skips such
+      roots (`obsidian/vault.py`), and without the same rule here the same
+      file got two documents (measured: 7 pairs in the real library);
+    - repo metadata files (README / CONTRIBUTING / requirements.txt / …) are
+      skipped at any level and reported through `skipped`.
     """
     root_dir = os.path.abspath(root_dir)
     files: list[tuple[str, str, str]] = []
@@ -203,7 +261,9 @@ def _scan_library_root(
     for root, dirs, filenames in os.walk(root_dir, onerror=_on_error):
         dirs[:] = [
             name for name in dirs
-            if name not in _LIBRARY_INTERNAL_DIRS and not name.startswith(".")
+            if name not in _LIBRARY_INTERNAL_DIRS
+            and not name.startswith(".")
+            and os.path.abspath(os.path.join(root, name)) not in skip_roots
         ]
         for filename in filenames:
             ext = os.path.splitext(filename)[1].lower()
@@ -216,10 +276,12 @@ def _scan_library_root(
                 # Keep legacy course/inbox/... sources (and thus stable
                 # document ids) for everything under raw/.
                 relative = relative[len("raw/"):]
+            if is_repo_metadata(filename):
+                if skipped is not None:
+                    skipped.append(relative)
+                continue
             if ext == ".md" and not from_raw:
                 # Root-level markdown is indexed by the vault scan.
-                continue
-            if relative == "README.md":
                 continue
             try:
                 with open(path, "rb") as handle:
@@ -320,7 +382,11 @@ def sync_sources(
     # ── Step 1: Scan vault ──────────────────────────────────────────────
     from .vault import scan_vault
 
-    notes = scan_vault(vault_path, errors=scan_errors)
+    #: Repo metadata files that were deliberately not indexed (E17 ① summary).
+    skipped_sources: list[str] = []
+    vault_skipped: list[str] = []
+    notes = scan_vault(vault_path, errors=scan_errors, skipped=vault_skipped)
+    skipped_sources.extend(f"obsidian/{relative}" for relative in vault_skipped)
 
     # ── Step 2: Determine which files changed ───────────────────────────
     changed_sources: list[tuple[str, str, str, str]] = []  # (source, abs_path, content_hash, kind)
@@ -341,17 +407,53 @@ def sync_sources(
         prefix = _course_prefix(extra_dir, f"course-{index + 2}")
         course_roots.append((prefix, extra_dir))
 
+    # 2026-09-24 (E17 ①): an extra source root can live inside another root
+    # (measured in the real library: `ai-agents-from-zero` is both a child of
+    # the library root and a registered course dir, and `raw/notes` likewise).
+    # The vault scan already skips registered roots; without the same skip here
+    # every file under them got a second document with a second id.
+    skip_roots = frozenset(
+        os.path.abspath(path) for path in (extra_course_dirs or []) if path
+    )
+
     for prefix, root_dir in course_roots:
         # A portable library root scans the whole user-facing folder
         # (root-level PDF/DOCX included); plain course dirs keep the
         # markdown-inclusive course scan.
         portable_root = os.path.isfile(os.path.join(root_dir, "BOBODAN_LIBRARY.yaml"))
         scanner = _scan_library_root if portable_root else _scan_course_files
-        for relative_source, path, content_hash in scanner(root_dir, scan_errors):
+        skipped_here: list[str] = []
+        for relative_source, path, content_hash in scanner(
+            root_dir, scan_errors, skip_roots=skip_roots, skipped=skipped_here
+        ):
             source = f"{prefix}/{relative_source}"
             new_state[source] = content_hash
             if mode == "full" or old_state.get(source) != content_hash:
                 changed_sources.append((source, path, content_hash, "course_document"))
+        skipped_sources.extend(f"{prefix}/{relative}" for relative in skipped_here)
+
+    # 2026-09-24 (E17 ①): self-healing for state drift. A source can drop out
+    # of the scan state while its document stays in SQLite (scanner rule change,
+    # an interrupted run, or the P0-12 counter defect above). Those orphans are
+    # fed back into the same two-confirmation deletion path instead of being
+    # indexed forever — measured on the real library: 29 such documents.
+    # Only sources the scan actually indexed count as known. Repo metadata that
+    # is *skipped* must NOT be treated as known: files indexed under the old
+    # rule (README / requirements.txt / …) have to fall out of the index too.
+    known_sources = set(new_state)
+    from rag.sqlite_store import KBSQLiteStore
+
+    probe = KBSQLiteStore(workspace)
+    probe.init_db()
+    try:
+        indexed_sources = {row["source"] for row in probe.list_documents()}
+    finally:
+        probe.close()
+    orphans = sorted(source for source in indexed_sources if source not in known_sources)
+    if orphans:
+        previous_missing = dict(previous_missing)
+        for source in orphans:
+            previous_missing.setdefault(source, 0)
 
     # P0-12: confirm deletions across scans and never delete on a failed scan.
     deleted_sources, pending_missing = _resolve_deletions(
@@ -600,6 +702,16 @@ def sync_sources(
     if mode == "full":
         updated_files = len(new_state)
 
+    # 2026-09-24 (E17 ①): a summary the user can act on — added / updated /
+    # removed / skipped / duplicates / failed, instead of one opaque number.
+    added_sources = sorted(source for source in new_state if source not in old_state)
+    live_hashes = set(new_state.values())
+    duplicates_cleaned = sorted(
+        source
+        for source in deleted_sources
+        if source in old_state and old_state[source] in live_hashes
+    )
+
     # Merge doc_records: keep existing records for unchanged files
     from knowledge.manifest import load_manifest
     existing_manifest = load_manifest(workspace)
@@ -657,6 +769,12 @@ def sync_sources(
         error_files=len(errors),
         errors=errors,
         extraction_counts=dict(extraction_counts),
+        skipped_files=sorted(set(skipped_sources)),
+        changed_files=len(changed_sources),
+        added_files=added_sources,
+        removed_files=list(deleted_sources),
+        duplicates_cleaned=duplicates_cleaned,
+        pending_removal=sorted(pending_missing),
         vectors_backfilled=vectors_backfilled,
     )
 

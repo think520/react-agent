@@ -95,7 +95,9 @@ def test_legacy_folder_preview_and_initialize_registers_course_subfolders(tmp_pa
     assert source_roots["version"] == 2
     assert source_roots["course_dirs"] == ["course-materials"]
     assert "note.md" in scanned
-    assert "wiki/concepts/RAG.md" in scanned
+    # 2026-09-24（E17 ①，用户已确认）：wiki 停用 —— 生成页不再是资料，
+    # 磁盘文件保留，但不再进入索引与检索。
+    assert "wiki/concepts/RAG.md" not in scanned
     assert "course-materials/lesson.md" not in scanned
 
 

@@ -7,6 +7,14 @@
 ## [未发布]
 
 ### 变更
+- **① 扫描规则 + 同步入口 + 重复治理（2026-09-24，E17 ① / `LIBRARY_TREE_DESIGN.md`）**：把「资料库文件夹」变成真入口，并修掉三处让列表变脏或变死的缺陷。
+  - **重复索引（真 bug）**：`.bobodan/source_roots.json` 把 `ai-agents-from-zero`（它本身是库根的**子目录**）登记成独立来源根，而 `_scan_library_root` 没有像 vault 扫描（`obsidian/vault.py:64`）那样跳过已登记的来源根 → 同一份文件两条记录、两个 `document_id`（实测 7 组）。修法：把 `skip_roots`（已登记来源根的绝对路径）传给两个材料扫描器。**真实现场：资料 76 → 47。**
+  - **删除确认计数永远到不了第 2 次（既有 bug，本轮实测发现）**：`_resolve_deletions` 只遍历 `old_state`，而状态里的 `files` 每次同步都被新扫描覆盖 —— 一个 source 第一次缺失后就从 `old_state` 消失，计数永远到不了 `DELETION_CONFIRMATIONS=2`，下一次同步还会把 `missing` 里那条一起丢掉。现场证据：真实库 29 条该移除的记录既没被删除、也不在待确认列表，`sync_state.json` 显示 `files=47 / missing=0`。修法：候选集合改为 `old_state ∪ previous_missing`。
+  - **状态漂移没有自愈路径（本轮新发现）**：索引里有、但已不属于任何扫描范围的文档（wiki 生成页、因规则收紧而失去来源的重复）会永远留在索引里、而且没人再看得见。修法：同步时用 SQLite 里的事实反查——凡是「索引里有、扫描状态里没有」的 source，重新喂回同一个两次确认的删除通道。**复现**：种一条 `obsidian/wiki/concepts/RAG.md` 记录，停用自愈立刻失败（已实测两端）。
+  - **仓库元文件被当资料**：旧规则只跳过**库根那一层**的 `README.md`，子目录照收（`course-2/README.md`、`requirements.txt`、`_sidebar.md`、`CONTRIBUTING.md` 都在列表里）。新规则放进共享模块 `obsidian/scan_policy.py`（vault 扫描与材料扫描共用，防止再次漂移）：任意层级跳过 README / CONTRIBUTING / LICENSE / CHANGELOG / requirements*.txt / _sidebar.md / _navbar.md，并在同步摘要里如实列出（真实库每轮 5 条）。
+  - **wiki 停用（用户决定，设计 §3.1）**：portable 资料库的 vault 扫描不再索引 `wiki/`（生成页不再是资料），磁盘文件保留；**概念提取 → 知识地图不受影响**。配套更新了 `tests/test_library_service.py` 里那条"wiki 页应当被扫描到"的旧断言。
+  - **App 里没有同步入口（真 bug）**：`web/frontend/src/lib/api.ts:117` 的 `syncLibrary()` **全前端零调用** —— 用户在资源管理器里把文件剪进资料库文件夹后，界面里没有任何办法发现它们。现在资料库页有「**同步文件夹**」按钮；完成后给可行动的摘要：新增 / 更新 / 移除 / 待确认移除 / 跳过（元文件）/ 重复清理 / 失败（含每份原因），明细可展开。
+  - **验证**：pytest **1597 passed**（新增 5 条复现测试）、vitest **94 passed / 16 files**（新增 3 条）、`tsc --noEmit` 0、eslint 0、生产构建 0；live（真实后端 + 真实资料库）**4 passed**——含新增的"点同步文件夹 → 摘要上屏"。真实现场：资料 **76 → 47**（wiki 生成页 0、元文件 0、重复对 0），上传的那份 PDF 原件视图 / 提取（30 单元）/ 检索命中均完好。
 - **资料联动轮（2026-09-23）**：按「查看来源 → 落点统一 → 定位提示 → 搜索定位 → PDF 引导」推进。
   - ① + ② **跳转落点统一**（`ba83123`）：原先**五处**各自手拼 `/library?…&document=…`（来源 chip、右侧来源栏「打开原文」、聊天引用列表、知识地图返回来源、笔记引用），其中两处**已经在传 chunk**——但目标是**资料库列表页**，而它不渲染 sections，所以 `LibraryPage` 里处理 `chunk` 的代码永远拿不到 `[data-chunk-id]` 节点，"跳过去找不到引用段落"。现在统一走 `lib/documentLinks.ts::readerLocation()` → `/library/read/{id}?collection=…&chunk=…`（含 5 条单测）。
   - ③ **引用定位 + 提示条**（`a30bd11`）：带 `chunk` 进入时顶部显示「已定位到引用段落」并可一键「看原文」。**修法用了五轮才找对**：前五轮都在"命令式查找 + 定时"上加补丁（直接查 → 成功才清 pending → rAF 重试 8 帧）全部失败；埋点实测给出关键两条事实——`highlightedChunk` **从未被设置**（不是设了又被清），而**目标 id 确实在 DOM 里且 URL 参数正确**——于是**换机制**：删掉用 `querySelectorAll` 的 effect，改由**目标 `<section>` 的 ref 回调在挂载那一刻**自己高亮并滚动。live 检查（真实后端 + 真实资料库）通过。

@@ -11,11 +11,26 @@ import type { AppOutletContext } from "../components/AppShell";
 import { BrandIllustration, EmptyState, ErrorNotice, IconButton, LoadingState, formatRelativeDate } from "../components/common";
 import { WikiPlanCard } from "../components/WikiPlanCard";
 import { ApiError, api } from "../lib/api";
+import type { KnowledgeSyncSummary } from "../lib/api";
 import { Modal, useConfirm } from "../ui/Modal";
 import { useHandoffStore } from "../stores/handoffStore";
 import type { DocumentExtractionStatus, DocumentSection, DocumentSummary, PersonalKnowledgeItem, WikiEditablePage, WikiGenerationMode, WikiHealth, WikiPlan, WikiRepairPlan, WikiRunEstimate, WikiScopeMode, WikiTask } from "../types";
 
 type WikiView = "knowledge" | "sources" | "notes" | "all";
+
+/** 同步明细里的一组来源（新增 / 移除 / 跳过 …），最多列 20 条。 */
+function SyncSourceList({ title, sources }: { title: string; sources: string[] }) {
+  if (sources.length === 0) return null;
+  return (
+    <div className="library-sync-group">
+      <strong>{title} {sources.length}</strong>
+      <ul>
+        {sources.slice(0, 20).map((source) => <li key={source}>{source}</li>)}
+        {sources.length > 20 && <li className="text-faint">…… 其余 {sources.length - 20} 条</li>}
+      </ul>
+    </div>
+  );
+}
 
 function wikiViewForType(type: DocumentSummary["wiki_type"]): WikiView {
   if (type === "source") return "sources";
@@ -63,6 +78,10 @@ export function LibraryPage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  // ①（E17）：文件夹同步 —— 用户在资源管理器里把资料剪进资料库文件夹后，
+  // 需要有一个明确入口去发现它们，并看到「这次到底动了什么」。
+  const [syncingFolder, setSyncingFolder] = useState(false);
+  const [syncSummary, setSyncSummary] = useState<KnowledgeSyncSummary | null>(null);
   const [editingDocumentId, setEditingDocumentId] = useState<string | null>(null);
   const [highlightedChunk, setHighlightedChunk] = useState<string | null>(null);
   const [startingExtractionId, setStartingExtractionId] = useState<string | null>(null);
@@ -735,6 +754,21 @@ export function LibraryPage() {
     }
   }
 
+  async function syncLibraryFolder() {
+    if (!activeLibrary || syncingFolder) return;
+    setSyncingFolder(true);
+    setError("");
+    try {
+      const summary = await api.syncLibrary(activeLibrary.library_id);
+      setSyncSummary(summary);
+      await loadDocuments();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "同步资料库文件夹失败。");
+    } finally {
+      setSyncingFolder(false);
+    }
+  }
+
   async function deleteDocument(document: DocumentSummary) {
     if (!document.managed || deletingId) return;
     setDeletingId(document.document_id);
@@ -842,6 +876,11 @@ export function LibraryPage() {
           <div className="library-toolbar-actions">
             {collection === "wiki" && <button className="quiet-button" onClick={() => selectCollection("material")}>返回资料</button>}
             {activeLibrary && <IconButton label="刷新资料" onClick={() => void loadDocuments()}><RefreshCw size={16} /></IconButton>}
+            {collection === "material" && activeLibrary && (
+              <button className="quiet-button" type="button" disabled={syncingFolder} onClick={() => void syncLibraryFolder()}>
+                <FolderOpen size={15} />{syncingFolder ? "正在同步文件夹…" : "同步文件夹"}
+              </button>
+            )}
             <details className="library-more-menu">
               <summary><MoreHorizontal size={17} /><span>更多</span></summary>
               <div>
@@ -852,6 +891,41 @@ export function LibraryPage() {
             {collection === "material" && <button className="primary-button" disabled={documentImporting} onClick={startDocumentImport}><Upload size={16} />{documentImporting ? "正在建立索引" : "导入资料"}</button>}
           </div>
         </header>
+        {syncSummary && (
+          <section className="library-sync-summary" role="status" aria-live="polite">
+            <div className="library-sync-line">
+              <CheckCircle2 size={17} />
+              <span>
+                已扫描 {syncSummary.scanned_files} 份资料：新增 {syncSummary.added_files.length}、更新 {syncSummary.changed_files}、移除{" "}
+                {syncSummary.removed_files.length}
+                {syncSummary.pending_removal.length > 0 ? `、待确认移除 ${syncSummary.pending_removal.length}` : ""}
+                、跳过 {syncSummary.skipped_files.length}（仓库元文件）
+                {syncSummary.error_files > 0 ? `、失败 ${syncSummary.error_files}` : ""}
+              </span>
+              <button className="quiet-button" type="button" onClick={() => setSyncSummary(null)}>收起</button>
+            </div>
+            <details className="library-sync-details">
+              <summary>查看明细</summary>
+              <div>
+                <SyncSourceList title="新增" sources={syncSummary.added_files} />
+                <SyncSourceList title="移除" sources={syncSummary.removed_files} />
+                <SyncSourceList title="重复清理" sources={syncSummary.duplicates_cleaned} />
+                <SyncSourceList title="待确认移除（连续两次缺失才真正移除）" sources={syncSummary.pending_removal} />
+                <SyncSourceList title="跳过（仓库元文件）" sources={syncSummary.skipped_files} />
+                {syncSummary.errors.length > 0 && (
+                  <div className="library-sync-group">
+                    <strong>失败 {syncSummary.errors.length}</strong>
+                    <ul>
+                      {syncSummary.errors.slice(0, 20).map((item, index) => (
+                        <li key={`${item.source || "unknown"}-${index}`}>{item.source || "（未知来源）"}：{item.error || "原因未提供"}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            </details>
+          </section>
+        )}
         {collection === "wiki" && <div className="wiki-view-tabs" role="tablist" aria-label="Wiki 页面类型">
           <button role="tab" aria-selected={wikiView === "knowledge"} className={wikiView === "knowledge" ? "active" : ""} onClick={() => selectWikiView("knowledge")}>知识页</button>
           <button role="tab" aria-selected={wikiView === "sources"} className={wikiView === "sources" ? "active" : ""} onClick={() => selectWikiView("sources")}>资料索引</button>
