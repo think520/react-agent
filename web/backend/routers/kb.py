@@ -531,6 +531,12 @@ def document_impact(document_id: str, request: Request) -> dict:
     )
 
 
+@router.get("/organize/proposals")
+def organization_proposals(request: Request) -> dict:
+    """整理建议（E17 ⑤ 前半）：给出可复核的建议，**一份文件都不动**。"""
+    return unwrap_service_result(_service(request).propose_organization())
+
+
 @router.post("/folders")
 def create_folder(body: dict, request: Request) -> dict:
     """新建文件夹（E17 ③）。"""

@@ -1692,6 +1692,47 @@ class KBService:
             "references_remapped": references_remapped,
         }
 
+    # --- 整理建议（E17 ⑤ 前半：只提议，不动文件）-------------------------
+
+    def propose_organization(self) -> dict[str, Any]:
+        """给出可复核的整理建议，**一份文件都不动**（E17 ⑤）。
+
+        形状与设计一致：提议 → 预览 → 用户确认 → 执行 → 一键撤销。这里只做
+        第一步，而且是**确定性规则**（不是模型即兴发挥）：先把最明显的一类
+        说出来 —— 散落在资料库根目录的资料（没有归到任何文件夹里的那些）。
+        真正的"AI 归类"要在这一步之上，并且必须走同一套确认与撤销。
+        """
+        from obsidian.scan_policy import is_repo_metadata
+        from rag.parsers import SUPPORTED_EXTENSIONS
+
+        proposals: list[dict[str, Any]] = []
+        loose: list[str] = []
+        try:
+            entries = sorted(os.scandir(self.workspace), key=lambda item: item.name.casefold())
+        except OSError:
+            entries = []
+        for entry in entries:
+            name = entry.name
+            if name.startswith(".") or entry.is_dir(follow_symlinks=False):
+                continue
+            if name in {"BOBODAN_LIBRARY.yaml", "WIKI_SCHEMA.md"}:
+                continue
+            extension = os.path.splitext(name)[1].lower()
+            if extension not in SUPPORTED_EXTENSIONS or is_repo_metadata(name):
+                continue
+            loose.append(name)
+
+        if loose:
+            proposals.append({
+                "kind": "loose_materials",
+                "title": "库根散落的资料",
+                "reason": "这些资料直接躺在资料库根目录，没有归到任何文件夹里；放进一个按课程或主题命名的文件夹会更好找。",
+                "items": loose,
+                "suggested_folder": "未归类",
+                "requires_confirmation": True,
+            })
+        return _ok(proposals=proposals)
+
     def create_folder(self, relative_path: str) -> dict[str, Any]:
         """在资料库里新建一个真实文件夹（E17 ③）。"""
         cleaned = self._clean_relative(relative_path)
