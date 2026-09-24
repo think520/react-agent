@@ -7,6 +7,12 @@
 ## [未发布]
 
 ### 变更
+- **④m 判定成功：小节加载器确实跑了，但结果没进 DOM（2026-09-24，未改代码）**：在 click 之后插入**同步断言** `expect(vi.mocked(api.document).mock.calls.length).toBeGreaterThan(0)`，重跑 —— 测试**仍然耗时 5.02 秒**。这条耗时就是证据：**如果该断言失败，测试会在 0.2 秒内结束**。所以：
+  - ✅ `api.document(selectedId)` **被调用了**（加载 effect 跑了，依赖与提前 return 都没问题）；
+  - ❌ 小节**最终没有出现在 DOM 里**（`.reader-prose section` 仍为 0，等到夹具的 5 秒天花板被杀）。
+  - 三个嫌疑里已排除一个（不是"effect 没跑"），剩下两个：**① `setSections` 的结果被后续渲染/effect 覆盖**（例如 `loadDocuments` 在 URL 变化后重算 `nextSelected` 把 `selectedId` 拨走，或某处 `setSections([])` 抢先）；**② 渲染闸门**（`{selected && …}` 与 `sections.length ? …`，即 `selected` 派生失败）。
+  - **下轮一次运行即可二选一**：在同一个同步位置再断言 `expect(document.querySelectorAll(".reader-article").length).toBeGreaterThan(0)` —— 它同步失败/通过就能区分"闸门"与"状态被覆盖"（闸门问题会让 article 都不存在）。
+  - 本轮仍未改代码（四次运行的编辑均已回读确认并复原，工作树干净）。**目标已按用户要求扩到 60 轮并重新激活。**
 - **第 23 轮：对已交付部分做了一次全量验证（2026-09-24，无代码改动）**：pytest **1617 passed**、vitest **112 passed | 1 skipped**、eslint **0**、生产构建 **0**、tsc **0** —— ①②③ 与 ④ 已落地的那一块（工具条收口）在当前提交 `9bf3da5` 上是绿的。
   - ④ 的卡点仍是「资料库页小节加载」那一步（**④l** 已定位到具体 effect，并显式作废了 ④h/④k 两条错误结论）；⑤ 未开始。
   - 因此**本轮不宣称任何新交付**：这是一次验证轮，目的是确认前面积累的改动没有把仓库留在半红状态。
