@@ -7,6 +7,10 @@
 ## [未发布]
 
 ### 变更
+- **④x 标签模型统一：删掉重复实现，改用既有 `readerTabsStore`（2026-09-24）**：④a/④b 当初新建的 `lib/readerTabs.ts` + `hooks/useReaderTabs.ts`（含 7 条测试）与仓库里**早就存在**的 `stores/readerTabsStore.ts`（`openIds` / `open` / `close` / `scrolls` / `setScroll` / `scrollFor`，ReaderPage 一直在用）重叠。现在资料库页直接读同一个 store，并删掉那两个文件与它们的测试。
+  - 具体：标签条改由 `openIds` 驱动、激活态用页面自己的 `selectedId`、标题从 `documents` 查、滚动位置记/取都用 store 的 `setScroll`/`scrollFor`；顺手删掉因此失效的 `scrollTargetFor` 与一个未使用变量（eslint 抓出来的）。
+  - **验证**：tsc 0、eslint 0、前端全量 vitest **106 passed / 18 files**（比上轮少 7 条，正是被删掉的重复模型测试）、构建 0；live（真实后端 + 真实资料库）**6 passed**。
+  - **④ 仍未做**：`/library` 与 `/library/read/:id` 合并成同一套渲染（深链接仍走阅读页，它能力更全：原文/按小节、PDF 内嵌、章节导航）——这是 ④ 最后一件。
 - **④w 阅读区目录浮层（2026-09-24）**：资料库页阅读区的工具条多了「目录」——展开是**这份资料自己的小节列表**（有标题显示标题，否则显示页码/节号），点一下平滑滚动到那一段（`[data-chunk-id]` 已在渲染里）。这是 ④ 里"目录 = 工具条按钮 → 浮层，每份资料各一份"那条验收。
   - **它当场抓出我自己写的一个真 bug**：标签表达式 `section.heading || section.page_start ? … : …` 因为运算符优先级，**有标题的小节也会显示成"第 N 节"**。是页面测试逼我把它改成 `section.heading || (section.page_start ? 页码 : 节号)`。
   - 一条环境事实记下来：jsdom 不实现 `<details>` 的展开，折叠内容对 `getByRole` 是 hidden —— 断言目录内容要用 `{ hidden: true }`（我先踩了一次"找不到按钮"）。

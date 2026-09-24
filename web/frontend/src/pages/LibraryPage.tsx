@@ -13,8 +13,7 @@ import { WikiPlanCard } from "../components/WikiPlanCard";
 import { ApiError, api } from "../lib/api";
 import type { ArchivedEntry, KnowledgeSyncSummary, KnowledgeTree } from "../lib/api";
 import { LibraryTree } from "../components/LibraryTree";
-import { useReaderTabs } from "../hooks/useReaderTabs";
-import { scrollTargetFor } from "../lib/readerTabs";
+import { useReaderTabsStore } from "../stores/readerTabsStore";
 import { Modal, useConfirm } from "../ui/Modal";
 import { useHandoffStore } from "../stores/handoffStore";
 import type { DocumentExtractionStatus, DocumentSection, DocumentSummary, PersonalKnowledgeItem, WikiEditablePage, WikiGenerationMode, WikiHealth, WikiPlan, WikiRepairPlan, WikiRunEstimate, WikiScopeMode, WikiTask } from "../types";
@@ -91,7 +90,12 @@ export function LibraryPage() {
   // ③：已归档的资料（归档只是移走，永远可恢复）。
   const [archive, setArchive] = useState<ArchivedEntry[]>([]);
   // ④：阅读区标签页（每篇记住读到哪；关掉最后一个自动收起）。
-  const tabs = useReaderTabs(activeLibrary?.library_id);
+  // ④：复用既有的标签模型（ReaderPage 也用它）：openIds + 每篇滚动位置。
+  const openIds = useReaderTabsStore((state) => state.openIds);
+  const openTab = useReaderTabsStore((state) => state.open);
+  const closeTab = useReaderTabsStore((state) => state.close);
+  const setTabScroll = useReaderTabsStore((state) => state.setScroll);
+  const scrollFor = useReaderTabsStore((state) => state.scrollFor);
   const [editingDocumentId, setEditingDocumentId] = useState<string | null>(null);
   const [highlightedChunk, setHighlightedChunk] = useState<string | null>(null);
   const [startingExtractionId, setStartingExtractionId] = useState<string | null>(null);
@@ -290,11 +294,11 @@ export function LibraryPage() {
     restoredRef.current = selectedId;
     const element = pageRef.current;
     if (!element) return;
-    const target = scrollTargetFor(tabs.positionOf(selectedId), element.scrollHeight, element.clientHeight);
+    const target = scrollFor(selectedId);
     if (target <= 0) return;
     element.scrollTop = target;
     lastProgressRef.current = Math.floor((target / Math.max(1, element.scrollHeight - element.clientHeight)) * 100);
-  }, [selectedId, detailLoading, sections.length, tabs]);
+  }, [selectedId, detailLoading, sections.length, scrollFor]);
 
   function recordReadingProgress() {
     const element = pageRef.current;
@@ -303,7 +307,7 @@ export function LibraryPage() {
     const raw = available > 0 ? Math.round((element.scrollTop / available) * 100) : 100;
     const progress = raw >= 100 ? 100 : Math.floor(raw / 10) * 10;
     // ④：本地的"读到哪"比后端进度更细，且关掉标签页也留着。
-    tabs.remember(selectedId, raw);
+    setTabScroll(selectedId, element.scrollTop);
     if (progress < 10 || progress <= lastProgressRef.current) return;
     lastProgressRef.current = progress;
     void api.updateReadingProgress(selectedId, progress).catch(() => undefined);
@@ -665,8 +669,7 @@ export function LibraryPage() {
 
   function selectDocument(documentId: string) {
     // ④：打开阅读区的一个标签页（已开只激活）。
-    const target = documents.find((item) => item.document_id === documentId);
-    tabs.open(documentId, target?.title || target?.relative_path || "");
+    openTab(documentId);
     setSelectedId(documentId);
     setHighlightedChunk(null);
     setSearchParams({ collection, document: documentId, ...(collection === "wiki" ? { wikiView } : {}) }, { replace: true });
@@ -1186,33 +1189,32 @@ export function LibraryPage() {
                 )}
               </aside>
             )}
-            {tabs.tabs.length > 0 && (
+            {openIds.length > 0 && (
               <div className="reader-tabs" role="tablist" aria-label="打开的资料">
-                {tabs.tabs.map((tab) => (
-                  <span key={tab.documentId} className={tabs.activeId === tab.documentId ? "reader-tab active" : "reader-tab"}>
+                {openIds.map((tabId) => (
+                  <span key={tabId} className={selectedId === tabId ? "reader-tab active" : "reader-tab"}>
                     <button
                       type="button"
                       role="tab"
-                      aria-selected={tabs.activeId === tab.documentId}
+                      aria-selected={selectedId === tabId}
                       onClick={() => {
-                        tabs.activate(tab.documentId);
-                        selectDocument(tab.documentId);
+                        selectDocument(tabId);
                       }}
                     >
-                      {tab.title || tab.documentId}
+                      {documents.find((item) => item.document_id === tabId)?.title || tabId}
                     </button>
                     <button
                       type="button"
                       className="reader-tab-close"
-                      aria-label={`关闭 ${tab.title || tab.documentId}`}
+                      aria-label={`关闭 ${documents.find((item) => item.document_id === tabId)?.title || tabId}`}
                       onClick={() => {
-                        const wasActive = tabs.activeId === tab.documentId;
-                        tabs.close(tab.documentId);
+                        const wasActive = selectedId === tabId;
+                        closeTab(tabId);
                         if (wasActive) {
-                          const remaining = tabs.tabs.filter((item) => item.documentId !== tab.documentId);
-                          const index = tabs.tabs.findIndex((item) => item.documentId === tab.documentId);
+                          const remaining = openIds.filter((item) => item !== tabId);
+                          const index = openIds.indexOf(tabId);
                           const next = remaining[index] ?? remaining[index - 1];
-                          if (next) selectDocument(next.documentId);
+                          if (next) selectDocument(next);
                           else setSelectedId(null);
                         }
                       }}
