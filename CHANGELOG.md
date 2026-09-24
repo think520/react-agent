@@ -7,6 +7,10 @@
 ## [未发布]
 
 ### 变更
+- **④d 工具条收口：把「编辑」收进 ⋯ 菜单（2026-09-24，E17 ④）**：阅读页工具条顶层从此只放「读」的动作，「改」的动作（编辑）进 `⋯` 菜单。
+  - **真实动线验证**（Playwright 打开真实资料库里的 md 资料）：工具条顶层按钮 = `["已提取 · 查看图谱"]`，`⋯` 菜单存在且内容含「编辑」。
+  - **仍未做**：`提取概念` 那几颗状态按钮仍在顶层（它们同时也是"这份资料处理到哪了"的状态指示，收进菜单会让状态不可见——需要先想清楚状态怎么留）；以及 ④ 最大的一块：`/library` 与 `/library/read/:id` 合并、复用既有的 `readerTabsStore`（不要再新建模型）、目录浮层。
+  - 验证：tsc 0、eslint 0、vitest **112 passed**、构建 0。
 - **④c 审查发现：我把已有的东西重做了一遍（2026-09-24，已回滚，未改代码）**：准备统一标签模型时发现 `stores/readerTabsStore.ts`（TASKS_LIBRARY_REWORK 2.3.1）**早就有** `openIds` / `close` / `scrolls` / `setScroll` / `scrollFor`，而且 ReaderPage 第 133 行**已经在恢复滚动位置**（`pageRef.current.scrollTop = scrolls[selectedId] || 0`）。也就是说：
   - **④a（标签模型）是重复实现**：`6959879` 新建的 `lib/readerTabs.ts` + `hooks/useReaderTabs.ts` 与既有 store 重叠；
   - **④b（位置还原）不是缺口**：真实动线里 ④b 的能力本来就有，`f845825` 加的是够不着的第二份。

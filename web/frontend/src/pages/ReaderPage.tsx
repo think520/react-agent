@@ -390,7 +390,12 @@ export function ReaderPage() {
             {selected?.collection === "material" && (effectiveExtractionStatus(selected) === "failed" || effectiveExtractionStatus(selected) === "stale") && (
               <button className="primary-button reader-extract" disabled={startingExtractionId === selected.document_id || !sections.length} onClick={() => void extractAndReview(selected, true)}><RefreshCw size={15} />重新提取</button>
             )}
-            {editAction}
+            {editAction && (
+              <details className="reader-more-actions">
+                <summary aria-label="更多操作" title="更多操作">⋯</summary>
+                <div>{editAction}</div>
+              </details>
+            )}
             {selected && canShowOriginal && (
               <div className="reader-view-switch" role="group" aria-label="阅读视图">
                 <button

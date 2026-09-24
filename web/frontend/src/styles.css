@@ -1601,6 +1601,12 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 .library-tree-ignored li { display: flex; gap: 6px; overflow-wrap: anywhere; }
 .library-tree-ignored small { color: var(--faint); }
 
+/* ④：工具条只放「读」的动作，「改」的收进 ⋯ 菜单。 */
+.reader-more-actions { position: relative; }
+.reader-more-actions > summary { display: inline-flex; min-height: 40px; align-items: center; border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0 11px; background: var(--paper); color: var(--muted); font-size: 14px; list-style: none; cursor: pointer; }
+.reader-more-actions > summary::-webkit-details-marker { display: none; }
+.reader-more-actions > summary:hover { background: var(--paper-soft); color: var(--ink); }
+.reader-more-actions > div { position: absolute; z-index: 30; right: 0; top: 44px; display: grid; min-width: 180px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); padding: 4px; background: var(--paper); box-shadow: var(--shadow-float); }
 /* ④：阅读区标签条（参考项目：tab 条就是面板 header 的名字那一半）。 */
 .reader-tabs { display: flex; gap: 4px; overflow-x: auto; border-bottom: 1px solid var(--border); padding: 0 var(--space-3) var(--space-2); }
 .reader-tab { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 2px; max-width: 220px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--paper); }
