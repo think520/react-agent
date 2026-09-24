@@ -1,1047 +1,1053 @@
 # 更新日志
 
-所有重要变更都记录在此文件中。
+所有重要变更都记录在此文件中�?
 
-格式参考 [Keep a Changelog](https://keepachangelog.com/)，版本号遵循 [语义化版本](https://semver.org/)。
+格式参�?[Keep a Changelog](https://keepachangelog.com/)，版本号遵循 [语义化版本](https://semver.org/)�?
 
 ## [未发布]
 
 ### 变更
-- **④ab 分栏"特别难看"的修复（2026-09-24，用户两张截图，`5347795`）**：截图暴露的不是审美问题，是**两个真 bug**（都由我 ④ 第 3 步那次改动引入）：
-  - **① 布局塌陷**：标签条与阅读区是 `.library-workspace` 的**两个**直接子元素，一打开标签就变成 **4 个**孩子，而网格只有 3 列 → 自动换行：阅读区被挤到下一行、列表被顶到阅读区的位置（所以截图里"列表跑到了右边、中间一条空白栏"）。修法：标签条 + 阅读区包进**一个**网格列 `.library-reader-column`；没有选中资料也没有标签时这一列**不渲染**（否则留一条空白栏）。
-  - **② 正文只有四百来像素（真·根因）**：`.page-container` 把每个页面压在 **1120px**，三栏再一分正文只剩 510px；用户 1269px 窗口下更只剩 407px。修法：资料库页放宽到 **1600px**，并把**分栏预算按"是否在阅读"分开** —— 不阅读时「树 + 列表」（列表吃满剩余宽度，标题不再被截断）；阅读中窗口 ≥1520px 才三栏；更窄时**列表让位给正文**（正文 677px），页头多了「资料列表」按钮把它召回。
-  - **顺带修掉同一轮引入的副作用**：资料库页原本**自动打开第一份资料**，于是窄窗口一进页面就掉进三栏挤压状态，而搜索框（在列表里）还被藏起来。改成**只有真的打开了标签页才算"在读"**（正是 ④"打开才收起"的语义），深链接 `?document=` 仍算明确打开。
-  - **验证**：页面测试新增 1 条（打开标签才进阅读模式、点「资料列表」回到列表）；live 的"就地阅读"用例新增**布局断言**（正文宽度 > 树宽 ×2、正文在树右侧、窄窗口列表隐藏且按钮能召回并再回到正文）——**这条断言正是能抓住用户这次问题的那个**。全量：tsc **0**、eslint **0**、vitest **110 passed / 17 files**、构建 **0**、live **6 passed**、mock e2e **13 passed**。
-  - **真机取证**：用 Playwright 在 **1269×700** 与 **2538×1228** 两个窗口各量了三种状态（列表态 / 阅读态 / 宽屏三栏态）的每一栏坐标与宽度，并逐张看过截图；没有靠"看起来应该行了"下结论。
-- **⑤f 真机端到端检查（真实后端 + 真实资料库）与它抓出的两个真实缺陷（2026-09-24，E17 ⑤，`2fa805f`）**：在 `note/vault`（2029 个文件 / 47 份资料）上把「提议 → 执行 → 一键撤销」整条链路真跑了一遍。**两个缺陷都只有真机才暴露**：
-  - **① 撤销没清掉自己建的文件夹**：apply 建了「未归类」，undo 把文件放回去却把空文件夹留在用户库里。台账现在记下"这一步自己建了哪些文件夹"，撤销**只删这些、且只删空的**，用户原本就有的文件夹一根汗毛都不动（两条测试分别钉住这两个方向）。
-  - **② 撤销直接 404**：`undo_organization()` 拿台账里记的 `document_id` 去 `move_document`，真机返回 `Document not found: f2c0d4b20a4b4078` —— 移动会让索引**重新分配身份**，台账里的 id 从此查不到，文件躺在「未归类」里撤不回来，README 里"永远可一键撤销"当场不成立。改为**以"文件现在在哪"重新解析身份**，记下的 id 只留作审计；单元测试用同样的方式改掉 id，复现出的正是真机那条错误。
-  - **复验（同一份真实资料库，修复后）**：撤销 **200**、`restored=["Dijkstra.md","正则表达式.md"]`、文件清单逐项回到检查前的 2029 项、`未归类` 文件夹消失、`pending_undo` 清空；随后一次真实 sync 把过程中多出的 1 条陈旧登记自愈（**48 → 47**，`removed_files=["course/正则表达式.md","obsidian/未归类/正则表达式.md"]`），并照旧跳过仓库元文件（`course-2/README.md`、`CONTRIBUTING.md`、`_sidebar.md`、`requirements.txt`）。
-  - **验证**：pytest **1633 passed**；tsc **0**、eslint **0**、vitest **109 passed / 17 files**、构建 **0**；live（真实后端 + 真实资料库）**6 passed**。
-- **⑤e AI 归类：提议交给模型，"动不动手"仍然只由用户确认决定（2026-09-24，E17 ⑤，`2fa805f`）**：`propose_organization()` 现在接受 `llm_provider`，新增 `POST /api/kb/organize/proposals`，资料库侧栏多了「让 AI 归类」。
-  - **模型没有任何写权限**：文件名清单由服务端提供（模型只能从真实存在的文件里挑），服务端再把**凭空捏造的文件名丢掉**，并拒绝越界路径与 `.bobodan` 这类内部目录；每组仍然是 `requires_confirmation: true`，执行走 ⑤b 的老路，撤销走 ⑤d 的台账。
-  - **不可用时如实降级**：模型报错 → `source="rules"` + `degraded="model_unavailable"`；模型没说人话 → `degraded="model_returned_nothing"`。界面据此显示"AI 提议"或"模型这次没能参与，下面是规则建议"，**绝不把规则建议冒充成模型输出**。
-  - **真机结果**：对真实资料库的两份散落资料，模型给出 `计算机基础` 一组（理由："两篇均为计算机领域的基础知识点笔记（算法与文本处理）"），规则给出 `未归类` 一组 —— 两条路径都跑通。
-  - **验证**：`tests/test_organization_ai.py` 4 条（校验真实文件名 / 拒绝内部与越界目标 / 报错降级 / 空话降级 / 不传模型时行为不变）+ `tests/test_web_backend.py` 1 条 HTTP 层用例；页面测试 2 条（"AI 提议"提示且未确认前不调用 apply；模型不可用时如实说明）。
-  - **仍已知的边界（不粉饰）**：AI 归类目前只覆盖**库根散落的资料**（`apply_organization` 只搬库根那一层），"重新整理已经归好类的资料"还没做；真实资料库里没有 PDF，所以 ③⑤ 的 PDF 分支仍未在真机上验证过。
-- **④aa 两套阅读实现合一（第 3 步，④ 收官）：`LibraryPage` 阅读区就是 `DocumentReader`（2026-09-24，E17 ④，`309b0b2`）**：资料库页删掉自己那一份小节渲染、相关笔记、选区工具条与 `<details>目录`，改为渲染**同一个** `components/DocumentReader`。页面只剩真正属于它的东西：资料列表、标签条、带提取动作的页头（小节由 `onSectionsLoaded` 回传）、以及标签滚动位置恢复；`pageRef` 作为 `scrollRef` 交给组件，**阅读进度从此只有一个写入者**（此前页面 onScroll 与组件各写一份）。
-  - **用户可见的变化**：就地阅读区现在**尊重「原文/按小节」偏好**，并**免费获得**视图切换、章节导轨与 PDF 内嵌。因此 live 的那条用例被如实改写：先断言正文出现，**再切到「按小节」**才断言 `section` —— 旧断言假设"这个面板永远渲染分段"，在共享实现按偏好默认落在「原文」之后已经不成立。
-  - **验证**：`LibraryPage.tsx` 净删 **145 行**；tsc **0**、eslint **0**、vitest **107 passed / 17 files**、构建 **0**、live（真实后端 + 真实资料库）**6 passed**、mock e2e **13 passed**；页面测试里 ④w 的目录断言改成钉"章节导轨"（`mouseEnter` 打开 → 断言小节按钮 → 点击真的落到 `c2`，jsdom 的 `scrollIntoView` 用桩记录落点）。
-  - **④ 到此完成**：`/library` 与 `/library/read/:id` 现在是**一套渲染、两条路由**，深链接 2 条 live 用例持续在守。
-- **⑤d 一键撤销活过刷新：整理台账写在服务端（2026-09-24，E17 ⑤，`2609628`）**：`apply_organization` 此前把 moved 清单**只交给调用方**——刷新页面清单就没了，文件躺在「未归类」里，界面上再无撤销入口。README/CLAUDE.md 写的「只在确认后移动，且永远可一键撤销」**在刷新之后并不成立**。
-  - 现在：执行的那一步记进服务端台账 `.bobodan/organize/organize_index.json`（已在 `core/persistence_registry.py` 登记，只留最近 20 步）；新增 `GET /api/kb/organize/state` 报告还有没有可撤销的一步；`POST /api/kb/organize/undo` **不传清单**时撤销台账里的最后一步（老的"显式传清单"用法保留，并会清掉与之相符的记录）。资料库侧栏的「撤销这一步整理」改由这份**服务端状态**驱动，并显示"上一步：N 份资料收进「X」"。
-  - **验证**：新增 `tests/test_organization_undo_persistence.py` 3 条（重开服务实例、不带清单也能撤销；没有可撤销的东西时不假装撤销过；显式清单同样清台账）+ `tests/test_web_backend.py` 1 条 **HTTP 层**用例。后者顺带钉住**路由存在性**：服务层测试全绿也照样可能漏掉"没挂路由"的 404——真机上重启前的进程正是这种状态（`/api/kb/organize/proposals` 404 而 `/api/kb/tree` 200）。重启后两个新路由都 200。
-  - pytest **1624 → 1625 passed**；tsc **0**、eslint **0**、vitest **107 passed / 17 files**、构建 **0**；live（真实后端 + 真实资料库）**6 passed**。
-  - **自己踩的坑（记下来）**：设计令牌 ratchet 当场抓到我这轮加的 `.library-organize-undo small { font-size: 11.5px }`（§5 硬下限 12px）——**删掉规则**，而不是绕过门禁。
-- **④z 两套阅读实现合一（第 1+2 步）：抽出 `components/DocumentReader.tsx`（2026-09-24，E17 ④，`bcd6b66`）**：`ReaderPage` **612 → 255 行**；文章主体（小节加载、原文/按小节、PDF 内嵌、目录导轨、引用提示条、选区工具条、相关笔记、阅读进度）搬进**唯一**实现 `components/DocumentReader.tsx`（460 行）。props 接口写在文件顶部：`documentId` / `collection` / `chunkId`，另加 5 个桥接 props（`documentSummary` / `scrollRef` / `onError` / `onSectionsLoaded` / `reloadToken`），每个都注明了"为什么必须由外壳传进来"。
-  - **数据获取调用点逐字未改**（`api.document`、`api.knowledgeByDocument`、`fetchDocumentRawText`、`downloadDocumentRaw`、`api.updateReadingProgress`），加载与错误语义不变——所以两条深链接 live 用例与"就地阅读"用例继续绿。
-  - **一处有意的可见改动**：原文/按小节与「用系统打开」从顶栏移进正文上方的 `.reader-view-row`（右对齐，与 720px 正文列对齐）——视图切换归组件所有，第 3 步的 `LibraryPage` 才能免费拿到它。文案未改，真实浏览器截图核对过。
-  - **验证**：tsc **0**、eslint **0**、vitest **107 passed / 17 files**、构建 **0**、live（真实后端 + 真实资料库）**6 passed**；另外 `e2e/app.spec.ts -g "chapter rail"` 1 passed（mock 的目录导轨用例现在由 DocumentReader 提供）。
-  - **④ 仍未做**：第 3 步——`LibraryPage` 的阅读区改为渲染同一个 `DocumentReader`（替换它自己的小节渲染与目录浮层）。这一条做完，`/library` 与 `/library/read/:id` 才算真正"一套渲染、两条路由"。
-- **⑤c 整理入口接上界面：看建议 → 执行 → 一键撤销（2026-09-24，E17 ⑤，`537580a`）**：⑤a/⑤b 的两个端点（`/organize/proposals`、`/organize/apply`、`/organize/undo`）此前**前端零调用**——用户看不到建议，也无从执行或撤销。现在资料库侧栏多了一个折叠的「整理建议」面板：点「看看有什么可以整理的」按需拉取（不是进页面就打），逐条显示建议标题、理由、涉及的文件（超过 8 份折叠成「…… 其余 N 份」），一键「收进「未归类」」执行，执行后**当场出现**「撤销这一步整理」。
-  - `api.ts` 补上 `OrganizationProposal` 类型与 `organizationProposals()` / `applyOrganization()` / `undoOrganization()` 三个封装。
-  - **验证**：页面测试新增 1 条（`LibraryPage.test.tsx` 7 passed）—— 断言建议标题出现在界面上、点执行时 `applyOrganization` 收到 `(["散落的一课.md"], "未归类")`、撤销按钮出现且点击后调用 `undoOrganization`。tsc **0**、eslint **0**、vitest **107 passed / 17 files**、构建 **0**；live（真实后端 + 真实资料库）**6 passed**。
-  - **写这条测试时踩到的真问题**：整理面板挂在「有资料 + 有文件夹树」的工作区里，测试里 `documents` 为空则面板根本不渲染——第一次跑就是 5 秒超时。这不是测试写法问题，是**面板的渲染条件**：空库时它确实不该出现（没有可整理的对象）。断言因此显式 mock 了一份资料。
-  - **⑤ 仍未做**：① AI 归类（在确定性建议之上，且必须走同一套确认与撤销）；② **撤销清单的持久化**——现在 `organizeMoves` 由页面 state 持有，**刷新页面就丢**，与 README 里"永远可一键撤销"的承诺还有距离（已知限制，下一轮先补这条）。
-- **⑤b 整理建议的「执行 → 一键撤销」（2026-09-24，E17 ⑤）**：`POST /api/kb/organize/apply` 与 `/undo` —— 把散落在库根的資料收进目标文件夹，并**返回一份 moved 清单**（每条含 `document_id` / `from` / `to`），撤销就按这份清单放回原位。
-  - **关键点：执行走的仍是 ③b 的身份迁移**（有索引的资料调 `move_document`：document_id 保留、chunk 身份重映射、概念证据与笔记引用一起迁移），所以"整理"不会像早期那样打断引用链；没有索引的文件才直接搬。
-  - **验证**：新增 `tests/test_organization_apply.py` 2 条 —— ① 执行后文件进文件夹，且**document_id 不变**、`relative_path` 变成 `未归类/散落的一课.md`、返回的 moved 清单与预期逐字相等；② 撤销后文件回到原位、文件夹里不再有它、同一 document_id 的 `relative_path` 复原。pytest 全绿。
-  - **⑤ 仍未做**：AI 归类（在确定性建议之上，必须走同一套确认与撤销）、整理入口 UI（把 proposals/apply/undo 接到界面上）、以及**撤销清单的持久化**（现在由调用方持有，刷新页面就丢——这是已知且已记账的限制）。
-- **⑤a 整理建议（只提议，不动文件）（2026-09-24，E17 ⑤ 前半）**：`GET /api/kb/organize/proposals` + `KBService.propose_organization()` —— 按设计 §3.5 决定 22 的形状「提议 → 预览 → 确认 → 执行 → 撤销」，先落地**第一步**，并且用**确定性规则**（不是模型即兴发挥）：指出**散落在资料库根目录的资料**，给出建议文件夹名与理由，`requires_confirmation: true`。
-  - **一份文件都不动**：测试显式断言调用前后**整棵目录树逐项相同**（连非资料文件也不碰）。
-  - **验证**：新增 `tests/test_organization_proposals.py` 2 条（散落资料被指出 + 整理过的库返回空建议）；pytest 全绿。
-  - **⑤ 仍未做**：AI 归类（在建议之上，且必须走同一套确认与撤销）、执行动作（移动/改名，复用 ③b 的身份迁移）、一键撤销、以及归档列表以外的整理入口 UI。
-- **第 37 轮：对当前交付状态做了一次全量认证（2026-09-24，无代码改动）**：pytest **1617 passed**；前端 tsc **0**、eslint **0**、vitest **106 passed / 18 files**、生产构建 **0**；live（真实后端 + 真实资料库）**6 passed**。
-  - 交付清单（全部有复现测试或真实动线证据）：① 扫描规则 + 同步入口 + 重复治理（真实库 76→47）；② 文件夹树 + 徽章 + 搜索两段 + 忽略计数；③ 归档扩展 / 归档列表与恢复 / 重命名移动的身份迁移 / 文件夹写操作（含界面）/ ungroup 一致性；④ 就地阅读（`5540301`）、工具条收口（`cd52917`）、目录浮层（`01a5523`）、标签模型统一（`d420828`）。
-  - **未完成**：④ 只剩「两套阅读实现合一」（执行级交接见 `docs/LIBRARY_TREE_DESIGN.md` §9.2）；⑤ AI 整理整块未开始（产品边界那句已在早期文档轮改写完成）。
-  - 因此**本轮不宣称任何新交付**，也不把目标标成完成。
-- **④y ④ 的最后一件已写成执行级交接（2026-09-24，未改代码）**：剩下的唯一一项是"`/library` 与 `/library/read/:id` 共用同一套渲染"。现状与计划已写进 `docs/LIBRARY_TREE_DESIGN.md` §9.2（精确到 `ReaderPage` 的抽法、`LibraryPage` 要替换的分支、以及每步该跑哪几条用例）。
-  - 为什么这轮不动手：以当前会话剩余上下文，这个重构（抽 800 行组件的文章主体 + 两处替换）大概率以回滚收场；而前 35 轮已经证明"改一半再回滚"比不动更糟。**交接写清楚比硬做更负责。**
-  - 现状盘点（都已验证）：④ 已交付**就地阅读**（`5540301`，live 新增用例在守）、**工具条收口**（`cd52917`）、**目录浮层**（`01a5523`）、**标签模型统一**（`d420828`，净删 254 行）；深度链接的 2 条 live 用例持续保护 5 处发送端。
-  - **本轮无代码改动**，最后一次提交仍是 `d420828`（前端 tsc/lint/vitest 106/build 0、live 6 passed、pytest 1617 passed）。
-- **④x 标签模型统一：删掉重复实现，改用既有 `readerTabsStore`（2026-09-24）**：④a/④b 当初新建的 `lib/readerTabs.ts` + `hooks/useReaderTabs.ts`（含 7 条测试）与仓库里**早就存在**的 `stores/readerTabsStore.ts`（`openIds` / `open` / `close` / `scrolls` / `setScroll` / `scrollFor`，ReaderPage 一直在用）重叠。现在资料库页直接读同一个 store，并删掉那两个文件与它们的测试。
-  - 具体：标签条改由 `openIds` 驱动、激活态用页面自己的 `selectedId`、标题从 `documents` 查、滚动位置记/取都用 store 的 `setScroll`/`scrollFor`；顺手删掉因此失效的 `scrollTargetFor` 与一个未使用变量（eslint 抓出来的）。
-  - **验证**：tsc 0、eslint 0、前端全量 vitest **106 passed / 18 files**（比上轮少 7 条，正是被删掉的重复模型测试）、构建 0；live（真实后端 + 真实资料库）**6 passed**。
-  - **④ 仍未做**：`/library` 与 `/library/read/:id` 合并成同一套渲染（深链接仍走阅读页，它能力更全：原文/按小节、PDF 内嵌、章节导航）——这是 ④ 最后一件。
-- **④w 阅读区目录浮层（2026-09-24）**：资料库页阅读区的工具条多了「目录」——展开是**这份资料自己的小节列表**（有标题显示标题，否则显示页码/节号），点一下平滑滚动到那一段（`[data-chunk-id]` 已在渲染里）。这是 ④ 里"目录 = 工具条按钮 → 浮层，每份资料各一份"那条验收。
-  - **它当场抓出我自己写的一个真 bug**：标签表达式 `section.heading || section.page_start ? … : …` 因为运算符优先级，**有标题的小节也会显示成"第 N 节"**。是页面测试逼我把它改成 `section.heading || (section.page_start ? 页码 : 节号)`。
-  - 一条环境事实记下来：jsdom 不实现 `<details>` 的展开，折叠内容对 `getByRole` 是 hidden —— 断言目录内容要用 `{ hidden: true }`（我先踩了一次"找不到按钮"）。
-  - **验证**：页面测试 **6 passed**、前端全量 vitest **113 passed / 18 files**、tsc **0**、eslint **0**、构建 **0**；live（真实后端 + 真实资料库）**6 passed**。后端本轮未改动（pytest 仍是上一轮的 1617 passed）。
-  - **④ 仍未做**：`/library` 与 `/library/read/:id` 合并成同一套渲染（深链接仍走阅读页，它能力更全：原文/按小节、PDF 内嵌、章节导航）；复用既有 `readerTabsStore` 后删掉 ④a/④b 造的重复模型。
-- **④v 打通「就地阅读」：三处改动 + 一处死代码清理（2026-09-24）**：从第 6 轮卡到现在的 ④ 主阻塞解决。根因是 `LibraryPage.tsx:1297` 的一行 `{collection === "wiki" && <article className="document-reader">}` —— **资料库页的阅读区从来只为 wiki 渲染过**。
-  - **改动**：① 去掉那层 collection 条件（并补上配对的 `}`，否则整个文件解析失败）；② `selectDocument` 不再对 material `navigate` 到 `/library/read/:id`（改为就地选中）；③ 三条测试查询改为 `findAllByText(...)[0]` / `getAllByText`（标题现在会同时出现在列表与阅读区，`getByText` 会因多元素报错）；④ 删掉因此变成死代码的 `saveListScroll`（eslint 抓出来的）。
-  - **验证**：`tests/…/LibraryPage.test.tsx` **6 passed**（含那条从 ④ 一开始就写好的「选中资料后阅读区必须渲染出正文」）；前端全量 vitest **113 passed / 18 files**、tsc 0、eslint 0、构建 0；pytest **1617 passed**；**live（真实后端 + 真实资料库）6 passed** —— 新增一条 `the library page reads a material in place`：点树里的资料后 **URL 仍在 `/library`**、`.document-reader .reader-prose section` 可见、标签条 1 个。
-  - **④ 仍未做**：目录浮层；`/library` 与 `/library/read/:id` 合并成**同一套渲染**（现在两条路由各自有一套阅读实现——阅读页能力更全：原文/按小节、PDF 内嵌、章节导航）；以及复用既有 `readerTabsStore` 后删掉 ④a/④b 造的重复模型（`lib/readerTabs.ts`、`hooks/useReaderTabs.ts`）。
-- **④u 距离完成只差一条断言（2026-09-24，未改代码）**：把 ④t 的改动 + **三条受影响的查询一起调整**（`findByText` → `findAllByText(...)[0]`，因为标题现在会同时出现在列表与阅读区）后重跑，结果是 **1 failed | 5 passed，整个文件 3.74 秒（不再有 5 秒超时）** —— 即**两条曾被弄坏的用例已经修好**，只剩我自己那条在**快速失败（约 780ms，不是超时）**。
-  - 探针已证明这条链是通的（`pane:1, prose:1, sections:1, docArg:\"doc-1\"`），所以剩下的只是那条用例的一个断言写法问题：候选是最后那句（我一度改成 `.reader-tabs .reader-tab` 计数）与 `waitFor(.reader-prose section)` 的时序。
-  - **未能读到失败详情**：vitest 的失败块始终落在 `Select-Object -Last N` 之外/被截断，我连试三次都没打印出来。**下轮第一步**：用 `npx vitest run src/pages/LibraryPage.test.tsx --reporter=basic > out.txt 2>&1; Get-Content out.txt -Tail 60`（**写文件再读**，绕开管道截断），先拿到那条断言的真实报错，再收尾。
-  - 工作树已复原（树上绿），**本轮无代码改动提交**。
-- **④t 阅读区为 material 渲染成功（探针证实），但常开它会让三条页面用例超时（2026-09-24，未改代码）**：把 `LibraryPage:1297` 的外层条件去掉（并补上配对的 `}`）、同时让 material 不再 `navigate`，然后用探针（唯一锚点 + 等异步 + 同步打印）拿到了**成功证据**：
-  - `PROBE {"pane":1,"empty":false,"loading":0,"prose":1,"sections":1,"docCalls":1,"docArg":"doc-1"}` —— **阅读区容器、正文容器、小节都出现了**，且加载器用的正是被点的 `doc-1`。这证明"就地阅读"这条路本身是通的。
-  - 但同一改动下跑整个测试文件是 **3 failed | 3 passed**：`选中文件夹后…`、`打开的资料进标签条…`、`选中资料后…` 三条**都以 5 秒超时失败**（不是"找到多个元素"这类立刻报错，也不是断言失败）。
-  - 我预算已尽，**不能带着"弄坏两条已有用例"的状态提交**，所以整组改动已回滚（树上绿）。
-  - **下轮第一步（很具体）**：先只跑那条原本通过的用例并**读完整失败信息**（`--reporter=verbose`，不要过滤），确认是"查询等不到"还是"页面被错误边界接管"；然后二分：要么给三条用例的查询加作用域（`within(document.querySelector(".document-rail"))`，因为标题现在会同时出现在列表与阅读区），要么修阅读区在 material 下的某处运行时问题。
-  - **已知的关键事实（省掉下轮重新发现）**：① 卡点就是 `1297` 那一行的 `collection === "wiki"` 条件；② 去掉它时**必须同时删掉 `</article>}` 那个多余的 `}`**（否则整个文件解析失败，vitest 报 `no tests`）；③ 阅读区类名是 `.document-reader`；④ 探针方法见 ④q/④r。
-  - 工作树干净，**本轮无代码改动提交**。
-- **④s 根因找到了，是一行（2026-09-24，未改代码）**：`LibraryPage.tsx:1297` 是 `{collection === "wiki" && <article className="document-reader">}` —— **资料库页的阅读区从来只为 wiki 渲染过**；material 资料一直是"选中就 navigate 到阅读页"。
-  - 这一个条件解释了全部现象：`activeRow: 1`（选中确实落地）但 `prose: 0 / loading: 0 / empty: false`（阅读区容器根本不存在）。此前推断的"状态被覆盖""渲染环路""加载器没跑"**全部不成立**。
-  - 另外纠正一处：资料库页阅读区的类名是 **`.document-reader`**，不是 `.reader-article`（后者只存在于阅读页）——我有一轮探针因此查了个不存在的选择器。
-  - **尝试与结果**：把该条件去掉 + material 不再 navigate，跑 5 秒快速回路 → **3 failed | 3 passed**（原来 1 failed | 5 passed，即**弄坏了两条本来通过的用例**，而目标用例仍红）。说明这不是一行开关：**阅读区内部（头部/操作/小节渲染）是为 wiki 写的**，需要按 collection 做通用化改造。
-  - **下轮的确定路径**：① 读 `1297-1360` 那段，把 wiki 专属分支（`wiki_type` 标签、Wiki 编辑/维护入口）与通用部分（标题、提取状态、小节渲染）分开；② 让 material 也走通用部分（保留"在阅读页打开"出口）；③ 用这条 5 秒快速回路验证（测试已具备：选中资料 → 正文出现 + 标签出现）；④ 再跑全量门禁 + live。
-  - 工作树已复原（树上绿），**本轮无代码改动提交**。
-- **④r 定位完成：这条红测试验证的是"尚未实现的行为"，而卡点是 `selected` 仍为空（2026-09-24，未改代码）**：用唯一锚点探针实测（点击后放行一拍）：`docCalls: 1, sections: 0, article: 0`。
-  - `article: 0` 说明 `{selected ? <article …/> : …}` 里的 **`selected` 为空** ⇒ 页面被卸载了：因为**当前代码对 material 资料仍然 `navigate()` 跳走**（那条 1 次 `api.document` 是点击前自动选中第一份资料时调用的）。**所以这条测试是"目标行为的红测试"，不是 bug 复现** —— 它天然要求先实现"就地阅读"。
-  - 把 ④e 的改动（material 不再 navigate）重新落上并跑这条快速回路后，**测试仍然红**（5.55s 超时）——与真实动线的观测完全一致：页面留下了，但头部与正文都没出现，**`selected` 依旧为空**。
-  - **下一步唯一的观测（一次运行）**：在同样的位置打印 `{ activeRow: document.querySelectorAll(".document-row-wrap.active").length, rows: document.querySelectorAll(".document-row").length, docCalls: vi.mocked(api.documents).mock.calls.length }` —— 若 `activeRow` 为 0，说明 `setSelectedId` 之后又被别处改回/清空（查 `loadDocuments` 里 `setSelectedId(nextSelected)` 与 URL 相关 effect）；若 `activeRow` 为 1 而 `article` 为 0，则查 `documents` 与 `selectedId` 的匹配（`_public_document` 的 `document_id` 与树/列表传入的 id 是否同一套）。
-  - **本轮的方法论进展**：终于建立了"**唯一锚点插探针 → 等异步条件 → 同步打印状态**"的可靠观测回路（见 ④q/④r），并且用真实数据作废了此前基于错位探针的三条结论。
-  - 工作树已复原（树上绿），**本轮无代码改动提交**。
-- **④q 用正确的观测手段拿到事实（2026-09-24，未改代码）**：改用**唯一锚点**的 `tools.edit` 插探针（不再用 `String.replace`），并用"故意不可能的期望值"把状态打印出来，终于观测到真实数据：
-  - **列表渲染是好的**：`render()` 之后等 `api.documents` 被调用、再放行一拍，DOM 里 `rows: 1`、`loading: 0`、rail 文本 = `我的资料 1第一课course_document`（117ms 内就绪）。→ **④h / ④n 的"列表没渲染"结论作废**（作废原因见 ④p：探针一直插错用例）。
-  - **渲染闸门也是好的**：点击之后，断言失败的输出里能看到 `.reader-article` 与其内部 `<header>` 元素存在 —— 说明 `selected` 派生成功、`{selected && …}` 通过。
-  - **唯一缺的是小节本身**：`.reader-prose section` 为 0，即 `setSections(result.sections)` 的结果没有出现在 DOM 里（`api.document` 在 ④m 里被证明**确实被调用过**）。
-  - **因此下一步只有一处要看**：`LibraryPage` 约 250-257 行那个 effect 里 `setSections` 之后，是谁把它清掉/覆盖了（同文件里另有 `setSections([])` 的调用点，例如 690/701 行附近的集合切换路径，以及 `selectedId` 变化时的早退分支）—— 逐一加唯一锚点的同步探针即可定位。
-  - **方法论（这一轮真正学到的）**：① 插探针只能用唯一锚点并回读确认；② 想打印状态就用"必然失败的断言"或把 JSON 塞进 `throw new Error(...)`；③ **先等异步条件满足再观测同步状态**（在 `render()` 后立刻看 DOM 只会看到加载态 —— 我为此又浪费了一轮）。
-  - 本轮编辑均已复原，工作树干净。
-- **④p 解释一切：我的探针一直插到了别的用例里（2026-09-24，未改代码）**：本轮在 `render` 前后各放一句必然失败的同 步断言，**两句都没有响**。按 ④n 的判别法这只能意味着"测试体根本没开始"——而同一文件里其它用例用同一个 `beforeEach` 却能通过，矛盾。
-  - 真因：我用 `String.replace` 插入探针，而该文件里**多处**都有相同的 `render(<MemoryRouter …><LibraryPage /></MemoryRouter>)` 片段，`replace` 只替换**第一处** —— 探针落进了第一条用例（「按钮会同步并渲染可行动的摘要」）。配合 `-t "选中资料后"` 过滤，**被改的那条用例被跳过**，我的那条则原封不动地跑，于是永远是"无 diff + 5 秒超时"。
-  - **所以 ④n / ④o 的结论（以及此前所有基于探针的推断）全部作废**：它们观测的是一次"探针插在别处、目标用例没被观测"的运行。**这条才是真正的教训，比任何结论都重要。**
-  - **正确做法（下轮必须遵守）**：插入探针只能用带**唯一锚点**的 `tools.edit`（例如以该用例的 `it("选中资料后，…")` 那一行为锚点、连带其后几行一起替换），并且**回读文件确认探针落在目标用例内**；`String.replace` 只允许用于全文唯一的片段。
-  - **回到事实本身**：那条用例的真实失败原因**至今没有被观测过**（它只是"5 秒超时"）。下轮按设计文档 §9.1 的第一步做（唯一锚点插入 + 回读确认），此前所有"已排除"的嫌疑（渲染链/小节加载/列表渲染）都重新回到候选里。
-  - 本轮编辑均已复原，工作树干净。
-- **④o 关键转折：卡在 `render()` 本身（2026-09-24，未改代码）**：把同步断言放在 **`render(<LibraryPage />)` 之后、任何 await 之前**（故意写不可能的期望值，执行了就必然打印 diff），重跑仍然是 **无 diff + 5.02 秒天花板**。
-  - 按 ④n 建立的判别法（同步断言若执行，失败必然毫秒级并打印 diff）——**这句断言同样没被执行**。而它前面只剩 `render(...)` 一个调用，所以结论是：**`render()` 没有返回**（组件挂载过程本身卡住/进入死循环），而不是"列表没渲染"或"小节加载失败"。
-  - 这也终于解释了为什么我连"行数是多少"都拿不到：**测试根本没走到能观测 DOM 的那一步**。之前 ④h/④l/④m 的三种结论都是在错误前提上推演。
-  - **下轮一次运行就能确认**：在 `render(...)` **之前**放一句 `console.log("BEFORE-RENDER")`（或同步断言 `expect(1).toEqual(2)`）——若它打印/失败，说明确实卡在 render；随后把 `LibraryPage` 的 mount effects 逐个 mock 掉（例如 `api.knowledgeArchive`、`api.graphExtractionStatuses`、`api.documents` 的返回形状）二分定位是哪个 effect 造成死循环。
-  - **与真实动线的联系**：真实页面能渲染（有树、有列表、有标签条），所以这不是"页面坏了"，而是**这份测试的 mock 组合**触发了某个只在测试环境成立的死循环（例如某个 effect 依赖每次渲染都新建的对象字面量）。
-  - 本轮编辑均回读确认并复原，工作树干净。
-- **④n 更正 ④l：列表那一行确实没渲染（2026-09-24，未改代码）**：把判定改成**紧随 click 的同步断言**（打印 article / sections / docCalls 三个计数）后重跑 —— 输出里**没有出现任何断言 diff**，测试仍旧只是 5.02 秒超时。含义只有一个：**那句断言根本没被执行**，即 `fireEvent.click(await screen.findByText("第一课"))` 里的 `findByText` **从未解析成功**。
-  - 所以 **④h 的结论（列表那一行没渲染）成立**，而 **④l 的结论（列表没问题、卡在小节加载）作废** —— 我在 ④l 里把另一条用例的 mock 记错了（它的 documents 标题并不是「第一课」）。这一节以 ④n 为准。
-  - 硬证据的判别方法也记一笔：**同步断言若执行了，失败会立刻打印 diff 并在毫秒级结束**；测试跑到夹具的 5 秒天花板且无任何 diff，就说明**断言之前的那一步（await）没完成** —— 这条推理不需要任何额外观测。
-  - 因此下一步方向确定：**查"为什么这份资料的行没有被渲染"** —— 从 mock 被谁消费、`documents` 是否真的进到 state 入手；建议直接断言 `document.querySelectorAll(".document-row").length`（同步，紧贴 render 之后），一次运行即可确认。
-  - 本轮所有编辑均已回读确认并复原，工作树干净。
-- **④m 判定成功：小节加载器确实跑了，但结果没进 DOM（2026-09-24，未改代码）**：在 click 之后插入**同步断言** `expect(vi.mocked(api.document).mock.calls.length).toBeGreaterThan(0)`，重跑 —— 测试**仍然耗时 5.02 秒**。这条耗时就是证据：**如果该断言失败，测试会在 0.2 秒内结束**。所以：
-  - ✅ `api.document(selectedId)` **被调用了**（加载 effect 跑了，依赖与提前 return 都没问题）；
-  - ❌ 小节**最终没有出现在 DOM 里**（`.reader-prose section` 仍为 0，等到夹具的 5 秒天花板被杀）。
-  - 三个嫌疑里已排除一个（不是"effect 没跑"），剩下两个：**① `setSections` 的结果被后续渲染/effect 覆盖**（例如 `loadDocuments` 在 URL 变化后重算 `nextSelected` 把 `selectedId` 拨走，或某处 `setSections([])` 抢先）；**② 渲染闸门**（`{selected && …}` 与 `sections.length ? …`，即 `selected` 派生失败）。
-  - **下轮一次运行即可二选一**：在同一个同步位置再断言 `expect(document.querySelectorAll(".reader-article").length).toBeGreaterThan(0)` —— 它同步失败/通过就能区分"闸门"与"状态被覆盖"（闸门问题会让 article 都不存在）。
-  - 本轮仍未改代码（四次运行的编辑均已回读确认并复原，工作树干净）。**目标已按用户要求扩到 60 轮并重新激活。**
-- **第 23 轮：对已交付部分做了一次全量验证（2026-09-24，无代码改动）**：pytest **1617 passed**、vitest **112 passed | 1 skipped**、eslint **0**、生产构建 **0**、tsc **0** —— ①②③ 与 ④ 已落地的那一块（工具条收口）在当前提交 `9bf3da5` 上是绿的。
-  - ④ 的卡点仍是「资料库页小节加载」那一步（**④l** 已定位到具体 effect，并显式作废了 ④h/④k 两条错误结论）；⑤ 未开始。
-  - 因此**本轮不宣称任何新交付**：这是一次验证轮，目的是确认前面积累的改动没有把仓库留在半红状态。
-- **④l 静态对比定位：问题不在列表、不在点击、不在标签，而在小节加载（2026-09-24，未改代码）**：把两条用例并排读了一遍 —— 第 240 行那条『打开的资料进标签条』用的是**同一份 mock、同一句 `findByText("第一课")`、同一个 click**，而它**通过**。
-  - 所以：**资料行渲染 ✓、点击派发 ✓、标签打开 ✓**。失败那条唯一的差别是它额外 mock 了 `api.document` 并断言 `.reader-prose section > 0` —— **卡点就在小节加载这一步**（`LibraryPage` 约 250-257 行的 effect：`api.document(selectedId).then(r => setSections(r.sections))`）。
-  - 这也解释了此前所有混乱：我一直在探『列表有没有渲染』，而列表其实一直是好的；5 秒超时来自等待小节的那次 `waitFor` 被夹具的 5 秒包装掐断。
-  - **下轮第一步（一次运行即可判定）**：在 click 之后立刻断言 `expect(vi.mocked(api.document).mock.calls.length).toBeGreaterThan(0)` —— 若为 0，说明 effect 没跑（依赖/条件问题）；若 ≥1，说明跑了但结果没写进 `sections`（state 或渲染闸门问题）。两种结论各自指向一处，改法都很小。
-  - **顺带修正我前面几轮的错误判断**：④h 里我写『列表那一行压根没渲染出来』是**错的**，现在有反例（同一 mock 的另一条用例通过）；④k 里『列表确实没渲染』同样作废。以本节为准。
-  - 工作树干净，**本轮无代码改动**。
-- **④k 收口结论：不是超时参数的问题，是列表在该用例里 5 秒内确实没渲染（2026-09-24，未改代码）**：本轮把编辑做对并回读确认（configure 已加 ✓、去 .skip ✓、探针断言已插入 ✓），随后分别试了 `configure({ asyncUtilTimeout: 20000 })`、`--testTimeout=20000`、`--test-timeout=25000` —— **三种都没能改变那 5.0 秒**。
-  - 推论：掐断来自**测试夹具自己的 5 秒包装**（README 里记录的全局 asyncUtilTimeout 就是干这个的），vitest 的超时参数对它无效。既然如此，探针的 `waitFor` 想等 20 秒也等不到 —— 反过来正说明：**那份资料的列表行在 5 秒内确实没有渲染出来**（若渲染了，断言会立刻通过）。
-  - 这与最近几轮的间接证据一致（真实动线里 header 与正文也都不出现），所以方向确定为：**查清楚该用例下资料列表为什么不渲染** —— 下一步不要再用超时探针（已被证明无效），而是**在同一份测试里直接断言渲染结果**（例如断言 `.illustrated-loading` 是否存在、或断言 `documents` mock 是否真的被 page 消费），并且与**已经通过**的那条同类用例（『选中文件夹后，右侧列表…』）逐项对比差异（那份 mock 了两份资料 + 一个文件夹；我的只 mock 一份且树为空）。
-  - 本轮四次运行的编辑都已回读确认过、文件均已复原，工作树干净（树上绿）。
-- **④j 找到真正的天花板：全局 asyncUtilTimeout（2026-09-24，未改代码）**：本轮把编辑做对并**回读确认**（去掉 .skip ✓、探针断言已插入 ✓），还用命令行显式传了 `--testTimeout=20000`、`waitFor` 也给了 6000ms —— 测试**仍在 5.13 秒失败**。
-  - 结论：**测试环境全局的 `asyncUtilTimeout`（5000ms）才是天花板**，它压过 `waitFor` 的显式超时与 `testTimeout`。这就是为什么连续四轮我的探针"没机会说话"：不是编辑没生效，而是**任何异步断言在 5 秒就会被全局配置掐断**。
-  - **下轮的正确第一步（一行）**：在这条用例里先 `configure({ asyncUtilTimeout: 20000 })`（从 `@testing-library/react` 导入），再做探针断言 —— 在此之前所有"等元素出现"的实验都注定只能看到 5 秒。
-  - 这一步把四轮的排查收敛成一行配置修正；排查过程中我犯的错（过滤输出、编辑不回读、把超时当逻辑问题推演）也都已逐条记在本文件里，供后续避开。
-  - 工作树已复原（测试保持 .skip 版本，树上绿），**本轮无代码改动**。
-- **④i 探针被测试超时挡住（2026-09-24，未改代码）**：加了一条 8 秒的"列表有没有行"断言后重跑，**测试仍在 5.1 秒失败** —— 说明**测试自身的 5s 超时永远先到**，探针根本没机会说话（asyncUtilTimeout 与 testTimeout 都是 5s，两个都到点）。
-  - 我随后两次尝试把 `it(..., 20000)` 的超时抬上去，**两次都没生效**（运行仍是 5.1s）—— 说明我的编辑没真正落到文件上，而我没有在编辑后回读文件确认。**这是本轮真正的失误**：改完不核对，等于没改。
-  - 下轮的确定性做法：① 用带精确 old_string 的编辑工具改这一条；② **回读文件确认 `, 20000)` 真的在**；③ 再跑，并且把探针断言（`.document-row` 数量 > 0）放在最前面；④ 无过滤读最后 30 行看断言 diff。
-  - 已知边界：README 那条 `asyncUtilTimeout=5000` 是全局的，任何"等元素出现"的默认等待都会和测试超时撞车 —— 排查这类问题必须显式给超时。
-  - 工作树已复原（测试保持 .skip 版本，树上绿），**本轮无代码改动**。
-- **④g/h 把失败读清楚（2026-09-24，未改代码）**：两轮排查后终于拿到真实报错 —— 不过滤输出、用 verbose 重跑那条复现测试，得到 **Test timed out in 5000ms**（既不是断言失败，也不是 Unable to find element）。测试环境全局 asyncUtilTimeout 也是 5s，两个超时打平，所以可以判定：**findByText 在 5 秒内始终没等到资料列表那一行**。
-  - 这把范围收窄：**不是**阅读区小节加载的问题，而是**列表那一行压根没渲染出来** —— 要么页面停在加载态（loading 没落到 false），要么被过滤/错误态挡住。
-  - 静态排查也排除了一个嫌疑：唯一带 searchParams 依赖的 effect（LibraryPage 245-248 行）有守卫（只在真的不同时才 setCollection），**不是环路**。
-  - 下轮最省的一步：渲染后立刻断言 `document.querySelectorAll(".document-row").length > 0`（超时给 10s），并同时断言 `.illustrated-loading` 是否存在 —— 一眼区分「卡在 loading」与「渲染了但没有这一行」。
-  - 流程教训（同类第三次）：**过滤测试输出等于自己删证据**。前两轮把它当成渲染链超时来推演，方向是错的。以后读失败一律先无过滤读最后 40 行。
-  - **本轮与上一轮都无代码改动**（工作树已复原，测试保持 .skip 版本，树上绿）。
-- **④f 判定实验结果（2026-09-24，未改代码）**：去掉复现测试的 .skip、加 30s 超时与两处探针后运行，拿到决定性信号——失败点**就是**「阅读区没有小节」这条断言（`expected 0 to be greater than 0`），而不是「找不到资料行」或「点击没生效」（那两种会以 Unable to find 失败）。
-  - 含义：**点击确实发生了**（资料行存在、事件派发成功），但阅读区**一个小节都没渲染**，与真实动线里 header 也没出现一致。三选一的嫌疑：`selectedId` 没落地 / `selected` 推导失败 / 小节 effect 没跑或没写回。下轮用「一次只改一处 + 断言中间态」逐条排除：`vi.mocked(api.document).mock.calls.length` 判 effect 有没有跑；`.document-row-wrap.active` 判选中落没落地。
-  - 干扰记一笔：探针的 console.log 没有出现在 vitest 失败输出的过滤结果里，下轮建议**用断言代替打印**（失败信息更可靠）。
-  - 测试文件已回滚到 .skip 版本（树上保持绿：5 passed | 1 skipped），**本轮无代码改动**。
-- **④e 试做"点资料不跳走"：验证发现会回退，已回滚（2026-09-24，未改代码）**：按用户当初选的分栏阅读，把 `selectDocument` 里"material 一律 navigate 到 /library/read/:id"改成就地选中（并在阅读区头部加一个「在阅读页打开」出口），tsc/lint/build 全绿。
-  - **但真实动线验证（Playwright）打回**：URL 停在 `/library?collection=material` ✓、标签页出现 1 个 ✓，**可阅读区 sections = 0、出口按钮也没渲染** —— 也就是说资料库页的阅读区在选中资料后**根本不渲染正文**，这个改动会把"点开能读"变成"点开空白"。**已 `git checkout` 回滚，本轮没有代码改动。**
-  - **这条正好把合并的真正难点钉住了**：不是路由，而是资料库页阅读区的**选中→加载→渲染**这条链（`selected` 的推导与 sections 的加载）本来就没跑通过——因为在此之前它从来没被真实使用过。下轮从这里开始：先把"选中资料后阅读区必须出现正文与小节"写成会失败的复现测试，再修这条链，最后才动路由合并。
-- **④d 工具条收口：把「编辑」收进 ⋯ 菜单（2026-09-24，E17 ④）**：阅读页工具条顶层从此只放「读」的动作，「改」的动作（编辑）进 `⋯` 菜单。
-  - **真实动线验证**（Playwright 打开真实资料库里的 md 资料）：工具条顶层按钮 = `["已提取 · 查看图谱"]`，`⋯` 菜单存在且内容含「编辑」。
-  - **仍未做**：`提取概念` 那几颗状态按钮仍在顶层（它们同时也是"这份资料处理到哪了"的状态指示，收进菜单会让状态不可见——需要先想清楚状态怎么留）；以及 ④ 最大的一块：`/library` 与 `/library/read/:id` 合并、复用既有的 `readerTabsStore`（不要再新建模型）、目录浮层。
-  - 验证：tsc 0、eslint 0、vitest **112 passed**、构建 0。
-- **④c 审查发现：我把已有的东西重做了一遍（2026-09-24，已回滚，未改代码）**：准备统一标签模型时发现 `stores/readerTabsStore.ts`（TASKS_LIBRARY_REWORK 2.3.1）**早就有** `openIds` / `close` / `scrolls` / `setScroll` / `scrollFor`，而且 ReaderPage 第 133 行**已经在恢复滚动位置**（`pageRef.current.scrollTop = scrolls[selectedId] || 0`）。也就是说：
-  - **④a（标签模型）是重复实现**：`6959879` 新建的 `lib/readerTabs.ts` + `hooks/useReaderTabs.ts` 与既有 store 重叠；
-  - **④b（位置还原）不是缺口**：真实动线里 ④b 的能力本来就有，`f845825` 加的是够不着的第二份。
-  - **我尝试做减法**（删重复文件 + 摘掉 LibraryPage 里那套死代码），两次都在**多行 JSX 的程序化切片**上把文件切坏，已 `git checkout` 全量回滚——**本轮没有代码改动，只留这份记账**。教训与前几轮同类错误相同：长 JSX 改动只能用带精确 old_string 的编辑工具，绝不能按行号切片。
-  - **下一步的正确形状**：④ 合并时**复用** `readerTabsStore`（不要新建模型），LibraryPage 的阅读区改成读同一个 store；等合并落地，再删掉 `readerTabs.ts`/`useReaderTabs.ts` 这两个重复文件。
-- **审计发现（2026-09-24，真实端到端模拟）：④a/④b 的标签条与位置还原在当前动线里"够不着"** —— 用 Playwright 对真实后端 + 真实资料库走了一遍：点树里的文件会**直接跳到 `/library/read/{id}`**（ReaderPage），URL 从 `/library?collection=material` 变成 `/library/read/5f0a6bc7…`，资料库页的阅读区（连同标签条、位置还原）**从未被渲染**。
-  - 也就是说：`6959879` 与 `f845825` 的实现是**对的**（纯函数有 7 条测试、`tabs.open` 确实被调用），但**在真实动线上用户看不到它们** —— 因为 ④ 最大的一块（`/library` 与 `/library/read/:id` 合并成同一套组件）还没做。**这两块在合并完成前不算交付。**
-  - 顺带在同一轮审计里确认正常的部分：树可见、顶层文件夹正确、**新建文件夹真的建出来了**、控制台无错误。
-  - 教训记一笔：功能做完只跑 live 冒烟不够 —— 那 5 条检查全绿，却没有任何一条覆盖"点资料之后会发生什么"。**下轮第一件事：把这条动线写成会失败的复现测试（点树里的文件必须落在同一套阅读区并出现标签页），再动合并。**
-- **④b 阅读位置还原（2026-09-24，E17 ④ 第二块）**：上一块只"记"了读到哪，这一块把它**用起来**——切到一份资料、内容渲染完成后，滚动容器回到上次的位置。换算写成纯函数 `scrollTargetFor(position, scrollHeight, clientHeight)`：夹在真实可滚动范围内，容器还没量出高度时返回 0（绝不往 `scrollTop` 写 NaN 或负数）。
-  - 只恢复**一次**（用 ref 记住已恢复的 document_id）：否则你往下读的时候会被反复拽回去。
-  - **验证**：`readerTabs.test.ts` 增至 7 条（含越界/负值/容器未量出/NaN 四种边界）；vitest **112 passed / 18 files**、tsc/lint/build 0、live **5 passed**。
-  - **④ 仍未做**：`/library` 与 `/library/read/:id` 合并成同一套组件两条路由（最大一块，深链接目前仍由 ReaderPage 承担）、目录浮层、工具条收口。
-- **④a 阅读区标签页模型与标签条（2026-09-24，E17 ④ 第一块）**：把"打开/关闭/记住读到哪"写成**纯函数**（`lib/readerTabs.ts`：已开只激活、关当前激活右邻居、关最后一个自动收起、阅读位置夹到 0–100 且**关掉也留着**、坏数据退回空状态），UI 只负责画；状态按资料库存 localStorage（`hooks/useReaderTabs.ts`），切资料库就换那套标签页。资料库页加标签条：点开一份资料进标签（已开只激活）、行尾 × 关闭、关掉激活项自动切到邻居、关掉最后一个收起。
-  - 设计里写的"**双击**打开"在这里退化成"单击即打开"（树与列表本来就是单击打开，双开反而多一次操作）；这点如实记下来，不算照搬。
-  - **验证**：新增 `lib/readerTabs.test.ts` 6 条 + 页面级 1 条（打开进标签条、关闭后消失）；vitest **111 passed / 18 files**、lint 0、构建 0、live **5 passed**。
-  - **仍未做（④ 剩余）**：`/library` 与 `/library/read/:id` 合并成**同一套组件两条路由**（`ReaderPage` 与资料库页里的阅读区仍是两套渲染）、每篇的阅读位置**回滚定位**、目录浮层、工具条收口。**深链接目前仍由 ReaderPage 承担，5 处引用不受影响**。
-- **③e 补上 ungroup 的身份迁移缺口（2026-09-24，E17 ③ 收口）**：上一轮审查发现 `delete_folder`（ungroup）只是把文件从磁盘搬回库根，**没走 `move_document` 的身份迁移** —— 被移出的资料会以新 source 重新索引、`document_id` 变化，挂在它上面的概念证据与笔记引用一起断。同一个「移动」两条路径行为不一致。
-  - **修法**：抽出 `_migrate_relocated_document(document, 新路径)`（算新 source → 重映射 chunk 身份 → 就地改写位置并保留 document_id → 迁移证据与笔记 references 的 chunk_id → 标记向量重建），`delete_folder` 在搬每个文件前先按真实路径查出它的文档，搬完调用同一个迁移。**复现**：新增一条测试，断言 ungroup 后 document_id 不变、chunk 身份跟着走、概念证据指向新 chunk（未修时三条里至少有两条失败）。
-  - **验证**：pytest 全绿（1617 passed，新增 1 条复现测试）。**③ 到此收口**：归档扩展 / 归档列表与恢复 / 身份迁移 / 文件夹写操作（后端+界面）/ ungroup 身份一致 —— 全部有复现测试。
-- **③d 树上写操作的界面 + 「已归档」列表（2026-09-24，E17 ③ 第四块）**：树顶内联「新建文件夹」（在选中文件夹下建）、文件行 ⋯ 菜单（重命名 / 归档）、文件夹行 ⋯ 菜单（删文件夹=只删容器）、树下方「已归档 N 份」可展开并一键**恢复**；归档/恢复/移动/删文件夹都会刷新树与列表。
-  - **设计规格棘轮抓到一条**：新 CSS 里我写了一个不在 §7 刻度上的 `border-radius: 4px`，把脱轨圆角从 60 顶到 61（预算 60，只允许变小）——已改用 `var(--radius-sm)`。这条棘轮确实在守门。
-  - **验证**：vitest **104 passed / 17 files**（新增树操作用例）、pytest **1616 passed**、tsc/lint/build 0；live（真实后端 + 真实资料库）**5 passed**。
-  - **审查发现的缺口（下一轮第一件事）**：`delete_folder`（ungroup）是把文件从磁盘搬回库根，**没有走 `move_document` 的身份迁移**——所以被移出的资料会以新 source 重新索引，`document_id` 变化、挂在它上面的证据/笔记引用会断。这是我自己的实现在两条路径上不一致，必须在下轮修掉并补复现测试。
-- **③c 文件夹写操作的后端语义（2026-09-24，E17 ③ 第三块）**：新建文件夹、**删文件夹=只删容器**（资料移回库根、一份都不删；非资料文件留在原地于是目录保留，并如实返回 `kept_directory`）、以及 `POST /api/kb/documents/{id}/move` 路由（接 ③b 的身份迁移）。拒绝项：根目录/内部目录/路径逃逸（`invalid_target`）、已存在（`target_exists`）。参考项目的注释被引在设计里：a container's ⋯ must not be able to destroy work。
-  - **验证**：新增 `tests/test_folder_ops.py` 5 条（新建真实目录 / 拒绝非法目标 / 删文件夹把资料移回库根且非资料文件留原地 / 空目录才真的被移除 / 根与内部目录拒绝）；pytest 全绿。
-  - **仍未做**：树上写操作的**界面**（新建文件夹按钮、行内重命名、移动到、归档）与「已归档」列表的界面入口——下一轮。
-- **③b 重命名/移动保留身份并迁移引用（2026-09-24，E17 ③ 第二块）**：本轮先**实测枚举**了挂在资料身份上的引用面（不是凭记忆）：`documents`（id/source/path）、`chunks`（document_id/**chunk_id**/source）、概念证据 `concept_graph.db::evidence`（document_id/chunk_id）、笔记 `personal_knowledge."references"`（JSON 里的 document_id/chunk_id）、阅读进度 `reading_progress.document_id`、Qdrant 向量 payload。
-  - **关键事实**：`rag/sqlite_store.py:23` 的 `_stable_hash(source)` 同时派生 document_id 与 chunk_id，而 `chunk_id = f(source, index, text)` —— **改个文件名会让所有 chunk id 变化**，挂在它们上面的证据、笔记引用与 `?chunk=` 深链会一起断。
-  - **修法**：`KBService.move_document(id, 新相对路径)` —— ① 先算出新 source（口径与 `obsidian/sync.py` 的扫描根完全一致，含 raw/ 前缀剥离规则）；② 算出旧→新 chunk 身份映射；③ 搬文件；④ 就地改写 `documents`(source/path) 并**保留 document_id**、重映射 `chunks`(id/source) 并重建 FTS5 外部内容索引；⑤ 迁移概念证据与笔记 references 里的 chunk_id；⑥ 向量标 `pending` 并删掉旧点，交给下次同步重建（chunk 身份变了，旧向量作废）；⑦ 同步复用既有身份（`obsidian/sync.py` 改为 `get_document_id_by_source(source) or _stable_hash(source)`）。
-  - 拒绝项：目标已存在（`target_exists`）、路径逃逸/非法（`invalid_target`）、非资料扩展名（`unsupported_file_type`）、资料库外（`document_read_only`）——失败时**一个字节都不动**。
-  - **验证**：新增 `tests/test_document_rename.py` 3 条（身份保留 + chunk 身份跟着走 / 证据与笔记引用的 chunk_id 被迁移且阅读进度仍在 / 冲突与逃逸被拒）；pytest **1611 passed**。
-  - **仍未做**：树上的写操作界面（新建文件夹、右键重命名/移动到/归档、删文件夹=只删容器）与「已归档」列表的界面入口——③ 的第三块。
-- **③a 归档语义扩展到所有资料 + 「已归档」列表与恢复（2026-09-24，E17 ③ 第一块）**：用户剪进资料库文件夹的资料，此前在 App 里**删不掉**——`delete_document` 只允许 `raw/`（Bobodan 自己的收件区）里的文件，其它一律回「只读、不能在这里删」，只能去资源管理器动手。
-  - **归档对所有资料生效**（设计 §3.5 决定 20）：文件移到 `.bobodan/archive/<UTC 时间戳>/<原相对路径>`，**保留目录层级**（旧实现是 `archive/raw/<时间戳>/<文件名>`，同名文件会互相覆盖）；每次归档写一条可恢复条目（entry_id / 原路径 / 归档路径 / 来源 / 标题 / 大小 / 时间）。
-  - **恢复**：`POST /api/kb/archive/{entry_id}/restore` 把文件放回**原来的位置**并重新索引；原位置已被占用时返回 `restore_target_exists` 且**什么都不动**（条目与归档文件都留着）。旧工作区的上传收件区（`.bobodan/sources`）装的是用户资料，不算内部结构，照常可归档。
-  - 没有原件（旧索引条目）或原件在资料库之外的记录依旧只读（`document_read_only`）——但文件已经不在磁盘上的记录不再拦截，交给 P0-12 的两次确认通道清掉。
-  - **tripwire 抓到一条**：新增的归档台账没登记进 `core/persistence_registry.py`（R0.6 要求每个跨重启的文件都有归属与「能不能重建」的答案）。台账改名为 `archive_index.json` 并登记为可重建（归档目录保留了原目录层级）。
-  - **验证**：新增 `tests/test_document_archive.py` 4 条（归档任意资料并保留层级 / 恢复归位并清条目 / 目标被占用时拒绝且不丢文件 / 资料库外路径拒绝），并更新了那条断言旧归档路径的既有测试。**仍未做**：树上的写操作（新建/重命名/移动/删文件夹）与**身份迁移**、以及归档列表的界面入口——属 ③ 的后续块。
-- **② 只读文件夹树（2026-09-24，E17 ②）**：资料库主区从「一张平铺列表」变成「真实文件夹树 | 当前文件夹的资料 | 阅读区」，树上直接看到层级与状态。
-  - **后端 `GET /api/kb/tree`**：按真实文件系统建树（`os.scandir`，不做哈希）：文件夹给「资料数 + N 份未提取 + 另有 N 个文件已忽略」，资料文件给索引徽章（是否已索引 / 提取状态 / 片段数 / 更新时间）；隐藏 `.bobodan/`、`wiki/`、点目录与标记文件；**绝不下发绝对路径**（沿用既有约定）。
-  - **显示层真实相对路径**（① 的最后一项）：`_public_document` 增加 `relative_path` —— 列表与树显示的是 `raw/inbox/paper.pdf`、`正则表达式.md` 这样的真实位置，而不是由扫描根前缀派生的索引身份 `course-2/…`。
-  - **前端**：新增 `components/LibraryTree.tsx`（展开状态记 localStorage；搜索时过滤树并**保留命中项的祖先链**——folders are not a filter, they are a location）；选中文件夹后右侧列表按真实路径前缀过滤；`api.knowledgeTree()` 接线。
-  - **写完之后的自审抓出两个真问题（同轮修掉）**：① **布局被 CSS 顺序吃掉**——`.library-workspace.list-only` 与新的 `.with-tree` 同优先级且排在后面，三栏会退化成单栏（树与列表被堆成一列）；**截图验证时才发现**，已补 `.list-only.with-tree` 规则并再次截图确认（树 260px | 列表 270px | 阅读区）。② **同步后树不刷新**——徽章与计数会停在旧值，改为与资料列表一起 `Promise.all([loadDocuments(), loadTree()])`。
-  - 顺带：树接口载荷实测 **141 KB**，把每层「已忽略」明细抽样从 50 降到 20。
-  - **验证**：pytest **1604 passed**（新增 5 条树/路径复现测试）、vitest **103 passed / 17 files**（新增 7 条树组件 + 1 条页面过滤）、tsc/lint/build 0；live **5 passed**（新增"真实库的树显示 ai-agents-from-zero 与 raw、隐藏 wiki 与 .bobodan、点文件夹后列表被过滤"）。
-- **① 扫描规则 + 同步入口 + 重复治理（2026-09-24，E17 ① / `LIBRARY_TREE_DESIGN.md`）**：把「资料库文件夹」变成真入口，并修掉三处让列表变脏或变死的缺陷。
-  - **重复索引（真 bug）**：`.bobodan/source_roots.json` 把 `ai-agents-from-zero`（它本身是库根的**子目录**）登记成独立来源根，而 `_scan_library_root` 没有像 vault 扫描（`obsidian/vault.py:64`）那样跳过已登记的来源根 → 同一份文件两条记录、两个 `document_id`（实测 7 组）。修法：把 `skip_roots`（已登记来源根的绝对路径）传给两个材料扫描器。**真实现场：资料 76 → 47。**
-  - **删除确认计数永远到不了第 2 次（既有 bug，本轮实测发现）**：`_resolve_deletions` 只遍历 `old_state`，而状态里的 `files` 每次同步都被新扫描覆盖 —— 一个 source 第一次缺失后就从 `old_state` 消失，计数永远到不了 `DELETION_CONFIRMATIONS=2`，下一次同步还会把 `missing` 里那条一起丢掉。现场证据：真实库 29 条该移除的记录既没被删除、也不在待确认列表，`sync_state.json` 显示 `files=47 / missing=0`。修法：候选集合改为 `old_state ∪ previous_missing`。
-  - **状态漂移没有自愈路径（本轮新发现）**：索引里有、但已不属于任何扫描范围的文档（wiki 生成页、因规则收紧而失去来源的重复）会永远留在索引里、而且没人再看得见。修法：同步时用 SQLite 里的事实反查——凡是「索引里有、扫描状态里没有」的 source，重新喂回同一个两次确认的删除通道。**复现**：种一条 `obsidian/wiki/concepts/RAG.md` 记录，停用自愈立刻失败（已实测两端）。
-  - **仓库元文件被当资料**：旧规则只跳过**库根那一层**的 `README.md`，子目录照收（`course-2/README.md`、`requirements.txt`、`_sidebar.md`、`CONTRIBUTING.md` 都在列表里）。新规则放进共享模块 `obsidian/scan_policy.py`（vault 扫描与材料扫描共用，防止再次漂移）：任意层级跳过 README / CONTRIBUTING / LICENSE / CHANGELOG / requirements*.txt / _sidebar.md / _navbar.md，并在同步摘要里如实列出（真实库每轮 5 条）。
-  - **wiki 停用（用户决定，设计 §3.1）**：portable 资料库的 vault 扫描不再索引 `wiki/`（生成页不再是资料），磁盘文件保留；**概念提取 → 知识地图不受影响**。配套更新了 `tests/test_library_service.py` 里那条"wiki 页应当被扫描到"的旧断言。
-  - **App 里没有同步入口（真 bug）**：`web/frontend/src/lib/api.ts:117` 的 `syncLibrary()` **全前端零调用** —— 用户在资源管理器里把文件剪进资料库文件夹后，界面里没有任何办法发现它们。现在资料库页有「**同步文件夹**」按钮；完成后给可行动的摘要：新增 / 更新 / 移除 / 待确认移除 / 跳过（元文件）/ 重复清理 / 失败（含每份原因），明细可展开。
-  - **写完之后的自审抓出两个真问题（同轮修掉，都有测试）**：
-    ① **来源根掉线会误删索引**（本轮修法自己引入的风险）：外接盘未挂载、网络盘掉线时，已登记的来源根在磁盘上不可见，它下面的资料会整批落进「索引里有、扫描里没有」的集合 → 两次同步后**被删掉**（还会级联清 chunk/向量并把概念证据标 stale）。修法：服务层识别「已登记但磁盘上不存在」的根，把这次扫描标成**不完整**，按 P0-12 的语义**什么都不删**，并在摘要里明说「本次扫描看不全，因此没有移除任何资料」。复现：`test_a_source_root_that_is_offline_suppresses_deletions`（未修时两次同步后记录消失）。
-    ② **「重复清理」这个标签会骗人**：一个文件被**移动/改名**时，旧 source 被移除、新 source 带同样的内容哈希进库，会被算成"重复"。标签改成「内容与现存资料相同（可能是移动或改名）」——真正的迁移由 ③ 的身份迁移负责。
-  - **验证**：pytest **1599 passed**（新增 6 条复现测试）、vitest **95 passed / 16 files**（新增 4 条）、`tsc --noEmit` 0、eslint 0、生产构建 0；live（真实后端 + 真实资料库）**4 passed**——含新增的"点同步文件夹 → 摘要上屏"。真实现场：资料 **76 → 47**（wiki 生成页 0、元文件 0、重复对 0），上传的那份 PDF 原件视图 / 提取（30 单元）/ 检索命中均完好。
-- **资料联动轮（2026-09-23）**：按「查看来源 → 落点统一 → 定位提示 → 搜索定位 → PDF 引导」推进。
-  - ① + ② **跳转落点统一**（`ba83123`）：原先**五处**各自手拼 `/library?…&document=…`（来源 chip、右侧来源栏「打开原文」、聊天引用列表、知识地图返回来源、笔记引用），其中两处**已经在传 chunk**——但目标是**资料库列表页**，而它不渲染 sections，所以 `LibraryPage` 里处理 `chunk` 的代码永远拿不到 `[data-chunk-id]` 节点，"跳过去找不到引用段落"。现在统一走 `lib/documentLinks.ts::readerLocation()` → `/library/read/{id}?collection=…&chunk=…`（含 5 条单测）。
-  - ③ **引用定位 + 提示条**（`a30bd11`）：带 `chunk` 进入时顶部显示「已定位到引用段落」并可一键「看原文」。**修法用了五轮才找对**：前五轮都在"命令式查找 + 定时"上加补丁（直接查 → 成功才清 pending → rAF 重试 8 帧）全部失败；埋点实测给出关键两条事实——`highlightedChunk` **从未被设置**（不是设了又被清），而**目标 id 确实在 DOM 里且 URL 参数正确**——于是**换机制**：删掉用 `querySelectorAll` 的 effect，改由**目标 `<section>` 的 ref 回调在挂载那一刻**自己高亮并滚动。live 检查（真实后端 + 真实资料库）通过。
-  - ⑤ **PDF 引用引导**（`929e823`）：提示条区分格式——PDF 明确说明"原件无法高亮，已在「按小节」"。
-  - **lint 归零**（`8df9ee3`）：上一轮声称修好其实把依赖加错了 effect（加到滚动恢复而非加载 effect），这一轮改正，并把 lint 纳入门禁判断。
-  - ④ **搜索命中 → 资料 → 命中片段**（`278ab43`）：先做了一处**更正**——后端**已有** `POST /api/kb/search`，实测返回 `{chunk_id, document_id, collection, source, score, retrievers}`，**正好是 `readerLocation()` 的输入**，缺的只是前端（资料库输入框原先只做标题/来源的客户端过滤，没有 chunk 级结果列表）。所以 ④ 是**接线**不是新功能：检索结果列表（300ms 去抖）逐条深链到 `/library/read/{id}?collection=…&chunk=…`，走的就是 ③ 那条已被 live 检查钉住的定位通道。
-  - **视觉返工两轮（用户反馈驱动）**：切换器先被指出"不符合本项目的审美和 UI/UX"，改完又被指出"还是跟左边两个按钮不一样"。根因是它**是手写的**：自己拼的十六进制色、选中态整块实心蓝填充、26px 高 / 6px 圆角 / 400 字重——而左边的邻居按钮是 40px / `--radius-md` / 13px / 650 字重，选中态用 wash + 墨蓝文字 + 内侧边（`docs/DESIGN.md` 的选中态语言：**从不用实心填充**）。`d9a7f67` 换成 token 与正确的选中态语言，`f43cddb` 再逐项对齐邻居几何（高度/圆角/内边距/字号/字重/hover 抬升/`:active` 缩放），提示条一起统一。**教训**：新控件不要凭印象手写样式，复制邻居的度量并复用共享规则（`.primary-button, .quiet-button`）。
-  - **本轮验证**：pytest **1592 passed**、vitest **91 passed / 15 files**、`tsc --noEmit` 0、eslint 0 problems/0 warnings、生产构建 0、仓库全量 Playwright **88 passed / 11 skipped / 0 failed**；`BOBODAN_E2E_LIVE=1` 的 live 检查（真实后端 + 真实资料库）**3 passed**——默认进原文视图 / 带 `chunk` 进入→提示条+目标小节高亮+「看原文」/ 资料库搜索命中→点进资料→落在命中片段。
-  - **诚实边界**：③⑤ 的 PDF 分支与 ⑤ 的文案只做到类型/构建/回归级验证——该资料库**没有 PDF**，这条分支仍未在真实数据上跑过。
-- **③ DOCX 表格解析修复 + 真实库重新 sync（2026-09-23）**：`docx_parser` 过去只遍历 `doc.paragraphs`，而 python-docx **不把表格单元格放进 paragraphs**——于是 .docx 里的表格**一个字都进不了索引**：既搜不到，也永远不可能成为概念证据（纯静默丢失）。修法：按 body 顺序遍历段落与表格（表格因此留在**它所属的小节**里，而不是被丢到末尾），表格渲染成每行 `|` 分隔，section metadata 记 `table_count`。
-  - 复现：新增 `tests/test_docx_tables.py` 两条。**修前失败信号**：同一份含表格的 docx，解析文本只有 `正文段落一\n表格之后的段落`——表格内容整段消失；修后该文件与既有解析报告测试共 `18 passed`。
-  - **真实资料库重新 sync**（本目标要求的"证据重定位"检查）：scanned 22 / **updated 0** / error 0 → 现有资料**没有 .docx**，所以这次解析改动对既有数据是 no-op；**签名文件首次写入** `{provider: openai_compat, model: embedding-3, dim: 2048}`；documents 70 / chunks 1857 未变、70/70 仍 `indexed`；概念证据 30 条（其中 15 条带 `chunk_id`）**stale = 0** ✓。
-  - 已知外观限制：纵向合并单元格会把文字在跨越的行中重复一次——**不丢字**，只是可能重复几个词。
-- **④ 图片可渲染 + 一轮代码审查（2026-09-23）**：markdown 里的相对图片现在能显示——新增 `GET /api/kb/documents/{id}/asset?path=<相对文档目录>`（同样做包含性校验），前端把 `img` 的相对 src 重写到它；绝对 / `data:` / `blob:` 源不重写。`<img>` 发不出资料库头，所以库标识以 `?library=` 随 URL 传递。
-  - **写完之后做的批判性审查抓出 4 个真问题（同轮修掉，全部有测试）**：
-    ① **安全（中）**：`/asset` 只校验"在工作区内"却没校验**文件类型**——工作区根目录的 `.env`、`.knowledge/*.db` 都在区内，一份 markdown 写 `![](../.env)` 就能把密钥读出去。修法：附件**只允许图片扩展名** + 拒绝内部路径段（`.git/.knowledge/.bobodan/node_modules/__pycache__`）；新增测试要求 `.env` / `knowledge.db` / `note.md` 三种都返回 `asset_not_allowed`。
-    ② **安全（低）**：为 `<img>` 加的 `?library=` 兜底当时对**所有** API 路由生效。修法：只在路径以 `/asset` 或 `/raw` 结尾时接受——**拓宽的是通道，不是权限**。
-    ③ **体验（中）**：`openDocumentRaw` 先 `await fetch` 再 `window.open`，用户手势早被消耗 → 弹窗拦截器大概率拦下（功能等于不可用）。修法：**先同步开空白页**再请求，成功写 `location`、失败 `close()`；测试用 `invocationCallOrder` 钉住"开窗必须早于请求"。
-    ④ **体验（低）**：「查看原文」对生成页（wiki）也显示，而那些文档没有原件。修法：只在 `collection === "material"` 时显示。
-  - 另一处实现失误也记一笔：改 `web/backend/app.py` 中间件时我用了 4 空格缩进，而那一行在 `try:` 内需要 12 空格 → `IndentationError`，由测试立刻暴露并修好。
-  - 验证：pytest **1589 passed**（新增 1 条安全测试）、vitest **77 passed**、tsc/eslint/build 0。
-- **原文查看（前端入口，2026-09-23）**：Reader 工具栏新增「查看原文」。**不能用普通 `<a href>`**——原文端点要带资料库头（`X-Bobodan-Library-ID`），`<a>` 发不出去，所以改为先 `fetch` 再以 blob 交给浏览器开新标签：PDF 依然落在浏览器内置阅读器里，拿到的还是原件；失败（404 / 弹窗被拦）给中文提示，而不是开一个空白页。
-  - 复现：`web/frontend/src/lib/api.test.ts` 新增 2 条（请求打到 `/api/kb/documents/{id}/raw`、`createObjectURL` 被调用、以 `_blank/noopener` 打开；404 时抛 `document_raw_unavailable`）。验证：`tsc --noEmit` 0、vitest **75 passed**、eslint 0、生产构建 0。
-  - 仍未做：**未加 e2e**（Reader 需要完整的资料库 fixture）；markdown 内图片仍不可渲染（需要"按文档相对目录取附件"的受限端点）。
-- **原文查看（后端一半，2026-09-23）**：解析会丢图片、压平表格，而阅读侧只能看解析文本——用户实际上看不到原件（Obsidian 是直接渲染文件的）。现在新增只读端点 `GET /api/kb/documents/{id}/raw`：按 `documents.path` 定位真实文件，**resolve 后必须落在工作区内**（越界一律 `source_not_found`），按扩展名给媒体类型、`Content-Disposition: inline`（PDF 直接交给浏览器内置阅读器，Office 走下载/系统打开）。
-  - 复现：新增 `tests/test_document_raw_file.py` 八条：**越界拒绝**（工作区外的绝对路径、`../` 逃逸、空路径）、区内接受（绝对与相对路径都行）、媒体类型与文件名/大小、缺文件、PDF 类型、路由 inline 返回原文、未知文档 404。**修前失败信号**：`AttributeError: 'DocumentEditService' object has no attribute 'resolve_source_path'` + 路由 404。
-  - 仍未做（原文查看的前端一半）：Reader 的「查看原文」开关；markdown 内图片可渲染需要一个"按文档相对路径取附件"的受限只读端点（**不能**直接暴露工作区静态目录）。
-- **G2 第二块：embedding 签名版本化（2026-09-23）**：向量只在"产生它的那个模型"旁边才有意义，而此前没有任何地方记录这个配对——换 provider 或换模型后，检索会**静默去查另一个向量空间的库**。现在新增 `rag/embedding_signature.py`：sync 结束时把 `{provider, model, dim}` 原子写入工作区的 `embedding_signature.json`；检索构建管线时比对，不一致就**整条向量腿停用**，并留一条带双方数值的 warning（结果退回 FTS5-only，而不是拿外来向量给出自信的错答案）。文件名已登记进 `core/persistence_registry.py`（tripwire 强制）。
-  - 复现：新增 `tests/test_embedding_signature.py` 六条（匹配不误报、改模型同时报出 model/dim 两侧、无签名不阻断、损坏签名当没有而不是崩、provider 报不出维度时不阻断、**端到端**：sync 写入签名 → `semantic_available: True`；把签名改成另一个模型 → 同一查询变 `False`）。**修前失败信号**：`ModuleNotFoundError: rag.embedding_signature`；接线后又暴露两个既有替身缺 `get_model_info()`（已补）。
-  - G2 剩余：429 **断点续传**（当前是有界重试，不是从失败批次续跑）、设置页「向量模型」、召回评测集（G4）。
-- **G2 第一块：批次维度校验 + 429/5xx 退避重试（2026-09-23）**：真实厂商最常见的失败不是"挂了"而是**限流**——一个 429 过去会让一批 chunk 直接失败、文档留在 pending。现在 `_embed_batch` 做有界指数退避重试（默认 3 次，尊重 `Retry-After`，连接错误与 5xx 同等对待，上限 30s）；同时**把维度当契约**：返回维度与配置不符、或同一批里维度不一致，都在**写进 Qdrant 之前**报错并带上两个数字，而不是让错尺寸向量默默进库（那正是"换模型后静默错配"的入口）。
-  - 复现：`tests/test_embedding_provider.py` 新增 4 条（429 两次后成功且只发 3 次请求；重试耗尽后抛错且请求数有上界；维度不符被拒且错误信息含 3/1024；同批维度不一致被拒）。**它立刻抓出一条既有夹具的问题**：预设声明 1024 维而夹具只返回 3 维——说明这条校验真的在守门，不是装饰。
-  - G2 剩余：embedding/解析器**签名版本化**（把 provider+model+dim 存下来，不匹配时显式报 `embedding_signature_mismatch` 而不是静默用错向量）、断点续传、设置页「向量模型」、召回评测集。
-- **智谱接入实测 + 真实资料库建库完成（2026-09-23）**：用户提供智谱（BigModel）key 后验证：v4 接口**OpenAI 兼容**，`embedding-3` 默认 **2048 维**（0.27s/条，批量正常；同模型也支持 `dimensions=1024`，但 provider 暂不发送该参数）。因此只需加一个 `zhipu` 预设（`https://open.bigmodel.cn/api/paas/v4` + `embedding-3` + `ZHIPU_API_KEY` + **dim 2048**——必须与 API 默认一致，否则 Qdrant collection 会按错维度建）。
-  - **真实资料库已建成向量**：对 `note/vault`（70 份资料 / 1857 chunk）走 P1-18 的 `backfill_vectors`（只写向量、不重解析、不动原文）：**70/70 `pending` → `indexed`，58 秒，Qdrant points 0 → 1857**；混合检索返回 `retrieval_mode: hybrid / semantic_available: True`，查询「向量检索是怎么工作的」语义命中 `course-2/18-向量数据库与Embedding实战.md`。
-  - 配置接线：`config.yaml` 写 `embedding_preset: "zhipu"`（**不含 key**；没有 key 时 `auto` 会安全回退 Ollama → FTS5-only，不会假装能用）；key 放被 gitignore 的 `.env`（`git status` 确认未跟踪）。产品配置实测解析为 `openai_compat | available: True | dim: 2048`。
-  - 复现：`tests/test_embedding_provider.py::test_the_zhipu_preset_matches_the_vendor_default_dimension`（该文件 12 条全过）。
-  - 顺带记录的坑：`Add-Content` 往**末尾没有换行**的文件追加内容会把两行粘成一行（本次已修，且只读键名、不打印值——原有 `MINIMAX_API_KEY` 的值未受损）。
-- **嵌入模型接入链路实测（B2，2026-09-23）**：用一个本地 OpenAI 兼容的假嵌入服务，在**临时工作区**跑通真实代码路径：`sync_sources` → 3 文件 → 3 chunk → 向量写入 → Qdrant collection 按 `dim=64` 建出 → `vector_status: indexed` → `search_index_with_status(mode="hybrid")` 返回 `retrieval_mode: hybrid / semantic_available: True`，且「向量检索」这个查询命中的正是 `rag-basic.md`。**全程没有碰用户的真实 vault。**这证明 provider → 批量嵌入 → collection 初始化（维度来自配置）→ 向量落库 → 混合检索这条链路是通的。
-  - 真实厂商那一段单独验证：配置选 `openai_compat` + 预设 `siliconflow`，真打 `api.siliconflow.cn`。key 认证通过（余额耗尽前拿到过真实向量：bge-m3=1024、Qwen3-4B=2560、Qwen3-8B=4096 维），但该账户**余额为 0**，接口返回 `code 30001 insufficient balance`；产品按设计降级：`embed_texts → None`、写一条 WARNING、**密钥不出现在日志/输出/model info**。所以「接口接得上」已证，「在真实数据上建库」只差一个有余额的 key。
-- **W2/B2 · 可配置 embedding provider（2026-09-23）**：`EmbeddingService` 此前只能连本地 Ollama，于是**没装 Ollama 的机器一个向量都建不出来**——真实工作区正是这个状态（实测 70 份资料 / 1857 chunk、`vector_status` 全为 `pending`、`.bobodan/qdrant` 不存在）。现在 provider 是注册表里的一项：新增 `rag/embedding_provider.py` 定义 `EmbeddingProvider` 契约（`is_available` / `embed` / `get_model_info`），内置 `OllamaEmbeddingProvider`（把既有客户端原样降格复用，零成本保留）与 `OpenAICompatibleEmbeddingProvider`（`POST {base_url}/embeddings`：批量、按 `index` 归位、返回数量不符即报错），外加四个预设（`siliconflow` bge-m3 / `dashscope` / `openai` / `ollama`）。`auto` 的语义写死为：**配好的 API provider 优先 → 否则 Ollama → 都没有则 FTS5-only**；显式选 `openai_compat` 但缺 key 时**不会**悄悄退回 Ollama，而是 `is_available()=False`——宁可不做向量，也不偷偷换后端。密钥只从环境变量读（`embedding_api_key_env`，留空用预设自带的变量名），`config.yaml` 里永远没有 key。
-  - 复现：新增 `tests/test_embedding_provider.py` 十一条，全部用**真实 httpx + MockTransport**（只换传输层）：预设展开、`auto` 的优先级与显式选择、缺 key 不降级、请求形状（`Authorization: Bearer` 在头里、**不在 URL 里**、body 是 `{model,input}`）、5 条输入按 `batch_size=2` 拆成 3 次请求、响应乱序按 `index` 归位、返回数量不符报错、失败时 `embed_texts` 返回 None **且密钥不出现在日志与 model info 里**（用一个故意回显 `Authorization` 的假服务器验证）、维度来自预设时**不发请求**、维度未知时探测一次并缓存。修前失败信号：`ModuleNotFoundError: rag.embedding_provider`。
-  - 顺带修掉的三处旧契约：`rag/retriever.py` 把 `embedding.client` 传给 `HybridRetriever`（改为传 provider），以及 `tests/test_rag_retrievers.py` 的两个服务替身。它们是「服务对外只暴露 provider」这个新契约的真实调用点，不是顺手重构。
-  - ⏳ 仍未做（B2 余项，按原计划归 G2/G4）：embedding 签名版本化、批次维度校验、429 退避与断点续传、设置页「向量模型」与 Library 状态卡的开通引导、召回评测集。**在评测集通过前，不得宣称混合检索优于 FTS-only。**
-- **A4 批次三 · CLI 超时与 Ctrl+C 接 token（P0-3，2026-09-14）**：CLI 的 agent 跑在 daemon 线程里，超时与 Ctrl+C 只跳出**消费循环**，线程继续烧 token——代码里甚至在自己的提示语中承认了这一点（「后台请求和已经启动的工具操作可能仍在继续」）。
-  - 复现：`tests/test_repl.py` 新增一条——把 `core.agent_loop.AgentLoop` 换成会记录实参的 spy，复用既有的 `SlowProvider(delay=10)` + `agent.timeout=1` 场景，断言**循环拿到的 token 在超时后已被取消**且 reason 为 `cli_timeout`，并且新提示语出现。改动前该断言无法成立（`AgentLoop` 根本没收到 `cancel_token`），那条提示语也还是一句免责声明。
-  - 修法：`run_agent` 每轮建 `CancelToken` 并交给 `AgentLoop`；超时分支在 break 前 `run_token.cancel("cli_timeout")`；消费循环外包一层 `except KeyboardInterrupt`（设置 `cancelled`、取消 token、给出提示后干净返回，不再只封存当前行）；提示语改为如实描述「已通知后台请求停止（在下一个检查点生效），已启动的工具可能仍会收尾」。
-  - 后续补齐（同一轮）：Ctrl+C 路径与超时路径**共用同一个 `run_token.cancel(...)`**，当时只有超时那条有测试。现已补 `tests/test_repl.py::test_repl_sigint_tells_the_agent_to_stop`——用 `threading.Timer` 向进程真发一次 `SIGINT`，断言 `AgentLoop` 拿到的 token `is_cancelled()` 且 reason 为 `user_interrupted`，并确认「已取消本轮」上屏。
-- **A4 批次三 · specialist 子 token（P0-2，2026-09-14）**：审计原话是「specialist 超时无法真正取消，后台继续跑并写状态」——`agents/runner.py` 超时后调 `future.cancel()`，而它对**已经开始执行**的任务无效，于是父级已经按超时换路，那个 specialist 仍在发 LLM 请求、仍在写 learning store。
-  - 复现：`tests/test_agents_runner.py` 新增一条——用「永远不返回」的子循环 + 0.2s 超时，断言被放弃的子循环**拿到了与父级绑定的子 token 且已被取消**（reason = `specialist_timeout`）。改动前这条断言无法成立（`AgentLoop` 根本没收到 `cancel_token` 实参），改动后它在 0.2s 内返回并完成取消。
-  - 修法：`run_specialist(..., cancel_token=None)` 为每个 specialist 建**子 token**（父级取消自动传播到它），交给子 `AgentLoop`；超时分支在 `future.cancel()` 之前先 `child_token.cancel("specialist_timeout")`，于是子循环在下一个检查点停下。链路一直打通到工具层：`execute_tool(..., cancel_token=...)` 会把它注入给声明了该形参的工具，`delegate(session, cancel_token, ...)` 再转交 runner——**父轮取消时 specialist 一起停**。
-- **A4 批次三 · 每工具超时转结构化错误 + 顺手修掉 P1-7（2026-09-14）**：循环原来内联调用 `execute_tool`，所以**一个卡住的工具会卡住整轮**。接线超时时又暴露出一个更早就存在的真实缺陷（P1-7 去重竞态），两条一起解决。
-  - 复现：新增 `tests/test_tool_timeouts.py` 五条：①未登记超时的工具走内联（不付线程成本）；②快工具照常返回；③**挂住的工具变成结构化超时**（`data["code"]=="tool_timeout"`，且调用方**不等被放弃的线程**）；④抛异常的工具变成结果而不是炸穿；⑤**端到端**：`time.sleep(5)` 的工具在 0.2s 预算下，整轮仍以 `final_answer` 正常结束、会话不受影响。**修前失败信号**：`ModuleNotFoundError: tools.timeouts`；端到端那条会真的挂 5 秒。
-  - 修法：`tools/timeouts.py` 提供 `TOOL_TIMEOUTS`（只登记会阻塞在外部的地方：三个 `delegate_*`、`rag_search`、两个联网工具）与 `run_with_timeout()`——一次性 worker + `future.result(timeout)`，超时返回 `ToolResult(ok=False, code="tool_timeout")`，`executor.shutdown(wait=False)` **绝不等被放弃的线程**。循环按需分派：未登记超时的工具仍走内联，**不为不需要的线程付费**。
-  - 诚实边界（已写进模块 docstring）：Python 不能杀线程，超时的语义是「不再等 + 告诉模型」，被放弃的线程靠自身 IO 超时结束。
-  - **接线时复现并修掉 P1-7（去重竞态）**：把超时接进循环后 `test_read_only_tool_dedup` **确定性失败**——给 `rag_search` 加超时后它走 worker 线程，两个并行的同参数只读调用**都通过缓存检查**，于是同一份检索跑了两遍。这正是审计 P1-7 说的「靠线程调度侥幸通过」：它不是 flake，而是真实的竞态，被时序改动稳定照了出来。
-    - 修法：claim/wait。第一个调用在 `_tool_cache_lock` 下**认领**缓存键，重复调用等待它的 `threading.Event`；等待是**有界的**（`DEDUP_WAIT_SECONDS`）且 **fail-open**——泄漏的认领只会让这次优化失效（重复执行一次，也就是今天的行为），**绝不会挂住一轮**。
-    - 两条新测试：一条在工具里加 sleep 强行制造重叠（修前必失败），另一条把等待预算设为 0，断言此时确实会执行两次——**用它证明「这个等待正是防止重复执行的原因」**，而不是让读者相信。
-- **A4 批次三 · 浏览器侧收口：停止真的停、断线能续（P0-1 完成，2026-09-14）**：解耦立刻带来一笔必须还的债——`abort()` 只断开读者、不再停服务端，于是「停止生成」的语义反而**退化**了（点停 → 服务端照跑到完成，甚至因为泵的存在比以前更彻底）。这一轮补上：① 新增 `POST /api/chat/streams/{stream_id}/cancel` → `RunRegistry.cancel_now("user_stopped")`，未知或已结束的流返回 `{ok: true, cancelled: false}`，晚点一下不会变成报错；② 前端 `streamChat` 在第一帧通过 `onStreamId` 交出 stream id，停止按钮同时 `abort()` + `api.cancelRun(id)`；③ 读者意外断开时从 `after_seq` 重连 replay 端点续看（300/900/2000ms 退避，复用已有的 seq 去重），一次重连**零帧**即认为日志已读完而停止重试；④ 宽限期不再硬编码：`web.stream_grace_seconds`（默认 30），`RunRegistry.start(stream_id, grace_seconds)` 支持逐 run 覆盖。
-  - 复现：`web/frontend/src/lib/api.test.ts` 新增 4 条（跨连接续看且不重复渲染 seq=2、已完成 run 绝不重连、重连全失败时**抛回原始错误而不是静默截断**、`cancelRun` 打到正确端点与 POST）；`tests/test_web_backend.py::test_cancel_stream_reaches_a_live_run`（活 run 被取消、reason 为 `user_stopped`，晚到的取消是 no-op）；`tests/test_web_backend.py::test_chat_run_uses_the_configured_grace_period`（配置真的流到 `RunRegistry.start`，而不是只写了一个 helper 没人调）；`tests/test_run_registry.py` 新增 2 条；e2e `stopping a run keeps what was already produced` 断言中途停止后保留半截回答并给出重发入口。
-  - **第一版测试全红暴露的是我的 fixture 错**：用 `controller.error()` 造「断线」会**丢弃已入队的 chunk**，于是客户端一帧都没收到、也就拿不到 stream id，重连路径根本没被走到（失败信号是 `Error: network gone` 直接从 `streamChat` 抛出）。改成 pull 式（先交付一帧再报错）才真正复现「读到一半断线」。写在这里是因为这正是「测试写对」与「测试写绿」的区别。
-- **A4 批次三 · run 生产与 SSE 响应解耦（P0-1 收口，2026-09-14）**：宽限计时器此前**没有意义**——SSE 生成器是被客户端拉动的，客户端一走 run 就停在上一个 yield，所谓「宽限期内继续跑」实际是「延迟一次已经发生的停止」。现在 `web/backend/run_pump.py::RunPump` 在自己的线程里把 producer 拉到结束（帧已由 `StreamEmitter` 写进批次二的事件日志，泵只负责让生成器前进、不自己缓冲）；HTTP 响应退化成**读者**，`tail()` 从游标读日志直到泵结束。`create_run` 建注册表句柄 → `CancelToken` 交给 `AgentService.run_stream` → 启动泵 → 返回 tail 响应（`finally` 里 `note_disconnect`，且仅当泵仍在跑）；`replay_stream` 发现 live pump 时先 `note_reconnect` 再 `yield from pump.tail(cursor)`，就地接回同一次运行。副作用：producer 的 `finally`（会话落盘）现在走的是**正常完成**路径，断线不再打断本轮，落盘的是完整一轮。
-  - 复现：新增 `tests/test_run_pump.py` 八条，关键一条是**读者只取一帧就 `close()`，泵仍跑完且日志里 4 帧齐全**——那三帧就是旧实现下会被丢掉的；另有 tail 从游标续传、producer 抛异常仍能读完已产帧并回收句柄（不泄漏、不挂住）、宽限内重连不取消、宽限到期取消且 reason 为 `client_disconnected`。`tests/test_web_backend.py::test_chat_run_pumps_the_producer_and_owns_the_cancel_token` 从路由层固定两件事：`cancel_token` 来自注册表、响应结束后句柄被回收（修前失败信号：`KeyError: cancel_token`）。
-  - **代码审查又抓到一个真问题（保留策略会删掉正在跑的 run）**：`EventLog.prune` 的「超过 200 条流就删最旧的」此前不看流是否还在跑。泵把日志变成实时传输通道之后，这就成了真 bug——删掉的是**本轮还没读完的帧**，而且 `append` 的 seq 来自 `MAX(seq)`，删完会从 1 重来，读者永远等不到自己的游标。修法：`prune(exempt=...)`，`create_run` 传 `live_stream_ids()`，且流数量上限只作用于**可删集合**（活流既不占额度也不会被挤掉）。复现：`tests/test_event_log.py::test_prune_never_deletes_a_stream_that_is_still_live`（时间删除 + 数量删除两条分支），修前失败信号 `TypeError: prune() got an unexpected keyword argument exempt`；**实现中途我漏写了 `GROUP BY`，两条既有 prune 测试立刻确定性失败**（聚合查询退化成一行 → 一条都不删），是它们抓住了我的错误，而不是我事后自查。
-  - **自查遗漏（第二轮补）**：那次收尾只跑了 `tsc --noEmit` 与一个测试文件，没重跑 `eslint`，于是 `no-useless-assignment`（重连重试里 `let frames = 0` 的初值永不被读）漏到下一轮全量验证才被抓到。这条促成两件事：CI 补上 lint 三件套，「改完任何代码就跑完整验证」不再依赖自觉。
-  - **诚实边界**：泵只改「谁在拉生成器」，不改取消语义——Python 杀不掉线程，run 仍只在协作检查点停。上面那条解耦测试固定的是**解耦这一事实**，不是「旧代码跑它会红」：旧实现没有可独立驱动的 producer，无法同形对比。
-  - ⏳ **仍未接线（浏览器侧）**：仓库里没有任何调用方请求 `/api/chat/streams/{id}/replay`（前端是 fetch 流，不重连），也没有「停止本轮」按钮去调 `RunRegistry.cancel_now`。所以「宽限期内重连续跑」与「显式停止」目前只在**服务端已就位并有测试**这一层成立；接线需要 UI 决策，留给下一轮，不假装已完成。
-- **A4 批次三 · 取消原语（阶段三：断线宽限，部分完成，2026-09-14）**：先落 `web/backend/run_registry.py`——按 stream_id 登记 run 的 `CancelToken`，`note_disconnect` 起宽限计时、`note_reconnect` 撤销计时（刷新与误关不掉线）、`finish` 清理、`cancel_now` 供显式停止。另修审计点「SSE 生成器从不被关闭」：`iterate_on_stream_lane` 现在在 `finally` 里显式关闭同步生成器，断线时 producer 的 finally（会话落盘）真的会跑到。
-  - 复现：`tests/test_run_registry.py` 五条（断线**不立即**取消、宽限到期取消且 reason 为 `client_disconnected`、窗口内重连后 run 存活、断线幂等不重启计时、finish 后不再取消、每个 run 独立 token）+ `tests/test_sse_stream.py` 两条（响应停止时 producer 的 finally 被走到；正常流仍逐条送达）。**修前失败信号**：`ModuleNotFoundError: web.backend.run_registry`；以及 `AttributeError: list_iterator has no attribute close`（顺带暴露了 close 需要判存）。
-  - 当时未完成的关键一步（把 run 生产与响应解耦的后台泵）**已由上面那条收口**；本条的注册表、取消路径与显式关闭是它的地基。
-- **A4 批次三 · 取消原语（阶段二：provider 穿透，2026-09-14）**：阶段一只让循环在检查点停下，但在途请求仍在跑。这一阶段让**流式请求真的断**：`complete_stream` 的读循环在每个 chunk 之前检查令牌，命中就 `break`，`with` 退出时响应与连接一起关闭，provider 停止生成——这是整套协作取消里唯一能真正打断网络请求的位置。非流式请求打断不了，于是改为**取消后不再重试、不再发下一个**。
-  - 复现：新增 `tests/test_provider_cancellation.py` 三条，用 `httpx.MockTransport` 保留真实的 httpx 客户端与真实的读循环，只换传输层：①50 个 delta 的流在收到第 1 个后取消 → **只解析出 1 个 chunk 且只发出 1 次请求**（不重试）；②已取消的流**从不打开连接**（`RunCancelled`，连接记录为空）；③返回 500 这种可重试状态时，若此时已取消 → 只请求 1 次。**修前失败信号**：循环会读完 50 个 delta、重试可达 3 次。
-  - 修法：`LLMProvider` 协议、`openai_compat`（流式与非流式）、`minimax`（转发给父类）与测试替身 `ScriptedProvider` 全部接受 `cancel_token`；重试前的 `time.sleep` 统一改走 `_retry_pause(attempt, token)`——**取消后不再重试**是这一条的核心承诺；`AgentLoop` 用签名探测决定是否传该参数（不支持的 provider 会记一条 warning，而不是静默假装停止有效）；`run_stream` 增加 `except RunCancelled` 分支，保证取消被报成 `cancelled` 而不是 `error`。
-  - 阶段三、四（⏳）：Web 断线宽限期与重连续跑、CLI SIGINT 与 specialist 子 token、每工具超时表。
-- **A4 批次三 · 取消原语（阶段一，2026-09-14）**：先落设计文档 [`CANCELLATION_DESIGN.md`](CANCELLATION_DESIGN.md)——记录实测现状（生产代码取消原语 0 命中、SSE 生成器从不关闭、specialist 的 `Future.cancel()` 对已开始任务无效、CLI 只跳出消费循环）、锁定的方案（协作取消）与**诚实的边界**（Python 不能杀线程：流式真停、非流式靠 timeout、无视标志的工具会跑完）。
-  - 复现：新增 `tests/test_cancellation.py` 七条（幂等且保留首个 reason、`raise_if_cancelled` 带 reason、父取消传播到已存在的子、取消后新建的子一开始就是取消态、子可单独取消、另一个线程能观察到取消）+ `tests/test_agent_cancellation.py` 两条。**修前失败信号**：`ModuleNotFoundError: core.cancellation`；以及循环没有 `cancel_token` 形参。
-  - 修法（阶段一）：`core/cancellation.py` 新增 `CancelToken`（内部 `threading.Event` + 锁 + 父子表，`reason` 记首个原因，`RunCancelled` 与 `ProviderError` 刻意区分——取消不是失败，不该触发重试、不该计入错误率）；`AgentLoop` 接受 `cancel_token`，在**每轮迭代开始**与**每次工具派发前**检查：命中则以 `termination_reason="cancelled"` 结束本轮并保留已产出内容，工具则返回结构化的「未执行」结果。最强的断言是第一条：**预先取消的 run 对 provider 的调用次数为 0**——点了停止就不再花钱。
-  - 阶段二至四（⏳，见 ROADMAP 与设计文档第 9 节）：provider 流式读循环的中断、Web 断线宽限期与重连续跑、CLI SIGINT 与 specialist 子 token、每工具超时表。
-- **A4 批次二 · grep 非文本降级（P1-22，2026-09-14）**：`rag/grep_retriever.py` 对 PDF/DOCX/PPTX 是「按文本读」，两类后果同时存在——ripgrep 遇到二进制直接返回**无匹配**，Python 回退读出来的也是乱码，于是「原文定位」在这些格式上**形同虚设却毫无提示**，模型据此说出「资料里没有」——一句可能完全错误的话。
-  - 复现：新增 `tests/test_grep_binary.py` 三条：①同一批候选里文本文件仍能命中，而二进制文件被跳过并**计入统计**（`binary_skipped=1`、`binary_sources=["slides.pdf"]`）；②纯文本候选不会被误判；③`rag_search` 工具在拿到 `grep_unreadable>0` 时，**模型可见的 content 里必须出现「无法做原文定位」的提示**并且 `data` 里带结构化字段。**修前失败信号**：`TypeError: GrepRetriever.search() got an unexpected keyword argument stats`；第一版实现还把同一次搜索的展开阶梯算成 3 次跳过（`assert 3 == 1`），改成按**文档**去重计数后正确。
-  - 修法：`_looks_binary()` 按 ripgrep 同款规则嗅探前 4KB 是否含 NUL（不维护扩展名清单，.doc/.ppt 之类也覆盖）；`_grep_candidates` 在调用前跳过二进制并把**文档名**记入 `stats`；编排器把它放进 `RetrievalResult.debug`；`rag/retriever.py` 的状态字典新增 `grep_unreadable` 与 `grep_unreadable_sources`；`tools/rag_search.py` 既写进 `data`，也追加一行**给模型看**的提示（「有 N 份非文本资料无法做原文定位，不要据此断言资料里没有」）。
-  - 前端可见文案（同一轮补齐）：`web/frontend/src/types.ts` 的 `RunSummaryOperation` 增加 `grep_unreadable` / `grep_unreadable_sources`；`ChatPage` 的 run-summary 在 `semantic_available` 降级之后新增一条 `.retrieval-degraded` 文案，列出**无法做原文定位的资料名**。复现接缝：`e2e/interaction.spec.ts` 新增 `a run summary names the material it could not locate`，并把 run-summary 的 operations fixture 提成常量复用——这正是原先缺的那道接缝（run-summary 是折叠的 `<details>`，测试需先点开 `summary`；第一版没点，失败信号是 `toBeVisible` 收到 hidden）。验证：`npx tsc --noEmit` 干净，`npx playwright test e2e/interaction.spec.ts` 12 passed（3 视口 × 4 用例）。
-- **A4 批次二 · 向量补建（P1-18，2026-09-14）**：导入时若 embedding 后端（Ollama）没起来，文档只被标成 `pending`；之后再 sync 会因为「内容未变」而不走写向量的分支，于是**向量永远补不上、语义检索永久缺失，而界面不报任何错**。`rag/sqlite_store.py::get_pending_vector_documents` 早就写好了，但除了测试没有任何调用方。
-  - 复现：新增 `tests/test_vector_backfill.py` 三条，**用真实的 SQLite 与真实的 Qdrant local 目录**（只把 embedding 客户端换成假对象，因为 CI 里没有 Ollama）：①pending 文档被补建后 `vector_status` 归零、embedding 被调用一次；②embedding 不可用时是**安全 no-op**（仍为 pending，不会误标 indexed）；③embedding 抛错时错误被**记录到文档**，而不是继续静默 pending。**修前失败信号**：`ImportError: cannot import name backfill_vectors from obsidian.sync`。
-  - 修法：`obsidian/sync.py` 新增 `backfill_vectors(sqlite, qdrant, embedding, embedding_dim)`——遍历 pending 文档、取回其 chunks、嵌入、先删旧向量再 upsert、标记 indexed；任何异常都落到 `mark_vector_error`，并把数量计入 `SyncSummary.vectors_backfilled`（同时进 `to_dict`）。顺带把 sync 内联的 Qdrant payload 构造抽成 `_vector_payload()`，补建走同一份字段定义，避免两处漂移。
-- **A4 批次二 · specialist 上 Web（P1-16，2026-09-14）**：`tools/agents.py::register_delegate_tools` **只在 `cli/repl.py` 启动时被调用**，Web 后端从不注册，于是 `delegate_doc_reader` / `delegate_triage` / `delegate_planner` 三个子 agent 在浏览器里根本不存在——同一个产品，两个前端能力不对等。
-  - 复现：新增 `tests/test_web_specialists.py` 三条——①`execute_tool` 必须把**当次调用的 session** 注入给声明了 `session` 形参的工具；②`ensure_specialist_tools(config)` 注册出三个 `delegate_*` 且重复调用不产生重复注册；③Web 的 `_WEB_TOOL_NAMES` 必须放行这三个名字。**修前失败信号**：`assert delegate_doc_reader in TOOL_REGISTRY` 失败、`ModuleNotFoundError: web.backend.specialists`，以及白名单断言列出实际 frozenset 但不含该名字。
-  - 修法：`tools/base.py::execute_tool` 增加 `session` 注入（**Web 是并发的，不能像 REPL 那样闭包一个「当前 session」**，会话必须随调用传递）；`tools/agents.py` 的 delegate 函数签名改为 `delegate(session=None, **kwargs)`，优先用注入的 session、回退到 REPL 的 `get_session`；`get_session` / `get_app_config` 变为可选以同时支持两端；新增 `web/backend/specialists.py::ensure_specialist_tools(config)`（进程内幂等），并在 `create_run` 里**于 schema 快照之前**调用——否则白名单放行了、schema 里却没有这几个工具。
-- **A4 批次二 · 事件落库与断线续传（P1-17，2026-09-14）**：续传这条路**每一节都在、就是没通电**——seq 打戳、`StreamStore`、`/streams/{id}/replay` 端点、前端按 seq 去重，全都写好了；但存储是**进程内内存缓冲**，而且每个 run 在 `finally` 里调 `emitter.clear()`（断线也走这条路径）——**清除的时机与重放的目的正好相反**，所以重连永远读不到任何东西，重启更是一片空白。
-  - 复现：新增 `tests/test_event_log.py` 五条（每流单调 seq、游标读取、**新实例仍能读到**（模拟重启）、12 线程并发 append 得到唯一 seq、保留策略淘汰旧流）+ `tests/test_web_backend.py` 一条端到端：写入两帧 → 清掉进程内 store 缓存（模拟重启）→ 请求 replay 端点仍然拿到 `seq: 2` 与内容。**修前失败信号**：`ModuleNotFoundError: core.event_log`；以及旧实现下 replay 在 clear 之后返回空。
-  - 修法：新增 `core/event_log.py`（SQLite `stream_events(stream_id, seq, event, data, created_at)`，seq 的读改写放在 `begin_immediate` 事务里保证并发唯一，`read_after` 游标读取，`prune` 按保留天数与流数量上限回收）；`StreamStore` 可挂一个 `EventLog`，挂上之后**完全以日志为准**（内存缓冲不再参与——否则重启后缓冲自己的计数器会与日志的 seq 打架）；`get_stream_store(workspace)` 按 workspace 缓存；`create_run` 改用 workspace store 并在开跑时 `prune()`；**删掉两处 `emitter.clear()`**；replay 端点改为读持久日志，并同时接受 `after_seq` 与 `Last-Event-ID`（浏览器 EventSource 重连时会自动带它）。
-  - 留待：客户端重连时发 `after_seq` 的接线、以及「宽限期内可续、超期 abort」——两者都依赖批次三的协作取消原语，放在那一批一起做，避免又造一个「写了没通电」的机制。
-- **A4 批次二 · 上下文压缩接线 + 配对兜底（P0-8、P1-11，2026-09-14）**：审计说的三重问题都成立——①`context_window` 参数存在但**两个生产调用方都不传**，压缩路径永不触发（死代码）；②即便触发，`checkpoint` 也是 `None`，`project_context` 丢掉中段却不留任何摘要（静默丢失）；③尾部切点用 `rest[-tail:]`，可能正好落在 `role=tool` 上，把配对的 `assistant(tool_calls)` 切掉，严格 provider 直接 400。另外 P1-11 指出「暂停在 ask_user 后不 resume 直接发下一条」同样会留下悬空 `tool_call`。
-  - 复现：新增 `tests/test_context_projection.py` 八条——①切点永不落在 tool 响应上（拉回边界而不是前移）；②丢弃的中段必须转成确定性 checkpoint（含目标与用过的工具）；③孤儿 tool 响应被丢弃；④缺失的 tool 响应被补桩（`assistant` → `tool` 顺序）；⑤健康 transcript 原样通过；⑥**经由 AgentLoop 实测**发往 provider 的 payload 里悬空 tool_call 已被补桩；⑦`resolve_context_window` 对缺失/0/非数字回退到保守默认；⑧`AgentService.run_stream` 确实把 window 传给 loop。**修前失败信号**：`ImportError: INTERRUPTED_TOOL_RESULT`（机制不存在），以及 loop 发出的 transcript 里 `assistant(tool_calls)` 后面直接跟 `user`。
-  - 修法：`repair_tool_pairing()` 放在**最终序列化层**（`_build_context` 的返回处，也就是 provider 真正看到的 payload），两条不变量一次覆盖，任何将来的投影改动都不会再引入非法 transcript；`_tail_start()` 把边界往**前**拉而不是往后推（保持配对完整）；`structural_checkpoint()` 用规则而不是模型抽取目标/工具/失败数——**用模型去总结一个刚刚超窗的上下文，需要正是刚才耗尽的那份预算**；`DEFAULT_CONTEXT_WINDOW = 32000` + `resolve_context_window(config)`，Web 与 CLI 两个生产入口都传，`config.yaml` 增加 `agent.context_window`。
-- **A4 批次二 · hooks 最小接线 + P0-9 工具结果上限（2026-09-14）**：`core/hooks.py` 与它的四个派发点早在 AG-2.1 就写好了，但**生产代码里注册数为零**——文档声称承载权限检查与结果消毒，实际运行的代码里没有这两件事。同时 P0-9 指出单条工具结果没有任何上限（只有 `read_file` 自带 1MB），`rag_search` 还会把同一批 chunk 在 JSON 与格式化文本里序列化两遍。
-  - 复现：新增 `tests/test_builtin_hooks.py` 七条——①超长结果必须被截断且**保留头尾**并带省略说明；②短结果原样通过；③**失败结果永不截断**（错误文本是唯一的排查线索）；④经 `dispatch(AFTER_TOOL, …)` 走一遍派发后拿到的替换结果确实被限界；⑤白名单门对未启用工具返回 `unavailable in this runtime`（与既有测试断言的文案一致）、对 `allowed=None` 放行；⑥重复注册不产生重复 hook；⑦**构造一个 AgentLoop 后注册表里必须能查到这两个内建 hook**——这正是审计测试盲区第 7 条缺的守护。**修前失败信号**：`ModuleNotFoundError: core.builtin_hooks`，以及注册表在生产路径下始终为空。
-  - 修法：新增 `core/builtin_hooks.py`——`cap_tool_result`（32000 字符上限、头尾各 40%、中间替换为省略说明并提示用 offset/limit 续读、失败结果豁免）与 `allowlist_gate`（把白名单作为**每次派发的数据**传入，而不是全局注册，避免 specialist 的白名单污染主循环）；`AgentLoop.__init__` 调用幂等的 `register_builtin_hooks()`（每个运行路径都会构造 loop，覆盖面最广，也不怕新增调用方忘记接线）；原先内联的白名单判断改为走注册表派发，行为与文案保持不变。
-- **A4 止血轮立项（2026-09-14）**：外部审计 [`TECH_AUDIT_2026-09-14.md`](TECH_AUDIT_2026-09-14.md) 落库（15 P0 / 36 P1 / 33 P2 / 12 测试盲区）。本轮按「先止血 → 再接线 → 横切原语单独立项」推进；`docs/ROADMAP.md` 新增 **§2 A4 止血轮**，把要做哪几条与审计编号对应起来，P2 不排期。审计编号 `P0-x` / `P1-x` 成为稳定引用，后续提交信息带编号。
-  - 立项前对照三个本地参考项目（DeepTutor / OpenMAIC / openhanako-reference）逐条核查，确认可照搬项（工具渐进披露、原子写地基、事件表 + `Last-Event-ID`、lease 队列、序列化后配对兜底）与**不要抄的坑**（Windows 上 `fcntl` 缺失即静默无锁、`setdefault` 给模型留缝、ring buffer 不能当唯一恢复依据）。其中 DeepTutor 的 `tools/file_tools.py` 路径校验写了却从未接线、`events/event_bus.py` 只发无订阅者，与本次审计「不缺架构缺接线」的判断互为印证。
-  - 验收口径：每条先写会失败的复现测试再修；断线取消 / Qdrant 双开 / 删除确认 / 向量补建四类必须真实集成或故障注入；CHANGELOG 记录复现方式与失败信号。
-- **设计规格层重写 + 骨架层落地（2026-09-14）**：用户实测反馈「前端 UI 还是不好看、不够丝滑」，复查 `docs/DESIGN.md` 后确认问题不是「约束太紧」，而是**紧在禁令、松在规格**——对照 DeepTutor / openhanako / OpenMAIC 三个参考项目（见 `docs/REFERENCE_PROJECTS.md`）找出可借鉴项后，先重写规格层，再落地骨架层。
-  - **诊断（全部为实测）**：三档纸色 `#f5f4ed` / `#f7f5ef` / `#f3efe5` 只差 2–4/255，等于一档；全站只有 31 条 `transition`；文档写「辅助说明 12–13px」而 494 条 `font-size` 里 233 条（47%）低于 12px；`--blue*` 被引用 188 次而 `--petal-wash` 只有 2 次。禁令没有反面（§14 原先全是绝对禁止、没有配额），实现只能退到「发丝线列表 + 只用主色」。
-  - **§4 颜色改为面积预算**：每个色相给正面配额（墨蓝 / 纸色作结构色不限；sage、clay 每屏各 ≤ 1 个整块区域；petal ≤ 视口 2% 且必须列调用点，否则删 token）；§14 只禁止「超出预算」与整页主题化。
-  - **§4 token 表成为唯一真相源**：改成代码里真实使用的命名（文档里那套 `--color-*` 从未被实现），34 条 token 的名与值必须等于 `styles.css` 的 `:root`，由契约测试逐条校验。
-  - **§7 表面 / 边框 / 高度分档**：纸色三档拉开（`--paper-soft` 提亮、新增 `--paper-sunken` 作停靠面）、边框分 0.06 / 0.12 / 0.20 三档、新增 `--shadow-lift` 给内容 hover 与选中；圆角扩到 6 / 8 / 12 / 16 四档并明令禁止 5 / 7 / 9px；配额写死「内容区每屏 ≤ 1 层嵌套表面、≤ 1 处抬升」。
-  - **§5 / §6 / §11**：字号下限（辅助 ≥12 / UI 标签 ≥13 / 正文 16–18）写成硬约束并记录当前差距；新增 4 / 8 / 12 / 16 / 24 / 32 / 48 间距刻度（只有图标与 1px 边框豁免）；新增三档 spring 预设（CSS `linear()` 近似、过冲 ≤2%）+ 允许 `scale` 0.96–1.02 与 ≤220ms 布局动画——**仍不引入 motion 库**。
-  - **§14 拆成「底线」与「配额」**，新增 **§16 组件规格与交互四态**：静置 / hover / active / focus-visible / disabled 四态表 + 逐组件规格表（页面容器、停靠栏、顶栏、卡片、列表行、主次要按钮、图标按钮、输入框、chip、状态块、浮层、弹窗抽屉）。
-  - **骨架层落地**：侧栏与右栏改用 `--paper-sunken`（三级结构第一次显形）、顶栏与右栏 tab 的 active 走 `--shadow-lift`、导航与按钮补 hover 抬升与 spring 按压、圆角与间距开始引用 token、shell 一层 10 处 10–11px 标签提到 12px、`--muted` / `--faint` 拉开并加深（正文对比度同时改善）。
-  - **防漂移**：新增 `web/frontend/src/lib/designTokens.test.ts` ——文档 ↔ 代码 token 一致性（含「代码里属于规格命名空间的 token 必须写进文档」的反向检查）+ 三条棘轮（<12px 字号 ≤226、裸 `ease` ≤16、不在 §7 刻度上的圆角 ≤73、过渡里的裸毫秒 ≤5），只允许下调。已实测：故意把文档里的 `--paper` 改成 `#f5f4ee`，测试精确报出 `--paper: 文档 #f5f4ee / 代码 #f5f4ed`。
-  - **F19 批次 1 · Chat 页（2026-09-14）**：按新规格收敛 Chat 面。实测起点：一条消息里塞着 8.8px 的时间戳（`<small>` 在 11px 的 `.run-summary` 里按 0.8em 缩）、9–11px 的 `personalization-chip` 与来源 chip、10px 的编排器下拉与输入提示、12.5px 的选项 chip。
-    - **字号**：`.run-summary` 11→12、`personalization-chip` 9/10/11→12、`.source-chip` 11→12、`.composer-hint` 10→12、选项 chip 12.5→13、下拉触发器 10→13（菜单项 11→13、分组标题 9→12、`.dropdown-item small` 9→12）；正文侧 `.user-message` 15→16、`practice-ready-card p` 12→13、`.answer-prose table` 14→`var(--body-font-size)`。实测结果：**Chat 页正文与辅助文字最小 12px，不再有低于下限的元素**（审计脚本对 71 个文本节点逐个取计算样式）。
-    - **密度**：`.assistant-message` 48→32、`.user-message-wrap` 34→24、`.conversation` 内边距 44/30→32/24、`.source-row` 18→16、`answer-actions` 14→16，全部改走 `--space-*`；圆角全部改走 `--radius-*`（含原先 4px/7px 的越轨值），`.dropdown-panel` 那处写死的旧纸色 `rgba(247,245,239,.98)` 换成 `var(--paper-soft)`。
-    - **交互态**：`.source-chip` 的 `ease` 换成 `var(--ease-out)`，按压改用 `var(--spring-micro)`；下拉触发器/菜单项补 transition，选项 chip 选中态补 `--shadow-lift`。
-    - **回归测试**：`e2e/interaction.spec.ts` 新增「每一个 Chat 文案都在字号下限之上」——同一会话的**未作答卡与已作答两种状态**都逐节点扫描（低于 12px 就把元素与像素值列出来）、选项 chip ≥13、气泡与答案正文 ≥16、把 `--body-font-size` 调到 18px 后正文跟着变、宽视口下编排器工具条不溢出。三视口通过。
-    - 棘轮同步下调：<12px 字号 226→**208**、裸 `ease` 16→**15**、脱轨圆角 73→**69**、裸毫秒 5→**4**。
-    - 验证：Python `1450 passed`、Vitest `63 passed`、ESLint 与生产构建通过、Playwright 全量通过。
-  - **F19 批次 2 · Practice·Review 页（2026-09-14）**：这一批直接对着用户的原始抱怨做——「题目周围有许多空白、题目显示太单调太淡、我的答案和参考答案都是浅色细字」。
-    - **答案不再又浅又小**：练习结果里 `.answer-feedback small`（参考答案）原先**没有字号**、只知道继承 `<small>` 的 0.8em，颜色还是 `--muted`；现在 14px / `--ink` / 500 字重。小结里 `.recap-item small`（你的答案）11px `--muted` → 13px `--ink` 500；`.answer-feedback p`（批改意见与解析）改为跟随 `var(--body-font-size)`；判定标签 `.answer-feedback > div` 15px/700。
-    - **输入与选项**：简答题 `.short-answer` 原先没有字号（继承容器），现在 16px 且跟随阅读偏好，圆角与内边距走 token；选项文字 14px → `var(--body-font-size)`，选项徽标 12→13px，选项行补 hover / 选中抬升与四态过渡。
-    - **字号下限扫尾**：`.practice-header span` 11→12、`.practice-summary header span` 10→12、`.review-summary span` 11→12、`.review-kind` 11→12、`.review-row p` 11→12、`.review-more` 11→12、`.resume-row small` 10→12、`.practice-ai-drawer` 头部与上下文 10→12、`.page-heading` 眉标 11→12 与说明 14→15。
-    - **密度与层级**：`.question-sheet` 内边距 30px→`var(--space-6)`、圆角 8→`var(--radius-lg)`；题目下间距 25→`var(--space-5)`；练习容器 34/30→`var(--space-6)/var(--space-5)`；小结与回顾的 gap / padding / 圆角全部改走 `--space-*` / `--radius-*`；`.practice-ai-drawer` 写死的旧纸色 `rgba(247,245,239,.98)` 换成 `var(--paper-soft)`；`.practice-mode button` 的 15px 胶囊改为 `var(--radius-xl)`。
-    - **回归测试**：`e2e/app.spec.ts` 的判断题流程补上结果区字号断言（判定 ≥15 / 正文 ≥16 / 参考答案 ≥13）。
-    - 棘轮同步下调：<12px 字号 208→**195**、脱轨圆角 69→**65**，裸 `ease` 与裸毫秒不变。实测复核：`/practice/11` 与 `/review` 两页的可见文本**已经没有低于 12px 的元素**。
-    - 验证：Python `1450 passed`、Vitest `63 passed`、ESLint 与生产构建通过、Playwright 全量通过。
-  - **停靠面回调 · 侧栏不再是一条黄带（2026-09-14，用户反馈）**：用户给的参照是 [tw93/Kami](https://github.com/tw93/Kami) 与 Claude 网站的暖纸风，并指出左右侧栏的颜色突兀。查参照项目的 `tokens.json` 后发现**本项目的调色板本来就与 Kami 同源**——画布 `#f5f4ed` 就是 Kami 的 `--parchment`，品牌色 `#1B365D` 就是 Kami 的 `--brand`；出问题的只是上一批自己挑的停靠面 `#efeade`：它比画布深 9–19/255，且 **HSL 饱和度 0.35 高于画布的 0.29**，于是整条侧栏渲染成饱和的橄榄黄。
-    - 改成用 Kami 自己的三档：停靠面 `#f0eee6`（Kami 的 inline-code 灰）、画布 `#f5f4ed`（parchment）、抬升面 `#faf9f5`（ivory）。与画布的通道差收到 5–8/255。
-    - **把「不突兀」变成可执行约束**：`DESIGN.md` §7 与 `designTokens.test.ts` 新增「纸张阶梯」——三档顺序固定、与画布每个通道差 ≤ 8/255、停靠面必须更灰（HSL 饱和度 ≤ 画布）。同一组断言对每个纸色主题都跑（含 `[data-paper-texture="off"]`，它原先只换了画布与抬升面，停靠面会漂到 11/255，已补上自己的值）。
-    - 已实测这组断言真的会咬人：把停靠面改回 `#efeade` 会同时报出 `--paper-sunken` 通道超限与 `expected 0.3469 to be less than or equal to 0.2857`。
-  - **F19 批次 3 · Library·Reader 页（2026-09-14）**：资料列表是整个应用里字号最失控的一页——50 行文档每行都带一个 **9px** 的 `.document-extraction-state`（「尚未提取」×47 / 「已提取」×3）和 **10px** 的 meta 行。
-    - **资料列表**：状态 chip 9→12（`max-width` 70→88、`border-radius: 999px`→`var(--radius-xl)`）、标题 12→14、meta 10→12、行内边距与圆角改走 `--space-*` / `--radius-*`；工具条上下文 10→12、更多菜单 12→13 与浮层 5px 内边距→`var(--space-1)`。
-    - **阅读器**：`section-location`（「资料片段」，单页 64 处）10→12、`reader-topbar-title span`（`COURSE DOCUMENT` 眉标）10→12。
-    - **表单与编辑器一族**：用一条**按选择器前缀限定**的脚本（先 dry-run 打印 23 条改动再 `--apply`）把 `library-setup-dialog` / `library-path-hint` / `library-migration-preview` / `document-editor*` / `document-proposal*` / `reader-related-notes` / `document-bulk-tools` 的 9–11px 辅助文字统一提到 12px，`.library-tabs` / `.reader-tab` / `.chapter-rail` / `.library-switcher` / `.document-search` 提到 13px。
-    - **回归测试**：`e2e/app.spec.ts` 的首次导入流程补上「建库弹窗内不得有低于 12px 的文字」断言。
-    - 棘轮同步下调：<12px 字号 195→**167**、脱轨圆角 65→**60**。实测复核：`/library` 与 `/library/read/*` 两页可见文本**已无低于 12px 的元素**（资料列表 50 行、阅读器 300+ 文本节点）。
-    - 验证：Python `1450 passed`、Vitest `69 passed`、ESLint 与生产构建通过、Playwright 全量通过。
-  - **F19 批次 4 · 低频页 + 收口（2026-09-14，F19 完成）**：这一批用**按选择器前缀限定**的脚本做，先 dry-run 打印 123 条改动再 `--apply`；脚本本身也留在流程里，改的是选择器前缀可枚举的面。
-    - **覆盖面**：设置页全部 8 个分区（含 AI 与模型 / 记忆与数据 / Provider / 状态与关于），Wiki 维护与编辑器，笔记列表与编辑器，知识地图（目录视图 / 来源视图 / 力导向参数），以及共用外壳（连接条、错误边界、快捷键面板、迁移预览、onboarding）。
-    - **规则**：交互控件（导航、tab、工具条、预设行、编辑器工具条、快捷键分组）提到 13px；辅助文字（提示、字段说明、徽标、计数、摘要、告警）统一到 12px。
-    - **收口扫尾**：另跑一条只做「低于 12px 全部提到 12」的脚本，把此前没有审计到的表面补齐——composer 作用域、@ 提及列表、斜杠命令面板、过程折叠、消息引用按钮、右栏的上下文关系 / 指标 / 文档 / 下一步，移动端底部导航，以及 5 条写在多行规则里的知识地图与侧栏标题。顺带修掉 `.candidate-badge` 的 9px 圆角与写死的 `#fff`。
-    - **结果：整份 `styles.css` 的 494 条 `font-size` 声明里，低于 12px 的是 0 条**（本轮起点 233 条）。`designTokens.test.ts` 的那条棘轮随之从「预算 167」变成**门禁 0**：此后任何新增的低于 12px 字号都会直接失败。
-    - 验证：Python `1450 passed`、Vitest `69 passed`、ESLint 与生产构建通过、Playwright `80 passed / 1 skipped`——全量在三视口重跑，确认这把扫过 200 条规则的改动没有破坏既有流程。实测复核：chat / practice / bank / library / reader / review / notes / knowledge-map 与设置的全部 8 个分区，可见文本均无低于 12px 的元素。
-  - **F19 未做**：间距与圆角尚未全量收敛到 token（脱轨圆角 73 → 59，仍有存量）；暗色主题只留了可换主题的 token 形状与 `[data-theme]` 钩子。；暗色主题（本轮只把 token 改成可换主题的形状）。
-  - 验证：Python `1450 passed`、Vitest `57 → 63 passed`、ESLint 与生产构建通过、Playwright `77 passed / 1 skipped`；`tests/conftest.py` 的 tripwire 确认全量跑前后真实工作区库未变。
-- **题库收口 · 第 1 批（2026-09-11，E18 补齐）**：首轮交付后逐条对照 `QUESTION_BANK_DESIGN.md` §6 的验收条件，发现四处「设计写了、实现没有」的缺口，本批补齐前三处。
-  - **筛选轴补全**：`difficulty`（难度）与 `source`（资料，精确匹配）打通 store → service → API → UI；题库页新增题型 / 难度 / 资料三个下拉（复用 `DropdownSelect`），资料列表来自 `bank_overview` 新增的 `by_source`，并补了「清除筛选」。`GET /api/quiz/bank` 的 `qtype` / `difficulty` 改为受校验参数。
-  - **按当前筛选组卷**：批量按钮不再排除「已收藏」，并把概念 / 关键字 / 题型 / 难度 / 资料一起带进 `/api/quiz/bank/practice`，真正做到「练我正在看的这些」；按钮文案改为按状态取名词（错题 / 收藏题 / 未作答题…），免得出现「重练前 5 道未作答」这类句子。
-  - **复习页去掉 20 条窗口**（D5/S4 的正式验收）：`get_review_queue` 现在返回题库的真实错题总数 `wrong_total`，行数窗口放宽到 200（路由上限 500），被截断时给「在题库中查看全部」。此前只统一了错题**定义**、窗口还在，错题超过 20 时两处数字会对不上——`QUESTION_BANK_DESIGN.md` §5 的 S4 状态已据实修正。
-  - 仍未做：UI「问 AI」带 `question_id` 引用某题、命名练习集、S6 联网搜题、S7 导出与备份（见设计文档 §5 的收口清单）。
-  - 验证：Python `1430 passed`、Vitest `57 passed`、lint 与生产构建通过、Playwright `59 passed / 1 skipped`（题库 e2e 由 6 条增至 9 条，覆盖难度 / 资料筛选与按筛选组卷）。
-- **题库收口 · 第 2 批（2026-09-11，E18 补齐）**：D4 后半的「引用某一道题」落地。
-  - 题库每行新增「问 AI」：把 `question_id` 写进对话草稿（`handoffStore.setChatDraft`）并跳到 Chat，用户可以先改再发。
-  - `bank_list` 新增 `question_id` 参数，agent 按 id 读回**同一道题**（顺带补上 `difficulty` / `source` 过滤）；读回走的是题库路径，因此**未作答的题依旧不返回答案**——没有为「引用」新开一条泄题通道。
-  - `GET /api/quiz/bank?question_id=` 同步支持（`ge=1`，`0` 返回 422）。
-  - 验证：Python `1432 passed`、Vitest `57 passed`、lint 与构建通过、Playwright `62 passed / 1 skipped`（题库 e2e 增至 12 条，新增三视口「行内问 AI 把 id 带进对话草稿」）。
-- **题库收口 · 第 3 批（2026-09-11，E18 补齐）**：命名练习集（D2 的承载物、D8 的两张小表）+ 测试隔离加固。
-  - `question_sets(id, name, created_at, updated_at)` 与 `question_set_items(set_id, question_id, position, added_at)`：**只存 id、不复制题面**（有测试钉住列定义），集合因此永远不会与题库脱同步；建表走 `CREATE TABLE IF NOT EXISTS`，现有库零迁移。
-  - 全套 REST：`GET|POST /api/quiz/sets`、`GET|PATCH|DELETE /api/quiz/sets/{id}`、`POST /api/quiz/sets/{id}/items`、`DELETE /api/quiz/sets/{id}/items/{question_id}`、`POST /api/quiz/sets/{id}/practice`（`question_set_not_found` → 404）。
-  - 题库列表新增 `set_id` 视图：看集合只是多一个筛选条件，状态 tab / 分页 / 批量练照常工作，不必另写一套渲染；空集合读作空而不是「没有筛选」（空 id 列表会被当成无约束，这点单独处理）。
-  - 题库页新增「练习集」区：按**当前筛选**存为命名集合（默认名取筛选摘要）、查看、练这集、改名、删除（走统一确认弹窗）；每行可加入某个集合或「新建并加入」，看集合时可逐题移出。
-  - 按 D4，**agent 依旧不碰集合结构**（三个只读 / 收藏工具不变），集合的建改只在 UI 侧。
-  - **测试隔离加固**（同批发现）：`tests/test_learning.py` 的两次 `generate_path` 与 `tests/test_repl.py` 全模块都把「当前目录」当工作区，会打开并迁移**开发者的真实 `.knowledge/bobodan.db`**——本轮新增题集建表让这个泄漏第一次产生了实际写入。修掉三处（显式传 `tmp_path` / 模块级 `monkeypatch.chdir`），并在 `tests/conftest.py` 加**会话结束的 tripwire**：跑完比对真实库的大小与 mtime，被动过就让这次运行失败并说明原因。此后全量跑的前后哈希与 mtime 完全一致。
-  - 验证：Python `1437 passed`、Vitest `57 passed`、lint 与构建通过、Playwright `65 passed / 1 skipped`（题库 e2e 增至 15 条，新增三视口「按筛选建集 → 查看 → 练这集」）。
-- **题库收口 · 第 4 批（2026-09-11，S6 联网搜题）**：D9 的第三类来源——「搜现成的题」。
-  - 出题接口新增 `mode` 开关（`generate` / `search`）。`search` **只提取网页上已经存在的题目**（教材练习、课程测验、文档里的练习题），照原样保留题面与选项，不自己编写；页面里没有现成题就返回 `no_web_questions`，**不凑数、也不退回本地出题**——这条有回归测试钉住：搜题模式下 `generate_from_query` 一旦被调用就直接失败。
-  - 「搜题没有本地分支」是刻意的：`search` 存在的理由就是「别人已有的题」，而不是「本地资料能生成什么」。因此它先要联网同意（沿用既有 `web_consent_required` 流程，文案改为解释两种模式的区别）。
-  - 证据链与 D9 一致：来源页仍是不可变快照、`attribution_kind="web"`；每条来源额外标 `third_party: true`，这就是导出时区分「模型写的」与「页面本来就有的」的依据（第 5 批使用）。前端沿用现成的 `AttributionBadges` → `WebSourceBadge`：显示「网页来源」、可点回原文、可查看当时保存的引用片段。
-  - 练习页新增「让 Bobodan 出题 / 搜现成的题」切换，并说明两者区别；搜题模式下没写主题会给出明确提示。
-  - **未做**：把联网题的新概念注册成概念候选（D9 的硬边界「不进知识地图」本来就成立——没有任何路径把题目概念写进图谱；缺的是「只进候选」那半句的钩子），已在设计文档 §5 标注。
-  - 验证：Python `1444 passed`、Vitest `57 passed`、lint 与构建通过、Playwright `68 passed / 1 skipped`（题库 e2e 增至 18 条，新增三视口「练习页切到搜题模式 → 请求带 mode=search」）。
-- **题库页排版重构（2026-09-14）**：用户实测反馈「字体太小、组件占比太多、题目周围空白多、题目和答案太淡」。逐条查证后按 `docs/DESIGN.md` 的硬约束重做题库页的字号、层级与密度（**只改前端样式与结构，后端零改动**）。
-  - **字号回到规范线**：§5 要求正文 16–18px / UI 标签 13–14px / 辅助说明 12–13px，而题库页此前有 9/10/11/12px 共 15 处。现在行内**最小字号 12px**（e2e 会扫描 `.bank-row` 内所有文本节点断言），筛选 / 下拉 / 搜索 / 分页 / 练习集一律 12.5–13.5px。
-  - **题干跟随用户设置**：题干此前硬编码 17px、不读 `--body-font-size`，所以设置里的「正文字号」（15/16/17/18）对题库无效。现在用 `var(--body-font-size)` + `font-weight: 500` + `--ink`：靠字重与前景色取得存在感，而不是一味放大（参考 DeepTutor `QuestionCard` 的 `text-[14px] font-medium text-[var(--foreground)]`）。
-  - **题目成为一张轻纸片**：`.bank-row` 从「发丝分隔线 + 两列 grid」改成单列轻卡片（细边框 + `--paper-soft`，**无阴影**），并按状态给 3px 左侧竖条（错题 clay / 基本正确与答对 sage / 未作答 中性）；文字状态 chip 保留——不把颜色当作唯一表达（DESIGN.md §14）。
-  - **答案不再是一行浅灰小字**：答案区从 `12px + --muted` 的裸段落改成带「你的答案 / 参考答案」标签的**左边框色块**（复用练习页既有的 `.answer-feedback` 语言，13.5px + `--ink`，错题走 clay）；同时「你的答案：X」在行内可见，值用 `--ink` + 500 字重。没有采用 DeepTutor 那种「卡片里再放一个带边框的答案框」，因为那是 §14 明确禁止的卡片套卡片。
-  - **控制区压缩**：状态筛选、搜索、题型 / 难度 / 资料下拉、清除筛选合并成**一个可换行区块**（此前是三行）；概念 chips 保留一行；练习集面板改为默认折叠的 `<details>`（有集合时自动展开）。首题 y 坐标 538 → **482**。
-  - **行高与首屏**：桌面单行题 **208 → 169px（−19%）**，可见题目从约 2 行到约 **2.8 行**；做法是把右侧竖排的 4–5 个 40px 按钮改成页脚横排，并去掉与来源章重复的来源字符串。移动端因按钮必须换行，行高基本持平（281–337px）。
-  - **范围纪律**：`.mention-tabs` / `.dropdown-trigger` / `.source-chip` 是全站共享类，只在 `.bank-toolbar` / `.bank-*` 作用域内覆盖；`.primary-button` 的 40px 最小高度是 DESIGN.md 硬规则，**没有为了压行高去违反它**。
-  - **未做**：全站排版批次——`styles.css` 350 条 `font-size` 里仍有 247 条 < 13px，已把实测差距记进 `DESIGN.md` §5 作为后续验收口径。
-  - 验证：Python `1450 passed`（后端零改动，跑一次确认没误伤）、Vitest `57 passed`、lint 与生产构建通过、Playwright `77 passed / 1 skipped`（题库 e2e 24 → 27 条，新增三视口「行内最小字号 ≥12px / 题干跟随 `--body-font-size` / 行高与首题位置上限 / 答案标签」）；另在真实 vault 库 17 题上量了改造前后对比并截图核对。
-- **题库收口 · 第 5 批（2026-09-11，S7 导出与备份）**：D7 的两件事——Markdown 导出与备份 / 恢复。
-  - **题库级备份 / 恢复**：`bobodan-question-bank` 带 schema 版本号的 JSON，覆盖题目、作答记录、会话、**收藏**与**命名练习集**——后两者只存在于这张库里，丢了无处可寻；恢复是**整体替换**（不做合并，否则会留下指向上一个资料库的作答记录），前端先弹统一确认框再提交。删除顺序按外键逆序（先子后父），这个 bug 是被往返测试抓出来的。
-  - **Markdown 导出**：按当前筛选或某个命名练习集导出，按状态分组、带你的答案 / 参考答案 / 解析 / 知识点 / 来源。**D9 的第三方约束在这里落地**：来自外部页面的题（`third_party`）默认排除，并在导出说明里写明排除了几道；显式 `include_third_party` 时逐条标注「第三方题目（联网来源）…请勿再分发」。
-  - 题库页页头新增「导出 Markdown / 备份 / 恢复」三个入口；排除第三方题目时用全局提示位告知，不静默。
-  - **边界**：这是**题库自身**的备份。资料库整体备份 / 恢复仍属 `PROJECT_GUIDE.md` 的「数据保护专项」，届时把这份一起纳入。
-  - 验证：Python `1450 passed`、Vitest `57 passed`、lint 与构建通过、Playwright `74 passed / 1 skipped`（题库 e2e 增至 24 条，新增三视口「导出下载 .md / .json」与「恢复前确认」）。
-- **题库 MVP（E18 S1–S5，2026-09-10，分支 `feat/e18-question-bank`）**：把「每道生成的题都已经落库」接成用户能看见、能收藏、能重练的题库，兑现 `PracticePage` 里那句长期失真的「留空时会从现有题库与资料重点中选择」。设计依据 `docs/QUESTION_BANK_DESIGN.md`（D1–D9）。
-  - **数据层**：`questions` 新增 `bookmarked_at`（沿用 `_ensure_db` 的 PRAGMA 迁移，幂等，现有题目零迁移）；新增 `list_bank_questions` / `count_bank_questions` / `bank_overview` / `set_bookmark`。状态**全部派生**——用 `MAX(id)` 子查询取最近一次作答，不物化任何状态列。未作答的题在列表与工具输出里都**不返回答案与解析**，题库不会变成答案表。
-  - **错题语义收敛（有意为之的用户可见变更）**：`get_wrong_answers` 从「所有答错的尝试」改为「最近一次仍答错」，`partial` 不再算错（与 E15 三态判分对齐），`get_weakness_analysis` 同步排除 `partial`。答错后重练答对的题会同时从错题本和题库的错题筛选里消失；复习调度（SM-2）不受影响。
-  - **接口**：`GET /api/quiz/bank`（状态 / 题型 / 资料 / 概念 / 关键字筛选 + 分页 + overview）、`POST /api/quiz/bank/bookmark`（幂等）、`POST /api/quiz/bank/practice`（按题目 id 或按当前筛选起练）。
-  - **练习页题库视图**：新增 `/practice/bank`（静态段注册在 `practice/:practiceSessionId` 之前；作为 Practice 的一个视图，不新增一级导航）：状态筛选带计数、关键字搜索、概念筛选、分页、收藏、单题重练与按状态区分的批量重练；未作答的题不显示参考答案。
-  - **复习衔接**：复习页与题库共用同一个「错题」定义，两页互有入口。
-  - **Agent 工具**：`tools/question_bank.py` 提供 `bank_overview` / `bank_list` / `bank_bookmark`，只声明 `workspace`（`execute_tool` 只注入工具声明过的参数），只读 + 收藏、**不含起练**，因此不会重新打开 E13 已封堵的「聊天文本练习」通道。
-  - **本轮未做**：命名练习集（D8 的两张小表）、S6 联网搜题、S7 导出与备份、题库行内「问 AI」引用某题；均记录在 `QUESTION_BANK_DESIGN.md` §5 与 `ROADMAP.md`。
-  - 验证：Python `1427 passed`（+22）、Vitest `57 passed`、前端 lint 与生产构建通过、Playwright `56 passed / 1 skipped`（新增 `e2e/question-bank.spec.ts`，三视口各 2 条）。
-  - **交付后审查修正**：`incorrect` 改成**兜底桶**——最近一次作答只要不是「通过」就算错题（`verdict = incorrect`、E15 前旧行、以及任何未识别的 verdict）。原来的写法会让一个未识别的 verdict 在界面上标成「答错」，却既进不了错题筛选、也不计入任何计数，四个状态加起来对不上总数；现在四个派生状态永远把题库分完，并有两个不变量测试钉住。`GET /api/quiz/bank` 的 `state` 改为受校验参数，拼错返回 422，而不是静默把整库列出来。题库页在结果集变小（例如在「已收藏」页取消最后一条收藏）时把页码收回有效范围；批量按钮按状态改用对应文案（未作答是「开始做」、答对是「复习」，不再一律叫「重练」）。
-- **测试套件隔离修复（2026-09-11）**：`tests/conftest.py` 现在把 `BOBODAN_WORKSPACE` 一并指向一次性目录（此前只隔离了 `BOBODAN_HOME`）。默认工作区就是当前目录，所以任何没有显式传 workspace 的 store 都会打开开发者的真实 `.knowledge/bobodan.db`——这已经实际发生过一次：套件静默迁移了真实库的结构。对照实验确认因果：去掉这行 pin，跑完全量后真实库会重新出现；加回后全量运行对该路径没有任何连接，并且在把真实库放回原位后，跑前跑后的文件哈希与 mtime 完全一致。新增 `tests/test_isolation.py` 钉住这条边界。（第 3 批发现这层 pin 只盖住走环境变量的路径；`learning/path.py` 的 `workspace="."` 与 `cli/repl.py` 的 `os.getcwd()` 仍会打开真实库，已随第 3 批修掉并补上会话结束的 tripwire。）
-- **文档体系收敛（2026-09-03）**：新增统一路线图 `docs/ROADMAP.md`——合并 openhanako 前置路线（R0-R3）、参考项目调研报告借鉴清单（DeepTutor D1-D13 / OpenMAIC O1-O10 / qiaomu Q1-Q10 / 前端 F1-F18）、整机优化计划遗留、2026-08-01 体验审查未决项与 P5G.2/3 剩余，按 W1 学习闭环 / W2 检索与 RAG / W3 前端第二批 / W4 运行时底座 / W5 发布通道五个工作流组织，附执行波次、已拍板决策与合并后的明确不做清单。7 份已完成或被取代的文档（任务书 / 审查报告 / 旧路线 / 知识地图设计）移入 `docs/archive/`；`docs/README.md` 重写为 6 份活跃文档索引；`rag_design.md` 顶部加 embedding 决策更新横幅（用户自配 API 取代 Ollama 假设，详见调研报告第十章）。调研报告保留为活文档（ROADMAP 条目的论据与源码索引）。
-- **R0 质量与调试基建（2026-08-28，分支 `feat/r0-quality-infra`，依据 `docs/PRE_DESKTOP_ROADMAP.md`）**：借鉴 openhanako v0.450 的测试与调试实践，正面解决"桌面版前难调试难测试"。
-  - **测试策略成文**（`tests/README.md`）：风险驱动分层 + keep/delete 规则（删锁文案、删 mock 私有字段、删环境依赖的间歇失败用例），LLM 测试必须走单缝。
-  - **ScriptedProvider**（`tests/llm_fake.py`）：唯一认可的 LLM 测试替身——脚本化文本/工具调用/错误注入、分块流式、请求全量记录；`scripted_provider` fixture 统一注入，替代散装 FakeProvider。
-  - **e2e 收缩**：删除 13 条分支前就长期失败的浏览器用例（业务契约已由 Python 路由测试等价覆盖）；新增 3 条三视口冒烟（启动与主路由渲染 / composer 与斜杠面板 / 设置打开与 Esc 关闭）；移动端仿真无法点击 100dvh 设置页下半区的用例按政策跳过（桌面/窄屏覆盖）。结果：45 用例从 12 条永久失败变为全绿。
-  - **一键开发栈**（`scripts/dev.py`）：随机空闲端口 + 健康轮询 + `~/.bobodan-dev` 隔离数据目录（`--fresh` 可清空）+ `server-info.json` 握手文件 + `BOBODAN_API_URL` 注入 Vite 代理 + 双进程联动回收；真实用户数据零接触。
-  - **`agent.py diagnose`**：只读脱敏健康报告（运行时/供应商目录不含密钥/资料库注册表与存储计数/日志指针），各节失败软着陆，可直接粘贴到 issue；3 个测试钉住脱敏与容错契约。
-  - **持久化登记册**（`core/persistence_registry.py` + tripwire 测试）：21 个存储全部登记 owner/scope/rebuildable/purpose；源码出现未登记存储文件名即测试失败，登记项失去引用同样失败。
-  - 验证：全量 pytest 见下方记录、vitest/lint/build 通过、`dev.py` 与 `diagnose` 真实启动冒烟通过。
-- **前端体验与动效体系优化轮（2026-08-27，分支 `refactor/perf-2026-08`）**：全面审查后的交互层收敛，六个提交。
-  - **弹窗基元**：新增 `ui/Modal`——统一 backdrop 与 220ms 入场、模块级层级栈（嵌套管理器只关最顶层，修复供应商/记忆管理器叠加在设置页时一次 Esc 两层同关的竞态）、焦点陷阱与焦点归还；`ConfirmDialog + useConfirm()` 替换全部 10 处原生 `window.confirm` 破坏性确认。
-  - **动效收敛**：时长归一到 `--dur-fast/base/slow` 三档 token、缓动只剩两条 token 曲线；去重 `spin` 关键帧；删除零消费的 Collapse/SlideIn/AnimatedList；Bobodan 处理状态图不再按状态重挂载（预加载四态图消除闪烁）；mention 面板与其余弹出菜单共用 menu-enter 入场。
-  - **减少动效对齐 OS 语义**：应用内开关现在施加与 `prefers-reduced-motion` 一致的全局停用规则；图谱相机/hover 补间与流式打字机改为实时读取 `lib/motion.ts`（原先只在挂载时快照一次）。
-  - **品牌形象接入**：失败回答换 curious 表情；Knowledge Map 加载、复习/笔记/阅读器加载态统一为品牌插画变体；图标型空状态补齐品牌状态图；笔记页复用共享 EmptyState 且个人知识管理浮层不再双重遮罩。Chat 欢迎页曾改用 hero 插图，**经用户对比后确认保留原版**（方形形象 + 居中标题，hero 图自带底色与页面纸色不一致、浮层卡片显杂乱），已回退并在品牌 README 标注 hero 暂不接线。
-  - **加载平滑**：知识地图改为「实例创建一次 + 数据增量同步」——候选审查、概念编辑不再重建 WebGL 渲染器、重放入场动画和相机复位；Library/阅读页切换文档保留旧正文淡出（stale-while-revalidate），不再白屏闪转圈；Practice「问 AI」接入 StreamBuffer 打字机缓冲并支持 Markdown 渲染。
-  - **可发现性**：Ctrl/Cmd+N 新对话真实生效（此前按钮上有提示但无绑定）；阅读页补 `[` / `]` 章节导轨键；顶栏新增键盘快捷键参考弹窗（只列真实存在的绑定）。
-  - **掌握度去占位**：知识地图侧栏「掌握状态」接通既有 `/api/learning/progress?concept=` 接口，显示真实状态/评分/下次复习（此前硬编码「尚未练习」）。经核实，「已停止」标记与孤儿提取运行启动扫描此前已实现。
-  - DESIGN.md §11 同步三档动效 token 与减动效语义。验证：Vitest 46 passed、lint/tsc 与生产构建通过、Python 全量 1365 passed；Playwright desktop 项目与本分支起点基线**完全持平**（12 处失败均为分支前已存在的陈旧/环境用例，hero 初版曾挤出新对话页 composer 导致 slash-palette 用例失败，限高后通过）。SSE 对外契约与证据门禁行为不变。
-- **后端并发模型优化（2026-08-27，分支 `refactor/perf-2026-08`）**：聊天 SSE 流改为在专用受限通道（CapacityLimiter 16）上泵送，不再占用 FastAPI 共享请求线程池（默认 40 线程）——此前每条活跃对话流会独占一个池线程直至该轮结束，极端情况下会饿死普通端点；对外 SSE 事件契约不变。`/api/kb/import` 的文件解析/提取工作下沉到线程池，不再阻塞事件循环（该端点此前是唯一 async def 路由却在循环内做阻塞解析）。验证：Python `1365 passed`（1362 基线 → +3 泵流单测）、`test_web_backend` 全量回归零失败。
-- **Library 重构后续打磨（2026-08-27）**：编辑器向资料库全库开放——`course_document` 与 `obsidian_note` 资料也可在列表页/阅读页编辑（原始资料 truth source 原则不变，仍走检查点 + 最近 10 版 + 哈希冲突三选项）；系统区域保持只读（`.knowledge` 运行时索引、`.bobodan/checkpoints` 版本快照、`.bobodan/archive` 归档），旧工作区的 `.bobodan/sources` 与 `managed-vault` 用户内容不受影响。知识地图工具栏新增「添加概念 / 添加关系」弹窗（用户手写即视为已审查，`evidence_level='user'` 边界不变）。修复章节导轨关闭后被悬停热区立即重新弹出的问题；阅读 tab 栏改为吸顶。验证：Python `1362 passed`（1356 基线 → +6 回归测试）、Vitest `46 passed`、前端 lint 与生产构建通过。
-- **完成 Library 重构 + 图谱编辑（TASKS_LIBRARY_REWORK v1.0，2026-08-13）**：分支 `feat/library-rework`，按任务书落地 4 个任务。
-  - **任务 1 布局方案 A**：Library 拆为列表页 `/library` + 阅读页 `/library/read/:id`（`ReaderPage.tsx`）；阅读页顶部细条（返回 / 上一份下一份 / 编辑 / 概念提取）、正文居中限宽、返回列表恢复滚动位置（localStorage）、键盘导航（Esc / Shift+J/K）、移动端天然兼容。
-  - **任务 2 openhanako 三件套**：多文档 tab（点击切换 / 双击关闭 / 滚轮横滑，每 tab 保留滚动位置，`readerTabsStore.ts`）；章节导轨（右缘 64px 悬停热区弹出 heading 列表，点击跳转 + 高亮）；选中文字浮出动作（带到对话 / 基于此出题）。
-  - **任务 3 编辑入口 + 分栏编辑器**：列表行内 + 阅读页顶部「编辑」按钮（md/txt/markdown）；`DocumentEditor.tsx` 升级为分栏编辑预览——编辑/预览并排、60fps 双向滚动同步（rAF 节流）、`Ctrl+\` 切换分栏/纯编辑、可拖拽分栏分隔线，保留检查点 / 10 版历史 / 回滚 / 哈希冲突三选项。
-  - **任务 4 图谱编辑**：`graph/concept_store.py` 新增 `update_concept`（部分更新 + 改名唯一冲突校验）与 `create_relationship`（自环 / 重复 / 非法类型 / 缺失概念全拒绝，`evidence_level='user'`）；`web/backend/routers/kb.py` 新增 `PATCH /api/kb/concepts/{id}`、`POST/DELETE /api/kb/relationships`；`ConceptSidebar.tsx` 加编辑概念 / 删除关系 / 添加关系，写入后经 `uiStore.graphRevision` 即时刷新图谱。
-  - 验证：Python `1356 passed`（基线 1343 → +13，零回归）、Vitest `46 passed`、前端 lint 与生产构建通过。
-- **完成整机优化计划（AGENT_OPTIMIZATION_PLAN v1.1，2026-08-13）**：按计划书依赖顺序落地 A 系列（发动机）、B 系列（车厢）、LB-1（资料协作）全部 10 个阶段核心，14 个 commit，分支 `feat/optimization-plan`（已推送 origin）。
-  - **A 系列（发动机，按 Pi 图纸）**：AG-0 外围地基——`core/event_bus.py` 过滤事件总线、`core/agent_events.py` 事件四层收敛、`web/backend/sse.py` SSE 流身份（streamId + seq + 重放 ring buffer）、`core/stream_guard.py` 流消毒守卫、`core/runtime/` 适配层门面；AG-2 循环增强——`core/hooks.py` 两层钩子、证据门禁/工具白名单沉淀为 before_tool 门禁、只读工具并行执行、工具执行去重；AG-3 记忆与压缩——`core/memory_injector.py` before_turn 注入（1500 token 预算）、`core/prompt_layout.py` KV cache 分界线、`core/session_compactor.py` checkpoint 纯投影压缩。
-  - **B 系列（车厢，按 OpenHanako 经验）**：FE-1 前端地基——`src/ui/` selector 归一化 / 动画原语 / 块级 ErrorBoundary / CSS Token / `@/` 别名；FE-2 流式体验——`streamBuffer.ts` 30fps 节流 + 自适应文本节流、`scrollEasing.ts` + `useStickyBottomScroll.ts` 贴底滚动、SSE seq 去重；FE-3 过程披露——`processFold.ts` + `ProcessFoldBlock.tsx` 过程折叠；FE-4 页面联动与图谱动效——FadeIn 页面过渡、知识地图概念→Chat 上下文跳转、学习范围共享，图谱入场 / hover 过渡 / 聚焦度数行走 / 拖拽反馈 / 搜索 spotlight / 力参数可调 + prefers-reduced-motion 降级（维持 sigma.js + graphology + forceAtlas2）。
-  - **LB-1 资料协作**：LB-1.1 用户编辑——`service/document_edit_service.py` Markdown 优先 + 检查点 + 最近 10 版 + Obsidian 双开哈希冲突三选项 + 编辑后重索引/Wiki needs_update，`DocumentEditor.tsx` 编辑器 UI；LB-1.2 AI 协作编辑——`service/document_proposal_service.py` 提案→确认→应用→撤销（复用 Wiki 检查点机制），`DocumentProposalCard.tsx` 提案卡。
-  - **AG-1 会话革命（条件执行）**：P5G 未验收（P5G.2 Electron / P5G.3 支撑页面待办）→ 仅交付设计 + `core/session_jsonl.py` JSONL 迁移路径 + 测试，未切换线上默认 `.json` 会话格式。
-  - 验证：Python `1343 passed`（基线 1233 → +110，零回归）、Vitest `46 passed`、前端 lint 与生产构建通过；SSE 对外事件名不变、证据门禁行为不变。
-- **前端视觉统一与沉浸式笔记编辑器（2026-08-13）**：新建主题化 `DropdownSelect` 组件（原生 select 下拉面板无法跟随暖纸色主题），全面替换 composer、设置页、Library、知识地图、记忆管理、供应商管理、候选审查的所有原生下拉；`/notes` 写笔记从填表改为沉浸式 Markdown 编辑（正文为主角、第一行 `#` 自动提取标题、编辑/预览切换、Ctrl+Enter 保存、关联资料折叠）；统一视觉细节——补 `--sage-deep`/`--ink-soft`/`--accent`/`--shadow-dialog` token、替换 13 处散落硬编码绿色、统一弹窗阴影、统一圆角（composer/run-summary 10→8、candidate-panel 12→8）、补 send-button 与 5 个 tab 组缺失的 hover 态、复选框主题化。布局和配色主基调不变。验证：Vitest `19 passed`、前端 lint 与构建通过（纯前端改动）。
-- **Chat 体验与个人笔记统一（2026-08-13）**：① 概念关系卡片不再重复/空渲染——图谱空结果不输出卡片、一轮多次查询只保留第一张、收到卡片不自动弹右侧面板（改为卡片内按钮按需打开）；② 侧栏新增一级「笔记」导航 → `/notes` 页面，个人笔记统一到个人知识（Wiki note 停止新建、隐藏「个人笔记」Tab、已有笔记原地只读保留）；③ 笔记 ↔ 资料库双向轻联动——个人知识新增 `references` 字段，写笔记可关联资料、资料阅读器显示相关笔记（笔记永不进入概念图谱，只做关联展示）；④ 流式观感修复——前端加渐进显示缓冲，证据门禁回放 token 时呈现打字机效果而非整段弹出。验证：Python `1233 passed`、Vitest `19 passed`、前端 lint 与构建通过。
-- **完成 P5G.4 模型供应商管理（Provider Catalog）**：新增 `providers/catalog.py`，供应商配置迁移到 `~/.bobodan/provider.json`（API key 可在设置页 UI 填写，不再需要手改 `config.yaml` / `.env`；首次启动自动迁移旧配置，key 留空时回退环境变量，零断供过渡）。供应商下挂多模型，聊天框与任务路由（主题发现 / 页面撰写）升级为「供应商 → 模型」两级选择（`provider::model` 引用，旧纯供应商格式兼容）。设置页新增「管理供应商」：预设模板（含免 key 的本地 Ollama）+ 完全自定义（OpenAI 兼容协议）、远程 `GET /models` 自动拉取模型列表、手输兜底、测试连接、删除（密钥脱敏返回，编辑留空保持原 key）。验证：Python `1231 passed`、Vitest `19 passed`、前端 lint 与生产构建通过、真实启动冒烟（settings / 新增 / 删除 / 测试连接 / 模型级 chat 引用）通过。
-- **完成 P5G.1 单进程本地 Web**：新增 `python agent.py web`，一条命令启动完整产品（FastAPI 托管 React 生产构建 + SPA 深链接回退 + `/api/*` 不被拦截）；默认 `127.0.0.1`、端口被占用自动向后查找、启动后自动打开浏览器；生产模式应用数据位于 `~/.bobodan`、日志写入 `%LOCALAPPDATA%\Bobodan\logs\web.log`（`--dev` 保持开发行为）；启动失败给出端口/配置/构建三类可操作提示。验证：Python `1212 passed`、Vitest `19 passed`、生产构建与真实启动冒烟通过。
-- **桌面端资料进库设计落地（2026-08-12）**：应用数据统一 `~/.bobodan` 点目录；资料库根目录全格式扫描（PDF/DOCX/PPTX 丢根目录或任意子目录即可被索引，`raw/` 旧 source 保持稳定，`wiki/` 等内部结构不索引）；新增 `agent.py library init --default` 一键创建 `Documents\Bobodan 资料库`；切片句子边界软切（句号 → 分号 → 逗号回退，中文长句不再腰斩）+ 阅读器相邻切片去重标题。设计决策全文见 `docs/PROJECT_GUIDE.md` P5E.1 小节。验证：Python `1217 passed`、Vitest `19 passed`、前端构建通过。
-- **完成 2026-07-26 项目审查整改**：修复审查报告中的 B1–B9 正确性问题，并继续沿“单一正常运行真相源、旧数据只做显式迁移”的原则收敛后端与前端。
-- 正常运行时退役旧 Markdown Memory、JSON sparse/local RAG、JSON / Neo4j 图谱和 `WikiCompiler`；Wiki 保留为高级维护与历史整理，不再作为默认 RAG 证据。
-- 本地资料检索统一到 SQLite `knowledge.db`、中文 CJK 2-gram FTS5 与可选 Qdrant；修正混合检索排序，增加有界缓存并收紧并发数据库访问。
-- 知识地图统一使用已审查的 `concept_graph.db`。旧 `graph_store.json` 只在设置页惰性检测，经预览、用户确认、写后校验和 SHA-256 记录后归档。
-- 个人知识统一使用结构化 SQLite。旧 `.bobodan/memory/*.md` 与 daily 文件仅提供只读预览和显式迁移，不再写入或注入 Agent Prompt。
-- Provider 增加类型化错误与统一重试边界；MiniMax 流式响应加入拒答检测，并禁止已经输出首个 chunk 后从头重试造成重复回答。
-- 学习调度改为保守 SM-2，`mastered` 项仍会进入后续复习；题目生成增加错题变体，批改解析失败不再污染掌握度和错题本。
-- 前端路由使用懒加载与应用级错误边界；拆分 Chat 流归约、命令路由、artifact 和跨页状态，修复上下文竞态、错误帧处理与旧数据迁移交互。
-- 刷新根 README、文档索引与审查记录，使产品说明与当前运行时一致。
-- 验证结果：Python `1160 passed`（2 条既有 warning），前端 lint 与生产构建通过，Vitest `19 passed`，`git diff --check` 通过。
+- **④ac 去掉重复的「我的资料」列表，资料库只剩一套导航（2026-09-24，用户要求，`e5fa3c9`�?*：用户指出中间那一栏平铺列�?*和文件夹树功能重复、还占地�?* —�?确实如此：它把同 47 份资料平铺一遍，代价是整整一栏宽度。现�?*删掉**：资料库只有**文件夹树**一套导航，宽度全给正文�?
+  - **搜索没有跟着消失**：搜索框与「原文命中」结�?*搬进了树面板**（原来长在列表里），树按查询过滤、保留祖先目录；右上角仍可「同步文件夹」「导入资料」�?
+  - **正文只在真的打开资料时出�?*：点树里的文件才打开（并进标签条）；什么都没打开时右栏是一�?从左边选一份资料开始阅�?，而不是一条空白栏�?
+  - **随列表一起删掉的**：逐行的提取状态徽章辅助函数�?*硬删除按�?*（树�?�?菜单里「归档」就�?E17 �?的删除语义，且「已归档」可恢复）、以及因此变成死代码�?`deletingId`�?*如实记账**：资料库页面上不再有"彻底删除"入口，需要时可在归档列表里处理�?
+  - **验证**：页面测�?10 条（含新�?资料库只有文件夹树这一套导航，没有重复的平铺列�?与改写后�?进页面只有树与提示，点树里的资料才出现正�?）；live 里原来的"点文件夹→右侧列表被过滤"断言改成"列表不存�?+ 树面板搜索仍能过滤到真实文件"；全量：tsc **0**、eslint **0**、vitest **110 passed / 17 files**、构�?**0**、live **6 passed**、mock e2e **13 passed**。真机截图复核：入口态是"�?+ 提示"，阅读态是"�?+ 标签�?+ 正文�?45px�?�?
+  - **顺带修掉一个测试卫生问�?*：标签条�?*模块�?zustand store**，上一个用例打开的标签会漏进下一个用例，�?进页面没有打开任何资料"的断言假失�?—�?现在每个用例前重置�?
+- **④ab 分栏"特别难看"的修复（2026-09-24，用户两张截图，`5347795`�?*：截图暴露的不是审美问题，是**两个�?bug**（都由我 �?�?3 步那次改动引入）�?
+  - **�?布局塌陷**：标签条与阅读区�?`.library-workspace` �?*两个**直接子元素，一打开标签就变�?**4 �?*孩子，而网格只�?3 �?�?自动换行：阅读区被挤到下一行、列表被顶到阅读区的位置（所以截图里"列表跑到了右边、中间一条空白栏"）。修法：标签�?+ 阅读区包�?*一�?*网格�?`.library-reader-column`；没有选中资料也没有标签时这一�?*不渲�?*（否则留一条空白栏）�?
+  - **�?正文只有四百来像素（真·根因）**：`.page-container` 把每个页面压�?**1120px**，三栏再一分正文只�?510px；用�?1269px 窗口下更只剩 407px。修法：资料库页放宽�?**1600px**，并�?*分栏预算�?是否在阅�?分开** —�?不阅读时「树 + 列表」（列表吃满剩余宽度，标题不再被截断）；阅读中窗�?�?520px 才三栏；更窄�?*列表让位给正�?*（正�?677px），页头多了「资料列表」按钮把它召回�?
+  - **顺带修掉同一轮引入的副作�?*：资料库页原�?*自动打开第一份资�?*，于是窄窗口一进页面就掉进三栏挤压状态，而搜索框（在列表里）还被藏起来。改�?*只有真的打开了标签页才算"在读"**（正�?�?打开才收�?的语义），深链接 `?document=` 仍算明确打开�?
+  - **验证**：页面测试新�?1 条（打开标签才进阅读模式、点「资料列表」回到列表）；live �?就地阅读"用例新增**布局断言**（正文宽�?> 树宽 ×2、正文在树右侧、窄窗口列表隐藏且按钮能召回并再回到正文）—�?*这条断言正是能抓住用户这次问题的那个**。全量：tsc **0**、eslint **0**、vitest **110 passed / 17 files**、构�?**0**、live **6 passed**、mock e2e **13 passed**�?
+  - **真机取证**：用 Playwright �?**1269×700** �?**2538×1228** 两个窗口各量了三种状态（列表�?/ 阅读�?/ 宽屏三栏态）的每一栏坐标与宽度，并逐张看过截图；没有靠"看起来应该行�?下结论�?
+- **⑤f 真机端到端检查（真实后端 + 真实资料库）与它抓出的两个真实缺陷（2026-09-24，E17 ⑤，`2fa805f`�?*：在 `note/vault`�?029 个文�?/ 47 份资料）上把「提�?�?执行 �?一键撤销」整条链路真跑了一遍�?*两个缺陷都只有真机才暴露**�?
+  - **�?撤销没清掉自己建的文件夹**：apply 建了「未归类」，undo 把文件放回去却把空文件夹留在用户库里。台账现在记�?这一步自己建了哪些文件夹"，撤销**只删这些、且只删空的**，用户原本就有的文件夹一根汗毛都不动（两条测试分别钉住这两个方向）�?
+  - **�?撤销直接 404**：`undo_organization()` 拿台账里记的 `document_id` �?`move_document`，真机返�?`Document not found: f2c0d4b20a4b4078` —�?移动会让索引**重新分配身份**，台账里�?id 从此查不到，文件躺在「未归类」里撤不回来，README �?永远可一键撤销"当场不成立。改�?*�?文件现在在哪"重新解析身份**，记下的 id 只留作审计；单元测试用同样的方式改掉 id，复现出的正是真机那条错误�?
+  - **复验（同一份真实资料库，修复后�?*：撤销 **200**、`restored=["Dijkstra.md","正则表达�?md"]`、文件清单逐项回到检查前�?2029 项、`未归类` 文件夹消失、`pending_undo` 清空；随后一次真�?sync 把过程中多出�?1 条陈旧登记自愈（**48 �?47**，`removed_files=["course/正则表达�?md","obsidian/未归�?正则表达�?md"]`），并照旧跳过仓库元文件（`course-2/README.md`、`CONTRIBUTING.md`、`_sidebar.md`、`requirements.txt`）�?
+  - **验证**：pytest **1633 passed**；tsc **0**、eslint **0**、vitest **109 passed / 17 files**、构�?**0**；live（真实后�?+ 真实资料库）**6 passed**�?
+- **⑤e AI 归类：提议交给模型，"动不动手"仍然只由用户确认决定�?026-09-24，E17 ⑤，`2fa805f`�?*：`propose_organization()` 现在接受 `llm_provider`，新�?`POST /api/kb/organize/proposals`，资料库侧栏多了「让 AI 归类」�?
+  - **模型没有任何写权�?*：文件名清单由服务端提供（模型只能从真实存在的文件里挑），服务端再把**凭空捏造的文件名丢�?*，并拒绝越界路径�?`.bobodan` 这类内部目录；每组仍然是 `requires_confirmation: true`，执行走 ⑤b 的老路，撤销�?⑤d 的台账�?
+  - **不可用时如实降级**：模型报�?�?`source="rules"` + `degraded="model_unavailable"`；模型没说人�?�?`degraded="model_returned_nothing"`。界面据此显�?AI 提议"�?模型这次没能参与，下面是规则建议"�?*绝不把规则建议冒充成模型输出**�?
+  - **真机结果**：对真实资料库的两份散落资料，模型给�?`计算机基础` 一组（理由�?两篇均为计算机领域的基础知识点笔记（算法与文本处理）"），规则给出 `未归类` 一�?—�?两条路径都跑通�?
+  - **验证**：`tests/test_organization_ai.py` 4 条（校验真实文件�?/ 拒绝内部与越界目�?/ 报错降级 / 空话降级 / 不传模型时行为不变）+ `tests/test_web_backend.py` 1 �?HTTP 层用例；页面测试 2 条（"AI 提议"提示且未确认前不调用 apply；模型不可用时如实说明）�?
+  - **仍已知的边界（不粉饰�?*：AI 归类目前只覆�?*库根散落的资�?*（`apply_organization` 只搬库根那一层）�?重新整理已经归好类的资料"还没做；真实资料库里没有 PDF，所�?③⑤ �?PDF 分支仍未在真机上验证过�?
+- **④aa 两套阅读实现合一（第 3 步，�?收官）：`LibraryPage` 阅读区就�?`DocumentReader`�?026-09-24，E17 ④，`309b0b2`�?*：资料库页删掉自己那一份小节渲染、相关笔记、选区工具条与 `<details>目录`，改为渲�?*同一�?* `components/DocumentReader`。页面只剩真正属于它的东西：资料列表、标签条、带提取动作的页头（小节�?`onSectionsLoaded` 回传）、以及标签滚动位置恢复；`pageRef` 作为 `scrollRef` 交给组件�?*阅读进度从此只有一个写入�?*（此前页�?onScroll 与组件各写一份）�?
+  - **用户可见的变�?*：就地阅读区现在**尊重「原�?按小节」偏�?*，并**免费获得**视图切换、章节导轨与 PDF 内嵌。因�?live 的那条用例被如实改写：先断言正文出现�?*再切到「按小节�?*才断言 `section` —�?旧断言假设"这个面板永远渲染分段"，在共享实现按偏好默认落在「原文」之后已经不成立�?
+  - **验证**：`LibraryPage.tsx` 净�?**145 �?*；tsc **0**、eslint **0**、vitest **107 passed / 17 files**、构�?**0**、live（真实后�?+ 真实资料库）**6 passed**、mock e2e **13 passed**；页面测试里 ④w 的目录断言改成�?章节导轨"（`mouseEnter` 打开 �?断言小节按钮 �?点击真的落到 `c2`，jsdom �?`scrollIntoView` 用桩记录落点）�?
+  - **�?到此完成**：`/library` �?`/library/read/:id` 现在�?*一套渲染、两条路�?*，深链接 2 �?live 用例持续在守�?
+- **⑤d 一键撤销活过刷新：整理台账写在服务端�?026-09-24，E17 ⑤，`2609628`�?*：`apply_organization` 此前�?moved 清单**只交给调用方**——刷新页面清单就没了，文件躺在「未归类」里，界面上再无撤销入口。README/CLAUDE.md 写的「只在确认后移动，且永远可一键撤销�?*在刷新之后并不成�?*�?
+  - 现在：执行的那一步记进服务端台账 `.bobodan/organize/organize_index.json`（已�?`core/persistence_registry.py` 登记，只留最�?20 步）；新�?`GET /api/kb/organize/state` 报告还有没有可撤销的一步；`POST /api/kb/organize/undo` **不传清单**时撤销台账里的最后一步（老的"显式传清�?用法保留，并会清掉与之相符的记录）。资料库侧栏的「撤销这一步整理」改由这�?*服务端状�?*驱动，并显示"上一步：N 份资料收进「X�?�?
+  - **验证**：新�?`tests/test_organization_undo_persistence.py` 3 条（重开服务实例、不带清单也能撤销；没有可撤销的东西时不假装撤销过；显式清单同样清台账）+ `tests/test_web_backend.py` 1 �?**HTTP �?*用例。后者顺带钉�?*路由存在�?*：服务层测试全绿也照样可能漏�?没挂路由"�?404——真机上重启前的进程正是这种状态（`/api/kb/organize/proposals` 404 �?`/api/kb/tree` 200）。重启后两个新路由都 200�?
+  - pytest **1624 �?1625 passed**；tsc **0**、eslint **0**、vitest **107 passed / 17 files**、构�?**0**；live（真实后�?+ 真实资料库）**6 passed**�?
+  - **自己踩的坑（记下来）**：设计令�?ratchet 当场抓到我这轮加�?`.library-organize-undo small { font-size: 11.5px }`（�? 硬下�?12px）—�?*删掉规则**，而不是绕过门禁�?
+- **④z 两套阅读实现合一（第 1+2 步）：抽�?`components/DocumentReader.tsx`�?026-09-24，E17 ④，`bcd6b66`�?*：`ReaderPage` **612 �?255 �?*；文章主体（小节加载、原�?按小节、PDF 内嵌、目录导轨、引用提示条、选区工具条、相关笔记、阅读进度）搬进**唯一**实现 `components/DocumentReader.tsx`�?60 行）。props 接口写在文件顶部：`documentId` / `collection` / `chunkId`，另�?5 个桥�?props（`documentSummary` / `scrollRef` / `onError` / `onSectionsLoaded` / `reloadToken`），每个都注明了"为什么必须由外壳传进�?�?
+  - **数据获取调用点逐字未改**（`api.document`、`api.knowledgeByDocument`、`fetchDocumentRawText`、`downloadDocumentRaw`、`api.updateReadingProgress`），加载与错误语义不变——所以两条深链接 live 用例�?就地阅读"用例继续绿�?
+  - **一处有意的可见改动**：原�?按小节与「用系统打开」从顶栏移进正文上方�?`.reader-view-row`（右对齐，与 720px 正文列对齐）——视图切换归组件所有，�?3 步的 `LibraryPage` 才能免费拿到它。文案未改，真实浏览器截图核对过�?
+  - **验证**：tsc **0**、eslint **0**、vitest **107 passed / 17 files**、构�?**0**、live（真实后�?+ 真实资料库）**6 passed**；另�?`e2e/app.spec.ts -g "chapter rail"` 1 passed（mock 的目录导轨用例现在由 DocumentReader 提供）�?
+  - **�?仍未�?*：第 3 步——`LibraryPage` 的阅读区改为渲染同一�?`DocumentReader`（替换它自己的小节渲染与目录浮层）。这一条做完，`/library` �?`/library/read/:id` 才算真正"一套渲染、两条路�?�?
+- **⑤c 整理入口接上界面：看建议 �?执行 �?一键撤销�?026-09-24，E17 ⑤，`537580a`�?*：⑤a/⑤b 的两个端点（`/organize/proposals`、`/organize/apply`、`/organize/undo`）此�?*前端零调�?*——用户看不到建议，也无从执行或撤销。现在资料库侧栏多了一个折叠的「整理建议」面板：点「看看有什么可以整理的」按需拉取（不是进页面就打），逐条显示建议标题、理由、涉及的文件（超�?8 份折叠成「…�?其余 N 份」），一键「收进「未归类」」执行，执行�?*当场出现**「撤销这一步整理」�?
+  - `api.ts` 补上 `OrganizationProposal` 类型�?`organizationProposals()` / `applyOrganization()` / `undoOrganization()` 三个封装�?
+  - **验证**：页面测试新�?1 条（`LibraryPage.test.tsx` 7 passed）—�?断言建议标题出现在界面上、点执行�?`applyOrganization` 收到 `(["散落的一�?md"], "未归�?)`、撤销按钮出现且点击后调用 `undoOrganization`。tsc **0**、eslint **0**、vitest **107 passed / 17 files**、构�?**0**；live（真实后�?+ 真实资料库）**6 passed**�?
+  - **写这条测试时踩到的真问题**：整理面板挂在「有资料 + 有文件夹树」的工作区里，测试里 `documents` 为空则面板根本不渲染——第一次跑就是 5 秒超时。这不是测试写法问题，是**面板的渲染条�?*：空库时它确实不该出现（没有可整理的对象）。断言因此显式 mock 了一份资料�?
+  - **�?仍未�?*：① AI 归类（在确定性建议之上，且必须走同一套确认与撤销）；�?**撤销清单的持久化**——现�?`organizeMoves` 由页�?state 持有�?*刷新页面就丢**，与 README �?永远可一键撤销"的承诺还有距离（已知限制，下一轮先补这条）�?
+- **⑤b 整理建议的「执�?�?一键撤销」（2026-09-24，E17 ⑤）**：`POST /api/kb/organize/apply` �?`/undo` —�?把散落在库根的資料收进目标文件夹，并**返回一�?moved 清单**（每条含 `document_id` / `from` / `to`），撤销就按这份清单放回原位�?
+  - **关键点：执行走的仍是 ③b 的身份迁�?*（有索引的资料调 `move_document`：document_id 保留、chunk 身份重映射、概念证据与笔记引用一起迁移），所�?整理"不会像早期那样打断引用链；没有索引的文件才直接搬�?
+  - **验证**：新�?`tests/test_organization_apply.py` 2 �?—�?�?执行后文件进文件夹，�?*document_id 不变**、`relative_path` 变成 `未归�?散落的一�?md`、返回的 moved 清单与预期逐字相等；② 撤销后文件回到原位、文件夹里不再有它、同一 document_id �?`relative_path` 复原。pytest 全绿�?
+  - **�?仍未�?*：AI 归类（在确定性建议之上，必须走同一套确认与撤销）、整理入�?UI（把 proposals/apply/undo 接到界面上）、以�?*撤销清单的持久化**（现在由调用方持有，刷新页面就丢——这是已知且已记账的限制）�?
+- **⑤a 整理建议（只提议，不动文件）�?026-09-24，E17 �?前半�?*：`GET /api/kb/organize/proposals` + `KBService.propose_organization()` —�?按设�?§3.5 决定 22 的形状「提�?�?预览 �?确认 �?执行 �?撤销」，先落�?*第一�?*，并且用**确定性规�?*（不是模型即兴发挥）：指�?*散落在资料库根目录的资料**，给出建议文件夹名与理由，`requires_confirmation: true`�?
+  - **一份文件都不动**：测试显式断言调用前后**整棵目录树逐项相同**（连非资料文件也不碰）�?
+  - **验证**：新�?`tests/test_organization_proposals.py` 2 条（散落资料被指�?+ 整理过的库返回空建议）；pytest 全绿�?
+  - **�?仍未�?*：AI 归类（在建议之上，且必须走同一套确认与撤销）、执行动作（移动/改名，复�?③b 的身份迁移）、一键撤销、以及归档列表以外的整理入口 UI�?
+- **�?37 轮：对当前交付状态做了一次全量认证（2026-09-24，无代码改动�?*：pytest **1617 passed**；前�?tsc **0**、eslint **0**、vitest **106 passed / 18 files**、生产构�?**0**；live（真实后�?+ 真实资料库）**6 passed**�?
+  - 交付清单（全部有复现测试或真实动线证据）：① 扫描规则 + 同步入口 + 重复治理（真实库 76�?7）；�?文件夹树 + 徽章 + 搜索两段 + 忽略计数；③ 归档扩展 / 归档列表与恢�?/ 重命名移动的身份迁移 / 文件夹写操作（含界面�? ungroup 一致性；�?就地阅读（`5540301`）、工具条收口（`cd52917`）、目录浮层（`01a5523`）、标签模型统一（`d420828`）�?
+  - **未完�?*：④ 只剩「两套阅读实现合一」（执行级交接见 `docs/LIBRARY_TREE_DESIGN.md` §9.2）；�?AI 整理整块未开始（产品边界那句已在早期文档轮改写完成）�?
+  - 因此**本轮不宣称任何新交付**，也不把目标标成完成�?
+- **④y �?的最后一件已写成执行级交接（2026-09-24，未改代码）**：剩下的唯一一项是"`/library` �?`/library/read/:id` 共用同一套渲�?。现状与计划已写�?`docs/LIBRARY_TREE_DESIGN.md` §9.2（精确到 `ReaderPage` 的抽法、`LibraryPage` 要替换的分支、以及每步该跑哪几条用例）�?
+  - 为什么这轮不动手：以当前会话剩余上下文，这个重构（抽 800 行组件的文章主体 + 两处替换）大概率以回滚收场；而前 35 轮已经证�?改一半再回滚"比不动更糟�?*交接写清楚比硬做更负责�?*
+  - 现状盘点（都已验证）：④ 已交�?*就地阅读**（`5540301`，live 新增用例在守）�?*工具条收�?*（`cd52917`）�?*目录浮层**（`01a5523`）�?*标签模型统一**（`d420828`，净�?254 行）；深度链接的 2 �?live 用例持续保护 5 处发送端�?
+  - **本轮无代码改�?*，最后一次提交仍�?`d420828`（前�?tsc/lint/vitest 106/build 0、live 6 passed、pytest 1617 passed）�?
+- **④x 标签模型统一：删掉重复实现，改用既有 `readerTabsStore`�?026-09-24�?*：④a/④b 当初新建�?`lib/readerTabs.ts` + `hooks/useReaderTabs.ts`（含 7 条测试）与仓库里**早就存在**�?`stores/readerTabsStore.ts`（`openIds` / `open` / `close` / `scrolls` / `setScroll` / `scrollFor`，ReaderPage 一直在用）重叠。现在资料库页直接读同一�?store，并删掉那两个文件与它们的测试�?
+  - 具体：标签条改由 `openIds` 驱动、激活态用页面自己�?`selectedId`、标题从 `documents` 查、滚动位置记/取都�?store �?`setScroll`/`scrollFor`；顺手删掉因此失效的 `scrollTargetFor` 与一个未使用变量（eslint 抓出来的）�?
+  - **验证**：tsc 0、eslint 0、前端全�?vitest **106 passed / 18 files**（比上轮�?7 条，正是被删掉的重复模型测试）、构�?0；live（真实后�?+ 真实资料库）**6 passed**�?
+  - **�?仍未�?*：`/library` �?`/library/read/:id` 合并成同一套渲染（深链接仍走阅读页，它能力更全：原�?按小节、PDF 内嵌、章节导航）——这�?�?最后一件�?
+- **④w 阅读区目录浮层（2026-09-24�?*：资料库页阅读区的工具条多了「目录」——展开�?*这份资料自己的小节列�?*（有标题显示标题，否则显示页�?节号），点一下平滑滚动到那一段（`[data-chunk-id]` 已在渲染里）。这�?�?�?目录 = 工具条按�?�?浮层，每份资料各一�?那条验收�?
+  - **它当场抓出我自己写的一个真 bug**：标签表达式 `section.heading || section.page_start ? �?: …` 因为运算符优先级�?*有标题的小节也会显示�?�?N �?**。是页面测试逼我把它改成 `section.heading || (section.page_start ? 页码 : 节号)`�?
+  - 一条环境事实记下来：jsdom 不实�?`<details>` 的展开，折叠内容对 `getByRole` �?hidden —�?断言目录内容要用 `{ hidden: true }`（我先踩了一�?找不到按�?）�?
+  - **验证**：页面测�?**6 passed**、前端全�?vitest **113 passed / 18 files**、tsc **0**、eslint **0**、构�?**0**；live（真实后�?+ 真实资料库）**6 passed**。后端本轮未改动（pytest 仍是上一轮的 1617 passed）�?
+  - **�?仍未�?*：`/library` �?`/library/read/:id` 合并成同一套渲染（深链接仍走阅读页，它能力更全：原�?按小节、PDF 内嵌、章节导航）；复用既�?`readerTabsStore` 后删�?④a/④b 造的重复模型�?
+- **④v 打通「就地阅读」：三处改动 + 一处死代码清理�?026-09-24�?*：从�?6 轮卡到现在的 �?主阻塞解决。根因是 `LibraryPage.tsx:1297` 的一�?`{collection === "wiki" && <article className="document-reader">}` —�?**资料库页的阅读区从来只为 wiki 渲染�?*�?
+  - **改动**：① 去掉那层 collection 条件（并补上配对�?`}`，否则整个文件解析失败）；② `selectDocument` 不再�?material `navigate` �?`/library/read/:id`（改为就地选中）；�?三条测试查询改为 `findAllByText(...)[0]` / `getAllByText`（标题现在会同时出现在列表与阅读区，`getByText` 会因多元素报错）；④ 删掉因此变成死代码的 `saveListScroll`（eslint 抓出来的）�?
+  - **验证**：`tests/�?LibraryPage.test.tsx` **6 passed**（含那条�?�?一开始就写好的「选中资料后阅读区必须渲染出正文」）；前端全�?vitest **113 passed / 18 files**、tsc 0、eslint 0、构�?0；pytest **1617 passed**�?*live（真实后�?+ 真实资料库）6 passed** —�?新增一�?`the library page reads a material in place`：点树里的资料后 **URL 仍在 `/library`**、`.document-reader .reader-prose section` 可见、标签条 1 个�?
+  - **�?仍未�?*：目录浮层；`/library` �?`/library/read/:id` 合并�?*同一套渲�?*（现在两条路由各自有一套阅读实现——阅读页能力更全：原�?按小节、PDF 内嵌、章节导航）；以及复用既�?`readerTabsStore` 后删�?④a/④b 造的重复模型（`lib/readerTabs.ts`、`hooks/useReaderTabs.ts`）�?
+- **④u 距离完成只差一条断言�?026-09-24，未改代码）**：把 ④t 的改�?+ **三条受影响的查询一起调�?*（`findByText` �?`findAllByText(...)[0]`，因为标题现在会同时出现在列表与阅读区）后重跑，结果�?**1 failed | 5 passed，整个文�?3.74 秒（不再�?5 秒超时）** —�?�?*两条曾被弄坏的用例已经修�?*，只剩我自己那条�?*快速失败（�?780ms，不是超时）**�?
+  - 探针已证明这条链是通的（`pane:1, prose:1, sections:1, docArg:\"doc-1\"`），所以剩下的只是那条用例的一个断言写法问题：候选是最后那句（我一度改�?`.reader-tabs .reader-tab` 计数）与 `waitFor(.reader-prose section)` 的时序�?
+  - **未能读到失败详情**：vitest 的失败块始终落在 `Select-Object -Last N` 之外/被截断，我连试三次都没打印出来�?*下轮第一�?*：用 `npx vitest run src/pages/LibraryPage.test.tsx --reporter=basic > out.txt 2>&1; Get-Content out.txt -Tail 60`�?*写文件再�?*，绕开管道截断），先拿到那条断言的真实报错，再收尾�?
+  - 工作树已复原（树上绿），**本轮无代码改动提�?*�?
+- **④t 阅读区为 material 渲染成功（探针证实），但常开它会让三条页面用例超时（2026-09-24，未改代码）**：把 `LibraryPage:1297` 的外层条件去掉（并补上配对的 `}`）、同时让 material 不再 `navigate`，然后用探针（唯一锚点 + 等异�?+ 同步打印）拿到了**成功证据**�?
+  - `PROBE {"pane":1,"empty":false,"loading":0,"prose":1,"sections":1,"docCalls":1,"docArg":"doc-1"}` —�?**阅读区容器、正文容器、小节都出现�?*，且加载器用的正是被点的 `doc-1`。这证明"就地阅读"这条路本身是通的�?
+  - 但同一改动下跑整个测试文件�?**3 failed | 3 passed**：`选中文件夹后…`、`打开的资料进标签条…`、`选中资料后…` 三条**都以 5 秒超时失�?*（不�?找到多个元素"这类立刻报错，也不是断言失败）�?
+  - 我预算已尽，**不能带着"弄坏两条已有用例"的状态提�?*，所以整组改动已回滚（树上绿）�?
+  - **下轮第一步（很具体）**：先只跑那条原本通过的用例并**读完整失败信�?*（`--reporter=verbose`，不要过滤），确认是"查询等不�?还是"页面被错误边界接�?；然后二分：要么给三条用例的查询加作用域（`within(document.querySelector(".document-rail"))`，因为标题现在会同时出现在列表与阅读区），要么修阅读区在 material 下的某处运行时问题�?
+  - **已知的关键事实（省掉下轮重新发现�?*：① 卡点就是 `1297` 那一行的 `collection === "wiki"` 条件；② 去掉它时**必须同时删掉 `</article>}` 那个多余�?`}`**（否则整个文件解析失败，vitest �?`no tests`）；�?阅读区类名是 `.document-reader`；④ 探针方法�?④q/④r�?
+  - 工作树干净�?*本轮无代码改动提�?*�?
+- **④s 根因找到了，是一行（2026-09-24，未改代码）**：`LibraryPage.tsx:1297` �?`{collection === "wiki" && <article className="document-reader">}` —�?**资料库页的阅读区从来只为 wiki 渲染�?*；material 资料一直是"选中�?navigate 到阅读页"�?
+  - 这一个条件解释了全部现象：`activeRow: 1`（选中确实落地）但 `prose: 0 / loading: 0 / empty: false`（阅读区容器根本不存在）。此前推断的"状态被覆盖""渲染环路""加载器没�?**全部不成�?*�?
+  - 另外纠正一处：资料库页阅读区的类名�?**`.document-reader`**，不�?`.reader-article`（后者只存在于阅读页）——我有一轮探针因此查了个不存在的选择器�?
+  - **尝试与结�?*：把该条件去�?+ material 不再 navigate，跑 5 秒快速回�?�?**3 failed | 3 passed**（原�?1 failed | 5 passed，即**弄坏了两条本来通过的用�?*，而目标用例仍红）。说明这不是一行开关：**阅读区内部（头部/操作/小节渲染）是�?wiki 写的**，需要按 collection 做通用化改造�?
+  - **下轮的确定路�?*：① �?`1297-1360` 那段，把 wiki 专属分支（`wiki_type` 标签、Wiki 编辑/维护入口）与通用部分（标题、提取状态、小节渲染）分开；② �?material 也走通用部分（保�?在阅读页打开"出口）；�?用这�?5 秒快速回路验证（测试已具备：选中资料 �?正文出现 + 标签出现）；�?再跑全量门禁 + live�?
+  - 工作树已复原（树上绿），**本轮无代码改动提�?*�?
+- **④r 定位完成：这条红测试验证的是"尚未实现的行�?，而卡点是 `selected` 仍为空（2026-09-24，未改代码）**：用唯一锚点探针实测（点击后放行一拍）：`docCalls: 1, sections: 0, article: 0`�?
+  - `article: 0` 说明 `{selected ? <article �?> : …}` 里的 **`selected` 为空** �?页面被卸载了：因�?*当前代码�?material 资料仍然 `navigate()` 跳走**（那�?1 �?`api.document` 是点击前自动选中第一份资料时调用的）�?*所以这条测试是"目标行为的红测试"，不�?bug 复现** —�?它天然要求先实现"就地阅读"�?
+  - �?④e 的改动（material 不再 navigate）重新落上并跑这条快速回路后�?*测试仍然�?*�?.55s 超时）——与真实动线的观测完全一致：页面留下了，但头部与正文都没出现�?*`selected` 依旧为空**�?
+  - **下一步唯一的观测（一次运行）**：在同样的位置打�?`{ activeRow: document.querySelectorAll(".document-row-wrap.active").length, rows: document.querySelectorAll(".document-row").length, docCalls: vi.mocked(api.documents).mock.calls.length }` —�?�?`activeRow` �?0，说�?`setSelectedId` 之后又被别处改回/清空（查 `loadDocuments` �?`setSelectedId(nextSelected)` �?URL 相关 effect）；�?`activeRow` �?1 �?`article` �?0，则�?`documents` �?`selectedId` 的匹配（`_public_document` �?`document_id` 与树/列表传入�?id 是否同一套）�?
+  - **本轮的方法论进展**：终于建立了"**唯一锚点插探�?�?等异步条�?�?同步打印状�?*"的可靠观测回路（�?④q/④r），并且用真实数据作废了此前基于错位探针的三条结论�?
+  - 工作树已复原（树上绿），**本轮无代码改动提�?*�?
+- **④q 用正确的观测手段拿到事实�?026-09-24，未改代码）**：改�?*唯一锚点**�?`tools.edit` 插探针（不再�?`String.replace`），并用"故意不可能的期望�?把状态打印出来，终于观测到真实数据：
+  - **列表渲染是好�?*：`render()` 之后�?`api.documents` 被调用、再放行一拍，DOM �?`rows: 1`、`loading: 0`、rail 文本 = `我的资料 1第一课course_document`�?17ms 内就绪）。→ **④h / ④n �?列表没渲�?结论作废**（作废原因见 ④p：探针一直插错用例）�?
+  - **渲染闸门也是好的**：点击之后，断言失败的输出里能看�?`.reader-article` 与其内部 `<header>` 元素存在 —�?说明 `selected` 派生成功、`{selected && …}` 通过�?
+  - **唯一缺的是小节本�?*：`.reader-prose section` �?0，即 `setSections(result.sections)` 的结果没有出现在 DOM 里（`api.document` �?④m 里被证明**确实被调用过**）�?
+  - **因此下一步只有一处要�?*：`LibraryPage` �?250-257 行那�?effect �?`setSections` 之后，是谁把它清�?覆盖了（同文件里另有 `setSections([])` 的调用点，例�?690/701 行附近的集合切换路径，以�?`selectedId` 变化时的早退分支）—�?逐一加唯一锚点的同步探针即可定位�?
+  - **方法论（这一轮真正学到的�?*：① 插探针只能用唯一锚点并回读确认；�?想打印状态就�?必然失败的断言"或把 JSON 塞进 `throw new Error(...)`；③ **先等异步条件满足再观测同步状�?*（在 `render()` 后立刻看 DOM 只会看到加载�?—�?我为此又浪费了一轮）�?
+  - 本轮编辑均已复原，工作树干净�?
+- **④p 解释一切：我的探针一直插到了别的用例里（2026-09-24，未改代码）**：本轮在 `render` 前后各放一句必然失败的�?步断言�?*两句都没有响**。按 ④n 的判别法这只能意味着"测试体根本没开�?——而同一文件里其它用例用同一�?`beforeEach` 却能通过，矛盾�?
+  - 真因：我�?`String.replace` 插入探针，而该文件�?*多处**都有相同�?`render(<MemoryRouter �?<LibraryPage /></MemoryRouter>)` 片段，`replace` 只替�?*第一�?* —�?探针落进了第一条用例（「按钮会同步并渲染可行动的摘要」）。配�?`-t "选中资料�?` 过滤�?*被改的那条用例被跳过**，我的那条则原封不动地跑，于是永远是"�?diff + 5 秒超�?�?
+  - **所�?④n / ④o 的结论（以及此前所有基于探针的推断）全部作�?*：它们观测的是一�?探针插在别处、目标用例没被观�?的运行�?*这条才是真正的教训，比任何结论都重要�?*
+  - **正确做法（下轮必须遵守）**：插入探针只能用�?*唯一锚点**�?`tools.edit`（例如以该用例的 `it("选中资料后，�?)` 那一行为锚点、连带其后几行一起替换），并�?*回读文件确认探针落在目标用例�?*；`String.replace` 只允许用于全文唯一的片段�?
+  - **回到事实本身**：那条用例的真实失败原因**至今没有被观测过**（它只是"5 秒超�?）。下轮按设计文档 §9.1 的第一步做（唯一锚点插入 + 回读确认），此前所�?已排�?的嫌疑（渲染�?小节加载/列表渲染）都重新回到候选里�?
+  - 本轮编辑均已复原，工作树干净�?
+- **④o 关键转折：卡�?`render()` 本身�?026-09-24，未改代码）**：把同步断言放在 **`render(<LibraryPage />)` 之后、任�?await 之前**（故意写不可能的期望值，执行了就必然打印 diff），重跑仍然�?**�?diff + 5.02 秒天花板**�?
+  - �?④n 建立的判别法（同步断言若执行，失败必然毫秒级并打印 diff）—�?*这句断言同样没被执行**。而它前面只剩 `render(...)` 一个调用，所以结论是�?*`render()` 没有返回**（组件挂载过程本身卡�?进入死循环），而不�?列表没渲�?�?小节加载失败"�?
+  - 这也终于解释了为什么我�?行数是多�?都拿不到�?*测试根本没走到能观测 DOM 的那一�?*。之�?④h/④l/④m 的三种结论都是在错误前提上推演�?
+  - **下轮一次运行就能确�?*：在 `render(...)` **之前**放一�?`console.log("BEFORE-RENDER")`（或同步断言 `expect(1).toEqual(2)`）——若它打�?失败，说明确实卡�?render；随后把 `LibraryPage` �?mount effects 逐个 mock 掉（例如 `api.knowledgeArchive`、`api.graphExtractionStatuses`、`api.documents` 的返回形状）二分定位是哪�?effect 造成死循环�?
+  - **与真实动线的联系**：真实页面能渲染（有树、有列表、有标签条），所以这不是"页面坏了"，而是**这份测试�?mock 组合**触发了某个只在测试环境成立的死循环（例如某个 effect 依赖每次渲染都新建的对象字面量）�?
+  - 本轮编辑均回读确认并复原，工作树干净�?
+- **④n 更正 ④l：列表那一行确实没渲染�?026-09-24，未改代码）**：把判定改成**紧随 click 的同步断言**（打�?article / sections / docCalls 三个计数）后重跑 —�?输出�?*没有出现任何断言 diff**，测试仍旧只�?5.02 秒超时。含义只有一个：**那句断言根本没被执行**，即 `fireEvent.click(await screen.findByText("第一�?))` 里的 `findByText` **从未解析成功**�?
+  - 所�?**④h 的结论（列表那一行没渲染）成�?*，�?**④l 的结论（列表没问题、卡在小节加载）作废** —�?我在 ④l 里把另一条用例的 mock 记错了（它的 documents 标题并不是「第一课」）。这一节以 ④n 为准�?
+  - 硬证据的判别方法也记一笔：**同步断言若执行了，失败会立刻打印 diff 并在毫秒级结�?*；测试跑到夹具的 5 秒天花板且无任何 diff，就说明**断言之前的那一步（await）没完成** —�?这条推理不需要任何额外观测�?
+  - 因此下一步方向确定：**�?为什么这份资料的行没有被渲染"** —�?�?mock 被谁消费、`documents` 是否真的进到 state 入手；建议直接断言 `document.querySelectorAll(".document-row").length`（同步，紧贴 render 之后），一次运行即可确认�?
+  - 本轮所有编辑均已回读确认并复原，工作树干净�?
+- **④m 判定成功：小节加载器确实跑了，但结果没进 DOM�?026-09-24，未改代码）**：在 click 之后插入**同步断言** `expect(vi.mocked(api.document).mock.calls.length).toBeGreaterThan(0)`，重�?—�?测试**仍然耗时 5.02 �?*。这条耗时就是证据�?*如果该断言失败，测试会�?0.2 秒内结束**。所以：
+  - �?`api.document(selectedId)` **被调用了**（加�?effect 跑了，依赖与提前 return 都没问题）；
+  - �?小节**最终没有出现在 DOM �?*（`.reader-prose section` 仍为 0，等到夹具的 5 秒天花板被杀）�?
+  - 三个嫌疑里已排除一个（不是"effect 没跑"），剩下两个�?*�?`setSections` 的结果被后续渲染/effect 覆盖**（例�?`loadDocuments` �?URL 变化后重�?`nextSelected` �?`selectedId` 拨走，或某处 `setSections([])` 抢先）；**�?渲染闸门**（`{selected && …}` �?`sections.length ? …`，即 `selected` 派生失败）�?
+  - **下轮一次运行即可二选一**：在同一个同步位置再断言 `expect(document.querySelectorAll(".reader-article").length).toBeGreaterThan(0)` —�?它同步失�?通过就能区分"闸门"�?状态被覆盖"（闸门问题会�?article 都不存在）�?
+  - 本轮仍未改代码（四次运行的编辑均已回读确认并复原，工作树干净）�?*目标已按用户要求扩到 60 轮并重新激活�?*
+- **�?23 轮：对已交付部分做了一次全量验证（2026-09-24，无代码改动�?*：pytest **1617 passed**、vitest **112 passed | 1 skipped**、eslint **0**、生产构�?**0**、tsc **0** —�?①②�?�?�?已落地的那一块（工具条收口）在当前提�?`9bf3da5` 上是绿的�?
+  - �?的卡点仍是「资料库页小节加载」那一步（**④l** 已定位到具体 effect，并显式作废�?④h/④k 两条错误结论）；�?未开始�?
+  - 因此**本轮不宣称任何新交付**：这是一次验证轮，目的是确认前面积累的改动没有把仓库留在半红状态�?
+- **④l 静态对比定位：问题不在列表、不在点击、不在标签，而在小节加载�?026-09-24，未改代码）**：把两条用例并排读了一�?—�?�?240 行那条『打开的资料进标签条』用的是**同一�?mock、同一�?`findByText("第一�?)`、同一�?click**，而它**通过**�?
+  - 所以：**资料行渲�?✓、点击派�?✓、标签打开 �?*。失败那条唯一的差别是它额�?mock �?`api.document` 并断言 `.reader-prose section > 0` —�?**卡点就在小节加载这一�?*（`LibraryPage` �?250-257 行的 effect：`api.document(selectedId).then(r => setSections(r.sections))`）�?
+  - 这也解释了此前所有混乱：我一直在探『列表有没有渲染』，而列表其实一直是好的�? 秒超时来自等待小节的那次 `waitFor` 被夹具的 5 秒包装掐断�?
+  - **下轮第一步（一次运行即可判定）**：在 click 之后立刻断言 `expect(vi.mocked(api.document).mock.calls.length).toBeGreaterThan(0)` —�?若为 0，说�?effect 没跑（依�?条件问题）；�?�?，说明跑了但结果没写�?`sections`（state 或渲染闸门问题）。两种结论各自指向一处，改法都很小�?
+  - **顺带修正我前面几轮的错误判断**：④h 里我写『列表那一行压根没渲染出来』是**错的**，现在有反例（同一 mock 的另一条用例通过）；④k 里『列表确实没渲染』同样作废。以本节为准�?
+  - 工作树干净�?*本轮无代码改�?*�?
+- **④k 收口结论：不是超时参数的问题，是列表在该用例�?5 秒内确实没渲染（2026-09-24，未改代码）**：本轮把编辑做对并回读确认（configure 已加 ✓、去 .skip ✓、探针断言已插�?✓），随后分别试�?`configure({ asyncUtilTimeout: 20000 })`、`--testTimeout=20000`、`--test-timeout=25000` —�?**三种都没能改变那 5.0 �?*�?
+  - 推论：掐断来�?*测试夹具自己�?5 秒包�?*（README 里记录的全局 asyncUtilTimeout 就是干这个的），vitest 的超时参数对它无效。既然如此，探针�?`waitFor` 想等 20 秒也等不�?—�?反过来正说明�?*那份资料的列表行�?5 秒内确实没有渲染出来**（若渲染了，断言会立刻通过）�?
+  - 这与最近几轮的间接证据一致（真实动线�?header 与正文也都不出现），所以方向确定为�?*查清楚该用例下资料列表为什么不渲染** —�?下一步不要再用超时探针（已被证明无效），而是**在同一份测试里直接断言渲染结果**（例如断言 `.illustrated-loading` 是否存在、或断言 `documents` mock 是否真的�?page 消费），并且�?*已经通过**的那条同类用例（『选中文件夹后，右侧列表…』）逐项对比差异（那�?mock 了两份资�?+ 一个文件夹；我的只 mock 一份且树为空）�?
+  - 本轮四次运行的编辑都已回读确认过、文件均已复原，工作树干净（树上绿）�?
+- **④j 找到真正的天花板：全局 asyncUtilTimeout�?026-09-24，未改代码）**：本轮把编辑做对�?*回读确认**（去�?.skip ✓、探针断言已插�?✓），还用命令行显式传了 `--testTimeout=20000`、`waitFor` 也给�?6000ms —�?测试**仍在 5.13 秒失�?*�?
+  - 结论�?*测试环境全局�?`asyncUtilTimeout`�?000ms）才是天花板**，它压过 `waitFor` 的显式超时与 `testTimeout`。这就是为什么连续四轮我的探�?没机会说�?：不是编辑没生效，而是**任何异步断言�?5 秒就会被全局配置掐断**�?
+  - **下轮的正确第一步（一行）**：在这条用例里先 `configure({ asyncUtilTimeout: 20000 })`（从 `@testing-library/react` 导入），再做探针断言 —�?在此之前所�?等元素出�?的实验都注定只能看到 5 秒�?
+  - 这一步把四轮的排查收敛成一行配置修正；排查过程中我犯的错（过滤输出、编辑不回读、把超时当逻辑问题推演）也都已逐条记在本文件里，供后续避开�?
+  - 工作树已复原（测试保�?.skip 版本，树上绿），**本轮无代码改�?*�?
+- **④i 探针被测试超时挡住（2026-09-24，未改代码）**：加了一�?8 秒的"列表有没有行"断言后重跑，**测试仍在 5.1 秒失�?* —�?说明**测试自身�?5s 超时永远先到**，探针根本没机会说话（asyncUtilTimeout �?testTimeout 都是 5s，两个都到点）�?
+  - 我随后两次尝试把 `it(..., 20000)` 的超时抬上去�?*两次都没生效**（运行仍�?5.1s）—�?说明我的编辑没真正落到文件上，而我没有在编辑后回读文件确认�?*这是本轮真正的失�?*：改完不核对，等于没改�?
+  - 下轮的确定性做法：�?用带精确 old_string 的编辑工具改这一条；�?**回读文件确认 `, 20000)` 真的�?*；③ 再跑，并且把探针断言（`.document-row` 数量 > 0）放在最前面；④ 无过滤读最�?30 行看断言 diff�?
+  - 已知边界：README 那条 `asyncUtilTimeout=5000` 是全局的，任何"等元素出�?的默认等待都会和测试超时撞车 —�?排查这类问题必须显式给超时�?
+  - 工作树已复原（测试保�?.skip 版本，树上绿），**本轮无代码改�?*�?
+- **④g/h 把失败读清楚�?026-09-24，未改代码）**：两轮排查后终于拿到真实报错 —�?不过滤输出、用 verbose 重跑那条复现测试，得�?**Test timed out in 5000ms**（既不是断言失败，也不是 Unable to find element）。测试环境全局 asyncUtilTimeout 也是 5s，两个超时打平，所以可以判定：**findByText �?5 秒内始终没等到资料列表那一�?*�?
+  - 这把范围收窄�?*不是**阅读区小节加载的问题，而是**列表那一行压根没渲染出来** —�?要么页面停在加载态（loading 没落�?false），要么被过�?错误态挡住�?
+  - 静态排查也排除了一个嫌疑：唯一�?searchParams 依赖�?effect（LibraryPage 245-248 行）有守卫（只在真的不同时才 setCollection），**不是环路**�?
+  - 下轮最省的一步：渲染后立刻断言 `document.querySelectorAll(".document-row").length > 0`（超时给 10s），并同时断言 `.illustrated-loading` 是否存在 —�?一眼区分「卡�?loading」与「渲染了但没有这一行」�?
+  - 流程教训（同类第三次）：**过滤测试输出等于自己删证�?*。前两轮把它当成渲染链超时来推演，方向是错的。以后读失败一律先无过滤读最�?40 行�?
+  - **本轮与上一轮都无代码改�?*（工作树已复原，测试保持 .skip 版本，树上绿）�?
+- **④f 判定实验结果�?026-09-24，未改代码）**：去掉复现测试的 .skip、加 30s 超时与两处探针后运行，拿到决定性信号——失败点**就是**「阅读区没有小节」这条断言（`expected 0 to be greater than 0`），而不是「找不到资料行」或「点击没生效」（那两种会�?Unable to find 失败）�?
+  - 含义�?*点击确实发生�?*（资料行存在、事件派发成功），但阅读�?*一个小节都没渲�?*，与真实动线�?header 也没出现一致。三选一的嫌疑：`selectedId` 没落�?/ `selected` 推导失败 / 小节 effect 没跑或没写回。下轮用「一次只改一�?+ 断言中间态」逐条排除：`vi.mocked(api.document).mock.calls.length` �?effect 有没有跑；`.document-row-wrap.active` 判选中落没落地�?
+  - 干扰记一笔：探针�?console.log 没有出现�?vitest 失败输出的过滤结果里，下轮建�?*用断言代替打印**（失败信息更可靠）�?
+  - 测试文件已回滚到 .skip 版本（树上保持绿�? passed | 1 skipped），**本轮无代码改�?*�?
+- **④e 试做"点资料不跳走"：验证发现会回退，已回滚�?026-09-24，未改代码）**：按用户当初选的分栏阅读，把 `selectDocument` �?material 一�?navigate �?/library/read/:id"改成就地选中（并在阅读区头部加一个「在阅读页打开」出口），tsc/lint/build 全绿�?
+  - **但真实动线验证（Playwright）打�?*：URL 停在 `/library?collection=material` ✓、标签页出现 1 �?✓，**可阅读区 sections = 0、出口按钮也没渲�?* —�?也就是说资料库页的阅读区在选中资料�?*根本不渲染正�?*，这个改动会�?点开能读"变成"点开空白"�?*�?`git checkout` 回滚，本轮没有代码改动�?*
+  - **这条正好把合并的真正难点钉住�?*：不是路由，而是资料库页阅读区的**选中→加载→渲染**这条链（`selected` 的推导与 sections 的加载）本来就没跑通过——因为在此之前它从来没被真实使用过。下轮从这里开始：先把"选中资料后阅读区必须出现正文与小�?写成会失败的复现测试，再修这条链，最后才动路由合并�?
+- **④d 工具条收口：把「编辑」收�?�?菜单�?026-09-24，E17 ④）**：阅读页工具条顶层从此只放「读」的动作，「改」的动作（编辑）�?`⋯` 菜单�?
+  - **真实动线验证**（Playwright 打开真实资料库里�?md 资料）：工具条顶层按�?= `["已提�?· 查看图谱"]`，`⋯` 菜单存在且内容含「编辑」�?
+  - **仍未�?*：`提取概念` 那几颗状态按钮仍在顶层（它们同时也是"这份资料处理到哪�?的状态指示，收进菜单会让状态不可见——需要先想清楚状态怎么留）；以�?�?最大的一块：`/library` �?`/library/read/:id` 合并、复用既有的 `readerTabsStore`（不要再新建模型）、目录浮层�?
+  - 验证：tsc 0、eslint 0、vitest **112 passed**、构�?0�?
+- **④c 审查发现：我把已有的东西重做了一遍（2026-09-24，已回滚，未改代码）**：准备统一标签模型时发�?`stores/readerTabsStore.ts`（TASKS_LIBRARY_REWORK 2.3.1�?*早就�?* `openIds` / `close` / `scrolls` / `setScroll` / `scrollFor`，而且 ReaderPage �?133 �?*已经在恢复滚动位�?*（`pageRef.current.scrollTop = scrolls[selectedId] || 0`）。也就是说：
+  - **④a（标签模型）是重复实�?*：`6959879` 新建�?`lib/readerTabs.ts` + `hooks/useReaderTabs.ts` 与既�?store 重叠�?
+  - **④b（位置还原）不是缺口**：真实动线里 ④b 的能力本来就有，`f845825` 加的是够不着的第二份�?
+  - **我尝试做减法**（删重复文件 + 摘掉 LibraryPage 里那套死代码），两次都在**多行 JSX 的程序化切片**上把文件切坏，已 `git checkout` 全量回滚—�?*本轮没有代码改动，只留这份记�?*。教训与前几轮同类错误相同：�?JSX 改动只能用带精确 old_string 的编辑工具，绝不能按行号切片�?
+  - **下一步的正确形状**：④ 合并�?*复用** `readerTabsStore`（不要新建模型），LibraryPage 的阅读区改成读同一�?store；等合并落地，再删掉 `readerTabs.ts`/`useReaderTabs.ts` 这两个重复文件�?
+- **审计发现�?026-09-24，真实端到端模拟）：④a/④b 的标签条与位置还原在当前动线�?够不着"** —�?�?Playwright 对真实后�?+ 真实资料库走了一遍：点树里的文件�?*直接跳到 `/library/read/{id}`**（ReaderPage），URL �?`/library?collection=material` 变成 `/library/read/5f0a6bc7…`，资料库页的阅读区（连同标签条、位置还原）**从未被渲�?*�?
+  - 也就是说：`6959879` �?`f845825` 的实现是**对的**（纯函数�?7 条测试、`tabs.open` 确实被调用），但**在真实动线上用户看不到它�?* —�?因为 �?最大的一块（`/library` �?`/library/read/:id` 合并成同一套组件）还没做�?*这两块在合并完成前不算交付�?*
+  - 顺带在同一轮审计里确认正常的部分：树可见、顶层文件夹正确�?*新建文件夹真的建出来�?*、控制台无错误�?
+  - 教训记一笔：功能做完只跑 live 冒烟不够 —�?�?5 条检查全绿，却没有任何一条覆�?点资料之后会发生什�?�?*下轮第一件事：把这条动线写成会失败的复现测试（点树里的文件必须落在同一套阅读区并出现标签页），再动合并�?*
+- **④b 阅读位置还原�?026-09-24，E17 �?第二块）**：上一块只"�?了读到哪，这一块把�?*用起�?*——切到一份资料、内容渲染完成后，滚动容器回到上次的位置。换算写成纯函数 `scrollTargetFor(position, scrollHeight, clientHeight)`：夹在真实可滚动范围内，容器还没量出高度时返�?0（绝不往 `scrollTop` �?NaN 或负数）�?
+  - 只恢�?*一�?*（用 ref 记住已恢复的 document_id）：否则你往下读的时候会被反复拽回去�?
+  - **验证**：`readerTabs.test.ts` 增至 7 条（含越�?负�?容器未量�?NaN 四种边界）；vitest **112 passed / 18 files**、tsc/lint/build 0、live **5 passed**�?
+  - **�?仍未�?*：`/library` �?`/library/read/:id` 合并成同一套组件两条路由（最大一块，深链接目前仍�?ReaderPage 承担）、目录浮层、工具条收口�?
+- **④a 阅读区标签页模型与标签条�?026-09-24，E17 �?第一块）**：把"打开/关闭/记住读到�?写成**纯函�?*（`lib/readerTabs.ts`：已开只激活、关当前激活右邻居、关最后一个自动收起、阅读位置夹�?0�?00 �?*关掉也留着**、坏数据退回空状态），UI 只负责画；状态按资料库存 localStorage（`hooks/useReaderTabs.ts`），切资料库就换那套标签页。资料库页加标签条：点开一份资料进标签（已开只激活）、行�?× 关闭、关掉激活项自动切到邻居、关掉最后一个收起�?
+  - 设计里写�?**双击**打开"在这里退化成"单击即打开"（树与列表本来就是单击打开，双开反而多一次操作）；这点如实记下来，不算照搬�?
+  - **验证**：新�?`lib/readerTabs.test.ts` 6 �?+ 页面�?1 条（打开进标签条、关闭后消失）；vitest **111 passed / 18 files**、lint 0、构�?0、live **5 passed**�?
+  - **仍未做（�?剩余�?*：`/library` �?`/library/read/:id` 合并�?*同一套组件两条路�?*（`ReaderPage` 与资料库页里的阅读区仍是两套渲染）、每篇的阅读位置**回滚定位**、目录浮层、工具条收口�?*深链接目前仍�?ReaderPage 承担�? 处引用不受影�?*�?
+- **③e 补上 ungroup 的身份迁移缺口（2026-09-24，E17 �?收口�?*：上一轮审查发�?`delete_folder`（ungroup）只是把文件从磁盘搬回库根，**没走 `move_document` 的身份迁�?* —�?被移出的资料会以�?source 重新索引、`document_id` 变化，挂在它上面的概念证据与笔记引用一起断。同一个「移动」两条路径行为不一致�?
+  - **修法**：抽�?`_migrate_relocated_document(document, 新路�?`（算�?source �?重映�?chunk 身份 �?就地改写位置并保�?document_id �?迁移证据与笔�?references �?chunk_id �?标记向量重建），`delete_folder` 在搬每个文件前先按真实路径查出它的文档，搬完调用同一个迁移�?*复现**：新增一条测试，断言 ungroup �?document_id 不变、chunk 身份跟着走、概念证据指向新 chunk（未修时三条里至少有两条失败）�?
+  - **验证**：pytest 全绿�?617 passed，新�?1 条复现测试）�?*�?到此收口**：归档扩�?/ 归档列表与恢�?/ 身份迁移 / 文件夹写操作（后�?界面�? ungroup 身份一�?—�?全部有复现测试�?
+- **③d 树上写操作的界面 + 「已归档」列表（2026-09-24，E17 �?第四块）**：树顶内联「新建文件夹」（在选中文件夹下建）、文件行 �?菜单（重命名 / 归档）、文件夹�?�?菜单（删文件�?只删容器）、树下方「已归档 N 份」可展开并一�?*恢复**；归�?恢复/移动/删文件夹都会刷新树与列表�?
+  - **设计规格棘轮抓到一�?*：新 CSS 里我写了一个不�?§7 刻度上的 `border-radius: 4px`，把脱轨圆角�?60 顶到 61（预�?60，只允许变小）——已改用 `var(--radius-sm)`。这条棘轮确实在守门�?
+  - **验证**：vitest **104 passed / 17 files**（新增树操作用例）、pytest **1616 passed**、tsc/lint/build 0；live（真实后�?+ 真实资料库）**5 passed**�?
+  - **审查发现的缺口（下一轮第一件事�?*：`delete_folder`（ungroup）是把文件从磁盘搬回库根�?*没有�?`move_document` 的身份迁�?*——所以被移出的资料会以新 source 重新索引，`document_id` 变化、挂在它上面的证�?笔记引用会断。这是我自己的实现在两条路径上不一致，必须在下轮修掉并补复现测试�?
+- **③c 文件夹写操作的后端语义（2026-09-24，E17 �?第三块）**：新建文件夹�?*删文件夹=只删容器**（资料移回库根、一份都不删；非资料文件留在原地于是目录保留，并如实返回 `kept_directory`）、以�?`POST /api/kb/documents/{id}/move` 路由（接 ③b 的身份迁移）。拒绝项：根目录/内部目录/路径逃逸（`invalid_target`）、已存在（`target_exists`）。参考项目的注释被引在设计里：a container's �?must not be able to destroy work�?
+  - **验证**：新�?`tests/test_folder_ops.py` 5 条（新建真实目录 / 拒绝非法目标 / 删文件夹把资料移回库根且非资料文件留原地 / 空目录才真的被移�?/ 根与内部目录拒绝）；pytest 全绿�?
+  - **仍未�?*：树上写操作�?*界面**（新建文件夹按钮、行内重命名、移动到、归档）与「已归档」列表的界面入口——下一轮�?
+- **③b 重命�?移动保留身份并迁移引用（2026-09-24，E17 �?第二块）**：本轮先**实测枚举**了挂在资料身份上的引用面（不是凭记忆）：`documents`（id/source/path）、`chunks`（document_id/**chunk_id**/source）、概念证�?`concept_graph.db::evidence`（document_id/chunk_id）、笔�?`personal_knowledge."references"`（JSON 里的 document_id/chunk_id）、阅读进�?`reading_progress.document_id`、Qdrant 向量 payload�?
+  - **关键事实**：`rag/sqlite_store.py:23` �?`_stable_hash(source)` 同时派生 document_id �?chunk_id，�?`chunk_id = f(source, index, text)` —�?**改个文件名会让所�?chunk id 变化**，挂在它们上面的证据、笔记引用与 `?chunk=` 深链会一起断�?
+  - **修法**：`KBService.move_document(id, 新相对路�?` —�?�?先算出新 source（口径与 `obsidian/sync.py` 的扫描根完全一致，�?raw/ 前缀剥离规则）；�?算出旧→�?chunk 身份映射；③ 搬文件；�?就地改写 `documents`(source/path) �?*保留 document_id**、重映射 `chunks`(id/source) 并重�?FTS5 外部内容索引；⑤ 迁移概念证据与笔�?references 里的 chunk_id；⑥ 向量�?`pending` 并删掉旧点，交给下次同步重建（chunk 身份变了，旧向量作废）；�?同步复用既有身份（`obsidian/sync.py` 改为 `get_document_id_by_source(source) or _stable_hash(source)`）�?
+  - 拒绝项：目标已存在（`target_exists`）、路径逃�?非法（`invalid_target`）、非资料扩展名（`unsupported_file_type`）、资料库外（`document_read_only`）——失败时**一个字节都不动**�?
+  - **验证**：新�?`tests/test_document_rename.py` 3 条（身份保留 + chunk 身份跟着�?/ 证据与笔记引用的 chunk_id 被迁移且阅读进度仍在 / 冲突与逃逸被拒）；pytest **1611 passed**�?
+  - **仍未�?*：树上的写操作界面（新建文件夹、右键重命名/移动�?归档、删文件�?只删容器）与「已归档」列表的界面入口——③ 的第三块�?
+- **③a 归档语义扩展到所有资�?+ 「已归档」列表与恢复�?026-09-24，E17 �?第一块）**：用户剪进资料库文件夹的资料，此前在 App �?*删不�?*——`delete_document` 只允�?`raw/`（Bobodan 自己的收件区）里的文件，其它一律回「只读、不能在这里删」，只能去资源管理器动手�?
+  - **归档对所有资料生�?*（设�?§3.5 决定 20）：文件移到 `.bobodan/archive/<UTC 时间�?/<原相对路�?`�?*保留目录层级**（旧实现�?`archive/raw/<时间�?/<文件�?`，同名文件会互相覆盖）；每次归档写一条可恢复条目（entry_id / 原路�?/ 归档路径 / 来源 / 标题 / 大小 / 时间）�?
+  - **恢复**：`POST /api/kb/archive/{entry_id}/restore` 把文件放�?*原来的位�?*并重新索引；原位置已被占用时返回 `restore_target_exists` �?*什么都不动**（条目与归档文件都留着）。旧工作区的上传收件区（`.bobodan/sources`）装的是用户资料，不算内部结构，照常可归档�?
+  - 没有原件（旧索引条目）或原件在资料库之外的记录依旧只读（`document_read_only`）——但文件已经不在磁盘上的记录不再拦截，交�?P0-12 的两次确认通道清掉�?
+  - **tripwire 抓到一�?*：新增的归档台账没登记进 `core/persistence_registry.py`（R0.6 要求每个跨重启的文件都有归属与「能不能重建」的答案）。台账改名为 `archive_index.json` 并登记为可重建（归档目录保留了原目录层级）�?
+  - **验证**：新�?`tests/test_document_archive.py` 4 条（归档任意资料并保留层�?/ 恢复归位并清条目 / 目标被占用时拒绝且不丢文�?/ 资料库外路径拒绝），并更新了那条断言旧归档路径的既有测试�?*仍未�?*：树上的写操作（新建/重命�?移动/删文件夹）与**身份迁移**、以及归档列表的界面入口——属 �?的后续块�?
+- **�?只读文件夹树�?026-09-24，E17 ②）**：资料库主区从「一张平铺列表」变成「真实文件夹�?| 当前文件夹的资料 | 阅读区」，树上直接看到层级与状态�?
+  - **后端 `GET /api/kb/tree`**：按真实文件系统建树（`os.scandir`，不做哈希）：文件夹给「资料数 + N 份未提取 + 另有 N 个文件已忽略」，资料文件给索引徽章（是否已索�?/ 提取状�?/ 片段�?/ 更新时间）；隐藏 `.bobodan/`、`wiki/`、点目录与标记文件；**绝不下发绝对路径**（沿用既有约定）�?
+  - **显示层真实相对路�?*（① 的最后一项）：`_public_document` 增加 `relative_path` —�?列表与树显示的是 `raw/inbox/paper.pdf`、`正则表达�?md` 这样的真实位置，而不是由扫描根前缀派生的索引身�?`course-2/…`�?
+  - **前端**：新�?`components/LibraryTree.tsx`（展开状态记 localStorage；搜索时过滤树并**保留命中项的祖先�?*——folders are not a filter, they are a location）；选中文件夹后右侧列表按真实路径前缀过滤；`api.knowledgeTree()` 接线�?
+  - **写完之后的自审抓出两个真问题（同轮修掉）**：① **布局�?CSS 顺序吃掉**——`.library-workspace.list-only` 与新�?`.with-tree` 同优先级且排在后面，三栏会退化成单栏（树与列表被堆成一列）�?*截图验证时才发现**，已�?`.list-only.with-tree` 规则并再次截图确认（�?260px | 列表 270px | 阅读区）。② **同步后树不刷�?*——徽章与计数会停在旧值，改为与资料列表一�?`Promise.all([loadDocuments(), loadTree()])`�?
+  - 顺带：树接口载荷实测 **141 KB**，把每层「已忽略」明细抽样从 50 降到 20�?
+  - **验证**：pytest **1604 passed**（新�?5 条树/路径复现测试）、vitest **103 passed / 17 files**（新�?7 条树组件 + 1 条页面过滤）、tsc/lint/build 0；live **5 passed**（新�?真实库的树显�?ai-agents-from-zero �?raw、隐�?wiki �?.bobodan、点文件夹后列表被过�?）�?
+- **�?扫描规则 + 同步入口 + 重复治理�?026-09-24，E17 �?/ `LIBRARY_TREE_DESIGN.md`�?*：把「资料库文件夹」变成真入口，并修掉三处让列表变脏或变死的缺陷�?
+  - **重复索引（真 bug�?*：`.bobodan/source_roots.json` �?`ai-agents-from-zero`（它本身是库根的**子目�?*）登记成独立来源根，�?`_scan_library_root` 没有�?vault 扫描（`obsidian/vault.py:64`）那样跳过已登记的来源根 �?同一份文件两条记录、两�?`document_id`（实�?7 组）。修法：�?`skip_roots`（已登记来源根的绝对路径）传给两个材料扫描器�?*真实现场：资�?76 �?47�?*
+  - **删除确认计数永远到不了第 2 次（既有 bug，本轮实测发现）**：`_resolve_deletions` 只遍�?`old_state`，而状态里�?`files` 每次同步都被新扫描覆�?—�?一�?source 第一次缺失后就从 `old_state` 消失，计数永远到不了 `DELETION_CONFIRMATIONS=2`，下一次同步还会把 `missing` 里那条一起丢掉。现场证据：真实�?29 条该移除的记录既没被删除、也不在待确认列表，`sync_state.json` 显示 `files=47 / missing=0`。修法：候选集合改�?`old_state �?previous_missing`�?
+  - **状态漂移没有自愈路径（本轮新发现）**：索引里有、但已不属于任何扫描范围的文档（wiki 生成页、因规则收紧而失去来源的重复）会永远留在索引里、而且没人再看得见。修法：同步时用 SQLite 里的事实反查——凡是「索引里有、扫描状态里没有」的 source，重新喂回同一个两次确认的删除通道�?*复现**：种一�?`obsidian/wiki/concepts/RAG.md` 记录，停用自愈立刻失败（已实测两端）�?
+  - **仓库元文件被当资�?*：旧规则只跳�?*库根那一�?*�?`README.md`，子目录照收（`course-2/README.md`、`requirements.txt`、`_sidebar.md`、`CONTRIBUTING.md` 都在列表里）。新规则放进共享模块 `obsidian/scan_policy.py`（vault 扫描与材料扫描共用，防止再次漂移）：任意层级跳过 README / CONTRIBUTING / LICENSE / CHANGELOG / requirements*.txt / _sidebar.md / _navbar.md，并在同步摘要里如实列出（真实库每轮 5 条）�?
+  - **wiki 停用（用户决定，设计 §3.1�?*：portable 资料库的 vault 扫描不再索引 `wiki/`（生成页不再是资料），磁盘文件保留；**概念提取 �?知识地图不受影响**。配套更新了 `tests/test_library_service.py` 里那�?wiki 页应当被扫描�?的旧断言�?
+  - **App 里没有同步入口（�?bug�?*：`web/frontend/src/lib/api.ts:117` �?`syncLibrary()` **全前端零调用** —�?用户在资源管理器里把文件剪进资料库文件夹后，界面里没有任何办法发现它们。现在资料库页有�?*同步文件�?*」按钮；完成后给可行动的摘要：新�?/ 更新 / 移除 / 待确认移�?/ 跳过（元文件�? 重复清理 / 失败（含每份原因），明细可展开�?
+  - **写完之后的自审抓出两个真问题（同轮修掉，都有测试�?*�?
+    �?**来源根掉线会误删索引**（本轮修法自己引入的风险）：外接盘未挂载、网络盘掉线时，已登记的来源根在磁盘上不可见，它下面的资料会整批落进「索引里有、扫描里没有」的集合 �?两次同步�?*被删�?*（还会级联清 chunk/向量并把概念证据�?stale）。修法：服务层识别「已登记但磁盘上不存在」的根，把这次扫描标�?*不完�?*，按 P0-12 的语�?*什么都不删**，并在摘要里明说「本次扫描看不全，因此没有移除任何资料」。复现：`test_a_source_root_that_is_offline_suppresses_deletions`（未修时两次同步后记录消失）�?
+    �?**「重复清理」这个标签会骗人**：一个文件被**移动/改名**时，�?source 被移除、新 source 带同样的内容哈希进库，会被算�?重复"。标签改成「内容与现存资料相同（可能是移动或改名）」——真正的迁移�?�?的身份迁移负责�?
+  - **验证**：pytest **1599 passed**（新�?6 条复现测试）、vitest **95 passed / 16 files**（新�?4 条）、`tsc --noEmit` 0、eslint 0、生产构�?0；live（真实后�?+ 真实资料库）**4 passed**——含新增�?点同步文件夹 �?摘要上屏"。真实现场：资料 **76 �?47**（wiki 生成�?0、元文件 0、重复对 0），上传的那�?PDF 原件视图 / 提取�?0 单元�? 检索命中均完好�?
+- **资料联动轮（2026-09-23�?*：按「查看来�?�?落点统一 �?定位提示 �?搜索定位 �?PDF 引导」推进�?
+  - �?+ �?**跳转落点统一**（`ba83123`）：原先**五处**各自手拼 `/library?�?document=…`（来�?chip、右侧来源栏「打开原文」、聊天引用列表、知识地图返回来源、笔记引用），其中两�?*已经在传 chunk**——但目标�?*资料库列表页**，而它不渲�?sections，所�?`LibraryPage` 里处�?`chunk` 的代码永远拿不到 `[data-chunk-id]` 节点�?跳过去找不到引用段落"。现在统一�?`lib/documentLinks.ts::readerLocation()` �?`/library/read/{id}?collection=�?chunk=…`（含 5 条单测）�?
+  - �?**引用定位 + 提示�?*（`a30bd11`）：�?`chunk` 进入时顶部显示「已定位到引用段落」并可一键「看原文」�?*修法用了五轮才找�?*：前五轮都在"命令式查�?+ 定时"上加补丁（直接查 �?成功才清 pending �?rAF 重试 8 帧）全部失败；埋点实测给出关键两条事实——`highlightedChunk` **从未被设�?*（不是设了又被清），�?*目标 id 确实�?DOM 里且 URL 参数正确**——于�?*换机�?*：删掉用 `querySelectorAll` �?effect，改�?*目标 `<section>` �?ref 回调在挂载那一�?*自己高亮并滚动。live 检查（真实后端 + 真实资料库）通过�?
+  - �?**PDF 引用引导**（`929e823`）：提示条区分格式——PDF 明确说明"原件无法高亮，已在「按小节�?�?
+  - **lint 归零**（`8df9ee3`）：上一轮声称修好其实把依赖加错�?effect（加到滚动恢复而非加载 effect），这一轮改正，并把 lint 纳入门禁判断�?
+  - �?**搜索命中 �?资料 �?命中片段**（`278ab43`）：先做了一�?*更正**——后�?*已有** `POST /api/kb/search`，实测返�?`{chunk_id, document_id, collection, source, score, retrievers}`�?*正好�?`readerLocation()` 的输�?*，缺的只是前端（资料库输入框原先只做标题/来源的客户端过滤，没�?chunk 级结果列表）。所�?�?�?*接线**不是新功能：检索结果列表（300ms 去抖）逐条深链�?`/library/read/{id}?collection=�?chunk=…`，走的就�?�?那条已被 live 检查钉住的定位通道�?
+  - **视觉返工两轮（用户反馈驱动）**：切换器先被指出"不符合本项目的审美和 UI/UX"，改完又被指�?还是跟左边两个按钮不一�?。根因是�?*是手写的**：自己拼的十六进制色、选中态整块实心蓝填充�?6px �?/ 6px 圆角 / 400 字重——而左边的邻居按钮�?40px / `--radius-md` / 13px / 650 字重，选中态用 wash + 墨蓝文字 + 内侧边（`docs/DESIGN.md` 的选中态语言�?*从不用实心填�?*）。`d9a7f67` 换成 token 与正确的选中态语言，`f43cddb` 再逐项对齐邻居几何（高�?圆角/内边�?字号/字重/hover 抬升/`:active` 缩放），提示条一起统一�?*教训**：新控件不要凭印象手写样式，复制邻居的度量并复用共享规则（`.primary-button, .quiet-button`）�?
+  - **本轮验证**：pytest **1592 passed**、vitest **91 passed / 15 files**、`tsc --noEmit` 0、eslint 0 problems/0 warnings、生产构�?0、仓库全�?Playwright **88 passed / 11 skipped / 0 failed**；`BOBODAN_E2E_LIVE=1` �?live 检查（真实后端 + 真实资料库）**3 passed**——默认进原文视图 / �?`chunk` 进入→提示条+目标小节高亮+「看原文�? 资料库搜索命中→点进资料→落在命中片段�?
+  - **诚实边界**：③�?�?PDF 分支�?�?的文案只做到类型/构建/回归级验证——该资料�?*没有 PDF**，这条分支仍未在真实数据上跑过�?
+- **�?DOCX 表格解析修复 + 真实库重�?sync�?026-09-23�?*：`docx_parser` 过去只遍�?`doc.paragraphs`，�?python-docx **不把表格单元格放�?paragraphs**——于�?.docx 里的表格**一个字都进不了索引**：既搜不到，也永远不可能成为概念证据（纯静默丢失）。修法：�?body 顺序遍历段落与表格（表格因此留在**它所属的小节**里，而不是被丢到末尾），表格渲染成每�?`|` 分隔，section metadata �?`table_count`�?
+  - 复现：新�?`tests/test_docx_tables.py` 两条�?*修前失败信号**：同一份含表格�?docx，解析文本只�?`正文段落一\n表格之后的段落`——表格内容整段消失；修后该文件与既有解析报告测试�?`18 passed`�?
+  - **真实资料库重�?sync**（本目标要求�?证据重定�?检查）：scanned 22 / **updated 0** / error 0 �?现有资料**没有 .docx**，所以这次解析改动对既有数据�?no-op�?*签名文件首次写入** `{provider: openai_compat, model: embedding-3, dim: 2048}`；documents 70 / chunks 1857 未变�?0/70 �?`indexed`；概念证�?30 条（其中 15 条带 `chunk_id`�?*stale = 0** ✓�?
+  - 已知外观限制：纵向合并单元格会把文字在跨越的行中重复一次—�?*不丢�?*，只是可能重复几个词�?
+- **�?图片可渲�?+ 一轮代码审查（2026-09-23�?*：markdown 里的相对图片现在能显示——新�?`GET /api/kb/documents/{id}/asset?path=<相对文档目录>`（同样做包含性校验），前端把 `img` 的相�?src 重写到它；绝�?/ `data:` / `blob:` 源不重写。`<img>` 发不出资料库头，所以库标识�?`?library=` �?URL 传递�?
+  - **写完之后做的批判性审查抓�?4 个真问题（同轮修掉，全部有测试）**�?
+    �?**安全（中�?*：`/asset` 只校�?在工作区�?却没校验**文件类型**——工作区根目录的 `.env`、`.knowledge/*.db` 都在区内，一�?markdown �?`![](../.env)` 就能把密钥读出去。修法：附件**只允许图片扩展名** + 拒绝内部路径段（`.git/.knowledge/.bobodan/node_modules/__pycache__`）；新增测试要求 `.env` / `knowledge.db` / `note.md` 三种都返�?`asset_not_allowed`�?
+    �?**安全（低�?*：为 `<img>` 加的 `?library=` 兜底当时�?*所�?* API 路由生效。修法：只在路径�?`/asset` �?`/raw` 结尾时接受—�?*拓宽的是通道，不是权�?*�?
+    �?**体验（中�?*：`openDocumentRaw` �?`await fetch` �?`window.open`，用户手势早被消�?�?弹窗拦截器大概率拦下（功能等于不可用）。修法：**先同步开空白�?*再请求，成功�?`location`、失�?`close()`；测试用 `invocationCallOrder` 钉住"开窗必须早于请�?�?
+    �?**体验（低�?*：「查看原文」对生成页（wiki）也显示，而那些文档没有原件。修法：只在 `collection === "material"` 时显示�?
+  - 另一处实现失误也记一笔：�?`web/backend/app.py` 中间件时我用�?4 空格缩进，而那一行在 `try:` 内需�?12 空格 �?`IndentationError`，由测试立刻暴露并修好�?
+  - 验证：pytest **1589 passed**（新�?1 条安全测试）、vitest **77 passed**、tsc/eslint/build 0�?
+- **原文查看（前端入口，2026-09-23�?*：Reader 工具栏新增「查看原文」�?*不能用普�?`<a href>`**——原文端点要带资料库头（`X-Bobodan-Library-ID`），`<a>` 发不出去，所以改为先 `fetch` 再以 blob 交给浏览器开新标签：PDF 依然落在浏览器内置阅读器里，拿到的还是原件；失败�?04 / 弹窗被拦）给中文提示，而不是开一个空白页�?
+  - 复现：`web/frontend/src/lib/api.test.ts` 新增 2 条（请求打到 `/api/kb/documents/{id}/raw`、`createObjectURL` 被调用、以 `_blank/noopener` 打开�?04 时抛 `document_raw_unavailable`）。验证：`tsc --noEmit` 0、vitest **75 passed**、eslint 0、生产构�?0�?
+  - 仍未做：**未加 e2e**（Reader 需要完整的资料�?fixture）；markdown 内图片仍不可渲染（需�?按文档相对目录取附件"的受限端点）�?
+- **原文查看（后端一半，2026-09-23�?*：解析会丢图片、压平表格，而阅读侧只能看解析文本——用户实际上看不到原件（Obsidian 是直接渲染文件的）。现在新增只读端�?`GET /api/kb/documents/{id}/raw`：按 `documents.path` 定位真实文件�?*resolve 后必须落在工作区�?*（越界一�?`source_not_found`），按扩展名给媒体类型、`Content-Disposition: inline`（PDF 直接交给浏览器内置阅读器，Office 走下�?系统打开）�?
+  - 复现：新�?`tests/test_document_raw_file.py` 八条�?*越界拒绝**（工作区外的绝对路径、`../` 逃逸、空路径）、区内接受（绝对与相对路径都行）、媒体类型与文件�?大小、缺文件、PDF 类型、路�?inline 返回原文、未知文�?404�?*修前失败信号**：`AttributeError: 'DocumentEditService' object has no attribute 'resolve_source_path'` + 路由 404�?
+  - 仍未做（原文查看的前端一半）：Reader 的「查看原文」开关；markdown 内图片可渲染需要一�?按文档相对路径取附件"的受限只读端点（**不能**直接暴露工作区静态目录）�?
+- **G2 第二块：embedding 签名版本化（2026-09-23�?*：向量只�?产生它的那个模型"旁边才有意义，而此前没有任何地方记录这个配对——换 provider 或换模型后，检索会**静默去查另一个向量空间的�?*。现在新�?`rag/embedding_signature.py`：sync 结束时把 `{provider, model, dim}` 原子写入工作区的 `embedding_signature.json`；检索构建管线时比对，不一致就**整条向量腿停�?*，并留一条带双方数值的 warning（结果退�?FTS5-only，而不是拿外来向量给出自信的错答案）。文件名已登记进 `core/persistence_registry.py`（tripwire 强制）�?
+  - 复现：新�?`tests/test_embedding_signature.py` 六条（匹配不误报、改模型同时报出 model/dim 两侧、无签名不阻断、损坏签名当没有而不是崩、provider 报不出维度时不阻断�?*端到�?*：sync 写入签名 �?`semantic_available: True`；把签名改成另一个模�?�?同一查询�?`False`）�?*修前失败信号**：`ModuleNotFoundError: rag.embedding_signature`；接线后又暴露两个既有替身缺 `get_model_info()`（已补）�?
+  - G2 剩余�?29 **断点续传**（当前是有界重试，不是从失败批次续跑）、设置页「向量模型」、召回评测集（G4）�?
+- **G2 第一块：批次维度校验 + 429/5xx 退避重试（2026-09-23�?*：真实厂商最常见的失败不�?挂了"而是**限流**——一�?429 过去会让一�?chunk 直接失败、文档留�?pending。现�?`_embed_batch` 做有界指数退避重试（默认 3 次，尊重 `Retry-After`，连接错误与 5xx 同等对待，上�?30s）；同时**把维度当契约**：返回维度与配置不符、或同一批里维度不一致，都在**写进 Qdrant 之前**报错并带上两个数字，而不是让错尺寸向量默默进库（那正�?换模型后静默错配"的入口）�?
+  - 复现：`tests/test_embedding_provider.py` 新增 4 条（429 两次后成功且只发 3 次请求；重试耗尽后抛错且请求数有上界；维度不符被拒且错误信息�?3/1024；同批维度不一致被拒）�?*它立刻抓出一条既有夹具的问题**：预设声�?1024 维而夹具只返回 3 维——说明这条校验真的在守门，不是装饰�?
+  - G2 剩余：embedding/解析�?*签名版本�?*（把 provider+model+dim 存下来，不匹配时显式�?`embedding_signature_mismatch` 而不是静默用错向量）、断点续传、设置页「向量模型」、召回评测集�?
+- **智谱接入实测 + 真实资料库建库完成（2026-09-23�?*：用户提供智谱（BigModel）key 后验证：v4 接口**OpenAI 兼容**，`embedding-3` 默认 **2048 �?*�?.27s/条，批量正常；同模型也支�?`dimensions=1024`，但 provider 暂不发送该参数）。因此只需加一�?`zhipu` 预设（`https://open.bigmodel.cn/api/paas/v4` + `embedding-3` + `ZHIPU_API_KEY` + **dim 2048**——必须与 API 默认一致，否则 Qdrant collection 会按错维度建）�?
+  - **真实资料库已建成向量**：对 `note/vault`�?0 份资�?/ 1857 chunk）走 P1-18 �?`backfill_vectors`（只写向量、不重解析、不动原文）�?*70/70 `pending` �?`indexed`�?8 秒，Qdrant points 0 �?1857**；混合检索返�?`retrieval_mode: hybrid / semantic_available: True`，查询「向量检索是怎么工作的」语义命�?`course-2/18-向量数据库与Embedding实战.md`�?
+  - 配置接线：`config.yaml` �?`embedding_preset: "zhipu"`�?*不含 key**；没�?key �?`auto` 会安全回退 Ollama �?FTS5-only，不会假装能用）；key 放被 gitignore �?`.env`（`git status` 确认未跟踪）。产品配置实测解析为 `openai_compat | available: True | dim: 2048`�?
+  - 复现：`tests/test_embedding_provider.py::test_the_zhipu_preset_matches_the_vendor_default_dimension`（该文件 12 条全过）�?
+  - 顺带记录的坑：`Add-Content` 往**末尾没有换行**的文件追加内容会把两行粘成一行（本次已修，且只读键名、不打印值——原�?`MINIMAX_API_KEY` 的值未受损）�?
+- **嵌入模型接入链路实测（B2�?026-09-23�?*：用一个本�?OpenAI 兼容的假嵌入服务，在**临时工作�?*跑通真实代码路径：`sync_sources` �?3 文件 �?3 chunk �?向量写入 �?Qdrant collection �?`dim=64` 建出 �?`vector_status: indexed` �?`search_index_with_status(mode="hybrid")` 返回 `retrieval_mode: hybrid / semantic_available: True`，且「向量检索」这个查询命中的正是 `rag-basic.md`�?*全程没有碰用户的真实 vault�?*这证�?provider �?批量嵌入 �?collection 初始化（维度来自配置）→ 向量落库 �?混合检索这条链路是通的�?
+  - 真实厂商那一段单独验证：配置�?`openai_compat` + 预设 `siliconflow`，真�?`api.siliconflow.cn`。key 认证通过（余额耗尽前拿到过真实向量：bge-m3=1024、Qwen3-4B=2560、Qwen3-8B=4096 维），但该账�?*余额�?0**，接口返�?`code 30001 insufficient balance`；产品按设计降级：`embed_texts �?None`、写一�?WARNING�?*密钥不出现在日志/输出/model info**。所以「接口接得上」已证，「在真实数据上建库」只差一个有余额�?key�?
+- **W2/B2 · 可配�?embedding provider�?026-09-23�?*：`EmbeddingService` 此前只能连本�?Ollama，于�?*没装 Ollama 的机器一个向量都建不出来**——真实工作区正是这个状态（实测 70 份资�?/ 1857 chunk、`vector_status` 全为 `pending`、`.bobodan/qdrant` 不存在）。现�?provider 是注册表里的一项：新增 `rag/embedding_provider.py` 定义 `EmbeddingProvider` 契约（`is_available` / `embed` / `get_model_info`），内置 `OllamaEmbeddingProvider`（把既有客户端原样降格复用，零成本保留）�?`OpenAICompatibleEmbeddingProvider`（`POST {base_url}/embeddings`：批量、按 `index` 归位、返回数量不符即报错），外加四个预设（`siliconflow` bge-m3 / `dashscope` / `openai` / `ollama`）。`auto` 的语义写死为�?*配好�?API provider 优先 �?否则 Ollama �?都没有则 FTS5-only**；显式�?`openai_compat` 但缺 key �?*不会**悄悄退�?Ollama，而是 `is_available()=False`——宁可不做向量，也不偷偷换后端。密钥只从环境变量读（`embedding_api_key_env`，留空用预设自带的变量名），`config.yaml` 里永远没�?key�?
+  - 复现：新�?`tests/test_embedding_provider.py` 十一条，全部�?*真实 httpx + MockTransport**（只换传输层）：预设展开、`auto` 的优先级与显式选择、缺 key 不降级、请求形状（`Authorization: Bearer` 在头里�?*不在 URL �?*、body �?`{model,input}`）�? 条输入按 `batch_size=2` 拆成 3 次请求、响应乱序按 `index` 归位、返回数量不符报错、失败时 `embed_texts` 返回 None **且密钥不出现在日志与 model info �?*（用一个故意回�?`Authorization` 的假服务器验证）、维度来自预设时**不发请求**、维度未知时探测一次并缓存。修前失败信号：`ModuleNotFoundError: rag.embedding_provider`�?
+  - 顺带修掉的三处旧契约：`rag/retriever.py` �?`embedding.client` 传给 `HybridRetriever`（改为传 provider），以及 `tests/test_rag_retrievers.py` 的两个服务替身。它们是「服务对外只暴露 provider」这个新契约的真实调用点，不是顺手重构�?
+  - �?仍未做（B2 余项，按原计划归 G2/G4）：embedding 签名版本化、批次维度校验�?29 退避与断点续传、设置页「向量模型」与 Library 状态卡的开通引导、召回评测集�?*在评测集通过前，不得宣称混合检索优�?FTS-only�?*
+- **A4 批次�?· CLI 超时�?Ctrl+C �?token（P0-3�?026-09-14�?*：CLI �?agent 跑在 daemon 线程里，超时�?Ctrl+C 只跳�?*消费循环**，线程继续烧 token——代码里甚至在自己的提示语中承认了这一点（「后台请求和已经启动的工具操作可能仍在继续」）�?
+  - 复现：`tests/test_repl.py` 新增一条——把 `core.agent_loop.AgentLoop` 换成会记录实参的 spy，复用既有的 `SlowProvider(delay=10)` + `agent.timeout=1` 场景，断言**循环拿到�?token 在超时后已被取消**�?reason �?`cli_timeout`，并且新提示语出现。改动前该断言无法成立（`AgentLoop` 根本没收�?`cancel_token`），那条提示语也还是一句免责声明�?
+  - 修法：`run_agent` 每轮�?`CancelToken` 并交�?`AgentLoop`；超时分支在 break �?`run_token.cancel("cli_timeout")`；消费循环外包一�?`except KeyboardInterrupt`（设�?`cancelled`、取�?token、给出提示后干净返回，不再只封存当前行）；提示语改为如实描述「已通知后台请求停止（在下一个检查点生效），已启动的工具可能仍会收尾」�?
+  - 后续补齐（同一轮）：Ctrl+C 路径与超时路�?*共用同一�?`run_token.cancel(...)`**，当时只有超时那条有测试。现已补 `tests/test_repl.py::test_repl_sigint_tells_the_agent_to_stop`——用 `threading.Timer` 向进程真发一�?`SIGINT`，断言 `AgentLoop` 拿到�?token `is_cancelled()` �?reason �?`user_interrupted`，并确认「已取消本轮」上屏�?
+- **A4 批次�?· specialist �?token（P0-2�?026-09-14�?*：审计原话是「specialist 超时无法真正取消，后台继续跑并写状态」——`agents/runner.py` 超时后调 `future.cancel()`，而它�?*已经开始执�?*的任务无效，于是父级已经按超时换路，那个 specialist 仍在�?LLM 请求、仍在写 learning store�?
+  - 复现：`tests/test_agents_runner.py` 新增一条——用「永远不返回」的子循�?+ 0.2s 超时，断言被放弃的子循�?*拿到了与父级绑定的子 token 且已被取�?*（reason = `specialist_timeout`）。改动前这条断言无法成立（`AgentLoop` 根本没收�?`cancel_token` 实参），改动后它�?0.2s 内返回并完成取消�?
+  - 修法：`run_specialist(..., cancel_token=None)` 为每�?specialist �?*�?token**（父级取消自动传播到它），交给子 `AgentLoop`；超时分支在 `future.cancel()` 之前�?`child_token.cancel("specialist_timeout")`，于是子循环在下一个检查点停下。链路一直打通到工具层：`execute_tool(..., cancel_token=...)` 会把它注入给声明了该形参的工具，`delegate(session, cancel_token, ...)` 再转�?runner—�?*父轮取消�?specialist 一起停**�?
+- **A4 批次�?· 每工具超时转结构化错�?+ 顺手修掉 P1-7�?026-09-14�?*：循环原来内联调�?`execute_tool`，所�?*一个卡住的工具会卡住整�?*。接线超时时又暴露出一个更早就存在的真实缺陷（P1-7 去重竞态），两条一起解决�?
+  - 复现：新�?`tests/test_tool_timeouts.py` 五条：①未登记超时的工具走内联（不付线程成本）；②快工具照常返回；③**挂住的工具变成结构化超时**（`data["code"]=="tool_timeout"`，且调用�?*不等被放弃的线程**）；④抛异常的工具变成结果而不是炸穿；�?*端到�?*：`time.sleep(5)` 的工具在 0.2s 预算下，整轮仍以 `final_answer` 正常结束、会话不受影响�?*修前失败信号**：`ModuleNotFoundError: tools.timeouts`；端到端那条会真的挂 5 秒�?
+  - 修法：`tools/timeouts.py` 提供 `TOOL_TIMEOUTS`（只登记会阻塞在外部的地方：三个 `delegate_*`、`rag_search`、两个联网工具）�?`run_with_timeout()`——一次�?worker + `future.result(timeout)`，超时返�?`ToolResult(ok=False, code="tool_timeout")`，`executor.shutdown(wait=False)` **绝不等被放弃的线�?*。循环按需分派：未登记超时的工具仍走内联，**不为不需要的线程付费**�?
+  - 诚实边界（已写进模块 docstring）：Python 不能杀线程，超时的语义是「不再等 + 告诉模型」，被放弃的线程靠自�?IO 超时结束�?
+  - **接线时复现并修掉 P1-7（去重竞态）**：把超时接进循环�?`test_read_only_tool_dedup` **确定性失�?*——给 `rag_search` 加超时后它走 worker 线程，两个并行的同参数只读调�?*都通过缓存检�?*，于是同一份检索跑了两遍。这正是审计 P1-7 说的「靠线程调度侥幸通过」：它不�?flake，而是真实的竞态，被时序改动稳定照了出来�?
+    - 修法：claim/wait。第一个调用在 `_tool_cache_lock` �?*认领**缓存键，重复调用等待它的 `threading.Event`；等待是**有界�?*（`DEDUP_WAIT_SECONDS`）且 **fail-open**——泄漏的认领只会让这次优化失效（重复执行一次，也就是今天的行为），**绝不会挂住一�?*�?
+    - 两条新测试：一条在工具里加 sleep 强行制造重叠（修前必失败），另一条把等待预算设为 0，断言此时确实会执行两次—�?*用它证明「这个等待正是防止重复执行的原因�?*，而不是让读者相信�?
+- **A4 批次�?· 浏览器侧收口：停止真的停、断线能续（P0-1 完成�?026-09-14�?*：解耦立刻带来一笔必须还的债——`abort()` 只断开读者、不再停服务端，于是「停止生成」的语义反�?*退�?*了（点停 �?服务端照跑到完成，甚至因为泵的存在比以前更彻底）。这一轮补上：�?新增 `POST /api/chat/streams/{stream_id}/cancel` �?`RunRegistry.cancel_now("user_stopped")`，未知或已结束的流返�?`{ok: true, cancelled: false}`，晚点一下不会变成报错；�?前端 `streamChat` 在第一帧通过 `onStreamId` 交出 stream id，停止按钮同�?`abort()` + `api.cancelRun(id)`；③ 读者意外断开时从 `after_seq` 重连 replay 端点续看�?00/900/2000ms 退避，复用已有�?seq 去重），一次重�?*零帧**即认为日志已读完而停止重试；�?宽限期不再硬编码：`web.stream_grace_seconds`（默�?30），`RunRegistry.start(stream_id, grace_seconds)` 支持�?run 覆盖�?
+  - 复现：`web/frontend/src/lib/api.test.ts` 新增 4 条（跨连接续看且不重复渲�?seq=2、已完成 run 绝不重连、重连全失败�?*抛回原始错误而不是静默截�?*、`cancelRun` 打到正确端点�?POST）；`tests/test_web_backend.py::test_cancel_stream_reaches_a_live_run`（活 run 被取消、reason �?`user_stopped`，晚到的取消�?no-op）；`tests/test_web_backend.py::test_chat_run_uses_the_configured_grace_period`（配置真的流�?`RunRegistry.start`，而不是只写了一�?helper 没人调）；`tests/test_run_registry.py` 新增 2 条；e2e `stopping a run keeps what was already produced` 断言中途停止后保留半截回答并给出重发入口�?
+  - **第一版测试全红暴露的是我�?fixture �?*：用 `controller.error()` 造「断线」会**丢弃已入队的 chunk**，于是客户端一帧都没收到、也就拿不到 stream id，重连路径根本没被走到（失败信号�?`Error: network gone` 直接�?`streamChat` 抛出）。改�?pull 式（先交付一帧再报错）才真正复现「读到一半断线」。写在这里是因为这正是「测试写对」与「测试写绿」的区别�?
+- **A4 批次�?· run 生产�?SSE 响应解耦（P0-1 收口�?026-09-14�?*：宽限计时器此前**没有意义**——SSE 生成器是被客户端拉动的，客户端一�?run 就停在上一�?yield，所谓「宽限期内继续跑」实际是「延迟一次已经发生的停止」。现�?`web/backend/run_pump.py::RunPump` 在自己的线程里把 producer 拉到结束（帧已由 `StreamEmitter` 写进批次二的事件日志，泵只负责让生成器前进、不自己缓冲）；HTTP 响应退化成**读�?*，`tail()` 从游标读日志直到泵结束。`create_run` 建注册表句柄 �?`CancelToken` 交给 `AgentService.run_stream` �?启动�?�?返回 tail 响应（`finally` �?`note_disconnect`，且仅当泵仍在跑）；`replay_stream` 发现 live pump 时先 `note_reconnect` �?`yield from pump.tail(cursor)`，就地接回同一次运行。副作用：producer �?`finally`（会话落盘）现在走的�?*正常完成**路径，断线不再打断本轮，落盘的是完整一轮�?
+  - 复现：新�?`tests/test_run_pump.py` 八条，关键一条是**读者只取一帧就 `close()`，泵仍跑完且日志�?4 帧齐�?*——那三帧就是旧实现下会被丢掉的；另有 tail 从游标续传、producer 抛异常仍能读完已产帧并回收句柄（不泄漏、不挂住）、宽限内重连不取消、宽限到期取消且 reason �?`client_disconnected`。`tests/test_web_backend.py::test_chat_run_pumps_the_producer_and_owns_the_cancel_token` 从路由层固定两件事：`cancel_token` 来自注册表、响应结束后句柄被回收（修前失败信号：`KeyError: cancel_token`）�?
+  - **代码审查又抓到一个真问题（保留策略会删掉正在跑的 run�?*：`EventLog.prune` 的「超�?200 条流就删最旧的」此前不看流是否还在跑。泵把日志变成实时传输通道之后，这就成了真 bug——删掉的�?*本轮还没读完的帧**，而且 `append` �?seq 来自 `MAX(seq)`，删完会�?1 重来，读者永远等不到自己的游标。修法：`prune(exempt=...)`，`create_run` �?`live_stream_ids()`，且流数量上限只作用�?*可删集合**（活流既不占额度也不会被挤掉）。复现：`tests/test_event_log.py::test_prune_never_deletes_a_stream_that_is_still_live`（时间删�?+ 数量删除两条分支），修前失败信号 `TypeError: prune() got an unexpected keyword argument exempt`�?*实现中途我漏写�?`GROUP BY`，两条既�?prune 测试立刻确定性失�?*（聚合查询退化成一�?�?一条都不删），是它们抓住了我的错误，而不是我事后自查�?
+  - **自查遗漏（第二轮补）**：那次收尾只跑了 `tsc --noEmit` 与一个测试文件，没重�?`eslint`，于�?`no-useless-assignment`（重连重试里 `let frames = 0` 的初值永不被读）漏到下一轮全量验证才被抓到。这条促成两件事：CI 补上 lint 三件套，「改完任何代码就跑完整验证」不再依赖自觉�?
+  - **诚实边界**：泵只改「谁在拉生成器」，不改取消语义——Python 杀不掉线程，run 仍只在协作检查点停。上面那条解耦测试固定的�?*解耦这一事实**，不是「旧代码跑它会红」：旧实现没有可独立驱动�?producer，无法同形对比�?
+  - �?**仍未接线（浏览器侧）**：仓库里没有任何调用方请�?`/api/chat/streams/{id}/replay`（前端是 fetch 流，不重连），也没有「停止本轮」按钮去�?`RunRegistry.cancel_now`。所以「宽限期内重连续跑」与「显式停止」目前只�?*服务端已就位并有测试**这一层成立；接线需�?UI 决策，留给下一轮，不假装已完成�?
+- **A4 批次�?· 取消原语（阶段三：断线宽限，部分完成�?026-09-14�?*：先�?`web/backend/run_registry.py`——按 stream_id 登记 run �?`CancelToken`，`note_disconnect` 起宽限计时、`note_reconnect` 撤销计时（刷新与误关不掉线）、`finish` 清理、`cancel_now` 供显式停止。另修审计点「SSE 生成器从不被关闭」：`iterate_on_stream_lane` 现在�?`finally` 里显式关闭同步生成器，断线时 producer �?finally（会话落盘）真的会跑到�?
+  - 复现：`tests/test_run_registry.py` 五条（断�?*不立�?*取消、宽限到期取消且 reason �?`client_disconnected`、窗口内重连�?run 存活、断线幂等不重启计时、finish 后不再取消、每�?run 独立 token�? `tests/test_sse_stream.py` 两条（响应停止时 producer �?finally 被走到；正常流仍逐条送达）�?*修前失败信号**：`ModuleNotFoundError: web.backend.run_registry`；以�?`AttributeError: list_iterator has no attribute close`（顺带暴露了 close 需要判存）�?
+  - 当时未完成的关键一步（�?run 生产与响应解耦的后台泵）**已由上面那条收口**；本条的注册表、取消路径与显式关闭是它的地基�?
+- **A4 批次�?· 取消原语（阶段二：provider 穿透，2026-09-14�?*：阶段一只让循环在检查点停下，但在途请求仍在跑。这一阶段�?*流式请求真的�?*：`complete_stream` 的读循环在每�?chunk 之前检查令牌，命中�?`break`，`with` 退出时响应与连接一起关闭，provider 停止生成——这是整套协作取消里唯一能真正打断网络请求的位置。非流式请求打断不了，于是改�?*取消后不再重试、不再发下一�?*�?
+  - 复现：新�?`tests/test_provider_cancellation.py` 三条，用 `httpx.MockTransport` 保留真实�?httpx 客户端与真实的读循环，只换传输层：①50 �?delta 的流在收到第 1 个后取消 �?**只解析出 1 �?chunk 且只发出 1 次请�?*（不重试）；②已取消的流**从不打开连接**（`RunCancelled`，连接记录为空）；③返回 500 这种可重试状态时，若此时已取�?�?只请�?1 次�?*修前失败信号**：循环会读完 50 �?delta、重试可�?3 次�?
+  - 修法：`LLMProvider` 协议、`openai_compat`（流式与非流式）、`minimax`（转发给父类）与测试替身 `ScriptedProvider` 全部接受 `cancel_token`；重试前�?`time.sleep` 统一改走 `_retry_pause(attempt, token)`—�?*取消后不再重�?*是这一条的核心承诺；`AgentLoop` 用签名探测决定是否传该参数（不支持的 provider 会记一�?warning，而不是静默假装停止有效）；`run_stream` 增加 `except RunCancelled` 分支，保证取消被报成 `cancelled` 而不�?`error`�?
+  - 阶段三、四（⏳）：Web 断线宽限期与重连续跑、CLI SIGINT �?specialist �?token、每工具超时表�?
+- **A4 批次�?· 取消原语（阶段一�?026-09-14�?*：先落设计文�?[`CANCELLATION_DESIGN.md`](CANCELLATION_DESIGN.md)——记录实测现状（生产代码取消原语 0 命中、SSE 生成器从不关闭、specialist �?`Future.cancel()` 对已开始任务无效、CLI 只跳出消费循环）、锁定的方案（协作取消）�?*诚实的边�?*（Python 不能杀线程：流式真停、非流式�?timeout、无视标志的工具会跑完）�?
+  - 复现：新�?`tests/test_cancellation.py` 七条（幂等且保留首个 reason、`raise_if_cancelled` �?reason、父取消传播到已存在的子、取消后新建的子一开始就是取消态、子可单独取消、另一个线程能观察到取消）+ `tests/test_agent_cancellation.py` 两条�?*修前失败信号**：`ModuleNotFoundError: core.cancellation`；以及循环没�?`cancel_token` 形参�?
+  - 修法（阶段一）：`core/cancellation.py` 新增 `CancelToken`（内�?`threading.Event` + �?+ 父子表，`reason` 记首个原因，`RunCancelled` �?`ProviderError` 刻意区分——取消不是失败，不该触发重试、不该计入错误率）；`AgentLoop` 接受 `cancel_token`，在**每轮迭代开�?*�?*每次工具派发�?*检查：命中则以 `termination_reason="cancelled"` 结束本轮并保留已产出内容，工具则返回结构化的「未执行」结果。最强的断言是第一条：**预先取消�?run �?provider 的调用次数为 0**——点了停止就不再花钱�?
+  - 阶段二至四（⏳，�?ROADMAP 与设计文档第 9 节）：provider 流式读循环的中断、Web 断线宽限期与重连续跑、CLI SIGINT �?specialist �?token、每工具超时表�?
+- **A4 批次�?· grep 非文本降级（P1-22�?026-09-14�?*：`rag/grep_retriever.py` �?PDF/DOCX/PPTX 是「按文本读」，两类后果同时存在——ripgrep 遇到二进制直接返�?*无匹�?*，Python 回退读出来的也是乱码，于是「原文定位」在这些格式�?*形同虚设却毫无提�?*，模型据此说出「资料里没有」——一句可能完全错误的话�?
+  - 复现：新�?`tests/test_grep_binary.py` 三条：①同一批候选里文本文件仍能命中，而二进制文件被跳过并**计入统计**（`binary_skipped=1`、`binary_sources=["slides.pdf"]`）；②纯文本候选不会被误判；③`rag_search` 工具在拿�?`grep_unreadable>0` 时，**模型可见�?content 里必须出现「无法做原文定位」的提示**并且 `data` 里带结构化字段�?*修前失败信号**：`TypeError: GrepRetriever.search() got an unexpected keyword argument stats`；第一版实现还把同一次搜索的展开阶梯算成 3 次跳过（`assert 3 == 1`），改成�?*文档**去重计数后正确�?
+  - 修法：`_looks_binary()` �?ripgrep 同款规则嗅探�?4KB 是否�?NUL（不维护扩展名清单，.doc/.ppt 之类也覆盖）；`_grep_candidates` 在调用前跳过二进制并�?*文档�?*记入 `stats`；编排器把它放进 `RetrievalResult.debug`；`rag/retriever.py` 的状态字典新�?`grep_unreadable` �?`grep_unreadable_sources`；`tools/rag_search.py` 既写�?`data`，也追加一�?*给模型看**的提示（「有 N 份非文本资料无法做原文定位，不要据此断言资料里没有」）�?
+  - 前端可见文案（同一轮补齐）：`web/frontend/src/types.ts` �?`RunSummaryOperation` 增加 `grep_unreadable` / `grep_unreadable_sources`；`ChatPage` �?run-summary �?`semantic_available` 降级之后新增一�?`.retrieval-degraded` 文案，列�?*无法做原文定位的资料�?*。复现接缝：`e2e/interaction.spec.ts` 新增 `a run summary names the material it could not locate`，并�?run-summary �?operations fixture 提成常量复用——这正是原先缺的那道接缝（run-summary 是折叠的 `<details>`，测试需先点开 `summary`；第一版没点，失败信号�?`toBeVisible` 收到 hidden）。验证：`npx tsc --noEmit` 干净，`npx playwright test e2e/interaction.spec.ts` 12 passed�? 视口 × 4 用例）�?
+- **A4 批次�?· 向量补建（P1-18�?026-09-14�?*：导入时�?embedding 后端（Ollama）没起来，文档只被标�?`pending`；之后再 sync 会因为「内容未变」而不走写向量的分支，于是**向量永远补不上、语义检索永久缺失，而界面不报任何错**。`rag/sqlite_store.py::get_pending_vector_documents` 早就写好了，但除了测试没有任何调用方�?
+  - 复现：新�?`tests/test_vector_backfill.py` 三条�?*用真实的 SQLite 与真实的 Qdrant local 目录**（只�?embedding 客户端换成假对象，因�?CI 里没�?Ollama）：①pending 文档被补建后 `vector_status` 归零、embedding 被调用一次；②embedding 不可用时�?*安全 no-op**（仍�?pending，不会误�?indexed）；③embedding 抛错时错误被**记录到文�?*，而不是继续静�?pending�?*修前失败信号**：`ImportError: cannot import name backfill_vectors from obsidian.sync`�?
+  - 修法：`obsidian/sync.py` 新增 `backfill_vectors(sqlite, qdrant, embedding, embedding_dim)`——遍�?pending 文档、取回其 chunks、嵌入、先删旧向量�?upsert、标�?indexed；任何异常都落到 `mark_vector_error`，并把数量计�?`SyncSummary.vectors_backfilled`（同时进 `to_dict`）。顺带把 sync 内联�?Qdrant payload 构造抽�?`_vector_payload()`，补建走同一份字段定义，避免两处漂移�?
+- **A4 批次�?· specialist �?Web（P1-16�?026-09-14�?*：`tools/agents.py::register_delegate_tools` **只在 `cli/repl.py` 启动时被调用**，Web 后端从不注册，于�?`delegate_doc_reader` / `delegate_triage` / `delegate_planner` 三个�?agent 在浏览器里根本不存在——同一个产品，两个前端能力不对等�?
+  - 复现：新�?`tests/test_web_specialists.py` 三条——①`execute_tool` 必须�?*当次调用�?session** 注入给声明了 `session` 形参的工具；②`ensure_specialist_tools(config)` 注册出三�?`delegate_*` 且重复调用不产生重复注册；③Web �?`_WEB_TOOL_NAMES` 必须放行这三个名字�?*修前失败信号**：`assert delegate_doc_reader in TOOL_REGISTRY` 失败、`ModuleNotFoundError: web.backend.specialists`，以及白名单断言列出实际 frozenset 但不含该名字�?
+  - 修法：`tools/base.py::execute_tool` 增加 `session` 注入�?*Web 是并发的，不能像 REPL 那样闭包一个「当�?session�?*，会话必须随调用传递）；`tools/agents.py` �?delegate 函数签名改为 `delegate(session=None, **kwargs)`，优先用注入�?session、回退�?REPL �?`get_session`；`get_session` / `get_app_config` 变为可选以同时支持两端；新�?`web/backend/specialists.py::ensure_specialist_tools(config)`（进程内幂等），并在 `create_run` �?*�?schema 快照之前**调用——否则白名单放行了、schema 里却没有这几个工具�?
+- **A4 批次�?· 事件落库与断线续传（P1-17�?026-09-14�?*：续传这条路**每一节都在、就是没通电**——seq 打戳、`StreamStore`、`/streams/{id}/replay` 端点、前端按 seq 去重，全都写好了；但存储�?*进程内内存缓�?*，而且每个 run �?`finally` 里调 `emitter.clear()`（断线也走这条路径）—�?*清除的时机与重放的目的正好相�?*，所以重连永远读不到任何东西，重启更是一片空白�?
+  - 复现：新�?`tests/test_event_log.py` 五条（每流单�?seq、游标读取�?*新实例仍能读�?*（模拟重启）�?2 线程并发 append 得到唯一 seq、保留策略淘汰旧流）+ `tests/test_web_backend.py` 一条端到端：写入两�?�?清掉进程�?store 缓存（模拟重启）�?请求 replay 端点仍然拿到 `seq: 2` 与内容�?*修前失败信号**：`ModuleNotFoundError: core.event_log`；以及旧实现�?replay �?clear 之后返回空�?
+  - 修法：新�?`core/event_log.py`（SQLite `stream_events(stream_id, seq, event, data, created_at)`，seq 的读改写放在 `begin_immediate` 事务里保证并发唯一，`read_after` 游标读取，`prune` 按保留天数与流数量上限回收）；`StreamStore` 可挂一�?`EventLog`，挂上之�?*完全以日志为�?*（内存缓冲不再参与——否则重启后缓冲自己的计数器会与日志�?seq 打架）；`get_stream_store(workspace)` �?workspace 缓存；`create_run` 改用 workspace store 并在开跑时 `prune()`�?*删掉两处 `emitter.clear()`**；replay 端点改为读持久日志，并同时接�?`after_seq` �?`Last-Event-ID`（浏览器 EventSource 重连时会自动带它）�?
+  - 留待：客户端重连时发 `after_seq` 的接线、以及「宽限期内可续、超�?abort」——两者都依赖批次三的协作取消原语，放在那一批一起做，避免又造一个「写了没通电」的机制�?
+- **A4 批次�?· 上下文压缩接�?+ 配对兜底（P0-8、P1-11�?026-09-14�?*：审计说的三重问题都成立——①`context_window` 参数存在�?*两个生产调用方都不传**，压缩路径永不触发（死代码）；②即便触发，`checkpoint` 也是 `None`，`project_context` 丢掉中段却不留任何摘要（静默丢失）；③尾部切点用 `rest[-tail:]`，可能正好落�?`role=tool` 上，把配对的 `assistant(tool_calls)` 切掉，严�?provider 直接 400。另�?P1-11 指出「暂停在 ask_user 后不 resume 直接发下一条」同样会留下悬空 `tool_call`�?
+  - 复现：新�?`tests/test_context_projection.py` 八条——①切点永不落在 tool 响应上（拉回边界而不是前移）；②丢弃的中段必须转成确定�?checkpoint（含目标与用过的工具）；③孤�?tool 响应被丢弃；④缺失的 tool 响应被补桩（`assistant` �?`tool` 顺序）；⑤健�?transcript 原样通过；⑥**经由 AgentLoop 实测**发往 provider �?payload 里悬�?tool_call 已被补桩；⑦`resolve_context_window` 对缺�?0/非数字回退到保守默认；⑧`AgentService.run_stream` 确实�?window 传给 loop�?*修前失败信号**：`ImportError: INTERRUPTED_TOOL_RESULT`（机制不存在），以及 loop 发出�?transcript �?`assistant(tool_calls)` 后面直接�?`user`�?
+  - 修法：`repair_tool_pairing()` 放在**最终序列化�?*（`_build_context` 的返回处，也就是 provider 真正看到�?payload），两条不变量一次覆盖，任何将来的投影改动都不会再引入非�?transcript；`_tail_start()` 把边界往**�?*拉而不是往后推（保持配对完整）；`structural_checkpoint()` 用规则而不是模型抽取目�?工具/失败数—�?*用模型去总结一个刚刚超窗的上下文，需要正是刚才耗尽的那份预�?*；`DEFAULT_CONTEXT_WINDOW = 32000` + `resolve_context_window(config)`，Web �?CLI 两个生产入口都传，`config.yaml` 增加 `agent.context_window`�?
+- **A4 批次�?· hooks 最小接�?+ P0-9 工具结果上限�?026-09-14�?*：`core/hooks.py` 与它的四个派发点早在 AG-2.1 就写好了，但**生产代码里注册数为零**——文档声称承载权限检查与结果消毒，实际运行的代码里没有这两件事。同�?P0-9 指出单条工具结果没有任何上限（只�?`read_file` 自带 1MB），`rag_search` 还会把同一�?chunk �?JSON 与格式化文本里序列化两遍�?
+  - 复现：新�?`tests/test_builtin_hooks.py` 七条——①超长结果必须被截断且**保留头尾**并带省略说明；②短结果原样通过；③**失败结果永不截断**（错误文本是唯一的排查线索）；④�?`dispatch(AFTER_TOOL, �?` 走一遍派发后拿到的替换结果确实被限界；⑤白名单门对未启用工具返回 `unavailable in this runtime`（与既有测试断言的文案一致）、对 `allowed=None` 放行；⑥重复注册不产生重�?hook；⑦**构造一�?AgentLoop 后注册表里必须能查到这两个内�?hook**——这正是审计测试盲区�?7 条缺的守护�?*修前失败信号**：`ModuleNotFoundError: core.builtin_hooks`，以及注册表在生产路径下始终为空�?
+  - 修法：新�?`core/builtin_hooks.py`——`cap_tool_result`�?2000 字符上限、头尾各 40%、中间替换为省略说明并提示用 offset/limit 续读、失败结果豁免）�?`allowlist_gate`（把白名单作�?*每次派发的数�?*传入，而不是全局注册，避�?specialist 的白名单污染主循环）；`AgentLoop.__init__` 调用幂等�?`register_builtin_hooks()`（每个运行路径都会构�?loop，覆盖面最广，也不怕新增调用方忘记接线）；原先内联的白名单判断改为走注册表派发，行为与文案保持不变�?
+- **A4 止血轮立项（2026-09-14�?*：外部审�?[`TECH_AUDIT_2026-09-14.md`](TECH_AUDIT_2026-09-14.md) 落库�?5 P0 / 36 P1 / 33 P2 / 12 测试盲区）。本轮按「先止血 �?再接�?�?横切原语单独立项」推进；`docs/ROADMAP.md` 新增 **§2 A4 止血�?*，把要做哪几条与审计编号对应起来，P2 不排期。审计编�?`P0-x` / `P1-x` 成为稳定引用，后续提交信息带编号�?
+  - 立项前对照三个本地参考项目（DeepTutor / OpenMAIC / openhanako-reference）逐条核查，确认可照搬项（工具渐进披露、原子写地基、事件表 + `Last-Event-ID`、lease 队列、序列化后配对兜底）�?*不要抄的�?*（Windows �?`fcntl` 缺失即静默无锁、`setdefault` 给模型留缝、ring buffer 不能当唯一恢复依据）。其�?DeepTutor �?`tools/file_tools.py` 路径校验写了却从未接线、`events/event_bus.py` 只发无订阅者，与本次审计「不缺架构缺接线」的判断互为印证�?
+  - 验收口径：每条先写会失败的复现测试再修；断线取消 / Qdrant 双开 / 删除确认 / 向量补建四类必须真实集成或故障注入；CHANGELOG 记录复现方式与失败信号�?
+- **设计规格层重�?+ 骨架层落地（2026-09-14�?*：用户实测反馈「前�?UI 还是不好看、不够丝滑」，复查 `docs/DESIGN.md` 后确认问题不是「约束太紧」，而是**紧在禁令、松在规�?*——对�?DeepTutor / openhanako / OpenMAIC 三个参考项目（�?`docs/REFERENCE_PROJECTS.md`）找出可借鉴项后，先重写规格层，再落地骨架层�?
+  - **诊断（全部为实测�?*：三档纸�?`#f5f4ed` / `#f7f5ef` / `#f3efe5` 只差 2�?/255，等于一档；全站只有 31 �?`transition`；文档写「辅助说�?12�?3px」�?494 �?`font-size` �?233 条（47%）低�?12px；`--blue*` 被引�?188 次�?`--petal-wash` 只有 2 次。禁令没有反面（§14 原先全是绝对禁止、没有配额），实现只能退到「发丝线列表 + 只用主色」�?
+  - **§4 颜色改为面积预算**：每个色相给正面配额（墨�?/ 纸色作结构色不限；sage、clay 每屏�?�?1 个整块区域；petal �?视口 2% 且必须列调用点，否则�?token）；§14 只禁止「超出预算」与整页主题化�?
+  - **§4 token 表成为唯一真相�?*：改成代码里真实使用的命名（文档里那�?`--color-*` 从未被实现）�?4 �?token 的名与值必须等�?`styles.css` �?`:root`，由契约测试逐条校验�?
+  - **§7 表面 / 边框 / 高度分档**：纸色三档拉开（`--paper-soft` 提亮、新�?`--paper-sunken` 作停靠面）、边框分 0.06 / 0.12 / 0.20 三档、新�?`--shadow-lift` 给内�?hover 与选中；圆角扩�?6 / 8 / 12 / 16 四档并明令禁�?5 / 7 / 9px；配额写死「内容区每屏 �?1 层嵌套表面、≤ 1 处抬升」�?
+  - **§5 / §6 / §11**：字号下限（辅助 �?2 / UI 标签 �?3 / 正文 16�?8）写成硬约束并记录当前差距；新增 4 / 8 / 12 / 16 / 24 / 32 / 48 间距刻度（只有图标与 1px 边框豁免）；新增三档 spring 预设（CSS `linear()` 近似、过�?�?%�? 允许 `scale` 0.96�?.02 �?�?20ms 布局动画—�?*仍不引入 motion �?*�?
+  - **§14 拆成「底线」与「配额�?*，新�?**§16 组件规格与交互四�?*：静�?/ hover / active / focus-visible / disabled 四态表 + 逐组件规格表（页面容器、停靠栏、顶栏、卡片、列表行、主次要按钮、图标按钮、输入框、chip、状态块、浮层、弹窗抽屉）�?
+  - **骨架层落�?*：侧栏与右栏改用 `--paper-sunken`（三级结构第一次显形）、顶栏与右栏 tab �?active �?`--shadow-lift`、导航与按钮�?hover 抬升�?spring 按压、圆角与间距开始引�?token、shell 一�?10 �?10�?1px 标签提到 12px、`--muted` / `--faint` 拉开并加深（正文对比度同时改善）�?
+  - **防漂�?*：新�?`web/frontend/src/lib/designTokens.test.ts` ——文�?�?代码 token 一致性（含「代码里属于规格命名空间�?token 必须写进文档」的反向检查）+ 三条棘轮�?12px 字号 �?26、裸 `ease` �?6、不�?§7 刻度上的圆角 �?3、过渡里的裸毫秒 �?），只允许下调。已实测：故意把文档里的 `--paper` 改成 `#f5f4ee`，测试精确报�?`--paper: 文档 #f5f4ee / 代码 #f5f4ed`�?
+  - **F19 批次 1 · Chat 页（2026-09-14�?*：按新规格收�?Chat 面。实测起点：一条消息里塞着 8.8px 的时间戳（`<small>` �?11px �?`.run-summary` 里按 0.8em 缩）�?�?1px �?`personalization-chip` 与来�?chip�?0px 的编排器下拉与输入提示�?2.5px 的选项 chip�?
+    - **字号**：`.run-summary` 11�?2、`personalization-chip` 9/10/11�?2、`.source-chip` 11�?2、`.composer-hint` 10�?2、选项 chip 12.5�?3、下拉触发器 10�?3（菜单项 11�?3、分组标�?9�?2、`.dropdown-item small` 9�?2）；正文�?`.user-message` 15�?6、`practice-ready-card p` 12�?3、`.answer-prose table` 14→`var(--body-font-size)`。实测结果：**Chat 页正文与辅助文字最�?12px，不再有低于下限的元�?*（审计脚本对 71 个文本节点逐个取计算样式）�?
+    - **密度**：`.assistant-message` 48�?2、`.user-message-wrap` 34�?4、`.conversation` 内边�?44/30�?2/24、`.source-row` 18�?6、`answer-actions` 14�?6，全部改�?`--space-*`；圆角全部改�?`--radius-*`（含原先 4px/7px 的越轨值），`.dropdown-panel` 那处写死的旧纸色 `rgba(247,245,239,.98)` 换成 `var(--paper-soft)`�?
+    - **交互�?*：`.source-chip` �?`ease` 换成 `var(--ease-out)`，按压改�?`var(--spring-micro)`；下拉触发器/菜单项补 transition，选项 chip 选中态补 `--shadow-lift`�?
+    - **回归测试**：`e2e/interaction.spec.ts` 新增「每一�?Chat 文案都在字号下限之上」——同一会话�?*未作答卡与已作答两种状�?*都逐节点扫描（低于 12px 就把元素与像素值列出来）、选项 chip �?3、气泡与答案正文 �?6、把 `--body-font-size` 调到 18px 后正文跟着变、宽视口下编排器工具条不溢出。三视口通过�?
+    - 棘轮同步下调�?12px 字号 226�?*208**、裸 `ease` 16�?*15**、脱轨圆�?73�?*69**、裸毫秒 5�?*4**�?
+    - 验证：Python `1450 passed`、Vitest `63 passed`、ESLint 与生产构建通过、Playwright 全量通过�?
+  - **F19 批次 2 · Practice·Review 页（2026-09-14�?*：这一批直接对着用户的原始抱怨做——「题目周围有许多空白、题目显示太单调太淡、我的答案和参考答案都是浅色细字」�?
+    - **答案不再又浅又小**：练习结果里 `.answer-feedback small`（参考答案）原先**没有字号**、只知道继承 `<small>` �?0.8em，颜色还�?`--muted`；现�?14px / `--ink` / 500 字重。小结里 `.recap-item small`（你的答案）11px `--muted` �?13px `--ink` 500；`.answer-feedback p`（批改意见与解析）改为跟�?`var(--body-font-size)`；判定标�?`.answer-feedback > div` 15px/700�?
+    - **输入与选项**：简答题 `.short-answer` 原先没有字号（继承容器），现�?16px 且跟随阅读偏好，圆角与内边距�?token；选项文字 14px �?`var(--body-font-size)`，选项徽标 12�?3px，选项行补 hover / 选中抬升与四态过渡�?
+    - **字号下限扫尾**：`.practice-header span` 11�?2、`.practice-summary header span` 10�?2、`.review-summary span` 11�?2、`.review-kind` 11�?2、`.review-row p` 11�?2、`.review-more` 11�?2、`.resume-row small` 10�?2、`.practice-ai-drawer` 头部与上下文 10�?2、`.page-heading` 眉标 11�?2 与说�?14�?5�?
+    - **密度与层�?*：`.question-sheet` 内边�?30px→`var(--space-6)`、圆�?8→`var(--radius-lg)`；题目下间距 25→`var(--space-5)`；练习容�?34/30→`var(--space-6)/var(--space-5)`；小结与回顾�?gap / padding / 圆角全部改走 `--space-*` / `--radius-*`；`.practice-ai-drawer` 写死的旧纸色 `rgba(247,245,239,.98)` 换成 `var(--paper-soft)`；`.practice-mode button` �?15px 胶囊改为 `var(--radius-xl)`�?
+    - **回归测试**：`e2e/app.spec.ts` 的判断题流程补上结果区字号断言（判�?�?5 / 正文 �?6 / 参考答�?�?3）�?
+    - 棘轮同步下调�?12px 字号 208�?*195**、脱轨圆�?69�?*65**，裸 `ease` 与裸毫秒不变。实测复核：`/practice/11` �?`/review` 两页的可见文�?*已经没有低于 12px 的元�?*�?
+    - 验证：Python `1450 passed`、Vitest `63 passed`、ESLint 与生产构建通过、Playwright 全量通过�?
+  - **停靠面回�?· 侧栏不再是一条黄带（2026-09-14，用户反馈）**：用户给的参照是 [tw93/Kami](https://github.com/tw93/Kami) �?Claude 网站的暖纸风，并指出左右侧栏的颜色突兀。查参照项目�?`tokens.json` 后发�?*本项目的调色板本来就�?Kami 同源**——画�?`#f5f4ed` 就是 Kami �?`--parchment`，品牌色 `#1B365D` 就是 Kami �?`--brand`；出问题的只是上一批自己挑的停靠面 `#efeade`：它比画布深 9�?9/255，且 **HSL 饱和�?0.35 高于画布�?0.29**，于是整条侧栏渲染成饱和的橄榄黄�?
+    - 改成�?Kami 自己的三档：停靠�?`#f0eee6`（Kami �?inline-code 灰）、画�?`#f5f4ed`（parchment）、抬升面 `#faf9f5`（ivory）。与画布的通道差收�?5�?/255�?
+    - **把「不突兀」变成可执行约束**：`DESIGN.md` §7 �?`designTokens.test.ts` 新增「纸张阶梯」——三档顺序固定、与画布每个通道�?�?8/255、停靠面必须更灰（HSL 饱和�?�?画布）。同一组断言对每个纸色主题都跑（�?`[data-paper-texture="off"]`，它原先只换了画布与抬升面，停靠面会漂到 11/255，已补上自己的值）�?
+    - 已实测这组断言真的会咬人：把停靠面改回 `#efeade` 会同时报�?`--paper-sunken` 通道超限�?`expected 0.3469 to be less than or equal to 0.2857`�?
+  - **F19 批次 3 · Library·Reader 页（2026-09-14�?*：资料列表是整个应用里字号最失控的一页—�?0 行文档每行都带一�?**9px** �?`.document-extraction-state`（「尚未提取」�?7 / 「已提取」�?）和 **10px** �?meta 行�?
+    - **资料列表**：状�?chip 9�?2（`max-width` 70�?8、`border-radius: 999px`→`var(--radius-xl)`）、标�?12�?4、meta 10�?2、行内边距与圆角改走 `--space-*` / `--radius-*`；工具条上下�?10�?2、更多菜�?12�?3 与浮�?5px 内边距→`var(--space-1)`�?
+    - **阅读�?*：`section-location`（「资料片段」，单页 64 处）10�?2、`reader-topbar-title span`（`COURSE DOCUMENT` 眉标�?0�?2�?
+    - **表单与编辑器一�?*：用一�?*按选择器前缀限定**的脚本（�?dry-run 打印 23 条改动再 `--apply`）把 `library-setup-dialog` / `library-path-hint` / `library-migration-preview` / `document-editor*` / `document-proposal*` / `reader-related-notes` / `document-bulk-tools` �?9�?1px 辅助文字统一提到 12px，`.library-tabs` / `.reader-tab` / `.chapter-rail` / `.library-switcher` / `.document-search` 提到 13px�?
+    - **回归测试**：`e2e/app.spec.ts` 的首次导入流程补上「建库弹窗内不得有低�?12px 的文字」断言�?
+    - 棘轮同步下调�?12px 字号 195�?*167**、脱轨圆�?65�?*60**。实测复核：`/library` �?`/library/read/*` 两页可见文本**已无低于 12px 的元�?*（资料列�?50 行、阅读器 300+ 文本节点）�?
+    - 验证：Python `1450 passed`、Vitest `69 passed`、ESLint 与生产构建通过、Playwright 全量通过�?
+  - **F19 批次 4 · 低频�?+ 收口�?026-09-14，F19 完成�?*：这一批用**按选择器前缀限定**的脚本做，先 dry-run 打印 123 条改动再 `--apply`；脚本本身也留在流程里，改的是选择器前缀可枚举的面�?
+    - **覆盖�?*：设置页全部 8 个分区（�?AI 与模�?/ 记忆与数�?/ Provider / 状态与关于），Wiki 维护与编辑器，笔记列表与编辑器，知识地图（目录视�?/ 来源视图 / 力导向参数），以及共用外壳（连接条、错误边界、快捷键面板、迁移预览、onboarding）�?
+    - **规则**：交互控件（导航、tab、工具条、预设行、编辑器工具条、快捷键分组）提�?13px；辅助文字（提示、字段说明、徽标、计数、摘要、告警）统一�?12px�?
+    - **收口扫尾**：另跑一条只做「低�?12px 全部提到 12」的脚本，把此前没有审计到的表面补齐——composer 作用域、@ 提及列表、斜杠命令面板、过程折叠、消息引用按钮、右栏的上下文关�?/ 指标 / 文档 / 下一步，移动端底部导航，以及 5 条写在多行规则里的知识地图与侧栏标题。顺带修�?`.candidate-badge` �?9px 圆角与写死的 `#fff`�?
+    - **结果：整�?`styles.css` �?494 �?`font-size` 声明里，低于 12px 的是 0 �?*（本轮起�?233 条）。`designTokens.test.ts` 的那条棘轮随之从「预�?167」变�?*门禁 0**：此后任何新增的低于 12px 字号都会直接失败�?
+    - 验证：Python `1450 passed`、Vitest `69 passed`、ESLint 与生产构建通过、Playwright `80 passed / 1 skipped`——全量在三视口重跑，确认这把扫过 200 条规则的改动没有破坏既有流程。实测复核：chat / practice / bank / library / reader / review / notes / knowledge-map 与设置的全部 8 个分区，可见文本均无低于 12px 的元素�?
+  - **F19 未做**：间距与圆角尚未全量收敛�?token（脱轨圆�?73 �?59，仍有存量）；暗色主题只留了可换主题�?token 形状�?`[data-theme]` 钩子。；暗色主题（本轮只�?token 改成可换主题的形状）�?
+  - 验证：Python `1450 passed`、Vitest `57 �?63 passed`、ESLint 与生产构建通过、Playwright `77 passed / 1 skipped`；`tests/conftest.py` �?tripwire 确认全量跑前后真实工作区库未变�?
+- **题库收口 · �?1 批（2026-09-11，E18 补齐�?*：首轮交付后逐条对照 `QUESTION_BANK_DESIGN.md` §6 的验收条件，发现四处「设计写了、实现没有」的缺口，本批补齐前三处�?
+  - **筛选轴补全**：`difficulty`（难度）�?`source`（资料，精确匹配）打�?store �?service �?API �?UI；题库页新增题型 / 难度 / 资料三个下拉（复�?`DropdownSelect`），资料列表来自 `bank_overview` 新增�?`by_source`，并补了「清除筛选」。`GET /api/quiz/bank` �?`qtype` / `difficulty` 改为受校验参数�?
+  - **按当前筛选组�?*：批量按钮不再排除「已收藏」，并把概念 / 关键�?/ 题型 / 难度 / 资料一起带�?`/api/quiz/bank/practice`，真正做到「练我正在看的这些」；按钮文案改为按状态取名词（错�?/ 收藏�?/ 未作答题…），免得出现「重练前 5 道未作答」这类句子�?
+  - **复习页去�?20 条窗�?*（D5/S4 的正式验收）：`get_review_queue` 现在返回题库的真实错题总数 `wrong_total`，行数窗口放宽到 200（路由上�?500），被截断时给「在题库中查看全部」。此前只统一了错�?*定义**、窗口还在，错题超过 20 时两处数字会对不上——`QUESTION_BANK_DESIGN.md` §5 �?S4 状态已据实修正�?
+  - 仍未做：UI「问 AI」带 `question_id` 引用某题、命名练习集、S6 联网搜题、S7 导出与备份（见设计文�?§5 的收口清单）�?
+  - 验证：Python `1430 passed`、Vitest `57 passed`、lint 与生产构建通过、Playwright `59 passed / 1 skipped`（题�?e2e �?6 条增�?9 条，覆盖难度 / 资料筛选与按筛选组卷）�?
+- **题库收口 · �?2 批（2026-09-11，E18 补齐�?*：D4 后半的「引用某一道题」落地�?
+  - 题库每行新增「问 AI」：�?`question_id` 写进对话草稿（`handoffStore.setChatDraft`）并跳到 Chat，用户可以先改再发�?
+  - `bank_list` 新增 `question_id` 参数，agent �?id 读回**同一道题**（顺带补�?`difficulty` / `source` 过滤）；读回走的是题库路径，因此**未作答的题依旧不返回答案**——没有为「引用」新开一条泄题通道�?
+  - `GET /api/quiz/bank?question_id=` 同步支持（`ge=1`，`0` 返回 422）�?
+  - 验证：Python `1432 passed`、Vitest `57 passed`、lint 与构建通过、Playwright `62 passed / 1 skipped`（题�?e2e 增至 12 条，新增三视口「行内问 AI �?id 带进对话草稿」）�?
+- **题库收口 · �?3 批（2026-09-11，E18 补齐�?*：命名练习集（D2 的承载物、D8 的两张小表）+ 测试隔离加固�?
+  - `question_sets(id, name, created_at, updated_at)` �?`question_set_items(set_id, question_id, position, added_at)`�?*只存 id、不复制题面**（有测试钉住列定义），集合因此永远不会与题库脱同步；建表�?`CREATE TABLE IF NOT EXISTS`，现有库零迁移�?
+  - 全套 REST：`GET|POST /api/quiz/sets`、`GET|PATCH|DELETE /api/quiz/sets/{id}`、`POST /api/quiz/sets/{id}/items`、`DELETE /api/quiz/sets/{id}/items/{question_id}`、`POST /api/quiz/sets/{id}/practice`（`question_set_not_found` �?404）�?
+  - 题库列表新增 `set_id` 视图：看集合只是多一个筛选条件，状�?tab / 分页 / 批量练照常工作，不必另写一套渲染；空集合读作空而不是「没有筛选」（�?id 列表会被当成无约束，这点单独处理）�?
+  - 题库页新增「练习集」区：按**当前筛�?*存为命名集合（默认名取筛选摘要）、查看、练这集、改名、删除（走统一确认弹窗）；每行可加入某个集合或「新建并加入」，看集合时可逐题移出�?
+  - �?D4�?*agent 依旧不碰集合结构**（三个只�?/ 收藏工具不变），集合的建改只�?UI 侧�?
+  - **测试隔离加固**（同批发现）：`tests/test_learning.py` 的两�?`generate_path` �?`tests/test_repl.py` 全模块都把「当前目录」当工作区，会打开并迁�?*开发者的真实 `.knowledge/bobodan.db`**——本轮新增题集建表让这个泄漏第一次产生了实际写入。修掉三处（显式�?`tmp_path` / 模块�?`monkeypatch.chdir`），并在 `tests/conftest.py` �?*会话结束�?tripwire**：跑完比对真实库的大小与 mtime，被动过就让这次运行失败并说明原因。此后全量跑的前后哈希与 mtime 完全一致�?
+  - 验证：Python `1437 passed`、Vitest `57 passed`、lint 与构建通过、Playwright `65 passed / 1 skipped`（题�?e2e 增至 15 条，新增三视口「按筛选建�?�?查看 �?练这集」）�?
+- **题库收口 · �?4 批（2026-09-11，S6 联网搜题�?*：D9 的第三类来源——「搜现成的题」�?
+  - 出题接口新增 `mode` 开关（`generate` / `search`）。`search` **只提取网页上已经存在的题�?*（教材练习、课程测验、文档里的练习题），照原样保留题面与选项，不自己编写；页面里没有现成题就返回 `no_web_questions`�?*不凑数、也不退回本地出�?*——这条有回归测试钉住：搜题模式下 `generate_from_query` 一旦被调用就直接失败�?
+  - 「搜题没有本地分支」是刻意的：`search` 存在的理由就是「别人已有的题」，而不是「本地资料能生成什么」。因此它先要联网同意（沿用既�?`web_consent_required` 流程，文案改为解释两种模式的区别）�?
+  - 证据链与 D9 一致：来源页仍是不可变快照、`attribution_kind="web"`；每条来源额外标 `third_party: true`，这就是导出时区分「模型写的」与「页面本来就有的」的依据（第 5 批使用）。前端沿用现成的 `AttributionBadges` �?`WebSourceBadge`：显示「网页来源」、可点回原文、可查看当时保存的引用片段�?
+  - 练习页新增「让 Bobodan 出题 / 搜现成的题」切换，并说明两者区别；搜题模式下没写主题会给出明确提示�?
+  - **未做**：把联网题的新概念注册成概念候选（D9 的硬边界「不进知识地图」本来就成立——没有任何路径把题目概念写进图谱；缺的是「只进候选」那半句的钩子），已在设计文�?§5 标注�?
+  - 验证：Python `1444 passed`、Vitest `57 passed`、lint 与构建通过、Playwright `68 passed / 1 skipped`（题�?e2e 增至 18 条，新增三视口「练习页切到搜题模式 �?请求�?mode=search」）�?
+- **题库页排版重构（2026-09-14�?*：用户实测反馈「字体太小、组件占比太多、题目周围空白多、题目和答案太淡」。逐条查证后按 `docs/DESIGN.md` 的硬约束重做题库页的字号、层级与密度�?*只改前端样式与结构，后端零改�?*）�?
+  - **字号回到规范�?*：�? 要求正文 16�?8px / UI 标签 13�?4px / 辅助说明 12�?3px，而题库页此前�?9/10/11/12px �?15 处。现在行�?*最小字�?12px**（e2e 会扫�?`.bank-row` 内所有文本节点断言），筛�?/ 下拉 / 搜索 / 分页 / 练习集一�?12.5�?3.5px�?
+  - **题干跟随用户设置**：题干此前硬编码 17px、不�?`--body-font-size`，所以设置里的「正文字号」（15/16/17/18）对题库无效。现在用 `var(--body-font-size)` + `font-weight: 500` + `--ink`：靠字重与前景色取得存在感，而不是一味放大（参�?DeepTutor `QuestionCard` �?`text-[14px] font-medium text-[var(--foreground)]`）�?
+  - **题目成为一张轻纸片**：`.bank-row` 从「发丝分隔线 + 两列 grid」改成单列轻卡片（细边框 + `--paper-soft`�?*无阴�?*），并按状态给 3px 左侧竖条（错�?clay / 基本正确与答�?sage / 未作�?中性）；文字状�?chip 保留——不把颜色当作唯一表达（DESIGN.md §14）�?
+  - **答案不再是一行浅灰小�?*：答案区�?`12px + --muted` 的裸段落改成带「你的答�?/ 参考答案」标签的**左边框色�?*（复用练习页既有�?`.answer-feedback` 语言�?3.5px + `--ink`，错题走 clay）；同时「你的答案：X」在行内可见，值用 `--ink` + 500 字重。没有采�?DeepTutor 那种「卡片里再放一个带边框的答案框」，因为那是 §14 明确禁止的卡片套卡片�?
+  - **控制区压�?*：状态筛选、搜索、题�?/ 难度 / 资料下拉、清除筛选合并成**一个可换行区块**（此前是三行）；概念 chips 保留一行；练习集面板改为默认折叠的 `<details>`（有集合时自动展开）。首�?y 坐标 538 �?**482**�?
+  - **行高与首�?*：桌面单行题 **208 �?169px（−19%�?*，可见题目从�?2 行到�?**2.8 �?*；做法是把右侧竖排的 4�? �?40px 按钮改成页脚横排，并去掉与来源章重复的来源字符串。移动端因按钮必须换行，行高基本持平�?81�?37px）�?
+  - **范围纪律**：`.mention-tabs` / `.dropdown-trigger` / `.source-chip` 是全站共享类，只�?`.bank-toolbar` / `.bank-*` 作用域内覆盖；`.primary-button` �?40px 最小高度是 DESIGN.md 硬规则，**没有为了压行高去违反�?*�?
+  - **未做**：全站排版批次——`styles.css` 350 �?`font-size` 里仍�?247 �?< 13px，已把实测差距记�?`DESIGN.md` §5 作为后续验收口径�?
+  - 验证：Python `1450 passed`（后端零改动，跑一次确认没误伤）、Vitest `57 passed`、lint 与生产构建通过、Playwright `77 passed / 1 skipped`（题�?e2e 24 �?27 条，新增三视口「行内最小字�?�?2px / 题干跟随 `--body-font-size` / 行高与首题位置上�?/ 答案标签」）；另在真�?vault �?17 题上量了改造前后对比并截图核对�?
+- **题库收口 · �?5 批（2026-09-11，S7 导出与备份）**：D7 的两件事——Markdown 导出与备�?/ 恢复�?
+  - **题库级备�?/ 恢复**：`bobodan-question-bank` �?schema 版本号的 JSON，覆盖题目、作答记录、会话�?*收藏**�?*命名练习�?*——后两者只存在于这张库里，丢了无处可寻；恢复是**整体替换**（不做合并，否则会留下指向上一个资料库的作答记录），前端先弹统一确认框再提交。删除顺序按外键逆序（先子后父），这�?bug 是被往返测试抓出来的�?
+  - **Markdown 导出**：按当前筛选或某个命名练习集导出，按状态分组、带你的答案 / 参考答�?/ 解析 / 知识�?/ 来源�?*D9 的第三方约束在这里落�?*：来自外部页面的题（`third_party`）默认排除，并在导出说明里写明排除了几道；显�?`include_third_party` 时逐条标注「第三方题目（联网来源）…请勿再分发」�?
+  - 题库页页头新增「导�?Markdown / 备份 / 恢复」三个入口；排除第三方题目时用全局提示位告知，不静默�?
+  - **边界**：这�?*题库自身**的备份。资料库整体备份 / 恢复仍属 `PROJECT_GUIDE.md` 的「数据保护专项」，届时把这份一起纳入�?
+  - 验证：Python `1450 passed`、Vitest `57 passed`、lint 与构建通过、Playwright `74 passed / 1 skipped`（题�?e2e 增至 24 条，新增三视口「导出下�?.md / .json」与「恢复前确认」）�?
+- **题库 MVP（E18 S1–S5�?026-09-10，分�?`feat/e18-question-bank`�?*：把「每道生成的题都已经落库」接成用户能看见、能收藏、能重练的题库，兑现 `PracticePage` 里那句长期失真的「留空时会从现有题库与资料重点中选择」。设计依�?`docs/QUESTION_BANK_DESIGN.md`（D1–D9）�?
+  - **数据�?*：`questions` 新增 `bookmarked_at`（沿�?`_ensure_db` �?PRAGMA 迁移，幂等，现有题目零迁移）；新�?`list_bank_questions` / `count_bank_questions` / `bank_overview` / `set_bookmark`。状�?*全部派生**——用 `MAX(id)` 子查询取最近一次作答，不物化任何状态列。未作答的题在列表与工具输出里都**不返回答案与解析**，题库不会变成答案表�?
+  - **错题语义收敛（有意为之的用户可见变更�?*：`get_wrong_answers` 从「所有答错的尝试」改为「最近一次仍答错」，`partial` 不再算错（与 E15 三态判分对齐），`get_weakness_analysis` 同步排除 `partial`。答错后重练答对的题会同时从错题本和题库的错题筛选里消失；复习调度（SM-2）不受影响�?
+  - **接口**：`GET /api/quiz/bank`（状�?/ 题型 / 资料 / 概念 / 关键字筛�?+ 分页 + overview）、`POST /api/quiz/bank/bookmark`（幂等）、`POST /api/quiz/bank/practice`（按题目 id 或按当前筛选起练）�?
+  - **练习页题库视�?*：新�?`/practice/bank`（静态段注册�?`practice/:practiceSessionId` 之前；作�?Practice 的一个视图，不新增一级导航）：状态筛选带计数、关键字搜索、概念筛选、分页、收藏、单题重练与按状态区分的批量重练；未作答的题不显示参考答案�?
+  - **复习衔接**：复习页与题库共用同一个「错题」定义，两页互有入口�?
+  - **Agent 工具**：`tools/question_bank.py` 提供 `bank_overview` / `bank_list` / `bank_bookmark`，只声明 `workspace`（`execute_tool` 只注入工具声明过的参数），只�?+ 收藏�?*不含起练**，因此不会重新打开 E13 已封堵的「聊天文本练习」通道�?
+  - **本轮未做**：命名练习集（D8 的两张小表）、S6 联网搜题、S7 导出与备份、题库行内「问 AI」引用某题；均记录在 `QUESTION_BANK_DESIGN.md` §5 �?`ROADMAP.md`�?
+  - 验证：Python `1427 passed`�?22）、Vitest `57 passed`、前�?lint 与生产构建通过、Playwright `56 passed / 1 skipped`（新�?`e2e/question-bank.spec.ts`，三视口�?2 条）�?
+  - **交付后审查修�?*：`incorrect` 改成**兜底�?*——最近一次作答只要不是「通过」就算错题（`verdict = incorrect`、E15 前旧行、以及任何未识别�?verdict）。原来的写法会让一个未识别�?verdict 在界面上标成「答错」，却既进不了错题筛选、也不计入任何计数，四个状态加起来对不上总数；现在四个派生状态永远把题库分完，并有两个不变量测试钉住。`GET /api/quiz/bank` �?`state` 改为受校验参数，拼错返回 422，而不是静默把整库列出来。题库页在结果集变小（例如在「已收藏」页取消最后一条收藏）时把页码收回有效范围；批量按钮按状态改用对应文案（未作答是「开始做」、答对是「复习」，不再一律叫「重练」）�?
+- **测试套件隔离修复�?026-09-11�?*：`tests/conftest.py` 现在�?`BOBODAN_WORKSPACE` 一并指向一次性目录（此前只隔离了 `BOBODAN_HOME`）。默认工作区就是当前目录，所以任何没有显式传 workspace �?store 都会打开开发者的真实 `.knowledge/bobodan.db`——这已经实际发生过一次：套件静默迁移了真实库的结构。对照实验确认因果：去掉这行 pin，跑完全量后真实库会重新出现；加回后全量运行对该路径没有任何连接，并且在把真实库放回原位后，跑前跑后的文件哈希与 mtime 完全一致。新�?`tests/test_isolation.py` 钉住这条边界。（�?3 批发现这�?pin 只盖住走环境变量的路径；`learning/path.py` �?`workspace="."` �?`cli/repl.py` �?`os.getcwd()` 仍会打开真实库，已随�?3 批修掉并补上会话结束�?tripwire。）
+- **文档体系收敛�?026-09-03�?*：新增统一路线�?`docs/ROADMAP.md`——合�?openhanako 前置路线（R0-R3）、参考项目调研报告借鉴清单（DeepTutor D1-D13 / OpenMAIC O1-O10 / qiaomu Q1-Q10 / 前端 F1-F18）、整机优化计划遗留�?026-08-01 体验审查未决项与 P5G.2/3 剩余，按 W1 学习闭环 / W2 检索与 RAG / W3 前端第二�?/ W4 运行时底�?/ W5 发布通道五个工作流组织，附执行波次、已拍板决策与合并后的明确不做清单�? 份已完成或被取代的文档（任务�?/ 审查报告 / 旧路�?/ 知识地图设计）移�?`docs/archive/`；`docs/README.md` 重写�?6 份活跃文档索引；`rag_design.md` 顶部�?embedding 决策更新横幅（用户自�?API 取代 Ollama 假设，详见调研报告第十章）。调研报告保留为活文档（ROADMAP 条目的论据与源码索引）�?
+- **R0 质量与调试基建（2026-08-28，分�?`feat/r0-quality-infra`，依�?`docs/PRE_DESKTOP_ROADMAP.md`�?*：借鉴 openhanako v0.450 的测试与调试实践，正面解�?桌面版前难调试难测试"�?
+  - **测试策略成文**（`tests/README.md`）：风险驱动分层 + keep/delete 规则（删锁文案、删 mock 私有字段、删环境依赖的间歇失败用例），LLM 测试必须走单缝�?
+  - **ScriptedProvider**（`tests/llm_fake.py`）：唯一认可�?LLM 测试替身——脚本化文本/工具调用/错误注入、分块流式、请求全量记录；`scripted_provider` fixture 统一注入，替代散�?FakeProvider�?
+  - **e2e 收缩**：删�?13 条分支前就长期失败的浏览器用例（业务契约已由 Python 路由测试等价覆盖）；新增 3 条三视口冒烟（启动与主路由渲�?/ composer 与斜杠面�?/ 设置打开�?Esc 关闭）；移动端仿真无法点�?100dvh 设置页下半区的用例按政策跳过（桌�?窄屏覆盖）。结果：45 用例�?12 条永久失败变为全绿�?
+  - **一键开发栈**（`scripts/dev.py`）：随机空闲端口 + 健康轮询 + `~/.bobodan-dev` 隔离数据目录（`--fresh` 可清空）+ `server-info.json` 握手文件 + `BOBODAN_API_URL` 注入 Vite 代理 + 双进程联动回收；真实用户数据零接触�?
+  - **`agent.py diagnose`**：只读脱敏健康报告（运行�?供应商目录不含密�?资料库注册表与存储计�?日志指针），各节失败软着陆，可直接粘贴到 issue�? 个测试钉住脱敏与容错契约�?
+  - **持久化登记册**（`core/persistence_registry.py` + tripwire 测试）：21 个存储全部登�?owner/scope/rebuildable/purpose；源码出现未登记存储文件名即测试失败，登记项失去引用同样失败�?
+  - 验证：全�?pytest 见下方记录、vitest/lint/build 通过、`dev.py` �?`diagnose` 真实启动冒烟通过�?
+- **前端体验与动效体系优化轮�?026-08-27，分�?`refactor/perf-2026-08`�?*：全面审查后的交互层收敛，六个提交�?
+  - **弹窗基元**：新�?`ui/Modal`——统一 backdrop �?220ms 入场、模块级层级栈（嵌套管理器只关最顶层，修复供应商/记忆管理器叠加在设置页时一�?Esc 两层同关的竞态）、焦点陷阱与焦点归还；`ConfirmDialog + useConfirm()` 替换全部 10 处原�?`window.confirm` 破坏性确认�?
+  - **动效收敛**：时长归一�?`--dur-fast/base/slow` 三档 token、缓动只剩两�?token 曲线；去�?`spin` 关键帧；删除零消费的 Collapse/SlideIn/AnimatedList；Bobodan 处理状态图不再按状态重挂载（预加载四态图消除闪烁）；mention 面板与其余弹出菜单共�?menu-enter 入场�?
+  - **减少动效对齐 OS 语义**：应用内开关现在施加与 `prefers-reduced-motion` 一致的全局停用规则；图谱相�?hover 补间与流式打字机改为实时读取 `lib/motion.ts`（原先只在挂载时快照一次）�?
+  - **品牌形象接入**：失败回答换 curious 表情；Knowledge Map 加载、复�?笔记/阅读器加载态统一为品牌插画变体；图标型空状态补齐品牌状态图；笔记页复用共享 EmptyState 且个人知识管理浮层不再双重遮罩。Chat 欢迎页曾改用 hero 插图�?*经用户对比后确认保留原版**（方形形�?+ 居中标题，hero 图自带底色与页面纸色不一致、浮层卡片显杂乱），已回退并在品牌 README 标注 hero 暂不接线�?
+  - **加载平滑**：知识地图改为「实例创建一�?+ 数据增量同步」——候选审查、概念编辑不再重�?WebGL 渲染器、重放入场动画和相机复位；Library/阅读页切换文档保留旧正文淡出（stale-while-revalidate），不再白屏闪转圈；Practice「问 AI」接�?StreamBuffer 打字机缓冲并支持 Markdown 渲染�?
+  - **可发现�?*：Ctrl/Cmd+N 新对话真实生效（此前按钮上有提示但无绑定）；阅读页补 `[` / `]` 章节导轨键；顶栏新增键盘快捷键参考弹窗（只列真实存在的绑定）�?
+  - **掌握度去占位**：知识地图侧栏「掌握状态」接通既�?`/api/learning/progress?concept=` 接口，显示真实状�?评分/下次复习（此前硬编码「尚未练习」）。经核实，「已停止」标记与孤儿提取运行启动扫描此前已实现�?
+  - DESIGN.md §11 同步三档动效 token 与减动效语义。验证：Vitest 46 passed、lint/tsc 与生产构建通过、Python 全量 1365 passed；Playwright desktop 项目与本分支起点基线**完全持平**�?2 处失败均为分支前已存在的陈旧/环境用例，hero 初版曾挤出新对话�?composer 导致 slash-palette 用例失败，限高后通过）。SSE 对外契约与证据门禁行为不变�?
+- **后端并发模型优化�?026-08-27，分�?`refactor/perf-2026-08`�?*：聊�?SSE 流改为在专用受限通道（CapacityLimiter 16）上泵送，不再占用 FastAPI 共享请求线程池（默认 40 线程）——此前每条活跃对话流会独占一个池线程直至该轮结束，极端情况下会饿死普通端点；对外 SSE 事件契约不变。`/api/kb/import` 的文件解�?提取工作下沉到线程池，不再阻塞事件循环（该端点此前是唯一 async def 路由却在循环内做阻塞解析）。验证：Python `1365 passed`�?362 基线 �?+3 泵流单测）、`test_web_backend` 全量回归零失败�?
+- **Library 重构后续打磨�?026-08-27�?*：编辑器向资料库全库开放——`course_document` �?`obsidian_note` 资料也可在列表页/阅读页编辑（原始资料 truth source 原则不变，仍走检查点 + 最�?10 �?+ 哈希冲突三选项）；系统区域保持只读（`.knowledge` 运行时索引、`.bobodan/checkpoints` 版本快照、`.bobodan/archive` 归档），旧工作区�?`.bobodan/sources` �?`managed-vault` 用户内容不受影响。知识地图工具栏新增「添加概�?/ 添加关系」弹窗（用户手写即视为已审查，`evidence_level='user'` 边界不变）。修复章节导轨关闭后被悬停热区立即重新弹出的问题；阅�?tab 栏改为吸顶。验证：Python `1362 passed`�?356 基线 �?+6 回归测试）、Vitest `46 passed`、前�?lint 与生产构建通过�?
+- **完成 Library 重构 + 图谱编辑（TASKS_LIBRARY_REWORK v1.0�?026-08-13�?*：分�?`feat/library-rework`，按任务书落�?4 个任务�?
+  - **任务 1 布局方案 A**：Library 拆为列表�?`/library` + 阅读�?`/library/read/:id`（`ReaderPage.tsx`）；阅读页顶部细条（返回 / 上一份下一�?/ 编辑 / 概念提取）、正文居中限宽、返回列表恢复滚动位置（localStorage）、键盘导航（Esc / Shift+J/K）、移动端天然兼容�?
+  - **任务 2 openhanako 三件�?*：多文档 tab（点击切�?/ 双击关闭 / 滚轮横滑，每 tab 保留滚动位置，`readerTabsStore.ts`）；章节导轨（右�?64px 悬停热区弹出 heading 列表，点击跳�?+ 高亮）；选中文字浮出动作（带到对�?/ 基于此出题）�?
+  - **任务 3 编辑入口 + 分栏编辑�?*：列表行�?+ 阅读页顶部「编辑」按钮（md/txt/markdown）；`DocumentEditor.tsx` 升级为分栏编辑预览——编�?预览并排�?0fps 双向滚动同步（rAF 节流）、`Ctrl+\` 切换分栏/纯编辑、可拖拽分栏分隔线，保留检查点 / 10 版历�?/ 回滚 / 哈希冲突三选项�?
+  - **任务 4 图谱编辑**：`graph/concept_store.py` 新增 `update_concept`（部分更�?+ 改名唯一冲突校验）与 `create_relationship`（自�?/ 重复 / 非法类型 / 缺失概念全拒绝，`evidence_level='user'`）；`web/backend/routers/kb.py` 新增 `PATCH /api/kb/concepts/{id}`、`POST/DELETE /api/kb/relationships`；`ConceptSidebar.tsx` 加编辑概�?/ 删除关系 / 添加关系，写入后�?`uiStore.graphRevision` 即时刷新图谱�?
+  - 验证：Python `1356 passed`（基�?1343 �?+13，零回归）、Vitest `46 passed`、前�?lint 与生产构建通过�?
+- **完成整机优化计划（AGENT_OPTIMIZATION_PLAN v1.1�?026-08-13�?*：按计划书依赖顺序落�?A 系列（发动机）、B 系列（车厢）、LB-1（资料协作）全部 10 个阶段核心，14 �?commit，分�?`feat/optimization-plan`（已推�?origin）�?
+  - **A 系列（发动机，按 Pi 图纸�?*：AG-0 外围地基——`core/event_bus.py` 过滤事件总线、`core/agent_events.py` 事件四层收敛、`web/backend/sse.py` SSE 流身份（streamId + seq + 重放 ring buffer）、`core/stream_guard.py` 流消毒守卫、`core/runtime/` 适配层门面；AG-2 循环增强——`core/hooks.py` 两层钩子、证据门�?工具白名单沉淀�?before_tool 门禁、只读工具并行执行、工具执行去重；AG-3 记忆与压缩——`core/memory_injector.py` before_turn 注入�?500 token 预算）、`core/prompt_layout.py` KV cache 分界线、`core/session_compactor.py` checkpoint 纯投影压缩�?
+  - **B 系列（车厢，�?OpenHanako 经验�?*：FE-1 前端地基——`src/ui/` selector 归一�?/ 动画原语 / 块级 ErrorBoundary / CSS Token / `@/` 别名；FE-2 流式体验——`streamBuffer.ts` 30fps 节流 + 自适应文本节流、`scrollEasing.ts` + `useStickyBottomScroll.ts` 贴底滚动、SSE seq 去重；FE-3 过程披露——`processFold.ts` + `ProcessFoldBlock.tsx` 过程折叠；FE-4 页面联动与图谱动效——FadeIn 页面过渡、知识地图概念→Chat 上下文跳转、学习范围共享，图谱入场 / hover 过渡 / 聚焦度数行走 / 拖拽反馈 / 搜索 spotlight / 力参数可�?+ prefers-reduced-motion 降级（维�?sigma.js + graphology + forceAtlas2）�?
+  - **LB-1 资料协作**：LB-1.1 用户编辑——`service/document_edit_service.py` Markdown 优先 + 检查点 + 最�?10 �?+ Obsidian 双开哈希冲突三选项 + 编辑后重索引/Wiki needs_update，`DocumentEditor.tsx` 编辑�?UI；LB-1.2 AI 协作编辑——`service/document_proposal_service.py` 提案→确认→应用→撤销（复�?Wiki 检查点机制），`DocumentProposalCard.tsx` 提案卡�?
+  - **AG-1 会话革命（条件执行）**：P5G 未验收（P5G.2 Electron / P5G.3 支撑页面待办）→ 仅交付设�?+ `core/session_jsonl.py` JSONL 迁移路径 + 测试，未切换线上默认 `.json` 会话格式�?
+  - 验证：Python `1343 passed`（基�?1233 �?+110，零回归）、Vitest `46 passed`、前�?lint 与生产构建通过；SSE 对外事件名不变、证据门禁行为不变�?
+- **前端视觉统一与沉浸式笔记编辑器（2026-08-13�?*：新建主题化 `DropdownSelect` 组件（原�?select 下拉面板无法跟随暖纸色主题），全面替�?composer、设置页、Library、知识地图、记忆管理、供应商管理、候选审查的所有原生下拉；`/notes` 写笔记从填表改为沉浸�?Markdown 编辑（正文为主角、第一�?`#` 自动提取标题、编�?预览切换、Ctrl+Enter 保存、关联资料折叠）；统一视觉细节——补 `--sage-deep`/`--ink-soft`/`--accent`/`--shadow-dialog` token、替�?13 处散落硬编码绿色、统一弹窗阴影、统一圆角（composer/run-summary 10�?、candidate-panel 12�?）、补 send-button �?5 �?tab 组缺失的 hover 态、复选框主题化。布局和配色主基调不变。验证：Vitest `19 passed`、前�?lint 与构建通过（纯前端改动）�?
+- **Chat 体验与个人笔记统一�?026-08-13�?*：① 概念关系卡片不再重复/空渲染——图谱空结果不输出卡片、一轮多次查询只保留第一张、收到卡片不自动弹右侧面板（改为卡片内按钮按需打开）；�?侧栏新增一级「笔记」导�?�?`/notes` 页面，个人笔记统一到个人知识（Wiki note 停止新建、隐藏「个人笔记」Tab、已有笔记原地只读保留）；③ 笔记 �?资料库双向轻联动——个人知识新�?`references` 字段，写笔记可关联资料、资料阅读器显示相关笔记（笔记永不进入概念图谱，只做关联展示）；�?流式观感修复——前端加渐进显示缓冲，证据门禁回�?token 时呈现打字机效果而非整段弹出。验证：Python `1233 passed`、Vitest `19 passed`、前�?lint 与构建通过�?
+- **完成 P5G.4 模型供应商管理（Provider Catalog�?*：新�?`providers/catalog.py`，供应商配置迁移�?`~/.bobodan/provider.json`（API key 可在设置�?UI 填写，不再需要手�?`config.yaml` / `.env`；首次启动自动迁移旧配置，key 留空时回退环境变量，零断供过渡）。供应商下挂多模型，聊天框与任务路由（主题发�?/ 页面撰写）升级为「供应商 �?模型」两级选择（`provider::model` 引用，旧纯供应商格式兼容）。设置页新增「管理供应商」：预设模板（含�?key 的本�?Ollama�? 完全自定义（OpenAI 兼容协议）、远�?`GET /models` 自动拉取模型列表、手输兜底、测试连接、删除（密钥脱敏返回，编辑留空保持原 key）。验证：Python `1231 passed`、Vitest `19 passed`、前�?lint 与生产构建通过、真实启动冒烟（settings / 新增 / 删除 / 测试连接 / 模型�?chat 引用）通过�?
+- **完成 P5G.1 单进程本�?Web**：新�?`python agent.py web`，一条命令启动完整产品（FastAPI 托管 React 生产构建 + SPA 深链接回退 + `/api/*` 不被拦截）；默认 `127.0.0.1`、端口被占用自动向后查找、启动后自动打开浏览器；生产模式应用数据位于 `~/.bobodan`、日志写�?`%LOCALAPPDATA%\Bobodan\logs\web.log`（`--dev` 保持开发行为）；启动失败给出端�?配置/构建三类可操作提示。验证：Python `1212 passed`、Vitest `19 passed`、生产构建与真实启动冒烟通过�?
+- **桌面端资料进库设计落地（2026-08-12�?*：应用数据统一 `~/.bobodan` 点目录；资料库根目录全格式扫描（PDF/DOCX/PPTX 丢根目录或任意子目录即可被索引，`raw/` �?source 保持稳定，`wiki/` 等内部结构不索引）；新增 `agent.py library init --default` 一键创�?`Documents\Bobodan 资料库`；切片句子边界软切（句号 �?分号 �?逗号回退，中文长句不再腰斩）+ 阅读器相邻切片去重标题。设计决策全文见 `docs/PROJECT_GUIDE.md` P5E.1 小节。验证：Python `1217 passed`、Vitest `19 passed`、前端构建通过�?
+- **完成 2026-07-26 项目审查整改**：修复审查报告中�?B1–B9 正确性问题，并继续沿“单一正常运行真相源、旧数据只做显式迁移”的原则收敛后端与前端�?
+- 正常运行时退役旧 Markdown Memory、JSON sparse/local RAG、JSON / Neo4j 图谱�?`WikiCompiler`；Wiki 保留为高级维护与历史整理，不再作为默�?RAG 证据�?
+- 本地资料检索统一�?SQLite `knowledge.db`、中�?CJK 2-gram FTS5 与可�?Qdrant；修正混合检索排序，增加有界缓存并收紧并发数据库访问�?
+- 知识地图统一使用已审查的 `concept_graph.db`。旧 `graph_store.json` 只在设置页惰性检测，经预览、用户确认、写后校验和 SHA-256 记录后归档�?
+- 个人知识统一使用结构�?SQLite。旧 `.bobodan/memory/*.md` �?daily 文件仅提供只读预览和显式迁移，不再写入或注入 Agent Prompt�?
+- Provider 增加类型化错误与统一重试边界；MiniMax 流式响应加入拒答检测，并禁止已经输出首�?chunk 后从头重试造成重复回答�?
+- 学习调度改为保守 SM-2，`mastered` 项仍会进入后续复习；题目生成增加错题变体，批改解析失败不再污染掌握度和错题本�?
+- 前端路由使用懒加载与应用级错误边界；拆分 Chat 流归约、命令路由、artifact 和跨页状态，修复上下文竞态、错误帧处理与旧数据迁移交互�?
+- 刷新�?README、文档索引与审查记录，使产品说明与当前运行时一致�?
+- 验证结果：Python `1160 passed`�? 条既�?warning），前端 lint 与生产构建通过，Vitest `19 passed`，`git diff --check` 通过�?
 
-- **后续路线调整**: 下一阶段改为 P5E“用户主动触发的 LLM Wiki”。资料导入只建立原文索引，用户要求整理后先生成变更计划，确认后才写入可互链、可回到原文、可撤销的 Wiki；可信联网顺延到 P5F，发布收尾顺延到 P5G。
-- **侧栏品牌头像**: 左上角恢复使用正式主头像 `bobodan-avatar-64.png`，不再把低频 `friendly` 表情图作为固定品牌入口。
-- **Docs cleanup**: 新增 `docs/README.md` 作为文档索引，新增 `docs/DESIGN.md` 作为长期视觉设计参考；将 `docs/OPENAI_AGENT_CODEX_REFERENCE_FOR_BOBODAN.md` 纳入当前工程边界参考；将已实现或历史详细设计移入 `docs/archive/`，当前执行入口收敛到 `docs/NEXT_STEPS_EXECUTION_PLAN.md`。
-- **REPL UI 改进**: thinking 动效增加实时计时器（`⠋ thinking · 3.2s`）。工具调用显示改为 Claude Code 风格（`▸ tool_name(args)` → `✓ preview`），消除多余空白行。thinking 动效在工具执行期间保持可见。
+- **后续路线调整**: 下一阶段改为 P5E“用户主动触发的 LLM Wiki”。资料导入只建立原文索引，用户要求整理后先生成变更计划，确认后才写入可互链、可回到原文、可撤销�?Wiki；可信联网顺延到 P5F，发布收尾顺延到 P5G�?
+- **侧栏品牌头像**: 左上角恢复使用正式主头像 `bobodan-avatar-64.png`，不再把低频 `friendly` 表情图作为固定品牌入口�?
+- **Docs cleanup**: 新增 `docs/README.md` 作为文档索引，新�?`docs/DESIGN.md` 作为长期视觉设计参考；�?`docs/OPENAI_AGENT_CODEX_REFERENCE_FOR_BOBODAN.md` 纳入当前工程边界参考；将已实现或历史详细设计移�?`docs/archive/`，当前执行入口收敛到 `docs/NEXT_STEPS_EXECUTION_PLAN.md`�?
+- **REPL UI 改进**: thinking 动效增加实时计时器（`�?thinking · 3.2s`）。工具调用显示改�?Claude Code 风格（`�?tool_name(args)` �?`�?preview`），消除多余空白行。thinking 动效在工具执行期间保持可见�?
 ### 修复
-- **qdrant-client 版本漂移：集合统计永远报错（2026-09-23）**：`QdrantStore.get_stats()` 直接读 `info.vectors_count`，而当前安装的 qdrant-client 已移除该字段，于是统计恒定返回 `{"error": "'CollectionInfo' object has no attribute 'vectors_count'"}`。它是**真实接入验证**（对本地 OpenAI 兼容假服务跑完整 sync → 检索链路）时暴露的，不是猜出来的。
-  - 复现：新增 `tests/test_rag_qdrant_store.py::test_get_stats_survives_the_installed_qdrant_client`——**真实 Qdrant local 目录、不用 mock**。**修前失败信号**：`assert "error" not in stats` 拿到 `{'error': "'CollectionInfo' object has no attribute 'vectors_count'"}`。既有的 `test_get_stats` 一直绿是因为它写的是 `assert "vectors_count" in stats or "error" in stats`——**报错也算通过**，正是审计批评过的「mock 掩盖版本漂移」。
-  - 修法：`getattr` 逐级回退（`vectors_count` → `indexed_vectors_count`），`points_count` 同样防御性读取。本地 Qdrant 惰性建索引，刚 upsert 后 indexed 计数可以是 0，所以测试断言「类型正确且无 error」，而不是一个会飘的具体数字。
-- **CI 首跑暴露的两个真问题（2026-09-23）**：新加的 CI 在 main 上第一次运行就把两个「本机永远看不到」的坑照了出来。
-  - ① 仓库根目录的 `test_agent.py` 是手工冒烟脚本，缺 `MINIMAX_API_KEY` 就在 import 时 `exit(1)`；本机有 `.env` 所以一直没事，CI 里直接把整个 pytest 变成 **INTERNALERROR（收集期崩溃）**——仓库此前**没有任何 pytest 配置**，pytest 默认从根目录收集。修法：新增 `pytest.ini` 的 `testpaths = tests`，本机与 CI 从此收集同一批文件。**修前失败信号**：`INTERNALERROR> ... File "test_agent.py", line 17, in <module> / SystemExit: 1`。
-  - ② `requirements.txt` 里 `mcp>=1.0` 没有上界，CI 装到 **2.2.0**，而 `mcp_client/transport_http.py` 与它的测试是按 1.x 的 `streamablehttp_client` 写的；本机是 1.19.0，所以这条永远是绿的。**修前失败信号**：`ImportError: cannot import name 'streamablehttp_client' from 'mcp.client.streamable_http'`。修法：`mcp>=1.0,<2`，并记录「升级 2.x 需要同时改该模块与测试」。
-  - **仍未解决**：Python 侧没有 lock 文件（前端有 `package-lock.json`），同一类漂移还会再出现。这是补完 CI 之后最该做的下一件基建。
-- **A4 止血 · P0-4 静态托管路径穿越（2026-09-14）**：`web/backend/static.py::spa_fallback` 直接 `dist / full_path` 后交给 `FileResponse`。Windows 上带盘符的绝对路径会**整体替换**左侧（`dist / "C:/Windows/win.ini"` 就是那个文件），百分号编码的 `..%2F` 则在所有平台越界。
-  - 复现：`tests/test_static_hosting.py` 新增两条用例（百分号编码穿越、Windows 盘符绝对路径），断言越界必须 404 且响应体不含 canary 文件内容。**修前失败信号**：`assert 200 == 404`；另外单独探针确认两种请求都返回 `200` 且响应体就是 canary 原文（不是回退到 SPA index）。
-  - 修法：candidate 先 `resolve()`，必须 `is_relative_to(dist)` 才允许返回；越界一律 404，不再回退 SPA index（避免用 200 掩护探测）。
-- **A4 止血 · P0-5 + P0-6 工具沙箱边界与写保护（2026-09-14）**：`tools/base.py::execute_tool` 原来是 `call_args = dict(args)` 加 `setdefault("workspace", ...)`，**模型传的 `workspace` 会赢**；同一个函数里 `document_ids` 却用了覆盖写法，说明作者知道要覆盖、只是没把沙箱根归到同一类。配套两处：`_is_denied_path` 只比对 basename（`.git/config`、`.knowledge/knowledge.db`、`.session/<id>.json` 因此读写都畅通），`_is_within_workspace` 用大小写敏感的 `startswith`（Windows 下 `C:\Foo` 与 `c:\foo` 是同一文件）。
-  - 复现：`tests/test_tool_base.py` 三条（模型自带的 `workspace` 不得生效、未声明参数必须被丢弃、`chat_session_id` 与 `search_provider` 等会话身份不得由模型指定）+ `tests/test_file_ops.py` 两条（内部目录不可读、不可写），另加一条**反向测试**（工作区本身位于名为 `venv` 的目录下时仍要能读）。**修前失败信号**：`assert "/tmp/project:x" == "/attacker:x"`、以及 `write_file` 对 `.git/config` 返回 ok=True 并真的把文件写了出来。
-  - 修法：按函数签名做参数白名单（接受 `**kwargs` 的工具除外）；所有会话作用域参数改为**赋值而非 setdefault**（含 `cwd`、`workspace`、`document_ids`、`web_research_id`、`search_provider`、`jina_fallback`、`research_session_id`、`chat_session_id`）；拒绝列表改为按**工作区之下的路径段**匹配并忽略大小写，`_is_within_workspace` 走 `os.path.normcase`；trace 增加按**内容形态**脱敏（`Bearer` / `Basic` / `token=` / `api_key` / `password` 以及 `sk-`、`ghp_`、`xox`、`AIza` 形态），覆盖 `args`、`content`、`result_summary`、`error` 四处，而不只是字段名匹配。
-- **A4 止血 · P0-7 中文 token 估算（2026-09-14）**：`core/session_compactor.py` 与 `core/memory_injector.py` 各有一份 `CHARS_PER_TOKEN = 4`（中文按 1 字≈0.25 token 估）。实测（本项目语料 + cl100k_base）：25 个中文字 = 29 token、54 个 ASCII 字符 = 9 token。低估的方向最危险——`should_compact` 永不触发、1500 的名义记忆预算实际能塞进数千 token，最终以 provider 400 收场。
-  - 复现：两个测试文件各加一条 `test_estimate_tokens_counts_cjk_conservatively`。**修前失败信号**：`AssertionError: (7, 25)`——25 个中文字被估成 7 个 token。
-  - 修法：新增 `core/token_budget.py` 作为唯一估算器（宽字符 ≥ `0x2E80` 记 1.2/字、其余保留历史 1/4）；压缩器与注入器改为复用它，注入器的预算核算从「字符数 × 4」改成真正的 token 计数。
-  - 注意：估算修正后 `memory_injector` 的 1500 预算**第一次真的生效**（此前实际放行约 4 倍内容）。按约定本轮不动这个数字，先让它真实生效。
-- **A4 止血 · P0-11 删概念 500（2026-09-14）**：`relationships.from_id/to_id` 引用 `concepts(concept_id)` 却没有 `ON DELETE` 动作，而 `PRAGMA foreign_keys` 是开的（实测确认为 1），于是**只要这个概念在关系里出现过**（确认过候选、手建过关系必然如此）删除就会抛 `FOREIGN KEY constraint failed`，`service/concept_service.py::delete_concept` 没有 try/except，用户侧就是 500——概念删不掉。有意思的是同一张 schema 里 `evidence.rel_id` 写了 `ON DELETE CASCADE`，说明作者会用级联，只是漏了这两处。
-  - 复现：`tests/test_concept_store.py` 新增两条（删带关系的概念、删概念同时清理布局位置）。**修前失败信号**：`sqlite3.IntegrityError: FOREIGN KEY constraint failed`（用原始 SQL 探针复现，确认 `foreign_keys = 1`）。
-  - 修法：在 `ConceptStore.delete_concept` 里一个事务内先删关系（其 evidence 由已有的 `rel_id` 级联带走）、再删无外键的 `concept_positions`、最后删概念。放在 store 而不是 service，是为了让 API、Wiki 流程与测试走同一条路径。
-- **A4 止血 · P1-21 grep chunk_id 跨进程不稳定（2026-09-14）**：`rag/grep_retriever.py::_matches_to_hits` 用 Python 内置 `hash()` 生成 `grep:<doc>:<8hex>`。`hash()` 对字符串按进程随机加盐，**重启后同一段原文的 id 就变了**，而错题变式正是按 `chunk_id` 回原文定位——表现为「练习里引用得到、重启后找不到」。
-  - 复现：新增 `tests/test_grep_chunk_id.py`，用两个不同 `PYTHONHASHSEED` 的子进程各算一次 id 并比对。**修前失败信号**：`grep:doc-1:968c90e5 != grep:doc-1:65b66b45`。
-  - 修法：改用 `rag/sqlite_store.py` 里已有的 `_stable_hash`（sha256 前 16 位），id 形态变为 `grep:<doc>:<16hex>`。
-- **A4 止血 · P1-28 `/kb reset` 与 manifest 自相矛盾（2026-09-14）**：`reset` 删了 `knowledge.db` / `bobodan.db` / `sync_state.json` / `import_report.json` / qdrant 目录，唯独没删 `manifest.json`。而 `build_library_summary` 正是从 manifest 读文档列表，于是 reset 之后**「资料总数」还显示 1（连同文件名与 last_sync），而 `list_documents` 是空的**——两个接口互相打脸。
-  - 复现：`tests/test_kb_service.py` 新增一条：写入带一份文档的 manifest，确认 summary 是 1，执行 reset，再确认 summary 归零。**修前失败信号**：`assert 1 == 0`，且 summary 里仍带着 `courses=[CourseSummary(file_count=1)]` 与旧的 `last_sync`。
-  - 修法：把 `manifest.json` 加进 reset 的清理列表。它是派生索引（下次 sync 会重建），与已清理的 `knowledge.db` 同级；用户的研究记录（`research.db`）不在清理范围，这是有意的。
-- **A4 止血 · P0-13 + P1-8 原子写地基（2026-09-14）**：`raw/` 是「不可变证据层」，会话文件是对话的唯一记录，但两处都是裸 `open(path, "w")`：崩溃、磁盘写满或并发读取都可能看到半截文件，两个写者还会互相覆盖。项目里偏好设置与资料库注册表**早已**用 temp+replace（`wiki.reliability.atomic_text`），只有这两处没跟上。
-  - 复现：新增 `tests/test_atomic_io.py` 三条——①写原文时 `os.replace` 抛错，原文必须保持不变且不留临时文件；②会话保存失败时磁盘上的快照必须还是上一版且仍可解析；③跨进程互斥（子进程持锁，父进程 0.5s 内必须 `LockTimeout`）。**修前失败信号**：①`assert '新内容' == '原始内容'`（原文被摧毁）；②`after != before`；③`ModuleNotFoundError: core.atomic_io`。
-  - 修法：新增 `core/atomic_io.py`——同目录 `NamedTemporaryFile` 写入后 `flush + fsync`，`os.replace`（对 Windows 的 `PermissionError` 做指数退避重试，因为读/杀毒/索引器会短暂占用目标），失败时清理临时文件并保持原文件不动；目录 fsync（非 Windows）；`path_lock` 做进程内每路径串行；`workspace_write_lock` 用 `msvcrt`/`fcntl` 双平台实现跨进程互斥（**参照项目在 Windows 上 `fcntl` 缺失即静默无锁，是明确要避开的坑**）。会话保存与原文/版本 manifest 改写为走它。
-  - 留待：`workspace_write_lock` 目前只有测试在用，接入 sync 等多文件写者属于 P0-15 那一项。
-- **A4 止血 · P0-12 删除确认（2026-09-14）**：`sync_sources` 的删除判定是 `deleted_sources = [s for s in old_state if s not in new_state]`——**只要这一轮扫不到就判删除**。而扫描用的 `os.walk` 没有 `onerror`，目录读不到时静默跳过；网络盘/外接盘瞬断、权限变化、符号链接失效都会让文件「消失」。后果是级联删掉 `documents`/`chunks`/`directory_entries`、清掉 Qdrant 向量、把概念证据标 stale，而概念证据的修复又依赖 excerpt 精确匹配——匹配不上就永久 stale。
-  - 复现：新增 `tests/test_sync_deletion.py` 五条：①扫描器遇到「列得出但读不了」的文件必须记录错误（注入一个幽灵文件名）；②同一来源必须**连续两轮**缺失才删除；③扫描报错时完全不删除（保留计数）；④重新可见的来源清掉待删计数；⑤vault 扫描同样要报告不可读文件。**修前失败信号**：`ImportError: cannot import name _resolve_deletions`（机制不存在），以及一次性缺失即进入删除清单。
-  - 修法：抽出纯函数 `_resolve_deletions(old_state, new_state, previous_missing, scan_failed)`——连续 `DELETION_CONFIRMATIONS = 2` 轮缺失才判删，`scan_failed` 为真时一个都不删且不推进计数；计数随 `sync_state.json` 持久化（顺带改走原子写）；`_scan_course_files` / `_scan_library_root` / `scan_vault` 三个扫描器都接 `onerror` 与逐文件 `OSError`，把「列得出但读不了」记入错误而不是让文件凭空消失；扫描错误会进 sync 摘要的 `errors`，用户能看到「扫描不完整」。
-- **A4 止血 · P0-15 Qdrant 双开（2026-09-14）**：qdrant-client 的 local 模式会对目录加锁，而 `rag/retriever.py::_retrieval_pipeline` 长期持有一个 client 的同时，`obsidian/sync.py` 又自建了第二个——同一个路径两个 client。表现为**偶发**的「检索不可用 / 导入失败」，最难排查的那类。`clear_retrieval_cache` 只在少数入口被调用，`sync` 不调它。
-  - 复现：新增 `tests/test_qdrant_lifecycle.py` 四条：①同一 workspace 两次取必须拿到同一个对象；②不同 workspace 必须不同；③检索管线持有的必须是共享注册表里那一个（真实构造管线断言对象同一性）；④关闭后注册表必须真的丢弃它（否则 reset 时目录仍被锁、`rmtree` 会失败）。**修前失败信号**：`ImportError: cannot import name shared_qdrant_store`。
-  - 修法：`rag/qdrant_store.py` 新增按 client 身份（local 路径 / server url+collection）去重的共享注册表，`shared_qdrant_store()` 与 `close_shared_qdrant_store()` 是唯一入口；检索管线与 `sync` 都改用它；`_close_pipeline`（LRU 淘汰路径）**不再关闭**共享 client，避免把别人正在用的连接关掉；`clear_retrieval_cache(workspace)` 负责关闭并注销，因为 reset 之后要删掉那个目录。
-- **A4 止血 · P1-14 读改写串行化（2026-09-14）**：`service/preference_service.py::patch` 是「读 revision → 校验 → 写」，中间没有任何锁。两个并发请求都读到同一个 revision、都通过校验、都被告知写入成功，**其中一个改动静默消失**。另一类是 SQLite 侧：Python sqlite3 默认延迟开启事务，读改写会在提交时才拿写锁，输的一方拿到 `SQLITE_BUSY_SNAPSHOT`——活儿干完了才失败。
-  - 复现：新增 `tests/test_preference_lost_update.py`（两个线程用 barrier 保证都读到同一 revision 再写）。**修前失败信号**：`AssertionError: ['ok', 'ok']`——两个调用者都收到成功。另加 `tests/test_db_transactions.py` 两条，用两个连接实测 `BEGIN IMMEDIATE` 在**开始时**就拿写锁（对手立刻 `OperationalError`），而 `BEGIN DEFERRED` 要到 INSERT 才失败。
-  - 修法：`patch` 的读→校验→写收进 `path_lock` 临界区（并复用它下已有的 `_atomic_json`，顺带拿到 fsync 与 Windows 重试）；`core/db.py` 新增 `begin_immediate()` 原语（事务已开时幂等，避免 "transaction within a transaction"），`graph/concept_store.upsert_concept` 的名称查重与写入改为同一写事务——此前两个并发 upsert 会都通过查重，输的一方撞唯一索引而不是得到 409。
-- **阅读器章节目录关不掉（2026-09-14，用户反馈）**：点章节导轨的 ✕ 之后它会立刻弹回来。原因是关闭动作会在指针底下挂出 64px 的触发带（`.chapter-rail-zone`），而浏览器在光标底下的元素变化时会重算 hover 并补发 `mouseenter`——于是这次的 `setRailOpen(false)` 被它自己引发的事件撤销了，注释里「关闭时触发带不存在」的假设在 Blink 上不成立。改为记住关闭发生的位置，来自**同一坐标**（±8px）的那次 hover 直接忽略，指针离开触发带即解除。回归测试 `e2e/app.spec.ts`「the chapter rail dismisses and does not re-open under the same pointer」先复现（旧代码报 `Expected: 0, Received: 1`）再验证修复，同时钉住「离开后再靠近仍然能唤出」这条正向行为。
-- Wiki 默认区分“知识页 / 资料索引 / 个人笔记”，资料索引不再与概念页混排或显示为 `obsidian_note`；新生成的资料索引限制为短摘要、学习地图和关键结论，不再逐章复刻原文，已有页面可通过“AI 更新当前页”生成需确认的更新计划。耗时与 Token 估算改用同 Provider、同模型的真实请求样本并显示可信度，完成计划展示本轮实际用量、Provider 缓存和 Bobodan 本地缓存。
-- Wiki 取消现在会在每次模型请求前重新检查停止标记，不再继续执行同一批次内尚未发出的请求；刷新过的旧会话即使 artifact 与 plan 状态不一致，也会继续轮询并收敛为“已取消”。缺少 `summary / changes` 的中断记录按空计划安全显示，不再导致整个 Chat 页面白屏。
-- Wiki 资料摘要页和同名概念页改用类型感知的规范 ID，不再在 Library 中相互折叠；资料摘要、实体、概念、综合分析和问题页均显示正确类型。
-- Wiki 计划写入失败后会把最新校验状态持久化回 Chat artifact；刷新、切换会话或重启后仍能继续选择“保留原页”或“补全后重新规划”。
-- **Wiki 暂停恢复与状态动效修正**: Wiki 页面因异常缩减保护而暂停时，不再暴露“隔离区”内部术语；计划卡显示具体页面、可读原因和“保留原页继续 / 补全后重新规划”操作。同一校验错误不再重复累积，保留原页路径会安全写入其余页面。Chat 运行状态移除容易被理解为进度条的伸缩横线，改为三点墨迹错峰动效。
-- **P5F 练习与设置可用性修正**: 判断题改为明确的“正确 / 错误”选项并显示中文题型与难度；Bobodan 运行状态保持在回答正文流内；减少动效不再破坏开关圆点位置，Skills 说明不再挤压开关。
-- 修复新会话练习卡的跳转竞态：用户快速点击“开始练习”后，延迟的 Chat 会话地址更新不会再把页面拉回对话。
-- **P5F 自主联网与练习闭环修正**: 联网权限升级为“每次询问 / 模型自动”双模式，默认保持询问；自动模式下模型可调用受限 `web_research`，程序按来源类型、排名和域名去重自动读取最多 3 个来源。
-- Practice 生成增加资料标题模糊匹配、选中资料章节回退和一次 LLM JSON 修复重试；`langchian` 等拼写问题可解析为对应本地资料，资料不足时按联网权限继续，而不是直接显示通用错误。
-- `question_generate` 改为返回可持久化的“练习已就绪”卡片；点击后幂等创建 Practice session 并进入一题一卡页面，不再把完整题目堆在 Chat 正文。
-- Chat 处理状态改为正文流内的 Bobodan `thinking / reading / writing / ready` 图片状态；只展示工具、资料和任务进度，不展示模型原始思维链。
-- 用户偏好升级为 schema v3；验证：Python `1102 passed`、Vitest `5 passed`、TypeScript 与生产构建通过、Playwright 多视口 `57 passed`。
+- **qdrant-client 版本漂移：集合统计永远报错（2026-09-23�?*：`QdrantStore.get_stats()` 直接�?`info.vectors_count`，而当前安装的 qdrant-client 已移除该字段，于是统计恒定返�?`{"error": "'CollectionInfo' object has no attribute 'vectors_count'"}`。它�?*真实接入验证**（对本地 OpenAI 兼容假服务跑完整 sync �?检索链路）时暴露的，不是猜出来的�?
+  - 复现：新�?`tests/test_rag_qdrant_store.py::test_get_stats_survives_the_installed_qdrant_client`—�?*真实 Qdrant local 目录、不�?mock**�?*修前失败信号**：`assert "error" not in stats` 拿到 `{'error': "'CollectionInfo' object has no attribute 'vectors_count'"}`。既有的 `test_get_stats` 一直绿是因为它写的�?`assert "vectors_count" in stats or "error" in stats`—�?*报错也算通过**，正是审计批评过的「mock 掩盖版本漂移」�?
+  - 修法：`getattr` 逐级回退（`vectors_count` �?`indexed_vectors_count`），`points_count` 同样防御性读取。本�?Qdrant 惰性建索引，刚 upsert �?indexed 计数可以�?0，所以测试断言「类型正确且�?error」，而不是一个会飘的具体数字�?
+- **CI 首跑暴露的两个真问题�?026-09-23�?*：新加的 CI �?main 上第一次运行就把两个「本机永远看不到」的坑照了出来�?
+  - �?仓库根目录的 `test_agent.py` 是手工冒烟脚本，�?`MINIMAX_API_KEY` 就在 import �?`exit(1)`；本机有 `.env` 所以一直没事，CI 里直接把整个 pytest 变成 **INTERNALERROR（收集期崩溃�?*——仓库此�?*没有任何 pytest 配置**，pytest 默认从根目录收集。修法：新增 `pytest.ini` �?`testpaths = tests`，本机与 CI 从此收集同一批文件�?*修前失败信号**：`INTERNALERROR> ... File "test_agent.py", line 17, in <module> / SystemExit: 1`�?
+  - �?`requirements.txt` �?`mcp>=1.0` 没有上界，CI 装到 **2.2.0**，�?`mcp_client/transport_http.py` 与它的测试是�?1.x �?`streamablehttp_client` 写的；本机是 1.19.0，所以这条永远是绿的�?*修前失败信号**：`ImportError: cannot import name 'streamablehttp_client' from 'mcp.client.streamable_http'`。修法：`mcp>=1.0,<2`，并记录「升�?2.x 需要同时改该模块与测试」�?
+  - **仍未解决**：Python 侧没�?lock 文件（前端有 `package-lock.json`），同一类漂移还会再出现。这是补�?CI 之后最该做的下一件基建�?
+- **A4 止血 · P0-4 静态托管路径穿越（2026-09-14�?*：`web/backend/static.py::spa_fallback` 直接 `dist / full_path` 后交�?`FileResponse`。Windows 上带盘符的绝对路径会**整体替换**左侧（`dist / "C:/Windows/win.ini"` 就是那个文件），百分号编码的 `..%2F` 则在所有平台越界�?
+  - 复现：`tests/test_static_hosting.py` 新增两条用例（百分号编码穿越、Windows 盘符绝对路径），断言越界必须 404 且响应体不含 canary 文件内容�?*修前失败信号**：`assert 200 == 404`；另外单独探针确认两种请求都返回 `200` 且响应体就是 canary 原文（不是回退�?SPA index）�?
+  - 修法：candidate �?`resolve()`，必�?`is_relative_to(dist)` 才允许返回；越界一�?404，不再回退 SPA index（避免用 200 掩护探测）�?
+- **A4 止血 · P0-5 + P0-6 工具沙箱边界与写保护�?026-09-14�?*：`tools/base.py::execute_tool` 原来�?`call_args = dict(args)` �?`setdefault("workspace", ...)`�?*模型传的 `workspace` 会赢**；同一个函数里 `document_ids` 却用了覆盖写法，说明作者知道要覆盖、只是没把沙箱根归到同一类。配套两处：`_is_denied_path` 只比�?basename（`.git/config`、`.knowledge/knowledge.db`、`.session/<id>.json` 因此读写都畅通），`_is_within_workspace` 用大小写敏感�?`startswith`（Windows �?`C:\Foo` �?`c:\foo` 是同一文件）�?
+  - 复现：`tests/test_tool_base.py` 三条（模型自带的 `workspace` 不得生效、未声明参数必须被丢弃、`chat_session_id` �?`search_provider` 等会话身份不得由模型指定�? `tests/test_file_ops.py` 两条（内部目录不可读、不可写），另加一�?*反向测试**（工作区本身位于名为 `venv` 的目录下时仍要能读）�?*修前失败信号**：`assert "/tmp/project:x" == "/attacker:x"`、以�?`write_file` �?`.git/config` 返回 ok=True 并真的把文件写了出来�?
+  - 修法：按函数签名做参数白名单（接�?`**kwargs` 的工具除外）；所有会话作用域参数改为**赋值而非 setdefault**（含 `cwd`、`workspace`、`document_ids`、`web_research_id`、`search_provider`、`jina_fallback`、`research_session_id`、`chat_session_id`）；拒绝列表改为�?*工作区之下的路径�?*匹配并忽略大小写，`_is_within_workspace` �?`os.path.normcase`；trace 增加�?*内容形�?*脱敏（`Bearer` / `Basic` / `token=` / `api_key` / `password` 以及 `sk-`、`ghp_`、`xox`、`AIza` 形态），覆�?`args`、`content`、`result_summary`、`error` 四处，而不只是字段名匹配�?
+- **A4 止血 · P0-7 中文 token 估算�?026-09-14�?*：`core/session_compactor.py` �?`core/memory_injector.py` 各有一�?`CHARS_PER_TOKEN = 4`（中文按 1 字≈0.25 token 估）。实测（本项目语�?+ cl100k_base）：25 个中文字 = 29 token�?4 �?ASCII 字符 = 9 token。低估的方向最危险——`should_compact` 永不触发�?500 的名义记忆预算实际能塞进数千 token，最终以 provider 400 收场�?
+  - 复现：两个测试文件各加一�?`test_estimate_tokens_counts_cjk_conservatively`�?*修前失败信号**：`AssertionError: (7, 25)`—�?5 个中文字被估�?7 �?token�?
+  - 修法：新�?`core/token_budget.py` 作为唯一估算器（宽字�?�?`0x2E80` �?1.2/字、其余保留历�?1/4）；压缩器与注入器改为复用它，注入器的预算核算从「字符数 × 4」改成真正的 token 计数�?
+  - 注意：估算修正后 `memory_injector` �?1500 预算**第一次真的生�?*（此前实际放行约 4 倍内容）。按约定本轮不动这个数字，先让它真实生效�?
+- **A4 止血 · P0-11 删概�?500�?026-09-14�?*：`relationships.from_id/to_id` 引用 `concepts(concept_id)` 却没�?`ON DELETE` 动作，�?`PRAGMA foreign_keys` 是开的（实测确认�?1），于是**只要这个概念在关系里出现�?*（确认过候选、手建过关系必然如此）删除就会抛 `FOREIGN KEY constraint failed`，`service/concept_service.py::delete_concept` 没有 try/except，用户侧就是 500——概念删不掉。有意思的是同一�?schema �?`evidence.rel_id` 写了 `ON DELETE CASCADE`，说明作者会用级联，只是漏了这两处�?
+  - 复现：`tests/test_concept_store.py` 新增两条（删带关系的概念、删概念同时清理布局位置）�?*修前失败信号**：`sqlite3.IntegrityError: FOREIGN KEY constraint failed`（用原始 SQL 探针复现，确�?`foreign_keys = 1`）�?
+  - 修法：在 `ConceptStore.delete_concept` 里一个事务内先删关系（其 evidence 由已有的 `rel_id` 级联带走）、再删无外键�?`concept_positions`、最后删概念。放�?store 而不�?service，是为了�?API、Wiki 流程与测试走同一条路径�?
+- **A4 止血 · P1-21 grep chunk_id 跨进程不稳定�?026-09-14�?*：`rag/grep_retriever.py::_matches_to_hits` �?Python 内置 `hash()` 生成 `grep:<doc>:<8hex>`。`hash()` 对字符串按进程随机加盐，**重启后同一段原文的 id 就变�?*，而错题变式正是按 `chunk_id` 回原文定位——表现为「练习里引用得到、重启后找不到」�?
+  - 复现：新�?`tests/test_grep_chunk_id.py`，用两个不同 `PYTHONHASHSEED` 的子进程各算一�?id 并比对�?*修前失败信号**：`grep:doc-1:968c90e5 != grep:doc-1:65b66b45`�?
+  - 修法：改�?`rag/sqlite_store.py` 里已有的 `_stable_hash`（sha256 �?16 位），id 形态变�?`grep:<doc>:<16hex>`�?
+- **A4 止血 · P1-28 `/kb reset` �?manifest 自相矛盾�?026-09-14�?*：`reset` 删了 `knowledge.db` / `bobodan.db` / `sync_state.json` / `import_report.json` / qdrant 目录，唯独没�?`manifest.json`。�?`build_library_summary` 正是�?manifest 读文档列表，于是 reset 之后**「资料总数」还显示 1（连同文件名�?last_sync），�?`list_documents` 是空�?*——两个接口互相打脸�?
+  - 复现：`tests/test_kb_service.py` 新增一条：写入带一份文档的 manifest，确�?summary �?1，执�?reset，再确认 summary 归零�?*修前失败信号**：`assert 1 == 0`，且 summary 里仍带着 `courses=[CourseSummary(file_count=1)]` 与旧�?`last_sync`�?
+  - 修法：把 `manifest.json` 加进 reset 的清理列表。它是派生索引（下次 sync 会重建），与已清理的 `knowledge.db` 同级；用户的研究记录（`research.db`）不在清理范围，这是有意的�?
+- **A4 止血 · P0-13 + P1-8 原子写地基（2026-09-14�?*：`raw/` 是「不可变证据层」，会话文件是对话的唯一记录，但两处都是�?`open(path, "w")`：崩溃、磁盘写满或并发读取都可能看到半截文件，两个写者还会互相覆盖。项目里偏好设置与资料库注册�?*早已**�?temp+replace（`wiki.reliability.atomic_text`），只有这两处没跟上�?
+  - 复现：新�?`tests/test_atomic_io.py` 三条——①写原文时 `os.replace` 抛错，原文必须保持不变且不留临时文件；②会话保存失败时磁盘上的快照必须还是上一版且仍可解析；③跨进程互斥（子进程持锁，父进�?0.5s 内必�?`LockTimeout`）�?*修前失败信号**：①`assert '新内�? == '原始内容'`（原文被摧毁）；②`after != before`；③`ModuleNotFoundError: core.atomic_io`�?
+  - 修法：新�?`core/atomic_io.py`——同目录 `NamedTemporaryFile` 写入�?`flush + fsync`，`os.replace`（对 Windows �?`PermissionError` 做指数退避重试，因为�?杀�?索引器会短暂占用目标），失败时清理临时文件并保持原文件不动；目录 fsync（非 Windows）；`path_lock` 做进程内每路径串行；`workspace_write_lock` �?`msvcrt`/`fcntl` 双平台实现跨进程互斥�?*参照项目�?Windows �?`fcntl` 缺失即静默无锁，是明确要避开的坑**）。会话保存与原文/版本 manifest 改写为走它�?
+  - 留待：`workspace_write_lock` 目前只有测试在用，接�?sync 等多文件写者属�?P0-15 那一项�?
+- **A4 止血 · P0-12 删除确认�?026-09-14�?*：`sync_sources` 的删除判定是 `deleted_sources = [s for s in old_state if s not in new_state]`—�?*只要这一轮扫不到就判删除**。而扫描用�?`os.walk` 没有 `onerror`，目录读不到时静默跳过；网络�?外接盘瞬断、权限变化、符号链接失效都会让文件「消失」。后果是级联删掉 `documents`/`chunks`/`directory_entries`、清�?Qdrant 向量、把概念证据�?stale，而概念证据的修复又依�?excerpt 精确匹配——匹配不上就永久 stale�?
+  - 复现：新�?`tests/test_sync_deletion.py` 五条：①扫描器遇到「列得出但读不了」的文件必须记录错误（注入一个幽灵文件名）；②同一来源必须**连续两轮**缺失才删除；③扫描报错时完全不删除（保留计数）；④重新可见的来源清掉待删计数；⑤vault 扫描同样要报告不可读文件�?*修前失败信号**：`ImportError: cannot import name _resolve_deletions`（机制不存在），以及一次性缺失即进入删除清单�?
+  - 修法：抽出纯函数 `_resolve_deletions(old_state, new_state, previous_missing, scan_failed)`——连�?`DELETION_CONFIRMATIONS = 2` 轮缺失才判删，`scan_failed` 为真时一个都不删且不推进计数；计数随 `sync_state.json` 持久化（顺带改走原子写）；`_scan_course_files` / `_scan_library_root` / `scan_vault` 三个扫描器都�?`onerror` 与逐文�?`OSError`，把「列得出但读不了」记入错误而不是让文件凭空消失；扫描错误会�?sync 摘要�?`errors`，用户能看到「扫描不完整」�?
+- **A4 止血 · P0-15 Qdrant 双开�?026-09-14�?*：qdrant-client �?local 模式会对目录加锁，�?`rag/retriever.py::_retrieval_pipeline` 长期持有一�?client 的同时，`obsidian/sync.py` 又自建了第二个——同一个路径两�?client。表现为**偶发**的「检索不可用 / 导入失败」，最难排查的那类。`clear_retrieval_cache` 只在少数入口被调用，`sync` 不调它�?
+  - 复现：新�?`tests/test_qdrant_lifecycle.py` 四条：①同一 workspace 两次取必须拿到同一个对象；②不�?workspace 必须不同；③检索管线持有的必须是共享注册表里那一个（真实构造管线断言对象同一性）；④关闭后注册表必须真的丢弃它（否则 reset 时目录仍被锁、`rmtree` 会失败）�?*修前失败信号**：`ImportError: cannot import name shared_qdrant_store`�?
+  - 修法：`rag/qdrant_store.py` 新增�?client 身份（local 路径 / server url+collection）去重的共享注册表，`shared_qdrant_store()` �?`close_shared_qdrant_store()` 是唯一入口；检索管线与 `sync` 都改用它；`_close_pipeline`（LRU 淘汰路径�?*不再关闭**共享 client，避免把别人正在用的连接关掉；`clear_retrieval_cache(workspace)` 负责关闭并注销，因�?reset 之后要删掉那个目录�?
+- **A4 止血 · P1-14 读改写串行化�?026-09-14�?*：`service/preference_service.py::patch` 是「读 revision �?校验 �?写」，中间没有任何锁。两个并发请求都读到同一�?revision、都通过校验、都被告知写入成功，**其中一个改动静默消�?*。另一类是 SQLite 侧：Python sqlite3 默认延迟开启事务，读改写会在提交时才拿写锁，输的一方拿�?`SQLITE_BUSY_SNAPSHOT`——活儿干完了才失败�?
+  - 复现：新�?`tests/test_preference_lost_update.py`（两个线程用 barrier 保证都读到同一 revision 再写）�?*修前失败信号**：`AssertionError: ['ok', 'ok']`——两个调用者都收到成功。另�?`tests/test_db_transactions.py` 两条，用两个连接实测 `BEGIN IMMEDIATE` �?*开始时**就拿写锁（对手立�?`OperationalError`），�?`BEGIN DEFERRED` 要到 INSERT 才失败�?
+  - 修法：`patch` 的读→校验→写收�?`path_lock` 临界区（并复用它下已有的 `_atomic_json`，顺带拿�?fsync �?Windows 重试）；`core/db.py` 新增 `begin_immediate()` 原语（事务已开时幂等，避免 "transaction within a transaction"），`graph/concept_store.upsert_concept` 的名称查重与写入改为同一写事务——此前两个并�?upsert 会都通过查重，输的一方撞唯一索引而不是得�?409�?
+- **阅读器章节目录关不掉�?026-09-14，用户反馈）**：点章节导轨�?�?之后它会立刻弹回来。原因是关闭动作会在指针底下挂出 64px 的触发带（`.chapter-rail-zone`），而浏览器在光标底下的元素变化时会重算 hover 并补�?`mouseenter`——于是这次的 `setRailOpen(false)` 被它自己引发的事件撤销了，注释里「关闭时触发带不存在」的假设�?Blink 上不成立。改为记住关闭发生的位置，来�?*同一坐标**（�?px）的那次 hover 直接忽略，指针离开触发带即解除。回归测�?`e2e/app.spec.ts`「the chapter rail dismisses and does not re-open under the same pointer」先复现（旧代码�?`Expected: 0, Received: 1`）再验证修复，同时钉住「离开后再靠近仍然能唤出」这条正向行为�?
+- Wiki 默认区分“知识页 / 资料索引 / 个人笔记”，资料索引不再与概念页混排或显示为 `obsidian_note`；新生成的资料索引限制为短摘要、学习地图和关键结论，不再逐章复刻原文，已有页面可通过“AI 更新当前页”生成需确认的更新计划。耗时�?Token 估算改用�?Provider、同模型的真实请求样本并显示可信度，完成计划展示本轮实际用量、Provider 缓存�?Bobodan 本地缓存�?
+- Wiki 取消现在会在每次模型请求前重新检查停止标记，不再继续执行同一批次内尚未发出的请求；刷新过的旧会话即使 artifact �?plan 状态不一致，也会继续轮询并收敛为“已取消”。缺�?`summary / changes` 的中断记录按空计划安全显示，不再导致整个 Chat 页面白屏�?
+- Wiki 资料摘要页和同名概念页改用类型感知的规范 ID，不再在 Library 中相互折叠；资料摘要、实体、概念、综合分析和问题页均显示正确类型�?
+- Wiki 计划写入失败后会把最新校验状态持久化�?Chat artifact；刷新、切换会话或重启后仍能继续选择“保留原页”或“补全后重新规划”�?
+- **Wiki 暂停恢复与状态动效修�?*: Wiki 页面因异常缩减保护而暂停时，不再暴露“隔离区”内部术语；计划卡显示具体页面、可读原因和“保留原页继�?/ 补全后重新规划”操作。同一校验错误不再重复累积，保留原页路径会安全写入其余页面。Chat 运行状态移除容易被理解为进度条的伸缩横线，改为三点墨迹错峰动效�?
+- **P5F 练习与设置可用性修�?*: 判断题改为明确的“正�?/ 错误”选项并显示中文题型与难度；Bobodan 运行状态保持在回答正文流内；减少动效不再破坏开关圆点位置，Skills 说明不再挤压开关�?
+- 修复新会话练习卡的跳转竞态：用户快速点击“开始练习”后，延迟的 Chat 会话地址更新不会再把页面拉回对话�?
+- **P5F 自主联网与练习闭环修�?*: 联网权限升级为“每次询�?/ 模型自动”双模式，默认保持询问；自动模式下模型可调用受限 `web_research`，程序按来源类型、排名和域名去重自动读取最�?3 个来源�?
+- Practice 生成增加资料标题模糊匹配、选中资料章节回退和一�?LLM JSON 修复重试；`langchian` 等拼写问题可解析为对应本地资料，资料不足时按联网权限继续，而不是直接显示通用错误�?
+- `question_generate` 改为返回可持久化的“练习已就绪”卡片；点击后幂等创�?Practice session 并进入一题一卡页面，不再把完整题目堆�?Chat 正文�?
+- Chat 处理状态改为正文流内的 Bobodan `thinking / reading / writing / ready` 图片状态；只展示工具、资料和任务进度，不展示模型原始思维链�?
+- 用户偏好升级�?schema v3；验证：Python `1102 passed`、Vitest `5 passed`、TypeScript 与生产构建通过、Playwright 多视�?`57 passed`�?
 
-- **Review 状态字体与滚动条**: `到期 / 错题 / 薄弱点` 使用 Luo 短标签强调；全局滚动条改为透明轨道与暖灰细滑块，并修复右侧资料名称撑宽面板造成的横向滚动条。
-- **复习出题错误继承当前资料范围**: Review 现在按知识点关联并复用历史题目 ID，不再把用户当前选择的无关资料范围套到历史复习项上；只有没有历史题时才回退到重新生成，避免无资料报错和检索跑偏。
-- **Trace per-run 文件碰撞**: `TraceWriter` 文件名增加微秒时间戳和短 run suffix，同一 session 在同一秒内连续 run 不再写入同一个 JSONL；`list_traces()` 兼容旧秒级文件名。
-- **Workflow 手动掌握度联动**: `ReviewScheduler.mark_manual(..., "mastered")` 后会触发 `PlanWorkflowTracker.check_plan_completion()`，手动标记已掌握后今日任务和计划状态会同步更新。
-- **LearningStore SQLite 文件锁**: `LearningStore._conn()` 改为真正关闭连接的 context manager，避免 Windows 上临时 workspace 或后续 Web runtime 遇到 `bobodan.db` 文件锁。
+- **Review 状态字体与滚动�?*: `到期 / 错题 / 薄弱点` 使用 Luo 短标签强调；全局滚动条改为透明轨道与暖灰细滑块，并修复右侧资料名称撑宽面板造成的横向滚动条�?
+- **复习出题错误继承当前资料范围**: Review 现在按知识点关联并复用历史题�?ID，不再把用户当前选择的无关资料范围套到历史复习项上；只有没有历史题时才回退到重新生成，避免无资料报错和检索跑偏�?
+- **Trace per-run 文件碰撞**: `TraceWriter` 文件名增加微秒时间戳和短 run suffix，同一 session 在同一秒内连续 run 不再写入同一�?JSONL；`list_traces()` 兼容旧秒级文件名�?
+- **Workflow 手动掌握度联�?*: `ReviewScheduler.mark_manual(..., "mastered")` 后会触发 `PlanWorkflowTracker.check_plan_completion()`，手动标记已掌握后今日任务和计划状态会同步更新�?
+- **LearningStore SQLite 文件�?*: `LearningStore._conn()` 改为真正关闭连接�?context manager，避�?Windows 上临�?workspace 或后�?Web runtime 遇到 `bobodan.db` 文件锁�?
 ### 新增
-- **P5E.6 知识地图产品重置**: 将混合 Wiki 重置为以概念关系和原文定位为核心的知识地图。
-  - 新增 `graph/concept_store.py`：SQLite 概念图谱后端（concepts、relationships、evidence、concept_candidates、concept_extraction_runs、concept_positions 六表），支持候选审查、位置持久化和图状态快照。
-  - 新增 `wiki/extractor.py`：`ConceptExtractor` 从资料内容提取 3–8 个核心概念、≤12 个细节概念及关系；有效关系类型受约束（属于、前置知识、组成部分、对比、应用于、来源于）。
-  - 新增 `service/concept_service.py`：`ConceptService` 封装概念图谱业务逻辑，确认候选自动创建概念和关系，reject 支持按天压制，extract_from_document 存储待审查候选。
-  - 新增 `web/backend/routers/graph.py`：19 个 REST 端点，覆盖图状态、子图、概念 CRUD、关系 CRUD、候选操作（confirm/reject/label）、提取触发与恢复、位置保存和旧图谱迁移；`/api/graph` 纳入 library-scoped 中间件。
-  - 新增 Web 前端知识地图页面：Sigma.js v3 + Graphology WebGL 渲染；三视图（地图 / 目录 / 来源）、概念侧栏（180ms 滑入、Esc 关闭）、候选审查面板（底部 sheet、键盘快捷键 Enter/L/X）；导航新增”知识地图”入口。
-  - 新增 `tests/test_concept_store.py`、`tests/test_concept_service.py`：覆盖 DDL、CRUD、候选压制、图状态、子图邻居、服务层验证和 LLM 提取 mock（40+ 用例）。
-- **P5E.5 Wiki 易用性、手写编辑与 AI 成本控制**: Library 增加”资料 → 整理 → 审查 → 使用与维护”流程；标准模式默认每次 5 份资料，开始前展示请求、Token 与耗时估算，达到预算后持久化暂停。
-  - 新增零模型快速建档、标准整理和深度全库模式，取消与暂停保留精确草稿缓存。
-  - “生成修复计划”改为持久化、可应用和可撤销的修复项列表，不再停留在无后续的成功提示。
-  - 新增 `wiki_note`、Markdown 编辑/预览、revision 冲突保护及归档恢复；手写内容不会被后续 AI 计划静默覆盖。
-  - 偏好升级到 schema v4，新增 Wiki 任务 Provider、预算和默认模式；增加通义、硅基流动、OpenRouter 兼容预设。
-  - Provider 响应保留实际 Token、缓存与可用费用 usage，设置中心显示最近 7 / 30 天请求、错误、模型分布和缓存数据；Chat 与 Wiki 共用不保存提示词正文的本地用量账本。
-  - 验证：Python `1148 passed`、Vitest `5 passed`、TypeScript 与生产构建通过、Playwright 桌面 / 窄屏 / 移动端 `75 passed`。
-- **P5E.4 LLM Wiki 全库编排与覆盖系统**: 将单次选中文档摘要升级为可恢复的全库知识编排。
-  - Chat 默认检索整个活动资料库，手动选择只作为优先资料；用户明确切换“仅这些”后才使用严格资料范围。
-  - Library 主动作改为“整理未覆盖资料”，显示未整理、部分覆盖、已覆盖和原文变化状态，并支持筛选全选、课程批选与 Shift 连选。
-  - Wiki 计划按每批最多 5 份资料读取全部有效章节；每份原始资料保证一个 `wiki_source` 摘要页，概念与实体跨批次规范化去重。
-  - 新增持久化 Wiki run、覆盖扫描和恢复接口；长计划在后台生成，Chat 可轮询、取消并在刷新后恢复。
-  - 大型现有页面和超长草稿进入拆分候选，不再用短草稿直接覆盖；写入仍需整轮确认并保留检查点。
-  - 新增全库优先检索、覆盖重建、后台任务、批次规划及桌面 / 窄屏 / 移动端交互测试。
-  - 真实资料验收以 5 份资料生成 5 个摘要页与 5 个知识页，74 个来源定位均有效；写入、覆盖重建、原文高亮跳转和整轮撤销通过。
-  - 验证：Python `1135 passed`、Vitest `5 passed`、TypeScript 与生产构建通过、Playwright 多视口 `69 passed`。
-- **P5F.1 个人学习知识库**: 在现有 `MemoryService` 上完成确定性学习事件、待确认候选和已确认长期知识三层体系。
-  - 新增全局 `personal-knowledge.db` 与资料库内 `bobodan.db` 分层存储；全局偏好可跨资料库使用，课程知识、候选、事件和阅读进度保持资料库隔离。
-  - 做题、练习完成、复习、阅读进度和 Chat 完成自动记录为幂等学习事件；阅读器可见满 10 秒后记录打开，进度按 10% 档位更新。
-  - Chat 在 90 秒无新消息后通过持久化单并发任务整理最多 3 条候选，支持重启恢复和 `1m → 5m → 30m` 重试；候选确认前不会进入提示词。
-  - 新增无写入副作用的 `request_memory_confirmation` 与 Chat 确认卡；Web Agent 不再获得 `memory_save`、`memory_daily_save` 或自动 promotion 权限，秘密信息始终拒绝保存。
-  - Chat、Practice 和 Review 只使用已确认知识与确定性掌握度，并显示可展开的“个性化依据”；旧 daily Markdown 保持只读。
-  - 设置中心“记忆与数据”新增个人知识管理浮层，支持已确认知识、待确认候选、学习记录和旧记忆迁移，以及搜索、编辑、置顶、删除和 Markdown 导出。
-- 验证：Python `1118 passed`、Vitest `5 passed`、TypeScript 与生产构建通过、Playwright 桌面 / 窄屏 / 移动端 `63 passed`。
+- **P5E.6 知识地图产品重置**: 将混�?Wiki 重置为以概念关系和原文定位为核心的知识地图�?
+  - 新增 `graph/concept_store.py`：SQLite 概念图谱后端（concepts、relationships、evidence、concept_candidates、concept_extraction_runs、concept_positions 六表），支持候选审查、位置持久化和图状态快照�?
+  - 新增 `wiki/extractor.py`：`ConceptExtractor` 从资料内容提�?3�? 个核心概念、≤12 个细节概念及关系；有效关系类型受约束（属于、前置知识、组成部分、对比、应用于、来源于）�?
+  - 新增 `service/concept_service.py`：`ConceptService` 封装概念图谱业务逻辑，确认候选自动创建概念和关系，reject 支持按天压制，extract_from_document 存储待审查候选�?
+  - 新增 `web/backend/routers/graph.py`�?9 �?REST 端点，覆盖图状态、子图、概�?CRUD、关�?CRUD、候选操作（confirm/reject/label）、提取触发与恢复、位置保存和旧图谱迁移；`/api/graph` 纳入 library-scoped 中间件�?
+  - 新增 Web 前端知识地图页面：Sigma.js v3 + Graphology WebGL 渲染；三视图（地�?/ 目录 / 来源）、概念侧栏（180ms 滑入、Esc 关闭）、候选审查面板（底部 sheet、键盘快捷键 Enter/L/X）；导航新增”知识地图”入口�?
+  - 新增 `tests/test_concept_store.py`、`tests/test_concept_service.py`：覆�?DDL、CRUD、候选压制、图状态、子图邻居、服务层验证�?LLM 提取 mock�?0+ 用例）�?
+- **P5E.5 Wiki 易用性、手写编辑与 AI 成本控制**: Library 增加”资�?�?整理 �?审查 �?使用与维护”流程；标准模式默认每次 5 份资料，开始前展示请求、Token 与耗时估算，达到预算后持久化暂停�?
+  - 新增零模型快速建档、标准整理和深度全库模式，取消与暂停保留精确草稿缓存�?
+  - “生成修复计划”改为持久化、可应用和可撤销的修复项列表，不再停留在无后续的成功提示�?
+  - 新增 `wiki_note`、Markdown 编辑/预览、revision 冲突保护及归档恢复；手写内容不会被后�?AI 计划静默覆盖�?
+  - 偏好升级�?schema v4，新�?Wiki 任务 Provider、预算和默认模式；增加通义、硅基流动、OpenRouter 兼容预设�?
+  - Provider 响应保留实际 Token、缓存与可用费用 usage，设置中心显示最�?7 / 30 天请求、错误、模型分布和缓存数据；Chat �?Wiki 共用不保存提示词正文的本地用量账本�?
+  - 验证：Python `1148 passed`、Vitest `5 passed`、TypeScript 与生产构建通过、Playwright 桌面 / 窄屏 / 移动�?`75 passed`�?
+- **P5E.4 LLM Wiki 全库编排与覆盖系�?*: 将单次选中文档摘要升级为可恢复的全库知识编排�?
+  - Chat 默认检索整个活动资料库，手动选择只作为优先资料；用户明确切换“仅这些”后才使用严格资料范围�?
+  - Library 主动作改为“整理未覆盖资料”，显示未整理、部分覆盖、已覆盖和原文变化状态，并支持筛选全选、课程批选与 Shift 连选�?
+  - Wiki 计划按每批最�?5 份资料读取全部有效章节；每份原始资料保证一�?`wiki_source` 摘要页，概念与实体跨批次规范化去重�?
+  - 新增持久�?Wiki run、覆盖扫描和恢复接口；长计划在后台生成，Chat 可轮询、取消并在刷新后恢复�?
+  - 大型现有页面和超长草稿进入拆分候选，不再用短草稿直接覆盖；写入仍需整轮确认并保留检查点�?
+  - 新增全库优先检索、覆盖重建、后台任务、批次规划及桌面 / 窄屏 / 移动端交互测试�?
+  - 真实资料验收�?5 份资料生�?5 个摘要页�?5 个知识页�?4 个来源定位均有效；写入、覆盖重建、原文高亮跳转和整轮撤销通过�?
+  - 验证：Python `1135 passed`、Vitest `5 passed`、TypeScript 与生产构建通过、Playwright 多视�?`69 passed`�?
+- **P5F.1 个人学习知识�?*: 在现�?`MemoryService` 上完成确定性学习事件、待确认候选和已确认长期知识三层体系�?
+  - 新增全局 `personal-knowledge.db` 与资料库�?`bobodan.db` 分层存储；全局偏好可跨资料库使用，课程知识、候选、事件和阅读进度保持资料库隔离�?
+  - 做题、练习完成、复习、阅读进度和 Chat 完成自动记录为幂等学习事件；阅读器可见满 10 秒后记录打开，进度按 10% 档位更新�?
+  - Chat �?90 秒无新消息后通过持久化单并发任务整理最�?3 条候选，支持重启恢复�?`1m �?5m �?30m` 重试；候选确认前不会进入提示词�?
+  - 新增无写入副作用�?`request_memory_confirmation` �?Chat 确认卡；Web Agent 不再获得 `memory_save`、`memory_daily_save` 或自�?promotion 权限，秘密信息始终拒绝保存�?
+  - Chat、Practice �?Review 只使用已确认知识与确定性掌握度，并显示可展开的“个性化依据”；�?daily Markdown 保持只读�?
+  - 设置中心“记忆与数据”新增个人知识管理浮层，支持已确认知识、待确认候选、学习记录和旧记忆迁移，以及搜索、编辑、置顶、删除和 Markdown 导出�?
+- 验证：Python `1118 passed`、Vitest `5 passed`、TypeScript 与生产构建通过、Playwright 桌面 / 窄屏 / 移动�?`63 passed`�?
 
-- **P5F 可信联网资料扩展**: 在本地资料不足时提供用户确认优先、来源可选择、证据可复现的普通网页研究流程。
-  - 新增 Tavily / Exa SearchProvider 与 `auto` 有序降级；Exa 通过现有 MCP 客户端连接公共 MCP，不向 Web Agent 开放任意 MCP 或 HTTP 工具。
-  - 新增直接网页读取、逐跳 SSRF 校验、响应与上下文上限，以及明确标注的 Jina Reader 后备；用户提供的 URL 可直接进入候选流程。
-  - 每个资料库使用独立 `research.db` 保存搜索、候选和不可变证据快照；网页不会自动进入 `raw/`、RAG、Wiki 或个人知识库。
-  - Chat 增加联网确认、候选来源和证据 artifact；候选默认不勾选，用户选择 1–4 个来源后才读取正文并继续回答。
-  - Composer 增加一次性联网入口和 `/web search`；设置中心增加搜索 Provider、真实连接测试和 Jina 后备开关，偏好 schema 升级为 v2。
-  - `SourceRef` 增加域名、访问时间、快照 ID 和读取方式；联网回答与基于回答生成的练习共用 `Attribution(kind="web")`。
-  - 验证：Python `1095 passed`、Vitest `5 passed`、TypeScript 与生产构建通过、Playwright 多视口 `57 passed`；Exa 真实连接测试通过。
+- **P5F 可信联网资料扩展**: 在本地资料不足时提供用户确认优先、来源可选择、证据可复现的普通网页研究流程�?
+  - 新增 Tavily / Exa SearchProvider �?`auto` 有序降级；Exa 通过现有 MCP 客户端连接公�?MCP，不�?Web Agent 开放任�?MCP �?HTTP 工具�?
+  - 新增直接网页读取、逐跳 SSRF 校验、响应与上下文上限，以及明确标注�?Jina Reader 后备；用户提供的 URL 可直接进入候选流程�?
+  - 每个资料库使用独�?`research.db` 保存搜索、候选和不可变证据快照；网页不会自动进入 `raw/`、RAG、Wiki 或个人知识库�?
+  - Chat 增加联网确认、候选来源和证据 artifact；候选默认不勾选，用户选择 1�? 个来源后才读取正文并继续回答�?
+  - Composer 增加一次性联网入口和 `/web search`；设置中心增加搜�?Provider、真实连接测试和 Jina 后备开关，偏好 schema 升级�?v2�?
+  - `SourceRef` 增加域名、访问时间、快�?ID 和读取方式；联网回答与基于回答生成的练习共用 `Attribution(kind="web")`�?
+  - 验证：Python `1095 passed`、Vitest `5 passed`、TypeScript 与生产构建通过、Playwright 多视�?`57 passed`；Exa 真实连接测试通过�?
 
-- **P5E.3 Web UI 系统体验与设置中心**: 在进入联网资料扩展前，补齐本地学习产品的用户偏好、模型与通用交互基础。
-  - 新增用户级 `preferences.json`，使用 schema、revision 和原子写入保存助手、用户、阅读、Provider、记忆和 Web Skills 偏好；旧浏览器学习资料可一次性迁移。
-  - 新增桌面居中 / 移动全屏设置中心，支持中文搜索、键盘选择、URL 深链接、阅读字体与字号、内容宽度、纸纹、会话密度和减少动效。
-  - 新增 Provider 状态与最小连接测试；新会话继承默认 Provider，已有会话持久化自己的 Provider，流式回答期间可停止生成但不能切换模型。
-  - Chat Composer 增加回答深度、正文流状态条、`@资料 / @会话`、可恢复引用 chip，以及按用户启用状态过滤的 Slash / Skills 菜单。
-  - 新增低风险对话式设置确认卡，只允许回答深度、教学方式、反馈强度和记忆开关；Provider、密钥、权限与安全设置不能通过对话修改。
-  - 后端断开时按 `2s → 5s → 10s → 30s` 重试并提供手动重连；正常连接状态不常驻，状态页不暴露密钥、绝对路径、Trace 或原始日志。
-  - 更新 `docs/PROJECT_GUIDE.md` 与 `docs/DESIGN.md`，固化设置中心、Composer 三层状态、引用、Provider 和动效规则。
-  - 验证：Python `1082 passed`、Vitest `4 passed`、TypeScript 与生产构建通过、Playwright 多视口 `42 passed`。
+- **P5E.3 Web UI 系统体验与设置中�?*: 在进入联网资料扩展前，补齐本地学习产品的用户偏好、模型与通用交互基础�?
+  - 新增用户�?`preferences.json`，使�?schema、revision 和原子写入保存助手、用户、阅读、Provider、记忆和 Web Skills 偏好；旧浏览器学习资料可一次性迁移�?
+  - 新增桌面居中 / 移动全屏设置中心，支持中文搜索、键盘选择、URL 深链接、阅读字体与字号、内容宽度、纸纹、会话密度和减少动效�?
+  - 新增 Provider 状态与最小连接测试；新会话继承默�?Provider，已有会话持久化自己�?Provider，流式回答期间可停止生成但不能切换模型�?
+  - Chat Composer 增加回答深度、正文流状态条、`@资料 / @会话`、可恢复引用 chip，以及按用户启用状态过滤的 Slash / Skills 菜单�?
+  - 新增低风险对话式设置确认卡，只允许回答深度、教学方式、反馈强度和记忆开关；Provider、密钥、权限与安全设置不能通过对话修改�?
+  - 后端断开时按 `2s �?5s �?10s �?30s` 重试并提供手动重连；正常连接状态不常驻，状态页不暴露密钥、绝对路径、Trace 或原始日志�?
+  - 更新 `docs/PROJECT_GUIDE.md` �?`docs/DESIGN.md`，固化设置中心、Composer 三层状态、引用、Provider 和动效规则�?
+  - 验证：Python `1082 passed`、Vitest `4 passed`、TypeScript 与生产构建通过、Playwright 多视�?`42 passed`�?
 
-- **P5E.2 Wiki 可靠性增强**: 在不改变用户确认工作流的前提下，为持续更新和批量 Wiki 操作补齐写入保护、失败恢复与维护检查。
-  - 新增 Wiki 写入预检，校验目标路径、页面类型、来源范围和结构文件保护；无效模型输出进入 `.bobodan/wiki/staging/`，不会污染正式 Wiki。
-  - 页面更新确定性合并 `sources`、`source_refs`、`tags` 与 `related`，保留关键 frontmatter；多来源正文异常缩减时拒绝写入并恢复检查点。
-  - 新增按资料库隔离的持久化 Wiki 任务状态，支持进程重启恢复、失败重试、取消和并发锁定；计划卡可显示 staging 失败原因。
-  - `index.md` 改为从磁盘页面确定性重建并移除过期条目；正常生成不再自动归档重复页面。
-  - 资料归档前新增 Wiki 依赖影响预览，区分单来源归档候选与多来源待更新页面，不执行静默级联删除。
-  - 维护页区分程序结构检查和 AI 语义审查；重复页、矛盾、过时内容与知识缺口只形成候选，实际修复仍需先生成计划并由用户确认。
-  - 新增 Wiki 任务、语义维护和资料影响 API，并补齐后端、Vitest、生产构建和 Playwright 多视口覆盖。
-  - 验证：Python `1077 passed`、Vitest `3 passed`、TypeScript 与生产构建通过、Playwright 多视口 `39 passed`。
+- **P5E.2 Wiki 可靠性增�?*: 在不改变用户确认工作流的前提下，为持续更新和批量 Wiki 操作补齐写入保护、失败恢复与维护检查�?
+  - 新增 Wiki 写入预检，校验目标路径、页面类型、来源范围和结构文件保护；无效模型输出进�?`.bobodan/wiki/staging/`，不会污染正�?Wiki�?
+  - 页面更新确定性合�?`sources`、`source_refs`、`tags` �?`related`，保留关�?frontmatter；多来源正文异常缩减时拒绝写入并恢复检查点�?
+  - 新增按资料库隔离的持久化 Wiki 任务状态，支持进程重启恢复、失败重试、取消和并发锁定；计划卡可显�?staging 失败原因�?
+  - `index.md` 改为从磁盘页面确定性重建并移除过期条目；正常生成不再自动归档重复页面�?
+  - 资料归档前新�?Wiki 依赖影响预览，区分单来源归档候选与多来源待更新页面，不执行静默级联删除�?
+  - 维护页区分程序结构检查和 AI 语义审查；重复页、矛盾、过时内容与知识缺口只形成候选，实际修复仍需先生成计划并由用户确认�?
+  - 新增 Wiki 任务、语义维护和资料影响 API，并补齐后端、Vitest、生产构建和 Playwright 多视口覆盖�?
+  - 验证：Python `1077 passed`、Vitest `3 passed`、TypeScript 与生产构建通过、Playwright 多视�?`39 passed`�?
 
-- **P5E.1 文件夹资料库与 LLM Wiki 工作流修正**: 将开发工作区知识库升级为可供不同本地用户使用的便携资料库模型。
-  - 一个文件夹对应一个资料库；新增 `BOBODAN_LIBRARY.yaml`、`WIKI_SCHEMA.md`、`raw/`、五类 `wiki/` 页面目录及 `.bobodan/` 本地状态目录。
-  - 新增用户级资料库注册表与创建、打开、切换、同步、取消注册 API；Chat、RAG、Quiz、Review、学习进度和会话按资料库请求上下文隔离。
-  - 首次导入改为用户先选择资料；若尚无资料库，再在同一流程中确认名称和保存位置，创建后自动继续写入 `raw/inbox/` 并建立原文索引。
-  - 原始资料对 AI 保持只读；用户删除改为归档到 `.bobodan/archive/raw/`，关联 Wiki 页面标记为 `needs_update`。
-  - Wiki 扩展为资料摘要、实体、概念、综合分析、问题与发现五类页面，统一 frontmatter、表格索引、顶部操作日志和健康检查。
-  - `/wiki plan`、重点调整、计划确认、执行结果与撤销状态改为会话 artifact 持久化；刷新、切换会话和重启后可恢复。
-  - 旧 Wiki 支持“迁移预览 → 用户确认 → 检查点 → 机械升级”，只补 schema 元数据，不移动文件或改写正文。
-  - 新增 `python agent.py library init|sync|list`，并通过 `BOBODAN_HOME` 隔离测试注册表。
-  - 资料库页面顶部集中显示当前资料库、切换与管理入口；Chat 与资料库空状态共用“导入资料”流程，左下角不再承担新建资料库操作。
-  - 资料库管理新增“接入现有资料文件夹”：先预览可索引资料、文件夹体积、现有 Wiki 和旧资料子目录，确认后原地初始化、同步并自动切换，不要求用户重新上传。
-  - 便携资料库的额外课程目录改为库内相对路径；重新打开已移动的资料库时会自动修复旧绝对路径，避免资料显示为空。
-  - 旧文件夹迁移改为同步成功后再激活；同步或激活失败会恢复迁移前的注册表和活动资料库，不留下半注册状态。
-  - 验证：Python `1066 passed`、Vitest `3 passed`、TypeScript 与生产构建通过、Playwright 多视口 `39 passed`。
+- **P5E.1 文件夹资料库�?LLM Wiki 工作流修�?*: 将开发工作区知识库升级为可供不同本地用户使用的便携资料库模型�?
+  - 一个文件夹对应一个资料库；新�?`BOBODAN_LIBRARY.yaml`、`WIKI_SCHEMA.md`、`raw/`、五�?`wiki/` 页面目录�?`.bobodan/` 本地状态目录�?
+  - 新增用户级资料库注册表与创建、打开、切换、同步、取消注�?API；Chat、RAG、Quiz、Review、学习进度和会话按资料库请求上下文隔离�?
+  - 首次导入改为用户先选择资料；若尚无资料库，再在同一流程中确认名称和保存位置，创建后自动继续写入 `raw/inbox/` 并建立原文索引�?
+  - 原始资料�?AI 保持只读；用户删除改为归档到 `.bobodan/archive/raw/`，关�?Wiki 页面标记�?`needs_update`�?
+  - Wiki 扩展为资料摘要、实体、概念、综合分析、问题与发现五类页面，统一 frontmatter、表格索引、顶部操作日志和健康检查�?
+  - `/wiki plan`、重点调整、计划确认、执行结果与撤销状态改为会�?artifact 持久化；刷新、切换会话和重启后可恢复�?
+  - �?Wiki 支持“迁移预�?�?用户确认 �?检查点 �?机械升级”，只补 schema 元数据，不移动文件或改写正文�?
+  - 新增 `python agent.py library init|sync|list`，并通过 `BOBODAN_HOME` 隔离测试注册表�?
+  - 资料库页面顶部集中显示当前资料库、切换与管理入口；Chat 与资料库空状态共用“导入资料”流程，左下角不再承担新建资料库操作�?
+  - 资料库管理新增“接入现有资料文件夹”：先预览可索引资料、文件夹体积、现�?Wiki 和旧资料子目录，确认后原地初始化、同步并自动切换，不要求用户重新上传�?
+  - 便携资料库的额外课程目录改为库内相对路径；重新打开已移动的资料库时会自动修复旧绝对路径，避免资料显示为空�?
+  - 旧文件夹迁移改为同步成功后再激活；同步或激活失败会恢复迁移前的注册表和活动资料库，不留下半注册状态�?
+  - 验证：Python `1066 passed`、Vitest `3 passed`、TypeScript 与生产构建通过、Playwright 多视�?`39 passed`�?
 
-- **P5E 用户主动触发的 LLM Wiki 完成**: 将资料导入与 AI 整理彻底分离，只有用户明确发起并确认计划后才写入 Wiki。
-  - 新增持久化 Wiki 计划，支持当前学习范围、指定资料、课程和已有 Wiki 主题；计划展示新增、更新、合并、冲突和跳过项。
-  - Chat 新增 `/wiki plan`、`/wiki update`、`/wiki generate`，Library 新增“整理成 Wiki / 更新 Wiki”入口和可展开页面预览。
-  - 生成概念页与实体页，保存结构化 `source_refs`、双向相关概念链接，以及 heading、PDF 页、PPT 页或 chunk 级原文定位。
-  - 写入前创建本地检查点，支持显式撤销；写入失败自动恢复，用户手写同名页只标记冲突且不会覆盖。
-  - 无指定资料范围时，检索顺序优先用 Wiki 理解概念结构，再以原始资料作为事实证据，并继续在引用中区分 Wiki 与本地资料。
-  - 参考 OpenHanako 的资源卡、渐进披露和预览分栏逻辑，保留 Bobodan 暖纸、墨蓝、仓耳今楷与三花猫品牌体系。
-  - 验证：Python `1049 passed`、Vitest `3 passed`、生产构建通过、Playwright `30 passed`。
+- **P5E 用户主动触发�?LLM Wiki 完成**: 将资料导入与 AI 整理彻底分离，只有用户明确发起并确认计划后才写入 Wiki�?
+  - 新增持久�?Wiki 计划，支持当前学习范围、指定资料、课程和已有 Wiki 主题；计划展示新增、更新、合并、冲突和跳过项�?
+  - Chat 新增 `/wiki plan`、`/wiki update`、`/wiki generate`，Library 新增“整理成 Wiki / 更新 Wiki”入口和可展开页面预览�?
+  - 生成概念页与实体页，保存结构�?`source_refs`、双向相关概念链接，以及 heading、PDF 页、PPT 页或 chunk 级原文定位�?
+  - 写入前创建本地检查点，支持显式撤销；写入失败自动恢复，用户手写同名页只标记冲突且不会覆盖�?
+  - 无指定资料范围时，检索顺序优先用 Wiki 理解概念结构，再以原始资料作为事实证据，并继续在引用中区�?Wiki 与本地资料�?
+  - 参�?OpenHanako 的资源卡、渐进披露和预览分栏逻辑，保�?Bobodan 暖纸、墨蓝、仓耳今楷与三花猫品牌体系�?
+  - 验证：Python `1049 passed`、Vitest `3 passed`、生产构建通过、Playwright `30 passed`�?
 
-- **P5D 最终可用性收尾**: 补齐 Wiki 维护和 Chat Slash 命令 / Skills 入口。
-  - Wiki 分类新增健康检查、孤立页 / 断链 / 过期页统计与详情；“整理并重建索引”只归档 Bobodan 生成的重复页，不删除用户原始资料。
-  - Chat 输入 `/` 弹出贴近 composer 的命令面板，支持文本筛选、方向键、Enter / Tab 选择和 Esc 关闭。
-  - 提供 `/new`、`/library`、`/wiki`、`/practice`、`/review`、`/kb search`、`/learning today`、`/quiz generate` 等 Web 安全命令。
-  - Skills 面板只开放当前 Web runtime 可完整执行的 `course-learning`、`exam-prep`、`study-loop`；显式选择后服务端按本轮临时指令加载对应 `SKILL.md`。
-  - 验证：Python `1037 passed`、Vitest `3 passed`、生产构建通过、Playwright `27 passed`。
+- **P5D 最终可用性收�?*: 补齐 Wiki 维护�?Chat Slash 命令 / Skills 入口�?
+  - Wiki 分类新增健康检查、孤立页 / 断链 / 过期页统计与详情；“整理并重建索引”只归档 Bobodan 生成的重复页，不删除用户原始资料�?
+  - Chat 输入 `/` 弹出贴近 composer 的命令面板，支持文本筛选、方向键、Enter / Tab 选择�?Esc 关闭�?
+  - 提供 `/new`、`/library`、`/wiki`、`/practice`、`/review`、`/kb search`、`/learning today`、`/quiz generate` �?Web 安全命令�?
+  - Skills 面板只开放当�?Web runtime 可完整执行的 `course-learning`、`exam-prep`、`study-loop`；显式选择后服务端按本轮临时指令加载对�?`SKILL.md`�?
+  - 验证：Python `1037 passed`、Vitest `3 passed`、生产构建通过、Playwright `27 passed`�?
 
-- **P5D 本地学习闭环 Web MVP 完成**: 在第二轮 Web UI 基础上补齐首次配置、资料范围约束和 Chat → Practice → Review 纵向闭环。
-  - 新增四步首次配置，覆盖用户与目标、AI 连接、首批学习资料、记忆与联网边界；已有会话或资料的工作区自动兼容。
-  - Library 可维护共享学习范围并选中文字带到 Chat；Chat 与 Practice 请求都会把资料 ID 传到后端，RAG 检索和出题按范围强制过滤。
-  - Chat 回答支持渐进式过程摘要，不暴露原始思维链；生成练习会使用本轮返回的精确题目 ID，避免旧题混入。
-  - Practice 的“问 AI”改为当前题目内的轻量辅导抽屉，桌面、窄屏和移动端均保持在做题流程内。
-  - 验证：Python 全量测试 `1037 passed`，Vitest `3 passed`，生产构建通过，Playwright `27 passed`。
+- **P5D 本地学习闭环 Web MVP 完成**: 在第二轮 Web UI 基础上补齐首次配置、资料范围约束和 Chat �?Practice �?Review 纵向闭环�?
+  - 新增四步首次配置，覆盖用户与目标、AI 连接、首批学习资料、记忆与联网边界；已有会话或资料的工作区自动兼容�?
+  - Library 可维护共享学习范围并选中文字带到 Chat；Chat �?Practice 请求都会把资�?ID 传到后端，RAG 检索和出题按范围强制过滤�?
+  - Chat 回答支持渐进式过程摘要，不暴露原始思维链；生成练习会使用本轮返回的精确题目 ID，避免旧题混入�?
+  - Practice 的“问 AI”改为当前题目内的轻量辅导抽屉，桌面、窄屏和移动端均保持在做题流程内�?
+  - 验证：Python 全量测试 `1037 passed`，Vitest `3 passed`，生产构建通过，Playwright `27 passed`�?
 
-- **P5D Web UI 第二轮完善**: 按 OpenHanako 的字体与工作区交互作为参考，修复第一版的字体覆盖、资料混排、侧栏和会话命名问题。
-  - 字体改为五套 token：Luo 仅用于品牌与固定展示标题，系统黑体用于高频 UI，Noto Serif SC Unicode Range 分片用于 AI 回答，仓耳今楷 W04/W05 用于资料与 Wiki 正文，等宽字体用于代码与路径；Noto 字体及 OFL 许可随项目分发。
-  - Library 增加“学习资料 / Wiki”分类，隐藏 Wiki 结构文件，按 NFKC 与标点归一化去重；两份旧生成页已归档到 `.bobodan/archive/wiki/<timestamp>/`，规范索引重建为 6 页。
-  - 左右栏可独立折叠并保存用户状态；内容不足 720px 时按右栏、左栏顺序自动收起，桌面支持 200ms 边缘悬停预览，移动端继续使用抽屉。
-  - 首轮回答后异步生成短会话标题，15 秒超时或模型失败时使用首问本地回退；手动标题不会被覆盖，会话按今天、昨天、本周、更早分组并显示时间。
-  - 默认提示收敛装饰 Emoji 与重复小猫自称；欢迎、思考、阅读、写作、等待、休息和回答反馈开始使用现有品牌状态图与表情图。
-  - 新增资料分类、Wiki 归档、会话标题和多视口侧栏/字体测试；生产构建、Vitest、Python 聚焦测试和 Playwright 多视口用例通过。
-  - 资料与 Wiki 阅读器进一步采用 Kami 同款仓耳今楷 W04/W05 双字重本地字体；AI 回答继续使用 Noto Serif SC，高频 UI 不受影响。
+- **P5D Web UI 第二轮完�?*: �?OpenHanako 的字体与工作区交互作为参考，修复第一版的字体覆盖、资料混排、侧栏和会话命名问题�?
+  - 字体改为五套 token：Luo 仅用于品牌与固定展示标题，系统黑体用于高�?UI，Noto Serif SC Unicode Range 分片用于 AI 回答，仓耳今�?W04/W05 用于资料�?Wiki 正文，等宽字体用于代码与路径；Noto 字体�?OFL 许可随项目分发�?
+  - Library 增加“学习资�?/ Wiki”分类，隐藏 Wiki 结构文件，按 NFKC 与标点归一化去重；两份旧生成页已归档到 `.bobodan/archive/wiki/<timestamp>/`，规范索引重建为 6 页�?
+  - 左右栏可独立折叠并保存用户状态；内容不足 720px 时按右栏、左栏顺序自动收起，桌面支持 200ms 边缘悬停预览，移动端继续使用抽屉�?
+  - 首轮回答后异步生成短会话标题�?5 秒超时或模型失败时使用首问本地回退；手动标题不会被覆盖，会话按今天、昨天、本周、更早分组并显示时间�?
+  - 默认提示收敛装饰 Emoji 与重复小猫自称；欢迎、思考、阅读、写作、等待、休息和回答反馈开始使用现有品牌状态图与表情图�?
+  - 新增资料分类、Wiki 归档、会话标题和多视口侧�?字体测试；生产构建、Vitest、Python 聚焦测试�?Playwright 多视口用例通过�?
+  - 资料�?Wiki 阅读器进一步采�?Kami 同款仓耳今�?W04/W05 双字重本地字体；AI 回答继续使用 Noto Serif SC，高�?UI 不受影响�?
 
-- **P5D Web UI 第一版**: 建立 React 19 + TypeScript + Vite + Tailwind 本地 Web 应用，并按 `docs/DESIGN.md` 落地 Bobodan 暖纸、墨蓝、Luo 字体和三花猫品牌资产。
-  - 完成桌面三栏、窄屏上下文抽屉、移动端底部导航，以及 Chat / Library / Practice / Review 四个一级入口。
-  - Chat 使用 OpenHanako 式居中起始状态和中央阅读流，普通桌面保持完整侧栏；支持会话恢复、重命名、删除、草稿保存、POST SSE 流式回答、状态摘要、来源标签、失败重试与生成练习入口。
-  - Web 后端与 CLI 一致加载工作区 `.env`，修复已配置 Provider 在浏览器中错误返回 `503 provider_unavailable` 的问题。
-  - Library 支持真实资料列表、详情阅读和 Markdown / PDF / DOCX / PPTX 导入；Practice 支持出题、未完成练习恢复、答题、批改、小结和放弃；Review 支持真实队列与针对性练习。
-  - 本地打包品牌字体与许可证；新增 Vitest API / 组件测试和 Playwright 桌面、移动布局验收。
+- **P5D Web UI 第一�?*: 建立 React 19 + TypeScript + Vite + Tailwind 本地 Web 应用，并�?`docs/DESIGN.md` 落地 Bobodan 暖纸、墨蓝、Luo 字体和三花猫品牌资产�?
+  - 完成桌面三栏、窄屏上下文抽屉、移动端底部导航，以�?Chat / Library / Practice / Review 四个一级入口�?
+  - Chat 使用 OpenHanako 式居中起始状态和中央阅读流，普通桌面保持完整侧栏；支持会话恢复、重命名、删除、草稿保存、POST SSE 流式回答、状态摘要、来源标签、失败重试与生成练习入口�?
+  - Web 后端�?CLI 一致加载工作区 `.env`，修复已配置 Provider 在浏览器中错误返�?`503 provider_unavailable` 的问题�?
+  - Library 支持真实资料列表、详情阅读和 Markdown / PDF / DOCX / PPTX 导入；Practice 支持出题、未完成练习恢复、答题、批改、小结和放弃；Review 支持真实队列与针对性练习�?
+  - 本地打包品牌字体与许可证；新�?Vitest API / 组件测试�?Playwright 桌面、移动布局验收�?
 
-- **Bobodan 品牌与 Web 视觉参考资产**: 完成三花猫品牌角色规范、正式透明头像、四表情、六学习状态和 Chat 起始插图，并导出前端可直接使用的 PNG / WebP 尺寸。
-  - 新增 `docs/assets/brand/BOBODAN_MASCOT.md`，明确品牌角色与用户可配置人设的边界、固定识别特征和后续图片接收规则。
-  - 新增 `web/frontend/public/assets/brand/` 前端资源清单，以及 `docs/prototypes/bobodan-study-workspace.html` 静态视觉预览。
-  - `docs/DESIGN.md` 补充品牌角色规范；`docs/PROJECT_GUIDE.md` 补充 OpenHanako 的布局、过程披露、设置、记忆、恢复、权限和扩展借鉴边界。
+- **Bobodan 品牌�?Web 视觉参考资�?*: 完成三花猫品牌角色规范、正式透明头像、四表情、六学习状态和 Chat 起始插图，并导出前端可直接使用的 PNG / WebP 尺寸�?
+  - 新增 `docs/assets/brand/BOBODAN_MASCOT.md`，明确品牌角色与用户可配置人设的边界、固定识别特征和后续图片接收规则�?
+  - 新增 `web/frontend/public/assets/brand/` 前端资源清单，以�?`docs/prototypes/bobodan-study-workspace.html` 静态视觉预览�?
+  - `docs/DESIGN.md` 补充品牌角色规范；`docs/PROJECT_GUIDE.md` 补充 OpenHanako 的布局、过程披露、设置、记忆、恢复、权限和扩展借鉴边界�?
 
-- **P5C Web UI 产品化前置工作完成**: 在不实现 React 页面之前，完成 Web MVP 所需的运行时、API、资料、来源和练习状态基础。
-  - 新增共享 `RuntimeService / RuntimeContext`，CLI 与 Web 统一加载 provider、workspace、skills、memory 和 trace；quiz / learning LLM 调用使用同一份 config。
-  - Chat API 增加 `run_id`、安全 SSE 事件适配、session list / detail / rename / delete；Web 运行时只开放 RAG、学习、练习和记忆工具白名单。
-  - Web 错误统一为 `code / message / details`，流式异常、工具原始输出、secret 和本地绝对路径不再直接返回浏览器。
-  - Library 增加托管文件上传、document list / detail 和 source roots；Markdown、PDF、DOCX、PPTX 可进入现有 RAG v2 同步链路。
-  - Question 增加 `Attribution + SourceRef` 持久化及旧 SQLite 迁移；Practice 增加 active session、状态恢复、进度、掌握度变化和 abandon；Review 增加聚合队列。
-  - 更新 `docs/PROJECT_GUIDE.md` 与 `docs/DESIGN.md`，明确下一阶段为 P5D 本地学习闭环 Web MVP，所有 UI 必须遵循设计 token 与交互边界。
-  - 验证：Python 编译检查通过；全量测试 `1020 passed`，2 个既有 warning。
+- **P5C Web UI 产品化前置工作完�?*: 在不实现 React 页面之前，完�?Web MVP 所需的运行时、API、资料、来源和练习状态基础�?
+  - 新增共享 `RuntimeService / RuntimeContext`，CLI �?Web 统一加载 provider、workspace、skills、memory �?trace；quiz / learning LLM 调用使用同一�?config�?
+  - Chat API 增加 `run_id`、安�?SSE 事件适配、session list / detail / rename / delete；Web 运行时只开�?RAG、学习、练习和记忆工具白名单�?
+  - Web 错误统一�?`code / message / details`，流式异常、工具原始输出、secret 和本地绝对路径不再直接返回浏览器�?
+  - Library 增加托管文件上传、document list / detail �?source roots；Markdown、PDF、DOCX、PPTX 可进入现�?RAG v2 同步链路�?
+  - Question 增加 `Attribution + SourceRef` 持久化及�?SQLite 迁移；Practice 增加 active session、状态恢复、进度、掌握度变化�?abandon；Review 增加聚合队列�?
+  - 更新 `docs/PROJECT_GUIDE.md` �?`docs/DESIGN.md`，明确下一阶段�?P5D 本地学习闭环 Web MVP，所�?UI 必须遵循设计 token 与交互边界�?
+  - 验证：Python 编译检查通过；全量测�?`1020 passed`�? 个既�?warning�?
 
-- **Bobodan 当前阶段收尾**: 完成产品定位、文档合并、设计规范补强和 FastAPI skeleton，Web UI 留到下一阶段实现。
-  - `docs/PROJECT_GUIDE.md`（新）: 作为后续给人和 AI 看的唯一主入口，整理产品定位、当前阶段、下一步路线、练习系统、功能分层和架构边界。
-  - `docs/DESIGN.md`: 补充 Bobodan Web UI 设计硬约束，包括轻纸面质感、Study / Workbench 分区、阅读优先的中等密度、移动端 Chat / Practice / Review 优先、Tailwind / shadcn 语义 token、核心组件规范、来源 chip、Practice 一题一卡、温和状态反馈、用户可配置人设和硬性反模式清单。
-  - `web/backend/`（新）: FastAPI skeleton，包含 app/deps/sse 以及 chat、kb、quiz、learning、memory、settings 路由，先完成后端协议边界，不实现 Web UI。
-  - `tests/test_web_backend.py`（新）: 覆盖 Web backend health、路由协议、SSE 包装和 service 委托边界。
-  - 文档整理：收敛旧架构、旧计划和 archive 文档，更新 `CLAUDE.md`、`README.md`、`docs/README.md`、`docs/MCP.md`、`docs/tools/skills.md`，强调后续 UI / 设计必须先读 `docs/DESIGN.md`。
-  - 验证：最近一次全量测试 `998 passed`，2 个既有 warning。
+- **Bobodan 当前阶段收尾**: 完成产品定位、文档合并、设计规范补强和 FastAPI skeleton，Web UI 留到下一阶段实现�?
+  - `docs/PROJECT_GUIDE.md`（新�? 作为后续给人�?AI 看的唯一主入口，整理产品定位、当前阶段、下一步路线、练习系统、功能分层和架构边界�?
+  - `docs/DESIGN.md`: 补充 Bobodan Web UI 设计硬约束，包括轻纸面质感、Study / Workbench 分区、阅读优先的中等密度、移动端 Chat / Practice / Review 优先、Tailwind / shadcn 语义 token、核心组件规范、来�?chip、Practice 一题一卡、温和状态反馈、用户可配置人设和硬性反模式清单�?
+  - `web/backend/`（新�? FastAPI skeleton，包�?app/deps/sse 以及 chat、kb、quiz、learning、memory、settings 路由，先完成后端协议边界，不实现 Web UI�?
+  - `tests/test_web_backend.py`（新�? 覆盖 Web backend health、路由协议、SSE 包装�?service 委托边界�?
+  - 文档整理：收敛旧架构、旧计划�?archive 文档，更�?`CLAUDE.md`、`README.md`、`docs/README.md`、`docs/MCP.md`、`docs/tools/skills.md`，强调后�?UI / 设计必须先读 `docs/DESIGN.md`�?
+  - 验证：最近一次全量测�?`998 passed`�? 个既�?warning�?
 
-- **RAG v2 — Qdrant + SQLite + Hybrid Retrieval**: 知识库检索升级为完整 RAG 基础设施。
-  - `rag/schema.py`（新）: `RetrievalHit`、`DocumentHit`、`RetrievalResult`、`HybridResult` 统一结果 schema。
-  - `rag/sqlite_store.py`（新）: `KBSQLiteStore` — SQLite + FTS5 存储层（documents, chunks, chunks_fts, directory_entries, retrieval_runs）。FTS5 content-synced triggers 自动同步。
-  - `rag/qdrant_store.py`（新）: `QdrantStore` — Qdrant local persistent 向量存储，支持 upsert/search/delete_by_filter。Point id 使用 UUID5 确定性转换。
-  - `rag/embedding_service.py`（新）: `EmbeddingService` — Ollama embedding 包装器，graceful degradation。
-  - `rag/source_section.py`（新）: `SourceSection` — 多格式解析统一中间结构。
-  - `rag/parsers/`（新）: 多格式解析器 — Markdown heading-aware、PDF page-aware (PyMuPDF)、PPT slide-aware (python-pptx)、Word heading-style (python-docx)。
-  - `rag/chunker_v2.py`（新）: heading-aware adaptive chunking — heading_path 继承、长 section 二次切分、短 section 合并、embedding text heading context 注入。
-  - `rag/rrf.py`（新）: RRF (Reciprocal Rank Fusion) — vector + FTS5 排名融合。
-  - `rag/hybrid.py`（新）: `HybridRetriever` — vector + FTS5 → RRF → chunk candidates。
-  - `rag/directory.py`（新）: `DirectoryRetriever` — 文档级路由，metadata lexical + chunk aggregation。
-  - `rag/grep_retriever.py`（新）: `GrepRetriever` — rg 优先 + Python fallback，intent-aware evidence thin 判断（exact_lookup vs coverage），扩展阶梯。
-  - `rag/orchestrator.py`（新）: `RetrievalOrchestrator` — 三种检索模式调度（hybrid/directory/directory_grep），auto 模式规则路由 + hybrid 空结果 fallback。
-  - `rag/query_router.py`（新）: 规则路由（directory_grep > directory > hybrid）。
-  - `obsidian/sync.py`: 改用新 parsers + chunker_v2 + SQLite + Qdrant 写入，incremental sync 保留 manifest。
-  - `service/kb_service.py`: `search()` 新增 `mode` 参数（auto|hybrid|directory|directory_grep）。
-  - `tools/rag_search.py`: tool schema 新增 `mode` 参数。
-  - `rag/retriever.py`: 优先走 Orchestrator，legacy JSON index fallback。
-  - `rag/citations.py`: 支持 heading、page/slide、retriever 信息。
-  - `config.yaml`: 扩展 `rag:` section（vector_db, chunking, retrieval 配置）。
-  - `requirements.txt`: 新增 `qdrant-client`、`python-docx`、`python-pptx`、`pymupdf`。
-  - 112 个新测试覆盖 SQLite store、Qdrant store、parsers、chunker v2、RRF、hybrid/directory/grep retriever、orchestrator、query router。994 测试全通过。
+- **RAG v2 �?Qdrant + SQLite + Hybrid Retrieval**: 知识库检索升级为完整 RAG 基础设施�?
+  - `rag/schema.py`（新�? `RetrievalHit`、`DocumentHit`、`RetrievalResult`、`HybridResult` 统一结果 schema�?
+  - `rag/sqlite_store.py`（新�? `KBSQLiteStore` �?SQLite + FTS5 存储层（documents, chunks, chunks_fts, directory_entries, retrieval_runs）。FTS5 content-synced triggers 自动同步�?
+  - `rag/qdrant_store.py`（新�? `QdrantStore` �?Qdrant local persistent 向量存储，支�?upsert/search/delete_by_filter。Point id 使用 UUID5 确定性转换�?
+  - `rag/embedding_service.py`（新�? `EmbeddingService` �?Ollama embedding 包装器，graceful degradation�?
+  - `rag/source_section.py`（新�? `SourceSection` �?多格式解析统一中间结构�?
+  - `rag/parsers/`（新�? 多格式解析器 �?Markdown heading-aware、PDF page-aware (PyMuPDF)、PPT slide-aware (python-pptx)、Word heading-style (python-docx)�?
+  - `rag/chunker_v2.py`（新�? heading-aware adaptive chunking �?heading_path 继承、长 section 二次切分、短 section 合并、embedding text heading context 注入�?
+  - `rag/rrf.py`（新�? RRF (Reciprocal Rank Fusion) �?vector + FTS5 排名融合�?
+  - `rag/hybrid.py`（新�? `HybridRetriever` �?vector + FTS5 �?RRF �?chunk candidates�?
+  - `rag/directory.py`（新�? `DirectoryRetriever` �?文档级路由，metadata lexical + chunk aggregation�?
+  - `rag/grep_retriever.py`（新�? `GrepRetriever` �?rg 优先 + Python fallback，intent-aware evidence thin 判断（exact_lookup vs coverage），扩展阶梯�?
+  - `rag/orchestrator.py`（新�? `RetrievalOrchestrator` �?三种检索模式调度（hybrid/directory/directory_grep），auto 模式规则路由 + hybrid 空结�?fallback�?
+  - `rag/query_router.py`（新�? 规则路由（directory_grep > directory > hybrid）�?
+  - `obsidian/sync.py`: 改用�?parsers + chunker_v2 + SQLite + Qdrant 写入，incremental sync 保留 manifest�?
+  - `service/kb_service.py`: `search()` 新增 `mode` 参数（auto|hybrid|directory|directory_grep）�?
+  - `tools/rag_search.py`: tool schema 新增 `mode` 参数�?
+  - `rag/retriever.py`: 优先�?Orchestrator，legacy JSON index fallback�?
+  - `rag/citations.py`: 支持 heading、page/slide、retriever 信息�?
+  - `config.yaml`: 扩展 `rag:` section（vector_db, chunking, retrieval 配置）�?
+  - `requirements.txt`: 新增 `qdrant-client`、`python-docx`、`python-pptx`、`pymupdf`�?
+  - 112 个新测试覆盖 SQLite store、Qdrant store、parsers、chunker v2、RRF、hybrid/directory/grep retriever、orchestrator、query router�?94 测试全通过�?
 
-- **Bobodan base system prompt**: `core/agent_loop.py` 新增稳定的 Bobodan 基础 system prompt，用 marker 幂等注入。
-  - 定位从通用 CLI assistant 收敛为 "local-first personal assistant with strong learning capabilities"。
-  - 学习能力仍是核心强项，但允许普通聊天、陪伴、头脑风暴、轻娱乐和日常问题。
-  - 人设和语气继续由 memory / persona 偏好提供，base prompt 只固定产品主线和事实边界。
-  - 保留 `LEGACY_BASE_SYSTEM_PROMPT` 清理逻辑，旧 session 会移除旧提示词并注入新提示词。
-  - `tests/test_agent_loop.py`: 覆盖 base prompt 注入、幂等、防重复和 legacy prompt 清理。
+- **Bobodan base system prompt**: `core/agent_loop.py` 新增稳定�?Bobodan 基础 system prompt，用 marker 幂等注入�?
+  - 定位从通用 CLI assistant 收敛�?"local-first personal assistant with strong learning capabilities"�?
+  - 学习能力仍是核心强项，但允许普通聊天、陪伴、头脑风暴、轻娱乐和日常问题�?
+  - 人设和语气继续由 memory / persona 偏好提供，base prompt 只固定产品主线和事实边界�?
+  - 保留 `LEGACY_BASE_SYSTEM_PROMPT` 清理逻辑，旧 session 会移除旧提示词并注入新提示词�?
+  - `tests/test_agent_loop.py`: 覆盖 base prompt 注入、幂等、防重复�?legacy prompt 清理�?
 
-- **内置 skills 调整**: 删除与学习助手主线无关的 `weather` 示例 skill，新增并收敛 Bobodan 学习场景内置 skill。
-  - `skills/study-loop/SKILL.md`: 学习闭环引导，负责知识库检查、学习计划、今日任务、练习、进度和导出。
-  - `skills/exam-prep/SKILL.md`: 考前冲刺和薄弱点训练，基于 `learning_progress` / `learning_review` / `quiz_start` / `question_generate`，不再引用不存在的 `quiz_weak` / `quiz_wrong` / `quiz_stats` 工具。
-  - `skills/obsidian-workspace/SKILL.md`: Obsidian / 本地知识库工作区管理，负责同步资料、知识库状态、导出学习计划/做题总结和 wiki 整理。
-  - 当前内置 skill 集合：`aihot` / `course-learning` / `study-loop` / `exam-prep` / `obsidian-workspace`。
+- **内置 skills 调整**: 删除与学习助手主线无关的 `weather` 示例 skill，新增并收敛 Bobodan 学习场景内置 skill�?
+  - `skills/study-loop/SKILL.md`: 学习闭环引导，负责知识库检查、学习计划、今日任务、练习、进度和导出�?
+  - `skills/exam-prep/SKILL.md`: 考前冲刺和薄弱点训练，基�?`learning_progress` / `learning_review` / `quiz_start` / `question_generate`，不再引用不存在�?`quiz_weak` / `quiz_wrong` / `quiz_stats` 工具�?
+  - `skills/obsidian-workspace/SKILL.md`: Obsidian / 本地知识库工作区管理，负责同步资料、知识库状态、导出学习计�?做题总结�?wiki 整理�?
+  - 当前内置 skill 集合：`aihot` / `course-learning` / `study-loop` / `exam-prep` / `obsidian-workspace`�?
 
-- **P5 Service 层抽取**: 5 个 service 模块提取完成，CLI 和 tools 统一委托 service 层，为 FastAPI/Web 前后端分离做准备。
-  - `service/learning_service.py`（新）: `LearningService` — 学习计划、进度、复习、掌握度（9 个方法）。
-  - `service/quiz_service.py`（新）: `QuizService` — 出题、做题、批改、错题本、薄弱点（6 个方法）。
-  - `service/memory_service.py`（新）: `MemoryService` — 永久记忆、每日记忆、晋升（9 个方法）。
-  - `service/kb_service.py`（新）: `KBService` — 知识库同步、状态、RAG 检索、图谱查询、重置（5 个方法）。`sync()` 内置 workspace 路径安全边界。
-  - `service/agent_service.py`（新）: `AgentService` — provider 创建/列表、session 持久化、agent 事件流（6 个方法）。`create_provider` 返回 LLMProvider 实例，`list_providers` 包含 `configured` 状态但不暴露 API key。
-  - 所有 service 方法返回 `{"ok": bool, ...}` dict，无 ANSI/HTML 格式。
-  - `cli/repl.py`: `/learning`、`/quiz`、`/memory`、`/kb`、`/model`、`/session` 命令全部委托对应 service。删除 `normalize_session_id`、`get_session_path`、`resolve_session_id` 等已迁移方法。
-  - `tools/learning_tools.py`、`tools/quiz_tools.py`、`tools/memory_tools.py`、`tools/rag_search.py`、`tools/graph_query.py`、`tools/knowledge_status.py`、`tools/obsidian_tool.py`: 全部委托对应 service，保留 ToolResult 包装。
-  - `tests/test_learning_service.py`（新，27）、`tests/test_quiz_service.py`（新，16）、`tests/test_memory_service.py`（新，21）、`tests/test_kb_service.py`（新，17）、`tests/test_agent_service.py`（新，19）: 共 100 个新测试。
-  - 869 测试全通过。
+- **P5 Service 层抽�?*: 5 �?service 模块提取完成，CLI �?tools 统一委托 service 层，�?FastAPI/Web 前后端分离做准备�?
+  - `service/learning_service.py`（新�? `LearningService` �?学习计划、进度、复习、掌握度�? 个方法）�?
+  - `service/quiz_service.py`（新�? `QuizService` �?出题、做题、批改、错题本、薄弱点�? 个方法）�?
+  - `service/memory_service.py`（新�? `MemoryService` �?永久记忆、每日记忆、晋升（9 个方法）�?
+  - `service/kb_service.py`（新�? `KBService` �?知识库同步、状态、RAG 检索、图谱查询、重置（5 个方法）。`sync()` 内置 workspace 路径安全边界�?
+  - `service/agent_service.py`（新�? `AgentService` �?provider 创建/列表、session 持久化、agent 事件流（6 个方法）。`create_provider` 返回 LLMProvider 实例，`list_providers` 包含 `configured` 状态但不暴�?API key�?
+  - 所�?service 方法返回 `{"ok": bool, ...}` dict，无 ANSI/HTML 格式�?
+  - `cli/repl.py`: `/learning`、`/quiz`、`/memory`、`/kb`、`/model`、`/session` 命令全部委托对应 service。删�?`normalize_session_id`、`get_session_path`、`resolve_session_id` 等已迁移方法�?
+  - `tools/learning_tools.py`、`tools/quiz_tools.py`、`tools/memory_tools.py`、`tools/rag_search.py`、`tools/graph_query.py`、`tools/knowledge_status.py`、`tools/obsidian_tool.py`: 全部委托对应 service，保�?ToolResult 包装�?
+  - `tests/test_learning_service.py`（新�?7）、`tests/test_quiz_service.py`（新�?6）、`tests/test_memory_service.py`（新�?1）、`tests/test_kb_service.py`（新�?7）、`tests/test_agent_service.py`（新�?9�? �?100 个新测试�?
+  - 869 测试全通过�?
 
-- **P2 Event Trace 轻量版**: 每次 Agent run 记录关键事件到 JSONL trace 文件，支持事后查看"做了什么、花了多久、哪步失败"。
-  - `core/trace.py`（新）: `TraceWriter` 类写入 `.bobodan/traces/{session_id}_{timestamp}_{run_suffix}.jsonl`，只记录 `tool_start` / `tool_end` / `assistant_done` / `error` 事件（不含 `assistant_delta`）。Secret 字段自动 redact，content 超 500 字符截断。线程安全（`threading.Lock`）。
-  - `core/agent_loop.py`: `assistant_done` 事件增加 `termination_reason` 字段（`final_answer` / `max_iter` / `error`）；`run_stream` 异常时 yield `assistant_done(termination_reason="error")` 再 re-raise；构造函数接受可选 `trace_writer` 参数，有则自动写入 trace。
-  - `cli/repl.py`: 每次 run 创建 `TraceWriter` 并注入 `AgentLoop`；新增 `/trace` 命令（列出最近 run、查看 tool timeline）。
-  - `core/trace.py`: 新增 `list_traces` / `read_trace` / `summarize_trace` 读取函数。
-  - `tests/test_agent_loop.py`: 覆盖三种 `termination_reason`、`TraceWriter` 文件创建/唯一 run 路径/过滤/截断/redact/错误事件、`AgentLoop` trace 集成、trace 读取/汇总。
+- **P2 Event Trace 轻量�?*: 每次 Agent run 记录关键事件�?JSONL trace 文件，支持事后查�?做了什么、花了多久、哪步失�?�?
+  - `core/trace.py`（新�? `TraceWriter` 类写�?`.bobodan/traces/{session_id}_{timestamp}_{run_suffix}.jsonl`，只记录 `tool_start` / `tool_end` / `assistant_done` / `error` 事件（不�?`assistant_delta`）。Secret 字段自动 redact，content �?500 字符截断。线程安全（`threading.Lock`）�?
+  - `core/agent_loop.py`: `assistant_done` 事件增加 `termination_reason` 字段（`final_answer` / `max_iter` / `error`）；`run_stream` 异常�?yield `assistant_done(termination_reason="error")` �?re-raise；构造函数接受可�?`trace_writer` 参数，有则自动写�?trace�?
+  - `cli/repl.py`: 每次 run 创建 `TraceWriter` 并注�?`AgentLoop`；新�?`/trace` 命令（列出最�?run、查�?tool timeline）�?
+  - `core/trace.py`: 新增 `list_traces` / `read_trace` / `summarize_trace` 读取函数�?
+  - `tests/test_agent_loop.py`: 覆盖三种 `termination_reason`、`TraceWriter` 文件创建/唯一 run 路径/过滤/截断/redact/错误事件、`AgentLoop` trace 集成、trace 读取/汇总�?
 
-- **P3 Workflow Runtime**: 学习计划从"看一眼"变成"可以执行"——自动推断完成状态、追赶模式、手动标记、合并今日任务视图。
-  - `learning/schema.py`: `LearningPlan` 增加 `status`（active/completed）和 `current_day` 字段。
-  - `learning/store.py`: 新增 `plan_progress` 表（plan_id, day, task_index, source）+ 迁移逻辑 + CRUD 方法（`mark_task_done` / `mark_step_done` / `get_progress` / `get_active_plans` / `update_plan_status`）。
-  - `learning/workflow.py`（新）: `PlanWorkflowTracker` — 自动推断 step 完成（所有 topics mastered → 标记完成）、plan 完成时自动 status=completed、进度查询、追赶模式今日任务。
-  - `learning/progress.py`: `update_from_quiz` 在答对后自动调用 `check_plan_completion`。
-  - `tools/learning_tools.py`: 新增 `learning_plan_progress` 工具（status / complete_task / complete_step / today）。
-  - `cli/repl.py`: `/learning today` 合并显示未完成计划任务 + 到期复习清单。
-  - `tests/test_workflow.py`（新）: 覆盖 plan_progress CRUD、自动推断、追赶模式、进度汇总、工具集成、ProgressTracker 联动、手动 mastery 标记联动和 SQLite 连接关闭。
-  - 769 测试全通过。
+- **P3 Workflow Runtime**: 学习计划�?看一�?变成"可以执行"——自动推断完成状态、追赶模式、手动标记、合并今日任务视图�?
+  - `learning/schema.py`: `LearningPlan` 增加 `status`（active/completed）和 `current_day` 字段�?
+  - `learning/store.py`: 新增 `plan_progress` 表（plan_id, day, task_index, source�? 迁移逻辑 + CRUD 方法（`mark_task_done` / `mark_step_done` / `get_progress` / `get_active_plans` / `update_plan_status`）�?
+  - `learning/workflow.py`（新�? `PlanWorkflowTracker` �?自动推断 step 完成（所�?topics mastered �?标记完成）、plan 完成时自�?status=completed、进度查询、追赶模式今日任务�?
+  - `learning/progress.py`: `update_from_quiz` 在答对后自动调用 `check_plan_completion`�?
+  - `tools/learning_tools.py`: 新增 `learning_plan_progress` 工具（status / complete_task / complete_step / today）�?
+  - `cli/repl.py`: `/learning today` 合并显示未完成计划任�?+ 到期复习清单�?
+  - `tests/test_workflow.py`（新�? 覆盖 plan_progress CRUD、自动推断、追赶模式、进度汇总、工具集成、ProgressTracker 联动、手�?mastery 标记联动�?SQLite 连接关闭�?
+  - 769 测试全通过�?
 
-- **P1 Obsidian 写回**: 学习计划和做题总结可导出为 Obsidian Markdown，兑现 README 承诺。
-  - `tools/obsidian_export.py`（新）: `obsidian_export_plan` 从 LearningStore 读取计划，生成 YAML frontmatter + 按天 checkbox 任务 + `[[双链]]` 知识点引用的 Markdown，写入 `{vault}/学习计划/{title}.md`；`obsidian_export_quiz_summary` 从 QuizStore 读取错题和薄弱点分析，生成按概念分组错题本 + 薄弱点表格 + 掌握度概览的 Markdown，写入 `{vault}/做题总结/{date}.md`。
-  - 路径安全检查：`_is_within_workspace` 防止写入 workspace 外路径。
-  - `tests/test_obsidian_export.py`（新）: 16 个测试覆盖文件生成、frontmatter、checkbox、wikilink、错题分组、薄弱点表格、掌握度概览、空数据、路径越界、plan 不存在。
-  - 716 测试全通过。
+- **P1 Obsidian 写回**: 学习计划和做题总结可导出为 Obsidian Markdown，兑�?README 承诺�?
+  - `tools/obsidian_export.py`（新�? `obsidian_export_plan` �?LearningStore 读取计划，生�?YAML frontmatter + 按天 checkbox 任务 + `[[双链]]` 知识点引用的 Markdown，写�?`{vault}/学习计划/{title}.md`；`obsidian_export_quiz_summary` �?QuizStore 读取错题和薄弱点分析，生成按概念分组错题�?+ 薄弱点表�?+ 掌握度概览的 Markdown，写�?`{vault}/做题总结/{date}.md`�?
+  - 路径安全检查：`_is_within_workspace` 防止写入 workspace 外路径�?
+  - `tests/test_obsidian_export.py`（新�? 16 个测试覆盖文件生成、frontmatter、checkbox、wikilink、错题分组、薄弱点表格、掌握度概览、空数据、路径越界、plan 不存在�?
+  - 716 测试全通过�?
 
-- **P0 学习闭环补全**: quiz_submit 自动写每日记忆 + 更新掌握度 + session 完成汇总，做题→记忆→掌握度链路真正跑通。
-  - `learning/quiz_integration.py`（新）: `record_quiz_learning_effect` 做题后自动写每日记忆（tags: quiz + 概念）并更新掌握度；`record_quiz_session_summary` 全部答完后写汇总记忆并标记 session 完成。
-  - `tools/quiz_tools.py`: `quiz_submit` 在 `store.record_attempt()` 后调用集成函数，失败只 warning 不阻塞返回。返回 data 新增 `session_completed` 字段。
-  - `learning/__init__.py`: 导出 `record_quiz_learning_effect`、`record_quiz_session_summary`。
-  - `tests/test_quiz_integration.py`（新）: 13 个测试覆盖正确/错误/连续答对→mastered/记忆写入/标签/独立调用/累积状态/未完成不触发汇总/完成触发汇总/弱概念/全对。
-  - 掌握度规则：连续答对 2 次 → `mastered`，答对 1 次 → `learning`，答错 → `needs_review`。
-  - 700 测试全通过。
+- **P0 学习闭环补全**: quiz_submit 自动写每日记�?+ 更新掌握�?+ session 完成汇总，做题→记忆→掌握度链路真正跑通�?
+  - `learning/quiz_integration.py`（新�? `record_quiz_learning_effect` 做题后自动写每日记忆（tags: quiz + 概念）并更新掌握度；`record_quiz_session_summary` 全部答完后写汇总记忆并标记 session 完成�?
+  - `tools/quiz_tools.py`: `quiz_submit` �?`store.record_attempt()` 后调用集成函数，失败�?warning 不阻塞返回。返�?data 新增 `session_completed` 字段�?
+  - `learning/__init__.py`: 导出 `record_quiz_learning_effect`、`record_quiz_session_summary`�?
+  - `tests/test_quiz_integration.py`（新�? 13 个测试覆盖正�?错误/连续答对→mastered/记忆写入/标签/独立调用/累积状�?未完成不触发汇�?完成触发汇�?弱概�?全对�?
+  - 掌握度规则：连续答对 2 �?�?`mastered`，答�?1 �?�?`learning`，答�?�?`needs_review`�?
+  - 700 测试全通过�?
 
-- **CLI 轻量状态行收尾**: `Thinking` / `Checking` / `Working` / `Drafting` / `Polishing` 状态词按 Bobodan 设计语言分色显示，spinner 保持稳定强调色，elapsed 保持 dim，减少单色刷新疲劳；tool running 行统一为 clay/orange，success/error 继续使用 green/red。覆盖 `cli/tool_display.py`、`cli/repl.py` 和对应回归测试。
-- **Bobodan 设计参考文档**: `docs/DESIGN.md` 作为后续 Web UI / TUI / 官网设计的长期视觉基准，收敛为 Warm Paper Knowledge Garden / Natural Editorial Zen 方向，并明确 ink blue、clay、sage、petal pink 等色彩角色。
-- **CLI Tool Display UX (P0)**: 工具调用显示更清晰，specialist 内部 tool events 较多时不刷屏。详见 `docs/NEXT_STEPS_EXECUTION_PLAN.md` P0 节。
-  - **B-lite single-active-line UI**: 同一时刻只动画一行 —— thinking line 或 tool spinner 占据光标位置，每 100ms tick 原地切换帧。
-  - **工具参数摘要** (`cli/tool_display.py: summarize_tool_args`): `read_file` / `write_file` / `list_dir` / `stat_path` 取路径尾部；`rag_search` / `graph_query` 取 query/concept；`delegate_doc_reader` 取 source_paths 尾 + goal；`delegate_triage` 取 query；`delegate_planner` 取 goal；`change_dir` / `http_request` 走特殊规则；MCP 和其他内置工具走 60 字符 short JSON fallback。
-  - **连续同名 tool call 合并** (`CoalescerStack`): 第 1-2 次正常显示，第 3 次触发 `✓ name ×3` inline marker，4+ 静默计数，turn 结束或 name 变化时 flush `✓ name ×N total {elapsed:.1f}s`。错误不计入成功合并组，立即显示 `✗ name: msg`。scope 隔离：主 agent 一套，每个 active specialist 一套。
-  - **thinking 动词轮换** (`THINK_VERBS`): `["Thinking", "Checking", "Working", "Drafting", "Polishing"]`，2.5s 等距切换；不用 stage-specific 词（具体动作由 tool active line 表达）。
-  - **`core/agent_loop.py`**: `tool_end` event 新增 `elapsed`（必填）和 `result_summary`（可选，仅白名单工具）字段，作为未来 trace 元数据。`_compute_result_summary` 为 `change_dir` 生成 `→ {cwd}`，为 `http_request` 生成 `status {code}`。
-  - **`/ui tools on|off` 低噪音模式** (`_b_should_show`): off 时隐藏 tool_start / 成功 tool_end / 成功 coalesce summary / 成功 specialist_event，但**保留所有 ok=False 错误行**（包括 specialist 内部错误）—— errors 是安全网，不进低噪音模式。
-  - **删除 specialist running 占位行** (`◐ doc_reader_specialist running...`): B-lite 下 delegate active line 已经表达 running 状态，额外 running 行是噪音；specialist scope 只用 4 空格缩进表达。
-  - **`tests/test_repl_display.py`** (新): 42 个 L1（参数化摘要规则）+ L2（7 个 coalesce 状态机 case + flush without pending emits empty）单元测试。
-  - **`tests/test_repl.py`** 扩 L3 结构测试：B-lite active line seal on assistant_delta / seal on new tool_start / in-place update / off mode 隐藏成功保留错误；并覆盖 coalesce wall-clock total、delegate parent scope 记账、thinking spinner tick。
-  - **Streaming 文本输出修复**: assistant 正文开始后清除 thinking active line，避免 `Thinking` / `Checking` / `Working` 状态行被 seal 到正文中反复刷屏。
-  - **Streaming 速度修复**: 移除 `_flush_stream_buffer()` 的逐字符 `sleep`，避免格式化整行输出时阻塞 UI loop，改善流式输出和 thinking spinner 的卡顿感。
-  - **Partial preview 节流**: 短 token/chunk 先缓冲，攒到一小段再直接输出，避免当前行被频繁清除重写造成视觉疲劳。
-  - **`agents/runner.py`**: specialist 内部 `display_events` 透传 `elapsed` / `result_summary`，避免内部 tool success 显示退化为 `(0.0s)`。
-  - 完整测试 683 个通过（1 个既有 MCP coroutine warning）。
+- **CLI 轻量状态行收尾**: `Thinking` / `Checking` / `Working` / `Drafting` / `Polishing` 状态词�?Bobodan 设计语言分色显示，spinner 保持稳定强调色，elapsed 保持 dim，减少单色刷新疲劳；tool running 行统一�?clay/orange，success/error 继续使用 green/red。覆�?`cli/tool_display.py`、`cli/repl.py` 和对应回归测试�?
+- **Bobodan 设计参考文�?*: `docs/DESIGN.md` 作为后续 Web UI / TUI / 官网设计的长期视觉基准，收敛�?Warm Paper Knowledge Garden / Natural Editorial Zen 方向，并明确 ink blue、clay、sage、petal pink 等色彩角色�?
+- **CLI Tool Display UX (P0)**: 工具调用显示更清晰，specialist 内部 tool events 较多时不刷屏。详�?`docs/NEXT_STEPS_EXECUTION_PLAN.md` P0 节�?
+  - **B-lite single-active-line UI**: 同一时刻只动画一�?—�?thinking line �?tool spinner 占据光标位置，每 100ms tick 原地切换帧�?
+  - **工具参数摘要** (`cli/tool_display.py: summarize_tool_args`): `read_file` / `write_file` / `list_dir` / `stat_path` 取路径尾部；`rag_search` / `graph_query` �?query/concept；`delegate_doc_reader` �?source_paths �?+ goal；`delegate_triage` �?query；`delegate_planner` �?goal；`change_dir` / `http_request` 走特殊规则；MCP 和其他内置工具走 60 字符 short JSON fallback�?
+  - **连续同名 tool call 合并** (`CoalescerStack`): �?1-2 次正常显示，�?3 次触�?`�?name ×3` inline marker�?+ 静默计数，turn 结束�?name 变化�?flush `�?name ×N total {elapsed:.1f}s`。错误不计入成功合并组，立即显示 `�?name: msg`。scope 隔离：主 agent 一套，每个 active specialist 一套�?
+  - **thinking 动词轮换** (`THINK_VERBS`): `["Thinking", "Checking", "Working", "Drafting", "Polishing"]`�?.5s 等距切换；不�?stage-specific 词（具体动作�?tool active line 表达）�?
+  - **`core/agent_loop.py`**: `tool_end` event 新增 `elapsed`（必填）�?`result_summary`（可选，仅白名单工具）字段，作为未来 trace 元数据。`_compute_result_summary` �?`change_dir` 生成 `�?{cwd}`，为 `http_request` 生成 `status {code}`�?
+  - **`/ui tools on|off` 低噪音模�?* (`_b_should_show`): off 时隐�?tool_start / 成功 tool_end / 成功 coalesce summary / 成功 specialist_event，但**保留所�?ok=False 错误�?*（包�?specialist 内部错误）—�?errors 是安全网，不进低噪音模式�?
+  - **删除 specialist running 占位�?* (`�?doc_reader_specialist running...`): B-lite �?delegate active line 已经表达 running 状态，额外 running 行是噪音；specialist scope 只用 4 空格缩进表达�?
+  - **`tests/test_repl_display.py`** (�?: 42 �?L1（参数化摘要规则�? L2�? �?coalesce 状态机 case + flush without pending emits empty）单元测试�?
+  - **`tests/test_repl.py`** �?L3 结构测试：B-lite active line seal on assistant_delta / seal on new tool_start / in-place update / off mode 隐藏成功保留错误；并覆盖 coalesce wall-clock total、delegate parent scope 记账、thinking spinner tick�?
+  - **Streaming 文本输出修复**: assistant 正文开始后清除 thinking active line，避�?`Thinking` / `Checking` / `Working` 状态行�?seal 到正文中反复刷屏�?
+  - **Streaming 速度修复**: 移除 `_flush_stream_buffer()` 的逐字�?`sleep`，避免格式化整行输出时阻�?UI loop，改善流式输出和 thinking spinner 的卡顿感�?
+  - **Partial preview 节流**: �?token/chunk 先缓冲，攒到一小段再直接输出，避免当前行被频繁清除重写造成视觉疲劳�?
+  - **`agents/runner.py`**: specialist 内部 `display_events` 透传 `elapsed` / `result_summary`，避免内�?tool success 显示退化为 `(0.0s)`�?
+  - 完整测试 683 个通过�? 个既�?MCP coroutine warning）�?
 
-- **Learning Agent Orchestrator（多 agent 骨架 v1）**: 主 bobodan 派活给 specialist，不是 peer-to-peer。3 个 built-in specialist（doc_reader / triage / planner），每个配一个 `delegate_*` tool。详见 `docs/archive/agents_design.md`。
-  - `agents/base.py`: `BaseSpecialist` ABC（name / system_prompt_template / data_to_content / defaults 契约）。
-  - `agents/config.py`: `SpecialistConfig` Python defaults + YAML merge，未知 key 报错。
-  - `agents/registry.py`: `SpecialistRegistry` + `last_invocations` deque(maxlen=10)。
-  - `agents/runner.py`: `run_specialist()` — fresh session 隔离，工具过滤（hard deny `delegate_*`/`memory_*`），per-specialist timeout（非阻塞返回，provider request timeout cap 到 specialist budget），guarded catch（无自动重试），triage 窄合约校验。content cap 2000 chars，error cap 500 chars，centralized。
-  - `agents/specialists/doc_reader.py` / `triage.py` / `planner.py`: 3 个 specialist 实现，documented return contracts。`doc_reader` 明确要求按 `source_paths` 原样调用 `read_file`，禁止缩短为 basename。
-  - `agents/prompt.py`: system prompt 模板渲染。
-  - `tools/agents.py`: `register_delegate_tools(registry, get_session, get_app_config)` 只为 enabled specialists 注册 `delegate_*` tool（每个独立 schema）；delegate wrapper 将结构化参数转换成 task text，并完整保留 `doc_reader.source_paths`。`delegate_doc_reader` description 明确要求读并总结文件时优先于 `read_file`。
-  - `tools/file_ops.py`: `read_file` description 明确 raw-text 定位，并提示 read-and-summarize 任务优先使用 `delegate_doc_reader`。
-  - `core/agent_loop.py`: 新增 `tools_schema` 和 `max_iterations` 可选构造参数（specialist runner 用）；支持 UI-only `specialist_event`，用于展示 specialist 内部 tool events，且不写入父 session。
-  - `cli/repl.py`: 新增 `/specialists` 命令组（list / status / tools），启动时 `register_builtin_specialists()` + `register_delegate_tools()`。delegate tool 运行时显示 specialist running header 和缩进内部 tool events。
-  - `config.yaml`: 新增 `specialists:` section（3 个 specialist 各自 timeout/iter/allowed_tools/allow_mcp）。
-  - `tests/test_agents_*.py` + `tests/test_agent_loop.py`: 回归测试覆盖 7 条 runtime invariant、真实 `AgentLoop.run_stream(task)` 调用契约、非阻塞 timeout、disabled specialist 不暴露 delegate tool、triage `(none)` 契约、`doc_reader.source_paths` 路径保真、specialist display events 不污染父 session。
-  - `docs/archive/agents_design.md`: 完整设计文档（14 决策 + 13 runtime invariant + 10 章）。
+- **Learning Agent Orchestrator（多 agent 骨架 v1�?*: �?bobodan 派活�?specialist，不�?peer-to-peer�? �?built-in specialist（doc_reader / triage / planner），每个配一�?`delegate_*` tool。详�?`docs/archive/agents_design.md`�?
+  - `agents/base.py`: `BaseSpecialist` ABC（name / system_prompt_template / data_to_content / defaults 契约）�?
+  - `agents/config.py`: `SpecialistConfig` Python defaults + YAML merge，未�?key 报错�?
+  - `agents/registry.py`: `SpecialistRegistry` + `last_invocations` deque(maxlen=10)�?
+  - `agents/runner.py`: `run_specialist()` �?fresh session 隔离，工具过滤（hard deny `delegate_*`/`memory_*`），per-specialist timeout（非阻塞返回，provider request timeout cap �?specialist budget），guarded catch（无自动重试），triage 窄合约校验。content cap 2000 chars，error cap 500 chars，centralized�?
+  - `agents/specialists/doc_reader.py` / `triage.py` / `planner.py`: 3 �?specialist 实现，documented return contracts。`doc_reader` 明确要求�?`source_paths` 原样调用 `read_file`，禁止缩短为 basename�?
+  - `agents/prompt.py`: system prompt 模板渲染�?
+  - `tools/agents.py`: `register_delegate_tools(registry, get_session, get_app_config)` 只为 enabled specialists 注册 `delegate_*` tool（每个独�?schema）；delegate wrapper 将结构化参数转换�?task text，并完整保留 `doc_reader.source_paths`。`delegate_doc_reader` description 明确要求读并总结文件时优先于 `read_file`�?
+  - `tools/file_ops.py`: `read_file` description 明确 raw-text 定位，并提示 read-and-summarize 任务优先使用 `delegate_doc_reader`�?
+  - `core/agent_loop.py`: 新增 `tools_schema` �?`max_iterations` 可选构造参数（specialist runner 用）；支�?UI-only `specialist_event`，用于展�?specialist 内部 tool events，且不写入父 session�?
+  - `cli/repl.py`: 新增 `/specialists` 命令组（list / status / tools），启动�?`register_builtin_specialists()` + `register_delegate_tools()`。delegate tool 运行时显�?specialist running header 和缩进内�?tool events�?
+  - `config.yaml`: 新增 `specialists:` section�? �?specialist 各自 timeout/iter/allowed_tools/allow_mcp）�?
+  - `tests/test_agents_*.py` + `tests/test_agent_loop.py`: 回归测试覆盖 7 �?runtime invariant、真�?`AgentLoop.run_stream(task)` 调用契约、非阻塞 timeout、disabled specialist 不暴�?delegate tool、triage `(none)` 契约、`doc_reader.source_paths` 路径保真、specialist display events 不污染父 session�?
+  - `docs/archive/agents_design.md`: 完整设计文档�?4 决策 + 13 runtime invariant + 10 章）�?
 
-- **Runtime model switch (`/model` command)**: REPL 启动后可切换 active provider 不重启会话。`AgentLoop.set_provider()` + `REPL._make_active_provider()` helper。详见 `feature/model-switch` 分支。
+- **Runtime model switch (`/model` command)**: REPL 启动后可切换 active provider 不重启会话。`AgentLoop.set_provider()` + `REPL._make_active_provider()` helper。详�?`feature/model-switch` 分支�?
 
 
-- **MCP (Model Context Protocol) 客户端**: 接入外部 MCP server，把它们暴露的 tools 注入到 agent loop。
-  - `mcp_client/event_loop.py`: `AsyncEventLoop` 单例，后台 daemon 线程跑 asyncio event loop，`run_sync(coro, timeout)` 桥接 sync→async。
-  - `mcp_client/manager.py`: `MCPManager` 单例，per-server 状态（config/transport/connected/tools/last_error），懒连接，`reload()` diff 配置。
-  - `mcp_client/config.py`: YAML 加载 + `${ENV_VAR}` 占位符替换（fail-fast 缺失）。`type` 字段作为 `transport` 的别名，兼容 Claude Desktop 配置格式。
-  - `mcp_client/naming.py`: `build_safe_tool_name()` 按 OpenClaw 规则做 sanitization（替换特殊字符为 `-`，server 截断 30 字符，总长 64 字符，冲突加 `-2`/`-3` 后缀）。
-  - `mcp_client/catalog.py`: 跨所有 enabled server 拉取 tool specs，连接失败隔离。
-  - `mcp_client/tool_wrapper.py`: 把 MCP tool 包装成 Bobodan `ToolResult`，None kwargs 过滤，异常透传。
-  - `mcp_client/prompt.py`: `build_mcp_status_prompt()` 生成 system prompt 段。
-  - `mcp_client/transport_stdio.py` / `transport_sse.py` / `transport_http.py`: 三个 transport 真实实现，官方 SDK 1.19+ 驱动。stdio 子进程 stderr 走 DEBUG 日志。call_tool 用 `btype` 区分 text/image/resource block。
-  - `tools/mcp.py`: `register_mcp_tools(config)` REPL 集成入口，per-server 失败隔离。
-  - `core/agent_loop.py`: 新增 `mcp_prompt` 参数，`_inject_mcp_prompt()` 幂等注入 system message。
-  - `cli/repl.py`: 新增 `/mcp` 命令组（list/status/restart/tools/reload）。启动面板增加 `mcp: ...` 行。
-  - `tests/test_mcp_*.py`: 76 个测试覆盖 config、event loop、manager、naming、catalog、prompt、tool_wrapper、三个 transport、REPL 命令、agent_loop 注入。
-  - `docs/MCP.md`: 用户文档（配置、命令、troubleshooting、架构图、限制）。
+- **MCP (Model Context Protocol) 客户�?*: 接入外部 MCP server，把它们暴露�?tools 注入�?agent loop�?
+  - `mcp_client/event_loop.py`: `AsyncEventLoop` 单例，后�?daemon 线程�?asyncio event loop，`run_sync(coro, timeout)` 桥接 sync→async�?
+  - `mcp_client/manager.py`: `MCPManager` 单例，per-server 状态（config/transport/connected/tools/last_error），懒连接，`reload()` diff 配置�?
+  - `mcp_client/config.py`: YAML 加载 + `${ENV_VAR}` 占位符替换（fail-fast 缺失）。`type` 字段作为 `transport` 的别名，兼容 Claude Desktop 配置格式�?
+  - `mcp_client/naming.py`: `build_safe_tool_name()` �?OpenClaw 规则�?sanitization（替换特殊字符为 `-`，server 截断 30 字符，总长 64 字符，冲突加 `-2`/`-3` 后缀）�?
+  - `mcp_client/catalog.py`: 跨所�?enabled server 拉取 tool specs，连接失败隔离�?
+  - `mcp_client/tool_wrapper.py`: �?MCP tool 包装�?Bobodan `ToolResult`，None kwargs 过滤，异常透传�?
+  - `mcp_client/prompt.py`: `build_mcp_status_prompt()` 生成 system prompt 段�?
+  - `mcp_client/transport_stdio.py` / `transport_sse.py` / `transport_http.py`: 三个 transport 真实实现，官�?SDK 1.19+ 驱动。stdio 子进�?stderr �?DEBUG 日志。call_tool �?`btype` 区分 text/image/resource block�?
+  - `tools/mcp.py`: `register_mcp_tools(config)` REPL 集成入口，per-server 失败隔离�?
+  - `core/agent_loop.py`: 新增 `mcp_prompt` 参数，`_inject_mcp_prompt()` 幂等注入 system message�?
+  - `cli/repl.py`: 新增 `/mcp` 命令组（list/status/restart/tools/reload）。启动面板增�?`mcp: ...` 行�?
+  - `tests/test_mcp_*.py`: 76 个测试覆�?config、event loop、manager、naming、catalog、prompt、tool_wrapper、三�?transport、REPL 命令、agent_loop 注入�?
+  - `docs/MCP.md`: 用户文档（配置、命令、troubleshooting、架构图、限制）�?
 
-- **Ollama RAG 嵌入后端**: 接入本地 Ollama embedding 模型，提升 RAG 检索的语义匹配能力。
-  - `rag/ollama.py`: `OllamaEmbeddingClient` Ollama embedding API 客户端。三层探测（服务可达→模型能力→真实 embed 请求），结果缓存，超时控制。
-  - `rag/dense_store.py`: `DenseVectorStore` dense 向量索引，纯 Python cosine similarity，预存 norm 加速搜索。索引文件包含 model/dim 元数据，支持模型变化检测。
-  - `rag/router.py`: `VectorStoreRouter` 路由层。auto 模式探测 Ollama 后自动选择后端，`/kb sync` 双写 dense + sparse 索引，搜索失败自动降级。
-  - `config.yaml`: 新增 `rag:` section（`embedding_backend`、`ollama_url`、`ollama_model`、`probe_timeout`、`request_timeout`）。
-  - `cli/repl.py`: 启动时探测 embedding 后端并打印状态。`/kb status` 增加 embedding 后端信息。
-  - `tests/test_ollama_embedding.py`: 38 个测试覆盖 OllamaEmbeddingClient、DenseVectorStore、VectorStoreRouter、retriever 集成。
+- **Ollama RAG 嵌入后端**: 接入本地 Ollama embedding 模型，提�?RAG 检索的语义匹配能力�?
+  - `rag/ollama.py`: `OllamaEmbeddingClient` Ollama embedding API 客户端。三层探测（服务可达→模型能力→真实 embed 请求），结果缓存，超时控制�?
+  - `rag/dense_store.py`: `DenseVectorStore` dense 向量索引，纯 Python cosine similarity，预�?norm 加速搜索。索引文件包�?model/dim 元数据，支持模型变化检测�?
+  - `rag/router.py`: `VectorStoreRouter` 路由层。auto 模式探测 Ollama 后自动选择后端，`/kb sync` 双写 dense + sparse 索引，搜索失败自动降级�?
+  - `config.yaml`: 新增 `rag:` section（`embedding_backend`、`ollama_url`、`ollama_model`、`probe_timeout`、`request_timeout`）�?
+  - `cli/repl.py`: 启动时探�?embedding 后端并打印状态。`/kb status` 增加 embedding 后端信息�?
+  - `tests/test_ollama_embedding.py`: 38 个测试覆�?OllamaEmbeddingClient、DenseVectorStore、VectorStoreRouter、retriever 集成�?
 
-- **LLM Wiki 编译层**: 新增 `wiki/` 模块，基于 Karpathy LLM Wiki 模式，将源文档编译为结构化 wiki 页面写入 Obsidian vault。
-  - `wiki/schema.py`: `WikiPage`、`CompileResult`、`WikiConfig` 数据模型。页面类型：`wiki_entity`（实体）、`wiki_concept`（概念）。来源追踪通过 `source_registry.json` 而非复制内容。
-  - `wiki/compiler.py`: `WikiCompiler` LLM 编译引擎。读源文件 → LLM 提取实体/概念/摘要 → 生成 wiki 页面。支持增量更新（source hash 追踪，只编译变更文件）。
-  - `wiki/index.py`: `WikiIndexer` 管理 `index.md`（内容目录）和 `log.md`（操作日志）。
-  - `wiki/lint.py`: `WikiLinter` 健康检查——孤立页面、断链、缺失页面、过期页面。
-  - `tools/wiki_tools.py`: 注册 `wiki_ingest`（编译源文件）、`wiki_lint`（健康检查）两个 Agent 工具。
-  - `cli/repl.py`: 新增 `/wiki init`、`/wiki ingest`、`/wiki lint`、`/wiki status` 命令。
-  - `tests/test_wiki.py`: 23 个测试覆盖 schema、index、lint、compiler、REPL 命令。
+- **LLM Wiki 编译�?*: 新增 `wiki/` 模块，基�?Karpathy LLM Wiki 模式，将源文档编译为结构�?wiki 页面写入 Obsidian vault�?
+  - `wiki/schema.py`: `WikiPage`、`CompileResult`、`WikiConfig` 数据模型。页面类型：`wiki_entity`（实体）、`wiki_concept`（概念）。来源追踪通过 `source_registry.json` 而非复制内容�?
+  - `wiki/compiler.py`: `WikiCompiler` LLM 编译引擎。读源文�?�?LLM 提取实体/概念/摘要 �?生成 wiki 页面。支持增量更新（source hash 追踪，只编译变更文件）�?
+  - `wiki/index.py`: `WikiIndexer` 管理 `index.md`（内容目录）�?`log.md`（操作日志）�?
+  - `wiki/lint.py`: `WikiLinter` 健康检查——孤立页面、断链、缺失页面、过期页面�?
+  - `tools/wiki_tools.py`: 注册 `wiki_ingest`（编译源文件）、`wiki_lint`（健康检查）两个 Agent 工具�?
+  - `cli/repl.py`: 新增 `/wiki init`、`/wiki ingest`、`/wiki lint`、`/wiki status` 命令�?
+  - `tests/test_wiki.py`: 23 个测试覆�?schema、index、lint、compiler、REPL 命令�?
 
 ## [0.12.0] - 2026-05-20
 
 ### 新增
-- **记忆系统升级**: 新增 `memory/` 模块，实现"每日记忆 → FTS5 检索 → 晋升机制"记忆生命周期。
-  - `memory/store.py`: `MemoryIndexStore` SQLite 索引 + FTS5 全文检索虚拟表。支持 `chunks`（文本块索引）、`recall_log`（召回记录）、`promotion_log`（晋升记录）三张表。FTS5 triggers 自动同步 chunks 表变更。
-  - `memory/daily.py`: `DailyMemoryManager` 每日记忆文件管理，存储在 `.bobodan/daily/YYYY-MM-DD.md`。支持 `append`（带时间戳追加）、`read`、`get_today`、`get_yesterday`、`list_recent`、`get_all_dates`。文件带 YAML frontmatter（date, tags）。
-  - `memory/search.py`: `MemorySearcher` 混合检索，FTS5 为主、向量为辅。FTS5 无结果时自动降级到现有 `LocalVectorStore`。支持 `search`、`search_daily`、`search_permanent` 三种模式。
-  - `memory/promotion.py`: `PromotionEngine` 每日记忆晋升引擎。评分公式：`0.4×frequency + 0.4×quiz + 0.2×recency`（30天半衰期）。晋升阈值：score ≥ 0.6 且 recall_count ≥ 2。`promote()` 将每日记忆写入永久记忆并记录晋升日志。
-  - `tools/memory_tools.py`: 新增 `memory_daily_save`（写入每日记忆）、`memory_daily_read`（读取每日记忆）、`memory_promote`（检查并执行晋升）三个 Agent 工具。`memory_recall` 改为 FTS5 优先检索。
-  - `core/memory.py`: `save()` 自动索引到 FTS5，`forget()` 自动清理 FTS5。`build_memory_prompt()` 注入今日+昨日每日记忆到 system prompt。`search()` 改为 FTS5 优先、向量降级。`get_stats()` 增加 FTS5 统计。
-  - `cli/repl.py`: 新增 `/memory daily [content|YYYY-MM-DD]`（写入/查看每日记忆）、`/memory promote [--dry-run]`（晋升检查）、`/memory review`（今日复习清单，联动 learning 模块）。`/memory stats` 增加 FTS5 统计。
-  - `tools/__init__.py`: 导出新增的三个工具。
-  - `tests/test_memory_upgrade.py`: 34 个测试覆盖 store、daily、search、promotion、core 集成、REPL 命令、Agent 工具。
+- **记忆系统升级**: 新增 `memory/` 模块，实�?每日记忆 �?FTS5 检�?�?晋升机制"记忆生命周期�?
+  - `memory/store.py`: `MemoryIndexStore` SQLite 索引 + FTS5 全文检索虚拟表。支�?`chunks`（文本块索引）、`recall_log`（召回记录）、`promotion_log`（晋升记录）三张表。FTS5 triggers 自动同步 chunks 表变更�?
+  - `memory/daily.py`: `DailyMemoryManager` 每日记忆文件管理，存储在 `.bobodan/daily/YYYY-MM-DD.md`。支�?`append`（带时间戳追加）、`read`、`get_today`、`get_yesterday`、`list_recent`、`get_all_dates`。文件带 YAML frontmatter（date, tags）�?
+  - `memory/search.py`: `MemorySearcher` 混合检索，FTS5 为主、向量为辅。FTS5 无结果时自动降级到现�?`LocalVectorStore`。支�?`search`、`search_daily`、`search_permanent` 三种模式�?
+  - `memory/promotion.py`: `PromotionEngine` 每日记忆晋升引擎。评分公式：`0.4×frequency + 0.4×quiz + 0.2×recency`�?0天半衰期）。晋升阈值：score �?0.6 �?recall_count �?2。`promote()` 将每日记忆写入永久记忆并记录晋升日志�?
+  - `tools/memory_tools.py`: 新增 `memory_daily_save`（写入每日记忆）、`memory_daily_read`（读取每日记忆）、`memory_promote`（检查并执行晋升）三�?Agent 工具。`memory_recall` 改为 FTS5 优先检索�?
+  - `core/memory.py`: `save()` 自动索引�?FTS5，`forget()` 自动清理 FTS5。`build_memory_prompt()` 注入今日+昨日每日记忆�?system prompt。`search()` 改为 FTS5 优先、向量降级。`get_stats()` 增加 FTS5 统计�?
+  - `cli/repl.py`: 新增 `/memory daily [content|YYYY-MM-DD]`（写�?查看每日记忆）、`/memory promote [--dry-run]`（晋升检查）、`/memory review`（今日复习清单，联动 learning 模块）。`/memory stats` 增加 FTS5 统计�?
+  - `tools/__init__.py`: 导出新增的三个工具�?
+  - `tests/test_memory_upgrade.py`: 34 个测试覆�?store、daily、search、promotion、core 集成、REPL 命令、Agent 工具�?
 
 ### 设计决策
-- 每日记忆定位：缓冲 + 学习日志 + 晋升。做题结束后自动写入，用户也可手动写入。
-- FTS5 与向量：FTS5 为主（零依赖、支持中文、比稀疏向量更准确），向量为降级兜底。
-- 晋升评分：出现次数(0.4) + 做题关联(0.4) + 时间衰减(0.2)。利用学习助手独有的做题数据驱动晋升。
-- 晋升调度：启动时轻量检查 + `/memory promote` 手动触发（CLI 工具无常驻进程）。
-- 存储格式：Markdown 文件 + SQLite 只做索引，保持人可读、易备份。
-- 记忆生命周期：每日缓冲 → 晋升评分 ≥ 0.6 且出现 ≥ 2 → 永久记忆。
+- 每日记忆定位：缓�?+ 学习日志 + 晋升。做题结束后自动写入，用户也可手动写入�?
+- FTS5 与向量：FTS5 为主（零依赖、支持中文、比稀疏向量更准确），向量为降级兜底�?
+- 晋升评分：出现次�?0.4) + 做题关联(0.4) + 时间衰减(0.2)。利用学习助手独有的做题数据驱动晋升�?
+- 晋升调度：启动时轻量检�?+ `/memory promote` 手动触发（CLI 工具无常驻进程）�?
+- 存储格式：Markdown 文件 + SQLite 只做索引，保持人可读、易备份�?
+- 记忆生命周期：每日缓�?�?晋升评分 �?0.6 且出�?�?2 �?永久记忆�?
 
 ## [0.11.0] - 2026-05-19
 
 ### 新增
-- **学习路线系统**: 新增 `learning/` 模块，实现"学习计划 → 掌握度追踪 → 间隔复习"闭环。
-  - `learning/schema.py`: `Mastery`（知识点掌握度）、`LearningPlan`（学习计划）数据模型。
-  - `learning/store.py`: `LearningStore` SQLite 存储，新增 `mastery` 和 `learning_plans` 两张表。
-  - `learning/scheduler.py`: `ReviewScheduler` 简单间隔重复算法（1/3/7/14天），做对推进、做错重置。支持手动覆盖（`mark_manual`）。
-  - `learning/progress.py`: `ProgressTracker` 掌握度概览、薄弱/最强知识点排行、从做题记录自动推断。
-  - `learning/path.py`: `LearningPathGenerator` 基于 LLM 的个性化学习计划生成。数据优先级：做题记录 > 用户目标 > 图谱关系 > 课程结构。无 LLM 时回退到基于薄弱点的简单计划。
-  - `tools/learning_tools.py`: 注册 `learning_path`、`learning_progress`、`learning_review` 三个 Agent 工具。
-  - `cli/repl.py`: 新增 `/learning` 命令集（`plan`/`progress`/`review`/`mark`/`plans`）。
-  - `tests/test_learning.py`: 28 个测试覆盖 schema、store、scheduler、progress、path generator、tool 集成。
+- **学习路线系统**: 新增 `learning/` 模块，实�?学习计划 �?掌握度追�?�?间隔复习"闭环�?
+  - `learning/schema.py`: `Mastery`（知识点掌握度）、`LearningPlan`（学习计划）数据模型�?
+  - `learning/store.py`: `LearningStore` SQLite 存储，新�?`mastery` �?`learning_plans` 两张表�?
+  - `learning/scheduler.py`: `ReviewScheduler` 简单间隔重复算法（1/3/7/14天），做对推进、做错重置。支持手动覆盖（`mark_manual`）�?
+  - `learning/progress.py`: `ProgressTracker` 掌握度概览、薄�?最强知识点排行、从做题记录自动推断�?
+  - `learning/path.py`: `LearningPathGenerator` 基于 LLM 的个性化学习计划生成。数据优先级：做题记�?> 用户目标 > 图谱关系 > 课程结构。无 LLM 时回退到基于薄弱点的简单计划�?
+  - `tools/learning_tools.py`: 注册 `learning_path`、`learning_progress`、`learning_review` 三个 Agent 工具�?
+  - `cli/repl.py`: 新增 `/learning` 命令集（`plan`/`progress`/`review`/`mark`/`plans`）�?
+  - `tests/test_learning.py`: 28 个测试覆�?schema、store、scheduler、progress、path generator、tool 集成�?
 
 ### 设计决策
-- 模块划分：learning/ 管路线+调度+进度，quiz/review 管诊断，职责不重叠。
-- 复习策略：先用简单间隔重复，遗忘曲线（Ebbinghaus）放后续计划。
-- 进度追踪：混合模式——自动从做题记录推断 + 用户手动覆盖。
-- 路线输出：结构化 JSON 存 SQLite，可选写回 Obsidian（待实现）。
+- 模块划分：learning/ 管路�?调度+进度，quiz/review 管诊断，职责不重叠�?
+- 复习策略：先用简单间隔重复，遗忘曲线（Ebbinghaus）放后续计划�?
+- 进度追踪：混合模式——自动从做题记录推断 + 用户手动覆盖�?
+- 路线输出：结构化 JSON �?SQLite，可选写�?Obsidian（待实现）�?
 
 ## [0.10.0] - 2026-05-19
 
 ### 新增
-- **知识库状态产品化**: 新增 `knowledge/` 模块，包含 DocumentRecord（按文件追踪导入状态）、manifest（知识库清单）、import_report（同步后导入报告）、library（课程/chunk/图谱聚合统计）。新增 `knowledge_status` Agent 工具。`/kb status` 增强为显示课程分组、图谱节点类型、同步错误。
-  - `knowledge/documents.py`: `DocumentRecord` 数据类，`build_document_records()` 从 ScannedNote/SourceDocument 构建记录。
-  - `knowledge/manifest.py`: `.knowledge/manifest.json` 读写。
-  - `knowledge/import_report.py`: `ImportReport` 数据类，同步后错误和摘要报告。
-  - `knowledge/library.py`: `CourseSummary`、`LibrarySummary` 聚合统计。
-  - `tools/knowledge_status.py`: Agent 工具，返回知识库概览 JSON。
-  - `tests/test_knowledge_status.py`: 13 个测试。
+- **知识库状态产品化**: 新增 `knowledge/` 模块，包�?DocumentRecord（按文件追踪导入状态）、manifest（知识库清单）、import_report（同步后导入报告）、library（课�?chunk/图谱聚合统计）。新�?`knowledge_status` Agent 工具。`/kb status` 增强为显示课程分组、图谱节点类型、同步错误�?
+  - `knowledge/documents.py`: `DocumentRecord` 数据类，`build_document_records()` �?ScannedNote/SourceDocument 构建记录�?
+  - `knowledge/manifest.py`: `.knowledge/manifest.json` 读写�?
+  - `knowledge/import_report.py`: `ImportReport` 数据类，同步后错误和摘要报告�?
+  - `knowledge/library.py`: `CourseSummary`、`LibrarySummary` 聚合统计�?
+  - `tools/knowledge_status.py`: Agent 工具，返回知识库概览 JSON�?
+  - `tests/test_knowledge_status.py`: 13 个测试�?
 
-- **题库系统 MVP**: 新增 `quiz/` 模块，实现"生成题目 → 做题 → 批改 → 错题记录 → 薄弱点分析"学习闭环。
-  - `quiz/schema.py`: `Question`、`QuizSession`、`QuizAttempt` 数据模型，支持 single_choice / true_false / short_answer 三种题型。
-  - `quiz/store.py`: `QuizStore` SQLite CRUD（questions、quiz_sessions、quiz_attempts 三张表），每操作独立连接，WAL 模式。
-  - `quiz/generator.py`: `QuestionGenerator` 基于 RAG 检索 + LLM 出题，Prompt 约束 JSON 输出 + 后处理解析。
-  - `quiz/evaluator.py`: `QuizEvaluator` 选择/判断题自动批改，简答题 LLM 批改。支持中文答案归一化（对/错、是/否、√/×）。
-  - `quiz/review.py`: `QuizReviewer` 错题本和按概念的薄弱点分析。
-  - `tools/quiz_tools.py`: 注册 `question_generate`、`quiz_start`、`quiz_submit` 三个 Agent 工具。
-  - `tests/test_quiz.py`: 36 个测试覆盖 schema、store、evaluator、generator、review、tool 集成。
+- **题库系统 MVP**: 新增 `quiz/` 模块，实�?生成题目 �?做题 �?批改 �?错题记录 �?薄弱点分�?学习闭环�?
+  - `quiz/schema.py`: `Question`、`QuizSession`、`QuizAttempt` 数据模型，支�?single_choice / true_false / short_answer 三种题型�?
+  - `quiz/store.py`: `QuizStore` SQLite CRUD（questions、quiz_sessions、quiz_attempts 三张表），每操作独立连接，WAL 模式�?
+  - `quiz/generator.py`: `QuestionGenerator` 基于 RAG 检�?+ LLM 出题，Prompt 约束 JSON 输出 + 后处理解析�?
+  - `quiz/evaluator.py`: `QuizEvaluator` 选择/判断题自动批改，简答题 LLM 批改。支持中文答案归一化（�?错、是/否、√/×）�?
+  - `quiz/review.py`: `QuizReviewer` 错题本和按概念的薄弱点分析�?
+  - `tools/quiz_tools.py`: 注册 `question_generate`、`quiz_start`、`quiz_submit` 三个 Agent 工具�?
+  - `tests/test_quiz.py`: 36 个测试覆�?schema、store、evaluator、generator、review、tool 集成�?
 
-- **Session 命名与恢复**: Session 新增 `name` 字段，支持给 session 起名字。
-  - `core/session.py`: 新增 `name` 字段、`list_session_summaries()` 方法、旧格式向后兼容（缺 name 字段默认空字符串）。
-  - `/session save [name]`: 保存时可选命名。
-  - `/session resume`: 交互式选择恢复，显示序号列表。
-  - `/session load <id|name>`: 支持按名称模糊匹配、ID 前缀匹配、精确匹配。
-  - `/session list`: 显示名称、消息数、最后活跃时间。
-  - 加载 session 后自动显示最近对话历史。
-  - `tests/test_session.py`: 新增 4 个测试。
+- **Session 命名与恢�?*: Session 新增 `name` 字段，支持给 session 起名字�?
+  - `core/session.py`: 新增 `name` 字段、`list_session_summaries()` 方法、旧格式向后兼容（缺 name 字段默认空字符串）�?
+  - `/session save [name]`: 保存时可选命名�?
+  - `/session resume`: 交互式选择恢复，显示序号列表�?
+  - `/session load <id|name>`: 支持按名称模糊匹配、ID 前缀匹配、精确匹配�?
+  - `/session list`: 显示名称、消息数、最后活跃时间�?
+  - 加载 session 后自动显示最近对话历史�?
+  - `tests/test_session.py`: 新增 4 个测试�?
 
-- 共新增 49 个测试（知识库 13 + 题库 36）。
+- 共新�?49 个测试（知识�?13 + 题库 36）�?
 
 ### 变更
-- **Quiz JSON 解析容错增强**: `quiz/generator.py` 的 `_parse_json_from_llm()` 改用括号深度追踪匹配 JSON 数组边界（替代 `rfind`），先尝试直接解析再做提取，增加尾逗号修复，解析失败时日志输出原始内容便于排查。
-- **Quiz 错误信息改善**: `tools/quiz_tools.py` 出题失败时列出可能原因（知识库无资料 / 材料不足 / LLM 格式异常），并提示用 `/kb search` 验证。
+- **Quiz JSON 解析容错增强**: `quiz/generator.py` �?`_parse_json_from_llm()` 改用括号深度追踪匹配 JSON 数组边界（替�?`rfind`），先尝试直接解析再做提取，增加尾逗号修复，解析失败时日志输出原始内容便于排查�?
+- **Quiz 错误信息改善**: `tools/quiz_tools.py` 出题失败时列出可能原因（知识库无资料 / 材料不足 / LLM 格式异常），并提示用 `/kb search` 验证�?
 
 ### 修复
-- **MiniMax 2013 错误**: `providers/minimax.py` 将所有 system message（base、skills、memory）合并为一条发送，MiniMax 只支持单条 system message。同时移除所有消息角色的 `name` 字段。
-  - `tests/test_providers.py`: 更新断言，验证 system 消息合并和无 name 字段。
+- **MiniMax 2013 错误**: `providers/minimax.py` 将所�?system message（base、skills、memory）合并为一条发送，MiniMax 只支持单�?system message。同时移除所有消息角色的 `name` 字段�?
+  - `tests/test_providers.py`: 更新断言，验�?system 消息合并和无 name 字段�?
 
 ## [0.9.0] - 2026-05-13
 
 ### 变更
-- **MiniMax Provider 重构**: `MiniMaxProvider` 改为继承 `OpenAICompatibleProvider`，复用通用 HTTP 请求、重试和流式解析逻辑，仅保留 MiniMax 特有的消息转换（`_convert_messages`）和 refusal 检测（`_parse_response`）。
-- **工具路径解析收敛**: 将重复的 `_resolve_path()` 提取到 `tools/base.py`，`file_ops`、`dir_ops`、`obsidian_tool` 统一复用。
+- **MiniMax Provider 重构**: `MiniMaxProvider` 改为继承 `OpenAICompatibleProvider`，复用通用 HTTP 请求、重试和流式解析逻辑，仅保留 MiniMax 特有的消息转换（`_convert_messages`）和 refusal 检测（`_parse_response`）�?
+- **工具路径解析收敛**: 将重复的 `_resolve_path()` 提取�?`tools/base.py`，`file_ops`、`dir_ops`、`obsidian_tool` 统一复用�?
 
 ### 修复
-- **RAG 文件读取句柄**: `rag/ingest.py` 的文本和 PDF 读取改为 `with open(...)`，避免文件句柄泄漏。
-- **DeepSeek 空测试**: 为 `test_deepseek_provider_complete()` 增加实际 payload 断言，避免空测试误报通过。
-- **Provider 导出**: `providers.__all__` 补充 `OpenAICompatibleProvider`。
+- **RAG 文件读取句柄**: `rag/ingest.py` 的文本和 PDF 读取改为 `with open(...)`，避免文件句柄泄漏�?
+- **DeepSeek 空测�?*: �?`test_deepseek_provider_complete()` 增加实际 payload 断言，避免空测试误报通过�?
+- **Provider 导出**: `providers.__all__` 补充 `OpenAICompatibleProvider`�?
 
 ## [0.8.0] - 2026-05-09
 
 ### 新增
-- **持久化记忆系统**: Agent 能在会话间记住用户偏好、学习上下文和反馈，跨 session 持久化。
-  - `core/memory.py`: `MemoryManager` 核心模块，支持 save/load/forget/search/build_memory_prompt。记忆以单独 Markdown 文件存储在 `.bobodan/memory/`，每个文件带 YAML frontmatter（name, description, type, created, updated）。自动维护 `MEMORY.md` 索引表。
-  - `tools/memory_tools.py`: 新增 `memory_save` 和 `memory_recall` 两个 Agent 工具，LLM 可主动保存和检索记忆。
-  - `rag/vector_store.py`: `LocalVectorStore` 新增 `upsert()` 增量更新和 `remove_by_source()` 按来源删除方法，支持记忆的增量向量索引。
-  - `core/agent_loop.py`: 新增 `memory_prompt` 参数和 `_inject_memory_prompt()` 方法，使用 `MEMORY_MARKER` 防重复注入（与 skills 同模式）。
-  - `cli/repl.py`: 新增 `/memory` 命令集（`list`/`show`/`search`/`forget`/`stats`），startup panel 显示 memories 计数。
-  - `config.yaml`: 新增 `memory: { enabled: true, dir: ".bobodan" }` 配置节。
-  - `graph/schema.py`: 新增 `Memory` 节点标签和 `REMEMBERS` 关系类型。
-  - `tests/test_memory.py`: 33 个测试覆盖 frontmatter 解析、文件读写、向量搜索、工具调用、prompt 注入、REPL 命令。
+- **持久化记忆系�?*: Agent 能在会话间记住用户偏好、学习上下文和反馈，�?session 持久化�?
+  - `core/memory.py`: `MemoryManager` 核心模块，支�?save/load/forget/search/build_memory_prompt。记忆以单独 Markdown 文件存储�?`.bobodan/memory/`，每个文件带 YAML frontmatter（name, description, type, created, updated）。自动维�?`MEMORY.md` 索引表�?
+  - `tools/memory_tools.py`: 新增 `memory_save` �?`memory_recall` 两个 Agent 工具，LLM 可主动保存和检索记忆�?
+  - `rag/vector_store.py`: `LocalVectorStore` 新增 `upsert()` 增量更新�?`remove_by_source()` 按来源删除方法，支持记忆的增量向量索引�?
+  - `core/agent_loop.py`: 新增 `memory_prompt` 参数�?`_inject_memory_prompt()` 方法，使�?`MEMORY_MARKER` 防重复注入（�?skills 同模式）�?
+  - `cli/repl.py`: 新增 `/memory` 命令集（`list`/`show`/`search`/`forget`/`stats`），startup panel 显示 memories 计数�?
+  - `config.yaml`: 新增 `memory: { enabled: true, dir: ".bobodan" }` 配置节�?
+  - `graph/schema.py`: 新增 `Memory` 节点标签�?`REMEMBERS` 关系类型�?
+  - `tests/test_memory.py`: 33 个测试覆�?frontmatter 解析、文件读写、向量搜索、工具调用、prompt 注入、REPL 命令�?
 
 ## [0.7.0] - 2026-05-06
 
 ### 变更
-- **CLI 流式 UI 重写**: 全面重写流式渲染，提升交互流畅度。
-  - **打字机效果**: 文本逐字符输出（~12ms/字符），完整行带内联 Markdown 渲染（加粗、代码、列表、表格、引用、标题），部分行实时预览。
-  - **Thinking 动画**: `⠋ thinking` 旋转 braille 字符，文字到来时无缝消失（`\r\033[2K` 清除），无内容时自动恢复。
-  - **紧凑工具调用**: `⏺ tool_name(args)` 格式替代 Rich 标签，结果预览 `✓/✗` + 80 字符摘要，不打断文本流。
-  - **简化用户消息**: `> 用户输入` 前缀替代 Rich Panel，移除 `> assistant` 标题。
-  - `cli/markdown_render.py`: 移除 `print_user_message` 和 `print_assistant_header`。
-  - `cli/repl.py`: 重写 `_flush_stream_buffer`（typewriter + markdown）、`run_agent_streaming`（thinking/工具/部分行状态机）、thinking 动画方法。
-  - `tests/test_repl.py`: 断言从 `"THINK"` 更新为 `"thinking"`。
-- **工具调用默认显示**: `show_tool_calls` 默认值改为 `True`。
-- **REPL UI 开关命令**: `/ui`、`/ui tools on`、`/ui tools off` 可切换工具调用显示。
+- **CLI 流式 UI 重写**: 全面重写流式渲染，提升交互流畅度�?
+  - **打字机效�?*: 文本逐字符输出（~12ms/字符），完整行带内联 Markdown 渲染（加粗、代码、列表、表格、引用、标题），部分行实时预览�?
+  - **Thinking 动画**: `�?thinking` 旋转 braille 字符，文字到来时无缝消失（`\r\033[2K` 清除），无内容时自动恢复�?
+  - **紧凑工具调用**: `�?tool_name(args)` 格式替代 Rich 标签，结果预�?`�?✗` + 80 字符摘要，不打断文本流�?
+  - **简化用户消�?*: `> 用户输入` 前缀替代 Rich Panel，移�?`> assistant` 标题�?
+  - `cli/markdown_render.py`: 移除 `print_user_message` �?`print_assistant_header`�?
+  - `cli/repl.py`: 重写 `_flush_stream_buffer`（typewriter + markdown）、`run_agent_streaming`（thinking/工具/部分行状态机）、thinking 动画方法�?
+  - `tests/test_repl.py`: 断言�?`"THINK"` 更新�?`"thinking"`�?
+- **工具调用默认显示**: `show_tool_calls` 默认值改�?`True`�?
+- **REPL UI 开关命�?*: `/ui`、`/ui tools on`、`/ui tools off` 可切换工具调用显示�?
 
 ### 修复
-- **MiniMax 兼容性**: 移除遗留基础 system prompt 注入，避免 MiniMax 请求触发 `invalid chat setting (2013)`。
+- **MiniMax 兼容�?*: 移除遗留基础 system prompt 注入，避�?MiniMax 请求触发 `invalid chat setting (2013)`�?
 
 ## [0.6.0] - 2026-04-30
 
 ### 新增
-- **Rich CLI 渲染**: Agent 回复中的常见 Markdown 会通过 Rich 渲染为更易读的终端格式，不再原样显示 `###` 标题、代码围栏和表格分隔行。`/kb status` 和 `/kb search` 改为 Rich 面板/表格展示，并保留内置轻量 fallback。
-- **启动页 Rich 面板**: REPL 启动界面改为 Rich Panel + grid 表格，避免手写框线在中文、长路径或窄终端下错位，并提示输入 `/` 查看命令建议。
-- **Slash-command 实时提示**: REPL 接入 `prompt_toolkit`，输入 `/` 时显示可用命令候选；如果终端不支持实时提示，输入 `/` 回车会显示精简命令面板。
-- **`/kb` 知识库命令入口**: 新增 REPL 直连命令，不依赖模型猜工具即可同步、检索和查询图谱。
-  - `/kb sync <vault> [course_dir] [--full]`: 同步 Obsidian vault 和可选课程资料目录。
-  - `/kb status`: 查看 `.knowledge/` 文件数、chunk 数、节点数、关系数和图谱后端。
-  - `/kb search <query> [--course name] [--top-k n]`: 直接检索本地 RAG 索引。
-  - `/kb graph <concept> [--intent related] [--limit n]`: 直接查询知识图谱关系。
-  - `/kb reset --yes`: 删除生成的 `.knowledge/` 索引，不删除原始笔记或资料。
-- **RAG + 知识图谱学习助手 MVP**: 新增面向课程学习的本地知识库闭环。
-  - `obsidian/`: 扫描 Obsidian vault，解析 Markdown frontmatter、标题、`[[双链]]`、alias、tag、文件 hash。
-  - `rag/`: 支持 Markdown/TXT/PDF 文档导入、文本切块、本地轻量 sparse vector 检索、引用结果格式化。
-  - `graph/`: 新增知识图谱 schema、本地 JSON 图谱存储，以及可选 Neo4j adapter。未配置 Neo4j 时自动回退到 `.knowledge/graph_store.json`。
-  - `tools/obsidian_tool.py`: 新增 `obsidian_sync`，同步 Obsidian 笔记和可选课程资料目录到 `.knowledge/`。
-  - `tools/rag_search.py`: 新增 `rag_search`，返回 `results[{text, source, score, metadata}]`。
-  - `tools/graph_query.py`: 新增 `graph_query`，支持 `related`、`tags`、`mentions`、`course`、`prerequisites` 等查询意图。
-  - `skills/course-learning/SKILL.md`: 新增课程学习助手 skill，引导 Agent 根据问题类型选择 RAG、图谱或组合查询。
-  - `docs/RAG_KNOWLEDGE_GRAPH_ASSISTANT.md`: 新增完整设计文档。
-  - `docs/RAG_KNOWLEDGE_GRAPH_MVP.md`: 新增 MVP 使用说明、数据流、工具接口和演示步骤。
+- **Rich CLI 渲染**: Agent 回复中的常见 Markdown 会通过 Rich 渲染为更易读的终端格式，不再原样显示 `###` 标题、代码围栏和表格分隔行。`/kb status` �?`/kb search` 改为 Rich 面板/表格展示，并保留内置轻量 fallback�?
+- **启动�?Rich 面板**: REPL 启动界面改为 Rich Panel + grid 表格，避免手写框线在中文、长路径或窄终端下错位，并提示输�?`/` 查看命令建议�?
+- **Slash-command 实时提示**: REPL 接入 `prompt_toolkit`，输�?`/` 时显示可用命令候选；如果终端不支持实时提示，输入 `/` 回车会显示精简命令面板�?
+- **`/kb` 知识库命令入�?*: 新增 REPL 直连命令，不依赖模型猜工具即可同步、检索和查询图谱�?
+  - `/kb sync <vault> [course_dir] [--full]`: 同步 Obsidian vault 和可选课程资料目录�?
+  - `/kb status`: 查看 `.knowledge/` 文件数、chunk 数、节点数、关系数和图谱后端�?
+  - `/kb search <query> [--course name] [--top-k n]`: 直接检索本�?RAG 索引�?
+  - `/kb graph <concept> [--intent related] [--limit n]`: 直接查询知识图谱关系�?
+  - `/kb reset --yes`: 删除生成�?`.knowledge/` 索引，不删除原始笔记或资料�?
+- **RAG + 知识图谱学习助手 MVP**: 新增面向课程学习的本地知识库闭环�?
+  - `obsidian/`: 扫描 Obsidian vault，解�?Markdown frontmatter、标题、`[[双链]]`、alias、tag、文�?hash�?
+  - `rag/`: 支持 Markdown/TXT/PDF 文档导入、文本切块、本地轻�?sparse vector 检索、引用结果格式化�?
+  - `graph/`: 新增知识图谱 schema、本�?JSON 图谱存储，以及可�?Neo4j adapter。未配置 Neo4j 时自动回退�?`.knowledge/graph_store.json`�?
+  - `tools/obsidian_tool.py`: 新增 `obsidian_sync`，同�?Obsidian 笔记和可选课程资料目录到 `.knowledge/`�?
+  - `tools/rag_search.py`: 新增 `rag_search`，返�?`results[{text, source, score, metadata}]`�?
+  - `tools/graph_query.py`: 新增 `graph_query`，支�?`related`、`tags`、`mentions`、`course`、`prerequisites` 等查询意图�?
+  - `skills/course-learning/SKILL.md`: 新增课程学习助手 skill，引�?Agent 根据问题类型选择 RAG、图谱或组合查询�?
+  - `docs/RAG_KNOWLEDGE_GRAPH_ASSISTANT.md`: 新增完整设计文档�?
+  - `docs/RAG_KNOWLEDGE_GRAPH_MVP.md`: 新增 MVP 使用说明、数据流、工具接口和演示步骤�?
 
 ### 变更
-- **README**: 补充课程学习助手 MVP 的用途、项目结构、快速演示和工具说明。
-- **CLAUDE.md**: 补充 `obsidian/`、`rag/`、`graph/`、`.knowledge/` 的目录约定和运行数据规则。
-- `.gitignore`: 忽略 `.knowledge/` 本地索引目录。
-- `requirements.txt`: 新增 `pypdf>=4.0`（PDF 文本抽取）、`prompt_toolkit>=3.0`（slash-command 提示）、`rich>=13.0`（Markdown 渲染）。
+- **README**: 补充课程学习助手 MVP 的用途、项目结构、快速演示和工具说明�?
+- **CLAUDE.md**: 补充 `obsidian/`、`rag/`、`graph/`、`.knowledge/` 的目录约定和运行数据规则�?
+- `.gitignore`: 忽略 `.knowledge/` 本地索引目录�?
+- `requirements.txt`: 新增 `pypdf>=4.0`（PDF 文本抽取）、`prompt_toolkit>=3.0`（slash-command 提示）、`rich>=13.0`（Markdown 渲染）�?
 
 ### 验证
-- 全部 123 个测试通过。
+- 全部 123 个测试通过�?
 
 ## [0.5.0] - 2026-04-29
 
 ### 新增
-- **Skills 系统**: 新增 skills 功能，仿照 OpenClaw 的 skills 架构。每个 skill 是 `skills/` 目录下的子文件夹，包含 `SKILL.md`（YAML frontmatter + Markdown 指令）。
-  - `core/skills.py`: skill 加载、frontmatter 解析、XML prompt 格式化。
-  - `cli/repl.py`: 新增 `/skill` 命令（`list` / `<name>` / `run <name>`）。
-  - `core/agent_loop.py`: 支持 `skills_prompt` 参数，首次 LLM 调用前注入 system message。
-  - `core/session.py`: `_trim_messages()` 保留首条 system message 不被裁剪。
-  - `config.yaml`: 新增 `skills.enabled` 和 `skills.dir` 配置节。
-  - `skills/weather/SKILL.md`: 示例天气查询 skill。
-  - `tests/test_skills.py`: 18 个单元测试覆盖 frontmatter 解析、skill 加载、prompt 格式化。
+- **Skills 系统**: 新增 skills 功能，仿�?OpenClaw �?skills 架构。每�?skill �?`skills/` 目录下的子文件夹，包�?`SKILL.md`（YAML frontmatter + Markdown 指令）�?
+  - `core/skills.py`: skill 加载、frontmatter 解析、XML prompt 格式化�?
+  - `cli/repl.py`: 新增 `/skill` 命令（`list` / `<name>` / `run <name>`）�?
+  - `core/agent_loop.py`: 支持 `skills_prompt` 参数，首�?LLM 调用前注�?system message�?
+  - `core/session.py`: `_trim_messages()` 保留首条 system message 不被裁剪�?
+  - `config.yaml`: 新增 `skills.enabled` �?`skills.dir` 配置节�?
+  - `skills/weather/SKILL.md`: 示例天气查询 skill�?
+  - `tests/test_skills.py`: 18 个单元测试覆�?frontmatter 解析、skill 加载、prompt 格式化�?
 
 ### 修复
-- **MiniMax tool_call id not found (2013)**: 根因是消息顺序问题——MiniMax 要求 `assistant(tool_calls)` 出现在 `tool` 消息之前。Session 存储顺序为 `tool → assistant(tool_calls)` 但 MiniMax 需要反过来。在 `providers/minimax.py` 中重新排序消息修复。
+- **MiniMax tool_call id not found (2013)**: 根因是消息顺序问题——MiniMax 要求 `assistant(tool_calls)` 出现�?`tool` 消息之前。Session 存储顺序�?`tool �?assistant(tool_calls)` �?MiniMax 需要反过来。在 `providers/minimax.py` 中重新排序消息修复�?
 
 ## [0.4.0] - 2026-04-27
 
 ### 新增
-- **CLI 流式输出**: OpenAI-compatible 和 MiniMax provider 新增 SSE 流式响应，支持增量解析 tool call delta，并正确累积工具参数。
-- **Agent 过程事件**: 新增 `AgentLoop.run_stream()`，输出 assistant delta、工具开始、工具结束和最终回复事件，让 CLI 能展示 agent 正在做什么，而不是静默等待。
-- **REPL 工具调用可见**: Agent 运行过程中显示工具名、参数摘要和成功/失败状态。
-- **Provider 重试逻辑**: `OpenAICompatibleProvider` 和 `MiniMaxProvider` 的 `complete()` 方法增加指数退避重试。覆盖连接错误、超时、5xx、429。4xx（除 429）不重试，直接抛出清晰错误。
-- **CLI 超时控制**: `run_agent()` 增加 per-turn 超时（默认 300s，来自 `agent.timeout` 配置）。超时后打印提示，不写入不完整 session。线程设为 daemon，主进程可干净退出。
-- **Provider 配置校验**: `_validate_provider_config()` 校验 provider 类型、`api_key_env` 字段、环境变量是否设置。错误信息包含支持的类型列表和修复建议。
-- `requirements.txt` + `requirements-dev.txt`: 核心依赖 `httpx`、`PyYAML`、`python-dotenv`；开发依赖 `pytest`。
+- **CLI 流式输出**: OpenAI-compatible �?MiniMax provider 新增 SSE 流式响应，支持增量解�?tool call delta，并正确累积工具参数�?
+- **Agent 过程事件**: 新增 `AgentLoop.run_stream()`，输�?assistant delta、工具开始、工具结束和最终回复事件，�?CLI 能展�?agent 正在做什么，而不是静默等待�?
+- **REPL 工具调用可见**: Agent 运行过程中显示工具名、参数摘要和成功/失败状态�?
+- **Provider 重试逻辑**: `OpenAICompatibleProvider` �?`MiniMaxProvider` �?`complete()` 方法增加指数退避重试。覆盖连接错误、超时�?xx�?29�?xx（除 429）不重试，直接抛出清晰错误�?
+- **CLI 超时控制**: `run_agent()` 增加 per-turn 超时（默�?300s，来�?`agent.timeout` 配置）。超时后打印提示，不写入不完�?session。线程设�?daemon，主进程可干净退出�?
+- **Provider 配置校验**: `_validate_provider_config()` 校验 provider 类型、`api_key_env` 字段、环境变量是否设置。错误信息包含支持的类型列表和修复建议�?
+- `requirements.txt` + `requirements-dev.txt`: 核心依赖 `httpx`、`PyYAML`、`python-dotenv`；开发依�?`pytest`�?
 
 ### 变更
-- **REPL 回复渲染**: 流式阶段改为批量消费事件，并按完整行/长段落阈值增量写入，不再每个 delta 都重绘完整 Markdown 文档，减少长回复时的卡顿。
-- **流式 Markdown 清洗**: 流式输出会轻量处理标题、粗体、行内代码、列表和 Markdown 表格，避免用户看到原始 `**`、表格分隔行等格式标记。
-- **CLI 主题降噪**: 去掉高饱和橙色/紫色强调色，改用白色、灰色、青色和绿色，让输出更容易扫读。
+- **REPL 回复渲染**: 流式阶段改为批量消费事件，并按完整行/长段落阈值增量写入，不再每个 delta 都重绘完�?Markdown 文档，减少长回复时的卡顿�?
+- **流式 Markdown 清洗**: 流式输出会轻量处理标题、粗体、行内代码、列表和 Markdown 表格，避免用户看到原�?`**`、表格分隔行等格式标记�?
+- **CLI 主题降噪**: 去掉高饱和橙�?紫色强调色，改用白色、灰色、青色和绿色，让输出更容易扫读�?
 
 ### 修复
-- **CLI 乱码 UI 文案**: prompt 和启动面板中的中文应用名改为英文 `bobodan`，工具状态图标和分隔线改为更适合 Windows 终端的 ASCII 文本。
-- **回复和 prompt 重叠**: 流式输出结束后强制补齐换行，避免下一轮输入提示贴在回复末尾。
+- **CLI 乱码 UI 文案**: prompt 和启动面板中的中文应用名改为英文 `bobodan`，工具状态图标和分隔线改为更适合 Windows 终端�?ASCII 文本�?
+- **回复�?prompt 重叠**: 流式输出结束后强制补齐换行，避免下一轮输入提示贴在回复末尾�?
 
 ### 验证
-- 全部 80 个测试通过。
+- 全部 80 个测试通过�?
 
 ## [0.3.0] - 2026-04-27
 
 ### 新增
-- **`ToolResult` 结构化返回**: 新增 `ToolResult(ok, content, data)` 数据类。所有工具返回 `ToolResult`，程序逻辑用 `ok` 和 `data` 判断状态，给 LLM 的 tool message 仍用 `content` 字符串。
-- **Workspace 安全边界**: `tools/base.py` 新增 `_is_within_workspace()` 路径校验，工具只能访问 workspace 根目录内路径。新增 `_is_denied_path()` 拒绝列表，默认拒绝 `.env`、`.git`、`.session`、`__pycache__`、`.venv`。
-- **`read_file` 保护**: 增加文件大小限制（1 MB）、二进制文件检测、workspace 边界检查、deny list 检查。
-- **`write_file` 覆盖保护**: 新增 `overwrite` 参数，默认 `false`。已有文件需传 `overwrite=true` 才能覆盖。
-- `tests/test_file_ops.py`、`tests/test_dir_ops.py`、`tests/test_tool_base.py`: 新增 deny list、binary 检测、大小限制、覆盖保护、workspace 边界等测试。
+- **`ToolResult` 结构化返�?*: 新增 `ToolResult(ok, content, data)` 数据类。所有工具返�?`ToolResult`，程序逻辑�?`ok` �?`data` 判断状态，�?LLM �?tool message 仍用 `content` 字符串�?
+- **Workspace 安全边界**: `tools/base.py` 新增 `_is_within_workspace()` 路径校验，工具只能访�?workspace 根目录内路径。新�?`_is_denied_path()` 拒绝列表，默认拒�?`.env`、`.git`、`.session`、`__pycache__`、`.venv`�?
+- **`read_file` 保护**: 增加文件大小限制�? MB）、二进制文件检测、workspace 边界检查、deny list 检查�?
+- **`write_file` 覆盖保护**: 新增 `overwrite` 参数，默�?`false`。已有文件需�?`overwrite=true` 才能覆盖�?
+- `tests/test_file_ops.py`、`tests/test_dir_ops.py`、`tests/test_tool_base.py`: 新增 deny list、binary 检测、大小限制、覆盖保护、workspace 边界等测试�?
 
 ### 变更
-- `tools/base.py`: `execute_tool()` 返回 `ToolResult` 替代 `Any`。自动将非 `ToolResult` 返回值包装为 `ToolResult(ok=True, content=str(result))`。注入 `workspace` 参数。
-- `tools/dir_ops.py`: `change_dir` 通过 `data["cwd"]` 返回新路径，`_sync_session_state` 直接读取。
-- `core/agent_loop.py`: `_sync_session_state` 使用 `ToolResult.data["cwd"]` 替代中文前缀解析。
+- `tools/base.py`: `execute_tool()` 返回 `ToolResult` 替代 `Any`。自动将�?`ToolResult` 返回值包装为 `ToolResult(ok=True, content=str(result))`。注�?`workspace` 参数�?
+- `tools/dir_ops.py`: `change_dir` 通过 `data["cwd"]` 返回新路径，`_sync_session_state` 直接读取�?
+- `core/agent_loop.py`: `_sync_session_state` 使用 `ToolResult.data["cwd"]` 替代中文前缀解析�?
 
 ## [0.2.0] - 2026-04-27
 
 ### 新增
-- **`providers/types.py`**: 新增统一内部类型 `ToolCall(id, name, arguments)` 和 `LLMResponse(content, tool_calls)`。所有 provider 返回同一类型，`AgentLoop` 不再依赖 duck typing。
-- **`providers/openai_compat.py`**: 新增 `OpenAICompatibleProvider` 基类，封装 OpenAI 兼容 API 的消息转换、HTTP 请求和响应解析。Deepseek 和 OpenAI provider 均继承此类。
-- `tests/test_providers.py`、`tests/test_agent_loop.py`: 覆盖类型转换、多 tool call、消息顺序等。
+- **`providers/types.py`**: 新增统一内部类型 `ToolCall(id, name, arguments)` �?`LLMResponse(content, tool_calls)`。所�?provider 返回同一类型，`AgentLoop` 不再依赖 duck typing�?
+- **`providers/openai_compat.py`**: 新增 `OpenAICompatibleProvider` 基类，封�?OpenAI 兼容 API 的消息转换、HTTP 请求和响应解析。Deepseek �?OpenAI provider 均继承此类�?
+- `tests/test_providers.py`、`tests/test_agent_loop.py`: 覆盖类型转换、多 tool call、消息顺序等�?
 
 ### 变更
-- **`providers/deepseek.py`**: 从 LangChain wrapper 改为继承 `OpenAICompatibleProvider`，移除 `langchain_openai` 依赖。同时修复了多 tool call 丢失 bug（原代码只取 `tool_calls_data[0]`）。
-- **`providers/minimax.py`**: 返回 `LLMResponse` 替代 ad-hoc `Response` 类。使用共享 `ToolCall` 类型。
-- **`providers/factory.py`**: `openai` 分支使用 `OpenAICompatibleProvider` 替代 `DeepseekProvider`，职责清晰。
-- **`core/agent_loop.py`**: 直接访问 `LLMResponse.tool_calls` 和 `ToolCall.id/name/arguments`，移除所有 `hasattr` 和 `isinstance(tc, dict)` duck typing。
+- **`providers/deepseek.py`**: �?LangChain wrapper 改为继承 `OpenAICompatibleProvider`，移�?`langchain_openai` 依赖。同时修复了�?tool call 丢失 bug（原代码只取 `tool_calls_data[0]`）�?
+- **`providers/minimax.py`**: 返回 `LLMResponse` 替代 ad-hoc `Response` 类。使用共�?`ToolCall` 类型�?
+- **`providers/factory.py`**: `openai` 分支使用 `OpenAICompatibleProvider` 替代 `DeepseekProvider`，职责清晰�?
+- **`core/agent_loop.py`**: 直接访问 `LLMResponse.tool_calls` �?`ToolCall.id/name/arguments`，移除所�?`hasattr` �?`isinstance(tc, dict)` duck typing�?
 
 ## [0.1.0] - 2026-04-22
 
 ### 新增
-- **`.gitignore`**: 排除 `.env`、`.session/`、`.venv/`、`__pycache__/`、`.pytest_cache/` 等运行产物，防止敏感文件和缓存进入版本库。
+- **`.gitignore`**: 排除 `.env`、`.session/`、`.venv/`、`__pycache__/`、`.pytest_cache/` 等运行产物，防止敏感文件和缓存进入版本库�?
 
 ### 修复
-- **Tool call 消息顺序修正**: `core/agent_loop.py` 原代码先执行工具、添加 `tool` 消息，最后才添加 `assistant(tool_calls)`，形成 `user → tool → assistant(tool_calls)` 的错误顺序。现在改为：先解析 tool calls → 添加 `assistant(tool_calls)` → 再执行工具并添加 `tool` 消息。顺序始终为 `user → assistant(tool_calls) → tool`。
-- **Session 裁剪保护 tool call 组**: `core/session.py` 重写 `_trim_messages()`，新增 `_group_messages()` 方法。消息按"对话轮次"分组：`assistant(tool_calls)` 和对应 `tool` 消息作为原子单元，裁剪时要么一起保留要么一起移除。
-- `tests/test_repl.py`: 更新断言匹配实际 REPL 输出。
+- **Tool call 消息顺序修正**: `core/agent_loop.py` 原代码先执行工具、添�?`tool` 消息，最后才添加 `assistant(tool_calls)`，形�?`user �?tool �?assistant(tool_calls)` 的错误顺序。现在改为：先解�?tool calls �?添加 `assistant(tool_calls)` �?再执行工具并添加 `tool` 消息。顺序始终为 `user �?assistant(tool_calls) �?tool`�?
+- **Session 裁剪保护 tool call �?*: `core/session.py` 重写 `_trim_messages()`，新�?`_group_messages()` 方法。消息按"对话轮次"分组：`assistant(tool_calls)` 和对�?`tool` 消息作为原子单元，裁剪时要么一起保留要么一起移除�?
+- `tests/test_repl.py`: 更新断言匹配实际 REPL 输出�?
 
 ### 验证
-- 全部 50 个测试通过。
+- 全部 50 个测试通过�?
