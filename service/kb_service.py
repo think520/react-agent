@@ -1636,6 +1636,78 @@ class KBService:
             sync=summary.to_dict(),
         )
 
+    # --- 文件夹写操作：新建 / 删除（只删容器）（E17 ③）-------------------
+
+    def _clean_relative(self, relative_path: str) -> str:
+        cleaned = str(relative_path or "").strip().replace("\\", "/").strip("/")
+        if not cleaned or ".." in cleaned.split("/") or ":" in cleaned:
+            return ""
+        return cleaned
+
+    def create_folder(self, relative_path: str) -> dict[str, Any]:
+        """在资料库里新建一个真实文件夹（E17 ③）。"""
+        cleaned = self._clean_relative(relative_path)
+        if not cleaned:
+            return _err("文件夹路径不合法", code="invalid_target")
+        target = os.path.abspath(os.path.join(self.workspace, cleaned))
+        if not self._is_within_workspace(target, self.workspace) or self._is_internal_path(target):
+            return _err("文件夹路径不合法", code="invalid_target")
+        if os.path.exists(target):
+            return _err("这里已经有同名文件夹或文件", code="target_exists")
+        os.makedirs(target, exist_ok=False)
+        return _ok(folder={"name": os.path.basename(target), "path": cleaned})
+
+    def delete_folder(self, relative_path: str, mode: str = "ungroup") -> dict[str, Any]:
+        """删掉一个文件夹这个**容器**：里面的资料移回库根，一份都不删。
+
+        mode="ungroup"（默认也是唯一实现的语义）：参考项目 OpenMAIC 的注释说得最准
+        —— a container's ⋯ must not be able to destroy work。非资料文件留在原地，
+        于是目录会保留（并如实告诉用户），绝不静默丢东西。
+        """
+        cleaned = self._clean_relative(relative_path)
+        if not cleaned:
+            return _err("文件夹路径不合法", code="invalid_target")
+        target = os.path.abspath(os.path.join(self.workspace, cleaned))
+        if not self._is_within_workspace(target, self.workspace) or self._is_internal_path(target):
+            return _err("文件夹路径不合法", code="invalid_target")
+        if not os.path.isdir(target) or os.path.abspath(target) == os.path.abspath(self.workspace):
+            return _err("文件夹不存在", code="folder_not_found")
+
+        from obsidian.scan_policy import is_repo_metadata
+        from rag.parsers import SUPPORTED_EXTENSIONS
+
+        moved: list[str] = []
+        for root, _dirs, files in os.walk(target):
+            for filename in files:
+                extension = os.path.splitext(filename)[1].lower()
+                if extension not in SUPPORTED_EXTENSIONS or is_repo_metadata(filename):
+                    continue
+                source_path = os.path.join(root, filename)
+                destination = os.path.join(self.workspace, filename)
+                stem, suffix = os.path.splitext(filename)
+                counter = 2
+                while os.path.exists(destination):
+                    destination = os.path.join(self.workspace, f"{stem} ({counter}){suffix}")
+                    counter += 1
+                shutil.move(source_path, destination)
+                moved.append(self._relative_to_workspace(source_path))
+
+        # 自底向上收掉空目录；还有东西就留着（不静默丢东西）。
+        for root, dirs, _files in os.walk(target, topdown=False):
+            for name in dirs:
+                try:
+                    os.rmdir(os.path.join(root, name))
+                except OSError:
+                    pass
+        try:
+            os.rmdir(target)
+            kept = False
+        except OSError:
+            kept = True
+
+        summary = self._sync_registered_sources(mode="incremental", config={})
+        return _ok(folder=cleaned, moved=sorted(moved), kept_directory=kept, sync=summary.to_dict())
+
     def get_document(self, document_id: str) -> dict[str, Any]:
         db_path = knowledge_path(self.workspace, "knowledge.db")
         if os.path.exists(db_path):

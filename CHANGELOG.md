@@ -7,6 +7,9 @@
 ## [未发布]
 
 ### 变更
+- **③c 文件夹写操作的后端语义（2026-09-24，E17 ③ 第三块）**：新建文件夹、**删文件夹=只删容器**（资料移回库根、一份都不删；非资料文件留在原地于是目录保留，并如实返回 `kept_directory`）、以及 `POST /api/kb/documents/{id}/move` 路由（接 ③b 的身份迁移）。拒绝项：根目录/内部目录/路径逃逸（`invalid_target`）、已存在（`target_exists`）。参考项目的注释被引在设计里：a container's ⋯ must not be able to destroy work。
+  - **验证**：新增 `tests/test_folder_ops.py` 5 条（新建真实目录 / 拒绝非法目标 / 删文件夹把资料移回库根且非资料文件留原地 / 空目录才真的被移除 / 根与内部目录拒绝）；pytest 全绿。
+  - **仍未做**：树上写操作的**界面**（新建文件夹按钮、行内重命名、移动到、归档）与「已归档」列表的界面入口——下一轮。
 - **③b 重命名/移动保留身份并迁移引用（2026-09-24，E17 ③ 第二块）**：本轮先**实测枚举**了挂在资料身份上的引用面（不是凭记忆）：`documents`（id/source/path）、`chunks`（document_id/**chunk_id**/source）、概念证据 `concept_graph.db::evidence`（document_id/chunk_id）、笔记 `personal_knowledge."references"`（JSON 里的 document_id/chunk_id）、阅读进度 `reading_progress.document_id`、Qdrant 向量 payload。
   - **关键事实**：`rag/sqlite_store.py:23` 的 `_stable_hash(source)` 同时派生 document_id 与 chunk_id，而 `chunk_id = f(source, index, text)` —— **改个文件名会让所有 chunk id 变化**，挂在它们上面的证据、笔记引用与 `?chunk=` 深链会一起断。
   - **修法**：`KBService.move_document(id, 新相对路径)` —— ① 先算出新 source（口径与 `obsidian/sync.py` 的扫描根完全一致，含 raw/ 前缀剥离规则）；② 算出旧→新 chunk 身份映射；③ 搬文件；④ 就地改写 `documents`(source/path) 并**保留 document_id**、重映射 `chunks`(id/source) 并重建 FTS5 外部内容索引；⑤ 迁移概念证据与笔记 references 里的 chunk_id；⑥ 向量标 `pending` 并删掉旧点，交给下次同步重建（chunk 身份变了，旧向量作废）；⑦ 同步复用既有身份（`obsidian/sync.py` 改为 `get_document_id_by_source(source) or _stable_hash(source)`）。

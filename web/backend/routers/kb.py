@@ -531,6 +531,36 @@ def document_impact(document_id: str, request: Request) -> dict:
     )
 
 
+@router.post("/folders")
+def create_folder(body: dict, request: Request) -> dict:
+    """新建文件夹（E17 ③）。"""
+    return unwrap_service_result(_service(request).create_folder(str(body.get("path") or "")))
+
+
+@router.post("/folders/delete")
+def delete_folder(body: dict, request: Request) -> dict:
+    """删文件夹=只删容器：资料移回库根，一份都不删（E17 ③）。"""
+    result = unwrap_service_result(
+        _service(request).delete_folder(
+            str(body.get("path") or ""), mode=str(body.get("mode") or "ungroup")
+        ),
+        code="folder_not_deletable",
+    )
+    result["sync"] = _public_sync(result["sync"])
+    return result
+
+
+@router.post("/documents/{document_id}/move")
+def move_document(document_id: str, body: dict, request: Request) -> dict:
+    """重命名/移动资料：身份保留、引用与证据跟着迁移（E17 ③）。"""
+    result = unwrap_service_result(
+        _service(request).move_document(document_id, str(body.get("path") or ""), config=get_config()),
+        code="document_not_movable",
+    )
+    result["sync"] = _public_sync(result["sync"])
+    return result
+
+
 @router.get("/archive")
 def list_archive(request: Request) -> dict:
     """已归档的资料（E17 ③）：归档只是移走，永远可以恢复。"""
