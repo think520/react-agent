@@ -642,11 +642,19 @@ body { margin: 0; overflow: hidden; background: var(--paper); }
 [data-paper-texture="on"] body { background-color: #f5f4ed; }
 [data-paper-texture="off"] { --paper: #f7f6f1; --paper-soft: #f8f7f3; --paper-sunken: #f1f0ea; }
 [data-paper-texture="on"] .main-column, [data-paper-texture="on"] .sidebar, [data-paper-texture="on"] .context-panel, [data-paper-texture="on"] .settings-dialog { background-image: repeating-linear-gradient(0deg, rgba(61,53,43,.008) 0, rgba(61,53,43,.008) 1px, transparent 1px, transparent 5px); }
-* { scrollbar-width: thin; scrollbar-color: rgba(154,145,133,.34) transparent; }
+/* 滚动条（2026-09-24 实测结论，别再试了）：
+   Windows 11 + Chromium 上的滚动条**一定是覆盖式** —— `::-webkit-scrollbar { width: 20px }`、
+   `scrollbar-width: thin`、什么都不写，四种写法的 offsetWidth - clientWidth 全是 0，
+   也就是不占布局、平时不画出来。CSS 改不出"常驻可见"的经典滚动条。
+   所以：这里只保留细条样式（Firefox 走下面的 @supports 兜底），而**阅读区那条
+   自己画**（components/ScrollIndicator.tsx）。 */
 *::-webkit-scrollbar { width: 8px; height: 8px; }
 *::-webkit-scrollbar-track { background: transparent; }
-*::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 999px; background: rgba(154,145,133,.3); background-clip: content-box; }
-*::-webkit-scrollbar-thumb:hover { background: rgba(122,112,101,.48); background-clip: content-box; }
+*::-webkit-scrollbar-thumb { border: 1px solid transparent; border-radius: 999px; background: rgba(122,112,101,.45); background-clip: content-box; }
+*::-webkit-scrollbar-thumb:hover { background: rgba(90,82,73,.62); background-clip: content-box; }
+@supports not selector(::-webkit-scrollbar) {
+  * { scrollbar-width: thin; scrollbar-color: rgba(122,112,101,.45) transparent; }
+}
 button, input, textarea { color: inherit; font: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
 button { cursor: pointer; }
@@ -1130,6 +1138,17 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 .heading-actions { display: flex; gap: 8px; }
 /* 资料库要同时放下「文件夹树 + 列表 + 正文」三栏，1120px 的通用上限会让正文只剩四百来像素。 */
 .library-container { padding-top: 0; width: min(100%, 1600px); }
+/* 资料库页自己管滚动（2026-09-24 用户：'文章继续往下划的时候，左边文件树是不动的'，像 Obsidian）：
+   整页不再滚，改成**树栏固定并自己滚、正文自己滚**。窄屏（≤767px）仍走原来的整页滚动。 */
+@media (min-width: 768px) {
+  .library-scroll { overflow: hidden; }
+  .library-scroll .library-container { display: flex; height: 100%; flex-direction: column; }
+  .library-scroll .library-workspace { flex: 1 1 auto; min-height: 0; }
+  .library-scroll .library-tree-pane { overflow-y: auto; min-height: 0; }
+  .library-scroll .library-reader-column { overflow-y: auto; min-height: 0; position: relative; scrollbar-width: none; }
+  .library-scroll .library-reader-column::-webkit-scrollbar { display: none; }
+  .library-scroll .library-reader-placeholder { overflow-y: auto; }
+}
 .library-toolbar { display: flex; min-height: 64px; align-items: center; justify-content: space-between; gap: 18px; border-bottom: 1px solid var(--border); }
 .library-toolbar-context { display: flex; min-width: 0; align-items: center; gap: var(--space-3); color: var(--blue); }
 .library-toolbar-context > div { display: grid; min-width: 0; gap: 1px; }
@@ -1699,6 +1718,11 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 .chapter-rail > div > button:hover { background: var(--blue-wash); color: var(--blue); }
 .chapter-rail > div > button.active { background: var(--blue-wash); color: var(--blue); font-weight: 650; }
 .reader-toc-button.active { border-color: rgba(27,54,93,.2); background: var(--blue-wash); color: var(--blue); }
+
+/* 阅读区自绘滚动条：常驻可见、可拖，滚动或悬停时加深加宽（绝对定位，不撑动正文）。 */
+.scroll-indicator { position: absolute; z-index: 25; top: 0; right: 0; bottom: 0; width: 12px; }
+.scroll-indicator-thumb { position: absolute; right: 2px; width: 6px; border-radius: var(--radius-sm); background: rgba(122,112,101,.38); transition: width var(--dur-base) var(--ease-out), background var(--dur-base) var(--ease-out); }
+.scroll-indicator:hover .scroll-indicator-thumb, .scroll-indicator.active .scroll-indicator-thumb { width: 8px; background: rgba(90,82,73,.6); }
 
 /* Reader tabs (TASKS_LIBRARY_REWORK task 2.3.1). */
 /* 吸顶标签栏必须**不透明**：原来写的是不存在的 `--bg`（无 fallback → 声明被丢掉），

@@ -13,6 +13,7 @@ import { WikiPlanCard } from "../components/WikiPlanCard";
 import { ApiError, api } from "../lib/api";
 import type { ArchivedEntry, KnowledgeSyncSummary, KnowledgeTree, OrganizationBatch, OrganizationProposal } from "../lib/api";
 import { DocumentReader } from "../components/DocumentReader";
+import { ScrollIndicator } from "../components/ScrollIndicator";
 import { LibraryTree } from "../components/LibraryTree";
 import { useReaderTabsStore } from "../stores/readerTabsStore";
 import { Modal, useConfirm } from "../ui/Modal";
@@ -134,20 +135,15 @@ export function LibraryPage() {
   const [wikiInstruction, setWikiInstruction] = useState("");
   const [wikiTopic, setWikiTopic] = useState("");
   const [wikiScopeMode, setWikiScopeMode] = useState<WikiScopeMode>("uncovered");
-  const pageRef = useRef<HTMLElement>(null);
+  // 资料库页自己管滚动：正文列是滚动容器，阅读进度与标签位置都记在它身上（不再是整页）。
+  const readerScrollRef = useRef<HTMLElement | null>(null);
   const selectedIdRef = useRef(selectedId);
   const searchParamsRef = useRef(searchParams);
   const wikiViewRef = useRef(wikiView);
   useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
 
-  // TASKS_LIBRARY_REWORK task 1: restore list scroll on mount, save on unmount.
-  useEffect(() => {
-    const element = pageRef.current;
-    if (element) element.scrollTop = Number(localStorage.getItem("bobodan:library-scroll")) || 0;
-    return () => {
-      if (element) localStorage.setItem("bobodan:library-scroll", String(element.scrollTop));
-    };
-  }, []);
+  // （原来这里在整页滚动容器上存取 "bobodan:library-scroll"：那是"我的资料"平铺列表时代的
+  //  遗留物，列表已经删掉、整页也不再滚，逐文档的阅读位置由标签条的 scrollFor 负责，故移除。）
   useEffect(() => { searchParamsRef.current = searchParams; }, [searchParams]);
   useEffect(() => { wikiViewRef.current = wikiView; }, [wikiView]);
 
@@ -301,7 +297,7 @@ export function LibraryPage() {
     if (!selectedId || sections.length === 0) return;
     if (restoredRef.current === selectedId) return;
     restoredRef.current = selectedId;
-    const element = pageRef.current;
+    const element = readerScrollRef.current;
     if (!element) return;
     const target = scrollFor(selectedId);
     if (target <= 0) return;
@@ -980,7 +976,7 @@ export function LibraryPage() {
   };
 
   return (
-    <section className="page-scroll" ref={pageRef}>
+    <section className="page-scroll library-scroll">
       <div className="page-container library-container">
         <header className="library-toolbar">
           <div className="library-toolbar-context">
@@ -991,10 +987,8 @@ export function LibraryPage() {
                 <DropdownSelect ariaLabel="切换资料库" value={activeLibrary?.library_id || ""} onChange={(value) => void switchLibrary(value)} options={libraries.filter((item) => item.available).map((library) => ({ value: library.library_id, label: library.name }))} />
               ) : <strong>{collection === "wiki" ? activeLibrary?.name || "资料库" : "尚未创建资料库"}</strong>}
             </div>
-          </div>
-          <div className="library-toolbar-actions">
-            {collection === "wiki" && <button className="quiet-button" onClick={() => selectCollection("material")}>返回资料</button>}
-            {activeLibrary && <IconButton label="刷新资料" onClick={() => void loadDocuments()}><RefreshCw size={16} /></IconButton>}
+            {/* 2026-09-24：树的开关挪到左上角（原来埋在右侧按钮组里，用户找不着）。
+                位置就在「资料库 / vault」右边，和 Obsidian 的侧栏开关同一个角落的意思。 */}
             {collection === "material" && tree && (
               <button
                 className="quiet-button"
@@ -1006,6 +1000,10 @@ export function LibraryPage() {
                 <FolderTree size={15} />文件夹
               </button>
             )}
+          </div>
+          <div className="library-toolbar-actions">
+            {collection === "wiki" && <button className="quiet-button" onClick={() => selectCollection("material")}>返回资料</button>}
+            {activeLibrary && <IconButton label="刷新资料" onClick={() => void loadDocuments()}><RefreshCw size={16} /></IconButton>}
             {collection === "material" && activeLibrary && (
               <button className="quiet-button" type="button" disabled={syncingFolder} onClick={() => void syncLibraryFolder()}>
                 <FolderOpen size={15} />{syncingFolder ? "正在同步文件夹…" : "同步文件夹"}
@@ -1335,7 +1333,10 @@ export function LibraryPage() {
                 列表被顶到阅读区的位置（2026-09-24 用户截图发现的布局塌陷）。
                 没有选中资料又没有标签时整列不渲染 —— 否则会留一条空白栏。 */}
             {(selected || openIds.length > 0) && (
-            <div className="library-reader-column">
+            <div className="library-reader-column" ref={(node) => { readerScrollRef.current = node; }}>
+            {/* 原生滚动条在 Windows 11 + Chromium 上一定是覆盖式（实测改不动），
+                所以阅读区自己画一条：常驻可见、可拖，滚轮与键盘照旧。 */}
+            <ScrollIndicator targetRef={readerScrollRef} />
             {openIds.length > 0 && (
               <div className="reader-tabs" role="tablist" aria-label="打开的资料">
                 {openIds.map((tabId) => (
@@ -1415,7 +1416,7 @@ export function LibraryPage() {
                   collection={selected.collection === "wiki" ? "wiki" : "material"}
                   chunkId={searchParams.get("chunk")}
                   documentSummary={selected}
-                  scrollRef={pageRef}
+                  scrollRef={readerScrollRef}
                   onError={setError}
                   onSectionsLoaded={setSections}
                   reloadToken={readerReloadToken}

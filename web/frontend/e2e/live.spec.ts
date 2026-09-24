@@ -163,6 +163,22 @@ test("the library page reads a material in place", async ({ page }) => {
   // 资料库只有一套导航：中间的"我的资料"平铺列表已按用户要求去掉（与树重复、还占一栏）。
   await expect(page.locator(".document-rail")).toHaveCount(0);
 
+  // 2026-09-24：原生滚动条在 Windows 11 + Chromium 上一定是覆盖式（实测四种写法都是 0 布局宽），
+  // 所以阅读区自己画了一条。它必须常驻可见、能拖，而且拖的时候树栏纹丝不动。
+  const thumb = page.locator(".scroll-indicator-thumb");
+  await expect(thumb).toBeVisible();
+  const column = page.locator(".library-reader-column");
+  const treeBefore = await page.locator(".library-tree-pane").boundingBox();
+  const scrollBefore = await column.evaluate((element) => element.scrollTop);
+  const thumbBox = (await thumb.boundingBox())!;
+  await page.mouse.move(thumbBox.x + thumbBox.width / 2, thumbBox.y + thumbBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(thumbBox.x + thumbBox.width / 2, thumbBox.y + thumbBox.height / 2 + 160, { steps: 6 });
+  await page.mouse.up();
+  await expect.poll(async () => column.evaluate((element) => element.scrollTop)).toBeGreaterThan(scrollBefore);
+  const treeAfter = await page.locator(".library-tree-pane").boundingBox();
+  expect(Math.round(treeAfter!.y)).toBe(Math.round(treeBefore!.y)); // 树栏钉住，不跟正文滚
+
   // 2026-09-24 用户反馈：右边缘那条 64px 悬停带压在 8px 滚动条上，鼠标一过去就弹目录，
   // 于是"拖滚动条翻页"永远失败。现在扫过右边缘必须什么都不发生，最右边那几像素也不能被盖住。
   const viewport = page.viewportSize()!;
