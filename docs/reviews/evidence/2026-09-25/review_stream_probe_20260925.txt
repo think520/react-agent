@@ -1,0 +1,57 @@
+
+ RUN  v4.1.10 <project-root>/web/frontend
+
+ ❯ src/lib/review_probe.test.ts (2 tests | 2 failed) 14ms
+   × review: terminal run_failed must reject the chat request 12ms
+   × review: a stream ending without a terminal event must not succeed 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/lib/review_probe.test.ts > review: terminal run_failed must reject the chat request
+AssertionError: promise resolved "undefined" instead of rejecting
+
+- Expected:
+Error {
+  "message": "rejected promise",
+}
+
++ Received:
+undefined
+
+ ❯ src/lib/review_probe.test.ts:12:6
+     10|   await expect(streamChat("review", undefined, [], {}, (event) => {
+     11|     if (event.event === "run_failed") throw new Error(event.data.error…
+     12|   })).rejects.toThrow("provider offline");
+       |      ^
+     13| });
+     14| it("review: a stream ending without a terminal event must not succeed"…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  src/lib/review_probe.test.ts > review: a stream ending without a terminal event must not succeed
+AssertionError: promise resolved "undefined" instead of rejecting
+
+- Expected:
+Error {
+  "message": "rejected promise",
+}
+
++ Received:
+undefined
+
+ ❯ src/lib/review_probe.test.ts:16:73
+     14| it("review: a stream ending without a terminal event must not succeed"…
+     15|   respond("run_started", {seq: 1, stream_id: "review", chat_session_id…
+     16|   await expect(streamChat("review", undefined, [], {}, () => undefined…
+       |                                                                         ^
+     17| });
+     18|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  20:47:56
+   Duration  5.30s (transform 82ms, setup 1.08s, import 100ms, tests 14ms, environment 3.83s)
+
