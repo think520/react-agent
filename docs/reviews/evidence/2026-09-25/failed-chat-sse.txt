@@ -3,4 +3,3 @@ data: {"run_id": "455795cb-0649-45c5-bcc6-a024bcdae0e3", "stream_id": "9ecec353-
 
 event: run_failed
 data: {"run_id": "455795cb-0649-45c5-bcc6-a024bcdae0e3", "error": {"code": "run_failed", "message": "The AI run failed. Please try again."}, "seq": 2, "stream_id": "9ecec353-64b0-4464-b69c-07ab16cf99db"}
-

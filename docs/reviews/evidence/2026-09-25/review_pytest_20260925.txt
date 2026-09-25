@@ -1,169 +1,169 @@
-........................................................................ [  4%]
-........................................................................ [  8%]
-........................................................................ [ 13%]
-........................................................................ [ 17%]
-........................................................................ [ 22%]
-........................................................................ [ 26%]
-........................................................................ [ 30%]
-........................................................................ [ 35%]
-........................................................................ [ 39%]
-........................................................................ [ 44%]
-........................................................................ [ 48%]
-........................................................................ [ 52%]
-........................................................................ [ 57%]
-........................................................................ [ 61%]
-........................................................................ [ 66%]
-........................................................................ [ 70%]
-........................................................................ [ 74%]
-........................................................................ [ 79%]
-........................................................................ [ 83%]
-........................................................................ [ 88%]
-........................................................................ [ 92%]
-........................................................................ [ 96%]
-.................................................                        [100%]
-============================== warnings summary ===============================
-.venv\Lib\site-packages\fastapi\testclient.py:1
-  <project-root>\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
-    from starlette.testclient import TestClient as TestClient  # noqa
-
-tests/test_grep_binary.py::test_binary_documents_are_skipped_and_reported
-  <project-root>\.venv\Lib\site-packages\_pytest\threadexception.py:58: PytestUnhandledThreadExceptionWarning: Exception in thread Thread-71 (_readerthread)
-  
-  Traceback (most recent call last):
-    File "C:\Users\xingke\AppData\Roaming\uv\python\cpython-3.13.9-windows-x86_64-none\Lib\threading.py", line 1043, in _bootstrap_inner
-      self.run()
-      ~~~~~~~~^^
-    File "C:\Users\xingke\AppData\Roaming\uv\python\cpython-3.13.9-windows-x86_64-none\Lib\threading.py", line 994, in run
-      self._target(*self._args, **self._kwargs)
-      ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    File "C:\Users\xingke\AppData\Roaming\uv\python\cpython-3.13.9-windows-x86_64-none\Lib\subprocess.py", line 1615, in _readerthread
-      buffer.append(fh.read())
-                    ~~~~~~~^^
-  UnicodeDecodeError: 'gbk' codec can't decode byte 0xb9 in position 31: illegal multibyte sequence
-  
-  Enable tracemalloc to get traceback where the object was allocated.
-  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
-    warnings.warn(pytest.PytestUnhandledThreadExceptionWarning(msg))
-
-tests/test_grep_binary.py::test_binary_documents_are_skipped_and_reported
-  <project-root>\.venv\Lib\site-packages\_pytest\threadexception.py:58: PytestUnhandledThreadExceptionWarning: Exception in thread Thread-69 (_readerthread)
-  
-  Traceback (most recent call last):
-    File "C:\Users\xingke\AppData\Roaming\uv\python\cpython-3.13.9-windows-x86_64-none\Lib\threading.py", line 1043, in _bootstrap_inner
-      self.run()
-      ~~~~~~~~^^
-    File "C:\Users\xingke\AppData\Roaming\uv\python\cpython-3.13.9-windows-x86_64-none\Lib\threading.py", line 994, in run
-      self._target(*self._args, **self._kwargs)
-      ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    File "C:\Users\xingke\AppData\Roaming\uv\python\cpython-3.13.9-windows-x86_64-none\Lib\subprocess.py", line 1615, in _readerthread
-      buffer.append(fh.read())
-                    ~~~~~~~^^
-  UnicodeDecodeError: 'gbk' codec can't decode byte 0xb9 in position 31: illegal multibyte sequence
-  
-  Enable tracemalloc to get traceback where the object was allocated.
-  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
-    warnings.warn(pytest.PytestUnhandledThreadExceptionWarning(msg))
-
-tests/test_grep_binary.py::test_binary_documents_are_skipped_and_reported
-  <project-root>\.venv\Lib\site-packages\_pytest\threadexception.py:58: PytestUnhandledThreadExceptionWarning: Exception in thread Thread-67 (_readerthread)
-  
-  Traceback (most recent call last):
-    File "C:\Users\xingke\AppData\Roaming\uv\python\cpython-3.13.9-windows-x86_64-none\Lib\threading.py", line 1043, in _bootstrap_inner
-      self.run()
-      ~~~~~~~~^^
-    File "C:\Users\xingke\AppData\Roaming\uv\python\cpython-3.13.9-windows-x86_64-none\Lib\threading.py", line 994, in run
-      self._target(*self._args, **self._kwargs)
-      ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    File "C:\Users\xingke\AppData\Roaming\uv\python\cpython-3.13.9-windows-x86_64-none\Lib\subprocess.py", line 1615, in _readerthread
-      buffer.append(fh.read())
-                    ~~~~~~~^^
-  UnicodeDecodeError: 'gbk' codec can't decode byte 0xb9 in position 31: illegal multibyte sequence
-  
-  Enable tracemalloc to get traceback where the object was allocated.
-  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
-    warnings.warn(pytest.PytestUnhandledThreadExceptionWarning(msg))
-
-tests/test_grep_binary.py::test_text_documents_are_not_flagged
-  <project-root>\.venv\Lib\site-packages\_pytest\threadexception.py:58: PytestUnhandledThreadExceptionWarning: Exception in thread Thread-77 (_readerthread)
-  
-  Traceback (most recent call last):
-    File "C:\Users\xingke\AppData\Roaming\uv\python\cpython-3.13.9-windows-x86_64-none\Lib\threading.py", line 1043, in _bootstrap_inner
-      self.run()
-      ~~~~~~~~^^
-    File "C:\Users\xingke\AppData\Roaming\uv\python\cpython-3.13.9-windows-x86_64-none\Lib\threading.py", line 994, in run
-      self._target(*self._args, **self._kwargs)
-      ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    File "C:\Users\xingke\AppData\Roaming\uv\python\cpython-3.13.9-windows-x86_64-none\Lib\subprocess.py", line 1615, in _readerthread
-      buffer.append(fh.read())
-                    ~~~~~~~^^
-  UnicodeDecodeError: 'gbk' codec can't decode byte 0xb9 in position 31: illegal multibyte sequence
-  
-  Enable tracemalloc to get traceback where the object was allocated.
-  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
-    warnings.warn(pytest.PytestUnhandledThreadExceptionWarning(msg))
-
-tests/test_grep_binary.py::test_text_documents_are_not_flagged
-  <project-root>\.venv\Lib\site-packages\_pytest\threadexception.py:58: PytestUnhandledThreadExceptionWarning: Exception in thread Thread-75 (_readerthread)
-  
-  Traceback (most recent call last):
-    File "C:\Users\xingke\AppData\Roaming\uv\python\cpython-3.13.9-windows-x86_64-none\Lib\threading.py", line 1043, in _bootstrap_inner
-      self.run()
-      ~~~~~~~~^^
-    File "C:\Users\xingke\AppData\Roaming\uv\python\cpython-3.13.9-windows-x86_64-none\Lib\threading.py", line 994, in run
-      self._target(*self._args, **self._kwargs)
-      ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    File "C:\Users\xingke\AppData\Roaming\uv\python\cpython-3.13.9-windows-x86_64-none\Lib\subprocess.py", line 1615, in _readerthread
-      buffer.append(fh.read())
-                    ~~~~~~~^^
-  UnicodeDecodeError: 'gbk' codec can't decode byte 0xb9 in position 31: illegal multibyte sequence
-  
-  Enable tracemalloc to get traceback where the object was allocated.
-  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
-    warnings.warn(pytest.PytestUnhandledThreadExceptionWarning(msg))
-
-tests/test_grep_binary.py::test_text_documents_are_not_flagged
-  <project-root>\.venv\Lib\site-packages\_pytest\threadexception.py:58: PytestUnhandledThreadExceptionWarning: Exception in thread Thread-73 (_readerthread)
-  
-  Traceback (most recent call last):
-    File "C:\Users\xingke\AppData\Roaming\uv\python\cpython-3.13.9-windows-x86_64-none\Lib\threading.py", line 1043, in _bootstrap_inner
-      self.run()
-      ~~~~~~~~^^
-    File "C:\Users\xingke\AppData\Roaming\uv\python\cpython-3.13.9-windows-x86_64-none\Lib\threading.py", line 994, in run
-      self._target(*self._args, **self._kwargs)
-      ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    File "C:\Users\xingke\AppData\Roaming\uv\python\cpython-3.13.9-windows-x86_64-none\Lib\subprocess.py", line 1615, in _readerthread
-      buffer.append(fh.read())
-                    ~~~~~~~^^
-  UnicodeDecodeError: 'gbk' codec can't decode byte 0xb9 in position 31: illegal multibyte sequence
-  
-  Enable tracemalloc to get traceback where the object was allocated.
-  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
-    warnings.warn(pytest.PytestUnhandledThreadExceptionWarning(msg))
-
-tests/test_mcp_event_loop.py::test_run_sync_after_close_raises
-  <project-root>\tests\test_mcp_event_loop.py:91: RuntimeWarning: coroutine 'test_run_sync_after_close_raises.<locals>.noop' was never awaited
-    with pytest.raises(RuntimeError, match="closed"):
-  Enable tracemalloc to get traceback where the object was allocated.
-  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
-
-tests/test_repl.py::test_repl_sigint_tells_the_agent_to_stop
-  <project-root>\.venv\Lib\site-packages\_pytest\unraisableexception.py:67: PytestUnraisableExceptionWarning: Exception ignored when trying to send to the signal wakeup fd: None
-  
-  Traceback (most recent call last):
-    File "C:\Users\xingke\AppData\Roaming\uv\python\cpython-3.13.9-windows-x86_64-none\Lib\threading.py", line 363, in wait
-      gotit = waiter.acquire(True, timeout)
-  KeyboardInterrupt
-  
-  During handling of the above exception, another exception occurred:
-  
-  Traceback (most recent call last):
-    File "C:\Users\xingke\AppData\Roaming\uv\python\cpython-3.13.9-windows-x86_64-none\Lib\threading.py", line 315, in _acquire_restore
-      def _acquire_restore(self, x):
-      
-  OSError: [WinError 10038] ��һ�����׽����ϳ�����һ��������
-  
-  
-    warnings.warn(pytest.PytestUnraisableExceptionWarning(msg))
-
--- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-1633 passed, 9 warnings in 175.20s (0:02:55)
+........................................................................ [  4%]
+........................................................................ [  8%]
+........................................................................ [ 13%]
+........................................................................ [ 17%]
+........................................................................ [ 22%]
+........................................................................ [ 26%]
+........................................................................ [ 30%]
+........................................................................ [ 35%]
+........................................................................ [ 39%]
+........................................................................ [ 44%]
+........................................................................ [ 48%]
+........................................................................ [ 52%]
+........................................................................ [ 57%]
+........................................................................ [ 61%]
+........................................................................ [ 66%]
+........................................................................ [ 70%]
+........................................................................ [ 74%]
+........................................................................ [ 79%]
+........................................................................ [ 83%]
+........................................................................ [ 88%]
+........................................................................ [ 92%]
+........................................................................ [ 96%]
+.................................................                        [100%]
+============================== warnings summary ===============================
+.venv\Lib\site-packages\fastapi\testclient.py:1
+  <project-root>\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+tests/test_grep_binary.py::test_binary_documents_are_skipped_and_reported
+  <project-root>\.venv\Lib\site-packages\_pytest\threadexception.py:58: PytestUnhandledThreadExceptionWarning: Exception in thread Thread-71 (_readerthread)
+
+  Traceback (most recent call last):
+    File "C:\Users\xingke\AppData\Roaming\uv\python\cpython-3.13.9-windows-x86_64-none\Lib\threading.py", line 1043, in _bootstrap_inner
+      self.run()
+      ~~~~~~~~^^
+    File "C:\Users\xingke\AppData\Roaming\uv\python\cpython-3.13.9-windows-x86_64-none\Lib\threading.py", line 994, in run
+      self._target(*self._args, **self._kwargs)
+      ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "C:\Users\xingke\AppData\Roaming\uv\python\cpython-3.13.9-windows-x86_64-none\Lib\subprocess.py", line 1615, in _readerthread
+      buffer.append(fh.read())
+                    ~~~~~~~^^
+  UnicodeDecodeError: 'gbk' codec can't decode byte 0xb9 in position 31: illegal multibyte sequence
+
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+    warnings.warn(pytest.PytestUnhandledThreadExceptionWarning(msg))
+
+tests/test_grep_binary.py::test_binary_documents_are_skipped_and_reported
+  <project-root>\.venv\Lib\site-packages\_pytest\threadexception.py:58: PytestUnhandledThreadExceptionWarning: Exception in thread Thread-69 (_readerthread)
+
+  Traceback (most recent call last):
+    File "C:\Users\xingke\AppData\Roaming\uv\python\cpython-3.13.9-windows-x86_64-none\Lib\threading.py", line 1043, in _bootstrap_inner
+      self.run()
+      ~~~~~~~~^^
+    File "C:\Users\xingke\AppData\Roaming\uv\python\cpython-3.13.9-windows-x86_64-none\Lib\threading.py", line 994, in run
+      self._target(*self._args, **self._kwargs)
+      ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "C:\Users\xingke\AppData\Roaming\uv\python\cpython-3.13.9-windows-x86_64-none\Lib\subprocess.py", line 1615, in _readerthread
+      buffer.append(fh.read())
+                    ~~~~~~~^^
+  UnicodeDecodeError: 'gbk' codec can't decode byte 0xb9 in position 31: illegal multibyte sequence
+
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+    warnings.warn(pytest.PytestUnhandledThreadExceptionWarning(msg))
+
+tests/test_grep_binary.py::test_binary_documents_are_skipped_and_reported
+  <project-root>\.venv\Lib\site-packages\_pytest\threadexception.py:58: PytestUnhandledThreadExceptionWarning: Exception in thread Thread-67 (_readerthread)
+
+  Traceback (most recent call last):
+    File "C:\Users\xingke\AppData\Roaming\uv\python\cpython-3.13.9-windows-x86_64-none\Lib\threading.py", line 1043, in _bootstrap_inner
+      self.run()
+      ~~~~~~~~^^
+    File "C:\Users\xingke\AppData\Roaming\uv\python\cpython-3.13.9-windows-x86_64-none\Lib\threading.py", line 994, in run
+      self._target(*self._args, **self._kwargs)
+      ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "C:\Users\xingke\AppData\Roaming\uv\python\cpython-3.13.9-windows-x86_64-none\Lib\subprocess.py", line 1615, in _readerthread
+      buffer.append(fh.read())
+                    ~~~~~~~^^
+  UnicodeDecodeError: 'gbk' codec can't decode byte 0xb9 in position 31: illegal multibyte sequence
+
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+    warnings.warn(pytest.PytestUnhandledThreadExceptionWarning(msg))
+
+tests/test_grep_binary.py::test_text_documents_are_not_flagged
+  <project-root>\.venv\Lib\site-packages\_pytest\threadexception.py:58: PytestUnhandledThreadExceptionWarning: Exception in thread Thread-77 (_readerthread)
+
+  Traceback (most recent call last):
+    File "C:\Users\xingke\AppData\Roaming\uv\python\cpython-3.13.9-windows-x86_64-none\Lib\threading.py", line 1043, in _bootstrap_inner
+      self.run()
+      ~~~~~~~~^^
+    File "C:\Users\xingke\AppData\Roaming\uv\python\cpython-3.13.9-windows-x86_64-none\Lib\threading.py", line 994, in run
+      self._target(*self._args, **self._kwargs)
+      ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "C:\Users\xingke\AppData\Roaming\uv\python\cpython-3.13.9-windows-x86_64-none\Lib\subprocess.py", line 1615, in _readerthread
+      buffer.append(fh.read())
+                    ~~~~~~~^^
+  UnicodeDecodeError: 'gbk' codec can't decode byte 0xb9 in position 31: illegal multibyte sequence
+
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+    warnings.warn(pytest.PytestUnhandledThreadExceptionWarning(msg))
+
+tests/test_grep_binary.py::test_text_documents_are_not_flagged
+  <project-root>\.venv\Lib\site-packages\_pytest\threadexception.py:58: PytestUnhandledThreadExceptionWarning: Exception in thread Thread-75 (_readerthread)
+
+  Traceback (most recent call last):
+    File "C:\Users\xingke\AppData\Roaming\uv\python\cpython-3.13.9-windows-x86_64-none\Lib\threading.py", line 1043, in _bootstrap_inner
+      self.run()
+      ~~~~~~~~^^
+    File "C:\Users\xingke\AppData\Roaming\uv\python\cpython-3.13.9-windows-x86_64-none\Lib\threading.py", line 994, in run
+      self._target(*self._args, **self._kwargs)
+      ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "C:\Users\xingke\AppData\Roaming\uv\python\cpython-3.13.9-windows-x86_64-none\Lib\subprocess.py", line 1615, in _readerthread
+      buffer.append(fh.read())
+                    ~~~~~~~^^
+  UnicodeDecodeError: 'gbk' codec can't decode byte 0xb9 in position 31: illegal multibyte sequence
+
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+    warnings.warn(pytest.PytestUnhandledThreadExceptionWarning(msg))
+
+tests/test_grep_binary.py::test_text_documents_are_not_flagged
+  <project-root>\.venv\Lib\site-packages\_pytest\threadexception.py:58: PytestUnhandledThreadExceptionWarning: Exception in thread Thread-73 (_readerthread)
+
+  Traceback (most recent call last):
+    File "C:\Users\xingke\AppData\Roaming\uv\python\cpython-3.13.9-windows-x86_64-none\Lib\threading.py", line 1043, in _bootstrap_inner
+      self.run()
+      ~~~~~~~~^^
+    File "C:\Users\xingke\AppData\Roaming\uv\python\cpython-3.13.9-windows-x86_64-none\Lib\threading.py", line 994, in run
+      self._target(*self._args, **self._kwargs)
+      ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    File "C:\Users\xingke\AppData\Roaming\uv\python\cpython-3.13.9-windows-x86_64-none\Lib\subprocess.py", line 1615, in _readerthread
+      buffer.append(fh.read())
+                    ~~~~~~~^^
+  UnicodeDecodeError: 'gbk' codec can't decode byte 0xb9 in position 31: illegal multibyte sequence
+
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+    warnings.warn(pytest.PytestUnhandledThreadExceptionWarning(msg))
+
+tests/test_mcp_event_loop.py::test_run_sync_after_close_raises
+  <project-root>\tests\test_mcp_event_loop.py:91: RuntimeWarning: coroutine 'test_run_sync_after_close_raises.<locals>.noop' was never awaited
+    with pytest.raises(RuntimeError, match="closed"):
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/test_repl.py::test_repl_sigint_tells_the_agent_to_stop
+  <project-root>\.venv\Lib\site-packages\_pytest\unraisableexception.py:67: PytestUnraisableExceptionWarning: Exception ignored when trying to send to the signal wakeup fd: None
+
+  Traceback (most recent call last):
+    File "C:\Users\xingke\AppData\Roaming\uv\python\cpython-3.13.9-windows-x86_64-none\Lib\threading.py", line 363, in wait
+      gotit = waiter.acquire(True, timeout)
+  KeyboardInterrupt
+
+  During handling of the above exception, another exception occurred:
+
+  Traceback (most recent call last):
+    File "C:\Users\xingke\AppData\Roaming\uv\python\cpython-3.13.9-windows-x86_64-none\Lib\threading.py", line 315, in _acquire_restore
+      def _acquire_restore(self, x):
+
+  OSError: [WinError 10038] ��һ�����׽����ϳ�����һ��������
+
+
+    warnings.warn(pytest.PytestUnraisableExceptionWarning(msg))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1633 passed, 9 warnings in 175.20s (0:02:55)

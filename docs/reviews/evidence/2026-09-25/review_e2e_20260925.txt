@@ -1,145 +1,145 @@
-
-Running 72 tests using 2 workers
-
-(node:38088) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
-(Use `node --trace-warnings ...` to show where the warning was created)
-(node:17364) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
-(Use `node --trace-warnings ...` to show where the warning was created)
-  ok  1 [desktop] › e2e\app.spec.ts:96:1 › the chapter outline opens from the toolbar, never from hovering the right edge (3.7s)
-  ok  2 [desktop] › e2e\app.spec.ts:42:1 › first upload creates a portable library before indexing the file (4.0s)
-  ok  3 [desktop] › e2e\app.spec.ts:147:1 › review reuses historical questions without regenerating them (2.5s)
-  ok  4 [desktop] › e2e\app.spec.ts:179:1 › background Wiki planning restores from its persisted run (2.4s)
-  ok  5 [desktop] › e2e\app.spec.ts:231:1 › cancelled Wiki session opens when the persisted run has no plan summary (2.4s)
-  ok  6 [desktop] › e2e\app.spec.ts:258:1 › staged Wiki plans explain the pause and offer a safe next step (2.8s)
-  ok  7 [desktop] › e2e\app.spec.ts:302:1 › confirmed web research keeps source selection explicit and traceable (3.1s)
-  ok  8 [desktop] › e2e\app.spec.ts:346:1 › slash palette exposes commands and local skills (3.7s)
-  ok 10 [desktop] › e2e\app.spec.ts:434:1 › chat question generation shows Bobodan process and opens prepared practice (3.6s)
-  ok  9 [desktop] › e2e\app.spec.ts:386:1 › chat answer becomes practice and returns to review (4.7s)
-  ok 11 [desktop] › e2e\app.spec.ts:472:1 › true-false practice uses explicit choices and submits a normalized answer (2.5s)
-  ok 12 [desktop] › e2e\app.spec.ts:508:1 › reduced motion preserves toggle state and Skills controls stay readable (2.7s)
-  ok 13 [desktop] › e2e\app.spec.ts:551:1 › practice asks before web fallback and keeps the topic (2.8s)
-  ok 14 [desktop] › e2e\interaction.spec.ts:97:1 › stopping a run keeps what was already produced (2.6s)
-  ok 16 [desktop] › e2e\interaction.spec.ts:174:1 › a skipped card says it was skipped instead of claiming an answer (2.0s)
-  ok 15 [desktop] › e2e\interaction.spec.ts:127:1 › answering the card resumes the turn without inventing a user bubble (2.6s)
-  ok 18 [desktop] › e2e\interaction.spec.ts:272:1 › a run summary names the material it could not locate (1.8s)
-  -  19 [desktop] › e2e\live.spec.ts:16:1 › the reader renders the original file for a real document
-  -  20 [desktop] › e2e\live.spec.ts:52:1 › a citation link lands on the cited chunk and offers the way back
-  -  21 [desktop] › e2e\live.spec.ts:75:1 › searching the library lands on the matched chunk
-  -  22 [desktop] › e2e\live.spec.ts:87:1 › the library folder sync button scans the folder and reports the result
-  -  23 [desktop] › e2e\live.spec.ts:106:1 › the library page shows the real folder tree
-  -  24 [desktop] › e2e\live.spec.ts:132:1 › the library page reads a material in place
-  ok 17 [desktop] › e2e\interaction.spec.ts:193:1 › every chat label sits at or above the reading floors (3.3s)
-  ok 25 [desktop] › e2e\question-bank.spec.ts:249:1 › past questions are browsable, filterable and re-practisable (2.4s)
-  ok 26 [desktop] › e2e\question-bank.spec.ts:280:1 › bookmarking a question goes through the API and flips the row (2.0s)
-  ok 27 [desktop] › e2e\question-bank.spec.ts:296:1 › difficulty and material filters narrow the bank and can be practised (2.8s)
-  ok 28 [desktop] › e2e\question-bank.spec.ts:325:1 › a bank question can be handed to chat with its stable id (2.6s)
-  ok 30 [desktop] › e2e\question-bank.spec.ts:370:1 › the bank rows are readable and the question follows the reading size (2.5s)
-  ok 29 [desktop] › e2e\question-bank.spec.ts:339:1 › a named practice set can be created from a filter and practised (3.0s)
-  ok 31 [desktop] › e2e\question-bank.spec.ts:418:1 › the practice page can search for existing questions instead of authoring them (1.8s)
-  ok 32 [desktop] › e2e\question-bank.spec.ts:441:1 › the bank exports Markdown and a backup file (2.1s)
-  ok 33 [desktop] › e2e\question-bank.spec.ts:466:1 › restoring a backup warns before replacing the bank (2.4s)
-  ok 35 [desktop] › e2e\smoke.spec.ts:36:1 › composer accepts input and slash palette opens (2.4s)
-  ok 36 [desktop] › e2e\smoke.spec.ts:45:1 › settings dialog opens from topbar and closes on Escape (2.4s)
-  ok 34 [desktop] › e2e\smoke.spec.ts:23:1 › app boots and primary routes render (7.7s)
-(node:6876) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
-(Use `node --trace-warnings ...` to show where the warning was created)
-(node:10160) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
-(Use `node --trace-warnings ...` to show where the warning was created)
-  ok 37 [narrow-desktop] › e2e\app.spec.ts:42:1 › first upload creates a portable library before indexing the file (2.8s)
-  ok 39 [narrow-desktop] › e2e\app.spec.ts:147:1 › review reuses historical questions without regenerating them (2.1s)
-  ok 40 [narrow-desktop] › e2e\app.spec.ts:179:1 › background Wiki planning restores from its persisted run (1.8s)
-  ok 41 [narrow-desktop] › e2e\app.spec.ts:231:1 › cancelled Wiki session opens when the persisted run has no plan summary (1.8s)
-  ok 42 [narrow-desktop] › e2e\app.spec.ts:258:1 › staged Wiki plans explain the pause and offer a safe next step (2.0s)
-  ok 43 [narrow-desktop] › e2e\app.spec.ts:302:1 › confirmed web research keeps source selection explicit and traceable (2.2s)
-  ok 44 [narrow-desktop] › e2e\app.spec.ts:346:1 › slash palette exposes commands and local skills (2.8s)
-  ok 45 [narrow-desktop] › e2e\app.spec.ts:386:1 › chat answer becomes practice and returns to review (2.9s)
-  ok 46 [narrow-desktop] › e2e\app.spec.ts:434:1 › chat question generation shows Bobodan process and opens prepared practice (2.0s)
-  ok 47 [narrow-desktop] › e2e\app.spec.ts:472:1 › true-false practice uses explicit choices and submits a normalized answer (1.6s)
-  ok 48 [narrow-desktop] › e2e\app.spec.ts:508:1 › reduced motion preserves toggle state and Skills controls stay readable (2.0s)
-  ok 49 [narrow-desktop] › e2e\app.spec.ts:551:1 › practice asks before web fallback and keeps the topic (1.7s)
-  ok 50 [narrow-desktop] › e2e\interaction.spec.ts:97:1 › stopping a run keeps what was already produced (1.6s)
-  ok 51 [narrow-desktop] › e2e\interaction.spec.ts:127:1 › answering the card resumes the turn without inventing a user bubble (2.6s)
-  ok 52 [narrow-desktop] › e2e\interaction.spec.ts:174:1 › a skipped card says it was skipped instead of claiming an answer (1.8s)
-  ok 53 [narrow-desktop] › e2e\interaction.spec.ts:193:1 › every chat label sits at or above the reading floors (2.9s)
-  ok 54 [narrow-desktop] › e2e\interaction.spec.ts:272:1 › a run summary names the material it could not locate (1.8s)
-  -  55 [narrow-desktop] › e2e\live.spec.ts:16:1 › the reader renders the original file for a real document
-  -  56 [narrow-desktop] › e2e\live.spec.ts:52:1 › a citation link lands on the cited chunk and offers the way back
-  -  57 [narrow-desktop] › e2e\live.spec.ts:75:1 › searching the library lands on the matched chunk
-  -  58 [narrow-desktop] › e2e\live.spec.ts:87:1 › the library folder sync button scans the folder and reports the result
-  -  59 [narrow-desktop] › e2e\live.spec.ts:106:1 › the library page shows the real folder tree
-  -  60 [narrow-desktop] › e2e\live.spec.ts:132:1 › the library page reads a material in place
-  ok 61 [narrow-desktop] › e2e\question-bank.spec.ts:249:1 › past questions are browsable, filterable and re-practisable (2.2s)
-  ok 62 [narrow-desktop] › e2e\question-bank.spec.ts:280:1 › bookmarking a question goes through the API and flips the row (1.9s)
-  ok 63 [narrow-desktop] › e2e\question-bank.spec.ts:296:1 › difficulty and material filters narrow the bank and can be practised (2.0s)
-  ok 64 [narrow-desktop] › e2e\question-bank.spec.ts:325:1 › a bank question can be handed to chat with its stable id (1.8s)
-  ok 65 [narrow-desktop] › e2e\question-bank.spec.ts:339:1 › a named practice set can be created from a filter and practised (2.0s)
-  ok 66 [narrow-desktop] › e2e\question-bank.spec.ts:370:1 › the bank rows are readable and the question follows the reading size (2.0s)
-  ok 67 [narrow-desktop] › e2e\question-bank.spec.ts:418:1 › the practice page can search for existing questions instead of authoring them (1.7s)
-  ok 68 [narrow-desktop] › e2e\question-bank.spec.ts:441:1 › the bank exports Markdown and a backup file (2.1s)
-  ok 69 [narrow-desktop] › e2e\question-bank.spec.ts:466:1 › restoring a backup warns before replacing the bank (2.1s)
-  ok 70 [narrow-desktop] › e2e\smoke.spec.ts:23:1 › app boots and primary routes render (6.0s)
-  ok 71 [narrow-desktop] › e2e\smoke.spec.ts:36:1 › composer accepts input and slash palette opens (1.3s)
-  x  38 [narrow-desktop] › e2e\app.spec.ts:96:1 › the chapter outline opens from the toolbar, never from hovering the right edge (30.5s)
-  ok 72 [narrow-desktop] › e2e\smoke.spec.ts:45:1 › settings dialog opens from topbar and closes on Escape (1.3s)
-
-
-  1) [narrow-desktop] › e2e\app.spec.ts:96:1 › the chapter outline opens from the toolbar, never from hovering the right edge 
-
-    Test timeout of 30000ms exceeded.
-
-    Error: locator.click: Test timeout of 30000ms exceeded.
-    Call log:
-      - waiting for getByRole('button', { name: '目录' })
-        - locator resolved to <button type="button" aria-expanded="false" title="章节目录（快捷键 ] 打开、[ 或 Esc 关闭）" class="quiet-button reader-toc-button">…</button>
-      - attempting click action
-        2 × waiting for element to be visible, enabled and stable
-          - element is visible, enabled and stable
-          - scrolling into view if needed
-          - done scrolling
-          - <section class="context-section">…</section> from <aside aria-label="学习上下文" class="context-panel ">…</aside> subtree intercepts pointer events
-        - retrying click action
-        - waiting 20ms
-        2 × waiting for element to be visible, enabled and stable
-          - element is visible, enabled and stable
-          - scrolling into view if needed
-          - done scrolling
-          - <section class="context-section">…</section> from <aside aria-label="学习上下文" class="context-panel ">…</aside> subtree intercepts pointer events
-        - retrying click action
-          - waiting 100ms
-        52 × waiting for element to be visible, enabled and stable
-           - element is visible, enabled and stable
-           - scrolling into view if needed
-           - done scrolling
-           - <section class="context-section">…</section> from <aside aria-label="学习上下文" class="context-panel ">…</aside> subtree intercepts pointer events
-         - retrying click action
-           - waiting 500ms
-        - waiting for element to be visible, enabled and stable
-
-
-      129 |
-      130 |   // 工具条「目录」按钮能打开，X 能关；] 再开、Esc 关。
-    > 131 |   await page.getByRole("button", { name: "目录" }).click();
-          |                                                  ^
-      132 |   await expect(page.locator(".chapter-rail")).toBeVisible();
-      133 |   await expect(page.getByRole("button", { name: "第一节 概念" })).toBeVisible();
-      134 |   await page.getByRole("button", { name: "关闭目录" }).click();
-        at <project-root>\web\frontend\e2e\app.spec.ts:131:50
-
-    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
-    test-results\app-the-chapter-outline-op-d0be3-rom-hovering-the-right-edge-narrow-desktop\test-failed-1.png
-    ────────────────────────────────────────────────────────────────────────────────────────────────
-
-    Error Context: test-results\app-the-chapter-outline-op-d0be3-rom-hovering-the-right-edge-narrow-desktop\error-context.md
-
-    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
-    test-results\app-the-chapter-outline-op-d0be3-rom-hovering-the-right-edge-narrow-desktop\trace.zip
-    Usage:
-
-        npx playwright show-trace test-results\app-the-chapter-outline-op-d0be3-rom-hovering-the-right-edge-narrow-desktop\trace.zip
-
-    ────────────────────────────────────────────────────────────────────────────────────────────────
-
-  1 failed
-    [narrow-desktop] › e2e\app.spec.ts:96:1 › the chapter outline opens from the toolbar, never from hovering the right edge 
-  12 skipped
-  59 passed (2.4m)
+
+Running 72 tests using 2 workers
+
+(node:38088) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:17364) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok  1 [desktop] › e2e\app.spec.ts:96:1 › the chapter outline opens from the toolbar, never from hovering the right edge (3.7s)
+  ok  2 [desktop] › e2e\app.spec.ts:42:1 › first upload creates a portable library before indexing the file (4.0s)
+  ok  3 [desktop] › e2e\app.spec.ts:147:1 › review reuses historical questions without regenerating them (2.5s)
+  ok  4 [desktop] › e2e\app.spec.ts:179:1 › background Wiki planning restores from its persisted run (2.4s)
+  ok  5 [desktop] › e2e\app.spec.ts:231:1 › cancelled Wiki session opens when the persisted run has no plan summary (2.4s)
+  ok  6 [desktop] › e2e\app.spec.ts:258:1 › staged Wiki plans explain the pause and offer a safe next step (2.8s)
+  ok  7 [desktop] › e2e\app.spec.ts:302:1 › confirmed web research keeps source selection explicit and traceable (3.1s)
+  ok  8 [desktop] › e2e\app.spec.ts:346:1 › slash palette exposes commands and local skills (3.7s)
+  ok 10 [desktop] › e2e\app.spec.ts:434:1 › chat question generation shows Bobodan process and opens prepared practice (3.6s)
+  ok  9 [desktop] › e2e\app.spec.ts:386:1 › chat answer becomes practice and returns to review (4.7s)
+  ok 11 [desktop] › e2e\app.spec.ts:472:1 › true-false practice uses explicit choices and submits a normalized answer (2.5s)
+  ok 12 [desktop] › e2e\app.spec.ts:508:1 › reduced motion preserves toggle state and Skills controls stay readable (2.7s)
+  ok 13 [desktop] › e2e\app.spec.ts:551:1 › practice asks before web fallback and keeps the topic (2.8s)
+  ok 14 [desktop] › e2e\interaction.spec.ts:97:1 › stopping a run keeps what was already produced (2.6s)
+  ok 16 [desktop] › e2e\interaction.spec.ts:174:1 › a skipped card says it was skipped instead of claiming an answer (2.0s)
+  ok 15 [desktop] › e2e\interaction.spec.ts:127:1 › answering the card resumes the turn without inventing a user bubble (2.6s)
+  ok 18 [desktop] › e2e\interaction.spec.ts:272:1 › a run summary names the material it could not locate (1.8s)
+  -  19 [desktop] › e2e\live.spec.ts:16:1 › the reader renders the original file for a real document
+  -  20 [desktop] › e2e\live.spec.ts:52:1 › a citation link lands on the cited chunk and offers the way back
+  -  21 [desktop] › e2e\live.spec.ts:75:1 › searching the library lands on the matched chunk
+  -  22 [desktop] › e2e\live.spec.ts:87:1 › the library folder sync button scans the folder and reports the result
+  -  23 [desktop] › e2e\live.spec.ts:106:1 › the library page shows the real folder tree
+  -  24 [desktop] › e2e\live.spec.ts:132:1 › the library page reads a material in place
+  ok 17 [desktop] › e2e\interaction.spec.ts:193:1 › every chat label sits at or above the reading floors (3.3s)
+  ok 25 [desktop] › e2e\question-bank.spec.ts:249:1 › past questions are browsable, filterable and re-practisable (2.4s)
+  ok 26 [desktop] › e2e\question-bank.spec.ts:280:1 › bookmarking a question goes through the API and flips the row (2.0s)
+  ok 27 [desktop] › e2e\question-bank.spec.ts:296:1 › difficulty and material filters narrow the bank and can be practised (2.8s)
+  ok 28 [desktop] › e2e\question-bank.spec.ts:325:1 › a bank question can be handed to chat with its stable id (2.6s)
+  ok 30 [desktop] › e2e\question-bank.spec.ts:370:1 › the bank rows are readable and the question follows the reading size (2.5s)
+  ok 29 [desktop] › e2e\question-bank.spec.ts:339:1 › a named practice set can be created from a filter and practised (3.0s)
+  ok 31 [desktop] › e2e\question-bank.spec.ts:418:1 › the practice page can search for existing questions instead of authoring them (1.8s)
+  ok 32 [desktop] › e2e\question-bank.spec.ts:441:1 › the bank exports Markdown and a backup file (2.1s)
+  ok 33 [desktop] › e2e\question-bank.spec.ts:466:1 › restoring a backup warns before replacing the bank (2.4s)
+  ok 35 [desktop] › e2e\smoke.spec.ts:36:1 › composer accepts input and slash palette opens (2.4s)
+  ok 36 [desktop] › e2e\smoke.spec.ts:45:1 › settings dialog opens from topbar and closes on Escape (2.4s)
+  ok 34 [desktop] › e2e\smoke.spec.ts:23:1 › app boots and primary routes render (7.7s)
+(node:6876) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:10160) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok 37 [narrow-desktop] › e2e\app.spec.ts:42:1 › first upload creates a portable library before indexing the file (2.8s)
+  ok 39 [narrow-desktop] › e2e\app.spec.ts:147:1 › review reuses historical questions without regenerating them (2.1s)
+  ok 40 [narrow-desktop] › e2e\app.spec.ts:179:1 › background Wiki planning restores from its persisted run (1.8s)
+  ok 41 [narrow-desktop] › e2e\app.spec.ts:231:1 › cancelled Wiki session opens when the persisted run has no plan summary (1.8s)
+  ok 42 [narrow-desktop] › e2e\app.spec.ts:258:1 › staged Wiki plans explain the pause and offer a safe next step (2.0s)
+  ok 43 [narrow-desktop] › e2e\app.spec.ts:302:1 › confirmed web research keeps source selection explicit and traceable (2.2s)
+  ok 44 [narrow-desktop] › e2e\app.spec.ts:346:1 › slash palette exposes commands and local skills (2.8s)
+  ok 45 [narrow-desktop] › e2e\app.spec.ts:386:1 › chat answer becomes practice and returns to review (2.9s)
+  ok 46 [narrow-desktop] › e2e\app.spec.ts:434:1 › chat question generation shows Bobodan process and opens prepared practice (2.0s)
+  ok 47 [narrow-desktop] › e2e\app.spec.ts:472:1 › true-false practice uses explicit choices and submits a normalized answer (1.6s)
+  ok 48 [narrow-desktop] › e2e\app.spec.ts:508:1 › reduced motion preserves toggle state and Skills controls stay readable (2.0s)
+  ok 49 [narrow-desktop] › e2e\app.spec.ts:551:1 › practice asks before web fallback and keeps the topic (1.7s)
+  ok 50 [narrow-desktop] › e2e\interaction.spec.ts:97:1 › stopping a run keeps what was already produced (1.6s)
+  ok 51 [narrow-desktop] › e2e\interaction.spec.ts:127:1 › answering the card resumes the turn without inventing a user bubble (2.6s)
+  ok 52 [narrow-desktop] › e2e\interaction.spec.ts:174:1 › a skipped card says it was skipped instead of claiming an answer (1.8s)
+  ok 53 [narrow-desktop] › e2e\interaction.spec.ts:193:1 › every chat label sits at or above the reading floors (2.9s)
+  ok 54 [narrow-desktop] › e2e\interaction.spec.ts:272:1 › a run summary names the material it could not locate (1.8s)
+  -  55 [narrow-desktop] › e2e\live.spec.ts:16:1 › the reader renders the original file for a real document
+  -  56 [narrow-desktop] › e2e\live.spec.ts:52:1 › a citation link lands on the cited chunk and offers the way back
+  -  57 [narrow-desktop] › e2e\live.spec.ts:75:1 › searching the library lands on the matched chunk
+  -  58 [narrow-desktop] › e2e\live.spec.ts:87:1 › the library folder sync button scans the folder and reports the result
+  -  59 [narrow-desktop] › e2e\live.spec.ts:106:1 › the library page shows the real folder tree
+  -  60 [narrow-desktop] › e2e\live.spec.ts:132:1 › the library page reads a material in place
+  ok 61 [narrow-desktop] › e2e\question-bank.spec.ts:249:1 › past questions are browsable, filterable and re-practisable (2.2s)
+  ok 62 [narrow-desktop] › e2e\question-bank.spec.ts:280:1 › bookmarking a question goes through the API and flips the row (1.9s)
+  ok 63 [narrow-desktop] › e2e\question-bank.spec.ts:296:1 › difficulty and material filters narrow the bank and can be practised (2.0s)
+  ok 64 [narrow-desktop] › e2e\question-bank.spec.ts:325:1 › a bank question can be handed to chat with its stable id (1.8s)
+  ok 65 [narrow-desktop] › e2e\question-bank.spec.ts:339:1 › a named practice set can be created from a filter and practised (2.0s)
+  ok 66 [narrow-desktop] › e2e\question-bank.spec.ts:370:1 › the bank rows are readable and the question follows the reading size (2.0s)
+  ok 67 [narrow-desktop] › e2e\question-bank.spec.ts:418:1 › the practice page can search for existing questions instead of authoring them (1.7s)
+  ok 68 [narrow-desktop] › e2e\question-bank.spec.ts:441:1 › the bank exports Markdown and a backup file (2.1s)
+  ok 69 [narrow-desktop] › e2e\question-bank.spec.ts:466:1 › restoring a backup warns before replacing the bank (2.1s)
+  ok 70 [narrow-desktop] › e2e\smoke.spec.ts:23:1 › app boots and primary routes render (6.0s)
+  ok 71 [narrow-desktop] › e2e\smoke.spec.ts:36:1 › composer accepts input and slash palette opens (1.3s)
+  x  38 [narrow-desktop] › e2e\app.spec.ts:96:1 › the chapter outline opens from the toolbar, never from hovering the right edge (30.5s)
+  ok 72 [narrow-desktop] › e2e\smoke.spec.ts:45:1 › settings dialog opens from topbar and closes on Escape (1.3s)
+
+
+  1) [narrow-desktop] › e2e\app.spec.ts:96:1 › the chapter outline opens from the toolbar, never from hovering the right edge
+
+    Test timeout of 30000ms exceeded.
+
+    Error: locator.click: Test timeout of 30000ms exceeded.
+    Call log:
+      - waiting for getByRole('button', { name: '目录' })
+        - locator resolved to <button type="button" aria-expanded="false" title="章节目录（快捷键 ] 打开、[ 或 Esc 关闭）" class="quiet-button reader-toc-button">…</button>
+      - attempting click action
+        2 × waiting for element to be visible, enabled and stable
+          - element is visible, enabled and stable
+          - scrolling into view if needed
+          - done scrolling
+          - <section class="context-section">…</section> from <aside aria-label="学习上下文" class="context-panel ">…</aside> subtree intercepts pointer events
+        - retrying click action
+        - waiting 20ms
+        2 × waiting for element to be visible, enabled and stable
+          - element is visible, enabled and stable
+          - scrolling into view if needed
+          - done scrolling
+          - <section class="context-section">…</section> from <aside aria-label="学习上下文" class="context-panel ">…</aside> subtree intercepts pointer events
+        - retrying click action
+          - waiting 100ms
+        52 × waiting for element to be visible, enabled and stable
+           - element is visible, enabled and stable
+           - scrolling into view if needed
+           - done scrolling
+           - <section class="context-section">…</section> from <aside aria-label="学习上下文" class="context-panel ">…</aside> subtree intercepts pointer events
+         - retrying click action
+           - waiting 500ms
+        - waiting for element to be visible, enabled and stable
+
+
+      129 |
+      130 |   // 工具条「目录」按钮能打开，X 能关；] 再开、Esc 关。
+    > 131 |   await page.getByRole("button", { name: "目录" }).click();
+          |                                                  ^
+      132 |   await expect(page.locator(".chapter-rail")).toBeVisible();
+      133 |   await expect(page.getByRole("button", { name: "第一节 概念" })).toBeVisible();
+      134 |   await page.getByRole("button", { name: "关闭目录" }).click();
+        at <project-root>\web\frontend\e2e\app.spec.ts:131:50
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results\app-the-chapter-outline-op-d0be3-rom-hovering-the-right-edge-narrow-desktop\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results\app-the-chapter-outline-op-d0be3-rom-hovering-the-right-edge-narrow-desktop\error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results\app-the-chapter-outline-op-d0be3-rom-hovering-the-right-edge-narrow-desktop\trace.zip
+    Usage:
+
+        npx playwright show-trace test-results\app-the-chapter-outline-op-d0be3-rom-hovering-the-right-edge-narrow-desktop\trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    [narrow-desktop] › e2e\app.spec.ts:96:1 › the chapter outline opens from the toolbar, never from hovering the right edge
+  12 skipped
+  59 passed (2.4m)
