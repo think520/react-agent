@@ -1,5 +1,5 @@
 import { readerLocation } from "../lib/documentLinks";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { BookOpen, Check, Eye, Pencil, Pin, Plus, Search, Trash2, X } from "lucide-react";
 import { useOutletContext } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
@@ -22,6 +22,25 @@ interface NoteDraft {
 }
 
 const emptyDraft: NoteDraft = { id: "", revision: 0, scope: "library", markdown: "", pinned: false, references: [] };
+const NOTE_DRAFT_PREFIX = "bobodan:note-draft:";
+const MAX_NOTE_CONTENT_LENGTH = 5000;
+
+function noteDraftKey(libraryId?: string): string {
+  return NOTE_DRAFT_PREFIX + (libraryId || "global");
+}
+
+function readSavedDraft(key: string): NoteDraft | null {
+  try {
+    const value = localStorage.getItem(key);
+    return value ? JSON.parse(value) as NoteDraft : null;
+  } catch {
+    return null;
+  }
+}
+
+function hasDraftContent(draft: NoteDraft): boolean {
+  return Boolean(draft.markdown.trim() || draft.references.length || draft.pinned);
+}
 
 /** 笔记以 Markdown 正文为主角；第一行 `# 标题` 自动提取为标题。 */
 function toMarkdown(item: PersonalKnowledgeItem): string {
@@ -41,9 +60,11 @@ function parseMarkdown(markdown: string): { title: string; content: string } {
 /** P5G.5 体验整改：个人笔记一级入口，沉浸式 Markdown 编辑（非填表）。 */
 export function NotesPage() {
   const { documents, activeLibrary, settings } = useOutletContext<AppOutletContext>();
+  const draftStorageKey = noteDraftKey(activeLibrary?.library_id);
   const [notes, setNotes] = useState<PersonalKnowledgeItem[]>([]);
   const [query, setQuery] = useState("");
-  const [draft, setDraft] = useState<NoteDraft | null>(null);
+  const [draft, setDraft] = useState<NoteDraft | null>(() => readSavedDraft(draftStorageKey));
+  const latestDraftRef = useRef<NoteDraft | null>(draft);
   const [preview, setPreview] = useState(false);
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState(false);
@@ -67,15 +88,38 @@ export function NotesPage() {
 
   useEffect(() => { void loadNotes(); }, []);
 
+  useEffect(() => {
+    const saved = readSavedDraft(draftStorageKey);
+    latestDraftRef.current = saved;
+    setDraft(saved);
+  }, [draftStorageKey]);
+
+  useEffect(() => {
+    latestDraftRef.current = draft;
+    if (!draft || !hasDraftContent(draft)) return;
+    const timer = window.setTimeout(() => {
+      localStorage.setItem(draftStorageKey, JSON.stringify(draft));
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [draft, draftStorageKey]);
+
+  useEffect(() => () => {
+    const current = latestDraftRef.current;
+    if (current && hasDraftContent(current)) {
+      localStorage.setItem(draftStorageKey, JSON.stringify(current));
+    }
+  }, [draftStorageKey]);
+
   const filtered = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
     return needle ? notes.filter((item) => `${item.title} ${item.content}`.toLocaleLowerCase().includes(needle)) : notes;
   }, [notes, query]);
 
   const draftTitle = useMemo(() => (draft ? parseMarkdown(draft.markdown).title : ""), [draft]);
+  const draftContentLength = useMemo(() => (draft ? parseMarkdown(draft.markdown).content.length : 0), [draft]);
 
   function startNew() {
-    setDraft({ ...emptyDraft, scope: activeLibrary ? "library" : "global" });
+    setDraft(readSavedDraft(draftStorageKey) || { ...emptyDraft, scope: activeLibrary ? "library" : "global" });
     setPreview(false);
     setError("");
     setNotice("");
@@ -96,6 +140,12 @@ export function NotesPage() {
   }
 
   function closeEditor() {
+    if (draft && hasDraftContent(draft)) {
+      localStorage.setItem(draftStorageKey, JSON.stringify(draft));
+      setNotice("草稿已保留，点“写笔记”可以继续。");
+    } else {
+      localStorage.removeItem(draftStorageKey);
+    }
     setDraft(null);
     setPreview(false);
     setError("");
@@ -121,6 +171,7 @@ export function NotesPage() {
     if (!draft) return;
     const { title, content } = parseMarkdown(draft.markdown);
     if (!title.trim() || !content.trim()) { setError("先写下笔记正文，再保存。"); return; }
+    if (content.length > MAX_NOTE_CONTENT_LENGTH) { setError("笔记正文最多 " + MAX_NOTE_CONTENT_LENGTH + " 字，请精简后再保存。"); return; }
     setWorking(true);
     setError("");
     setNotice("");
@@ -142,6 +193,8 @@ export function NotesPage() {
           references: draft.references,
         });
       }
+      localStorage.removeItem(draftStorageKey);
+      latestDraftRef.current = null;
       setDraft(null);
       setPreview(false);
       setNotice("笔记已保存。");
@@ -183,7 +236,7 @@ export function NotesPage() {
           <p>你自己的思考、结论和摘录。引用资料后，阅读原文时也能看到这些笔记。</p>
         </div>
         <div className="notes-header-actions">
-          <label className="notes-search"><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索笔记" /></label>
+          <label className="notes-search"><Search size={14} /><input aria-label="搜索笔记" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索笔记" /></label>
           <button className="quiet-button" onClick={() => setManagerOpen(true)}>管理全部</button>
           <button className="primary-button" onClick={startNew}><Plus size={15} />写笔记</button>
         </div>
@@ -207,7 +260,7 @@ export function NotesPage() {
           {preview ? (
             <article className="note-preview reader-prose"><ReactMarkdown remarkPlugins={[remarkGfm]}>{draft.markdown || "*还没有内容。*"}</ReactMarkdown></article>
           ) : (
-            <textarea className="note-body" autoFocus value={draft.markdown} disabled={working} onKeyDown={handleEditorKeyDown} placeholder={"# 标题\n\n写下你的想法、结论或摘录…（支持 Markdown）"} onChange={(event) => setDraft({ ...draft, markdown: event.target.value })} />
+            <textarea aria-label="笔记正文" className="note-body" autoFocus value={draft.markdown} disabled={working} onKeyDown={handleEditorKeyDown} placeholder={"# 标题\n\n写下你的想法、结论或摘录…（支持 Markdown）"} onChange={(event) => setDraft({ ...draft, markdown: event.target.value })} />
           )}
           <footer className="note-editor-footer">
             {documents.length > 0 && (
@@ -220,8 +273,8 @@ export function NotesPage() {
                 </div>
               </details>
             )}
-            <span className="note-editor-hint">Ctrl+Enter 保存 · Esc 关闭</span>
-            <button className="primary-button" disabled={working} onClick={() => void saveNote()}><Check size={15} />保存笔记</button>
+            <span className={"note-editor-hint " + (draftContentLength > MAX_NOTE_CONTENT_LENGTH ? "over-limit" : "")}>草稿自动保留 · {draftContentLength}/{MAX_NOTE_CONTENT_LENGTH} · Ctrl+Enter 保存 · Esc 关闭</span>
+            <button className="primary-button" disabled={working || draftContentLength > MAX_NOTE_CONTENT_LENGTH} onClick={() => void saveNote()}><Check size={15} />保存笔记</button>
           </footer>
         </section>
       )}

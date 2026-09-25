@@ -2049,7 +2049,7 @@ def test_review_queue_contract(backend_client, monkeypatch):
 def test_library_import_strips_internal_paths(backend_client, monkeypatch):
     monkeypatch.setattr(
         "web.backend.routers.kb.KBService.import_files",
-        lambda self, files, config: {
+        lambda self, files, config, duplicate_strategy="keep_existing": {
             "ok": True,
             "imported": [files[0][0]],
             "rejected": [],
@@ -2131,7 +2131,7 @@ def test_personal_knowledge_api_is_library_scoped(backend_client, tmp_path):
     assert updated.json()["item"]["content"] == "先检索，再核实原文"
 
 
-def test_disabling_memory_blocks_knowledge_writes_but_keeps_learning_events(backend_client, tmp_path):
+def test_disabling_memory_allows_manual_notes_but_blocks_automatic_consolidation(backend_client, tmp_path):
     library, _ = create_test_library(backend_client, tmp_path, "DisabledMemory")
     headers = {"X-Bobodan-Library-ID": library["library_id"]}
     preferences = backend_client.get("/api/settings").json()["preferences"]
@@ -2141,10 +2141,13 @@ def test_disabling_memory_blocks_knowledge_writes_but_keeps_learning_events(back
     })
     assert disabled.status_code == 200
 
-    blocked = backend_client.post("/api/memory/knowledge", headers=headers, json={
-        "scope": "library", "kind": "course_insight", "title": "不应保存",
-        "content": "记忆关闭后不能写入长期知识",
+    created = backend_client.post("/api/memory/knowledge", headers=headers, json={
+        "scope": "library", "kind": "course_insight", "title": "手写笔记",
+        "content": "关闭自动记忆后仍可主动保存",
     })
+    assert created.status_code == 200
+
+    blocked = backend_client.post("/api/memory/consolidate", headers=headers, json={})
     assert blocked.status_code == 409
     assert blocked.json()["error"]["code"] == "memory_disabled"
 

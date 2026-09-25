@@ -826,16 +826,44 @@ def test_import_files_uses_managed_sources_and_preserves_registered_roots(
     monkeypatch.setattr(svc, "_sync_registered_sources", fake_sync)
     result = svc.import_files([
         ("../lesson.md", b"# Lesson"),
+        ("notes.txt", b"plain text notes"),
         ("malware.exe", b"no"),
     ])
 
     assert result["ok"]
-    assert result["imported"] == ["lesson.md"]
+    assert result["imported"] == ["lesson.md", "notes.txt"]
     assert result["rejected"][0]["reason"] == "unsupported_file_type"
     assert os.path.exists(os.path.join(svc.managed_sources_dir, "lesson.md"))
+    assert os.path.exists(os.path.join(svc.managed_sources_dir, "notes.txt"))
     _, roots = captured["roots"]
     assert os.path.abspath(course) in roots
     assert os.path.abspath(svc.managed_sources_dir) in roots
+
+
+def test_import_files_keeps_identical_content_without_creating_a_second_document(
+    svc, workspace, monkeypatch
+):
+    os.makedirs(svc.managed_sources_dir, exist_ok=True)
+    existing = os.path.join(svc.managed_sources_dir, "lesson.md")
+    with open(existing, "wb") as handle:
+        handle.write(b"# Same lesson")
+
+    monkeypatch.setattr(
+        svc,
+        "_sync_registered_sources",
+        lambda mode, config: (_ for _ in ()).throw(AssertionError("duplicate-only import must not sync")),
+    )
+
+    result = svc.import_files([("lesson-copy.md", b"# Same lesson")])
+
+    assert result["ok"]
+    assert result["imported"] == []
+    assert result["duplicates"] == [{
+        "filename": "lesson-copy.md",
+        "existing": "lesson.md",
+        "reason": "identical_content",
+    }]
+    assert not os.path.exists(os.path.join(svc.managed_sources_dir, "lesson-copy.md"))
 
 
 def test_portable_library_upload_uses_raw_inbox_without_creating_wiki_pages(tmp_path, monkeypatch):

@@ -24,6 +24,15 @@ function questionIds(record: Record<string, unknown>): number[] {
   return typeof record.question_id === "number" ? [record.question_id] : [];
 }
 
+function nextReviewText(queue: ReviewQueue | null): string {
+  const next = queue?.next_review;
+  if (!next?.next_review) return "";
+  const date = new Date(next.next_review);
+  if (Number.isNaN(date.getTime())) return "";
+  const when = date.toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  return "下一次复习：" + when + " · " + next.concept;
+}
+
 export function ReviewPage() {
   const navigate = useNavigate();
   const [queue, setQueue] = useState<ReviewQueue | null>(null);
@@ -55,6 +64,7 @@ export function ReviewPage() {
       ...queue.weaknesses.map((record, index) => ({ id: `weak-${index}`, kind: "薄弱点" as const, title: textValue(record, ["concept", "name", "title"], "尚未掌握的知识点"), meta: textValue(record, ["reason", "status"], "建议进行针对性练习"), questionIds: questionIds(record) })),
     ];
   }, [queue]);
+  const nextReview = nextReviewText(queue);
 
   async function startReview(item: ReviewItem) {
     setWorkingId(item.id);
@@ -89,6 +99,7 @@ export function ReviewPage() {
             <div><strong>{queue?.wrong_total ?? queue?.wrong_answers.length ?? 0}</strong><span>需要回看的错题</span></div>
             <div><strong>{queue?.weaknesses.length || 0}</strong><span>当前薄弱点</span></div>
           </div>
+          <p className="review-logic-note">错题表示最近一次未答对的题；薄弱点来自更长期的表现汇总，答对一道题后不会立即把知识点从薄弱点中删除。</p>
           <div className="review-list">{items.map((item, index) => (
             <article className="review-row" key={item.id}>
               <span className="review-index">{String(index + 1).padStart(2, "0")}</span>
@@ -103,7 +114,7 @@ export function ReviewPage() {
               <button className="text-link" type="button" onClick={() => navigate("/practice/bank")}>在题库中查看全部</button>
             </p>
           )}
-        </> : <EmptyState state="resting" title="今天没有到期内容" description="可以开始一轮新练习，或回到资料库继续阅读。" action={<button className="primary-button" onClick={() => navigate("/practice")}><BookOpenCheck size={17} />开始练习</button>} />}
+        </> : <EmptyState state="resting" title="今天没有到期内容" description={nextReview || "可以开始一轮新练习，或回到资料库继续阅读。"} action={<button className="primary-button" onClick={() => navigate("/practice")}><BookOpenCheck size={17} />开始练习</button>} />}
         <section className="review-note"><Target size={20} /><div><strong>复习不是重新读一遍</strong><p>Bobodan 会优先让你主动回忆，再用解释和资料定位补齐缺口。</p></div><CheckCircle2 size={18} /></section>
       </div>
     </section>

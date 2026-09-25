@@ -8,6 +8,7 @@ import { api, streamChat } from "../lib/api";
 import { prefersReducedMotion } from "../lib/motion";
 import { StreamBuffer } from "../lib/streamBuffer";
 import { toErrorMessage } from "../lib/errors";
+import { distinctExplanation } from "../lib/practiceFeedback";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useHandoffStore } from "../stores/handoffStore";
@@ -83,6 +84,7 @@ export function PracticePage() {
   const [aiOpen, setAiOpen] = useState(false);
   const [aiQuestion, setAiQuestion] = useState("给我一个不直接揭示答案的提示。");
   const [aiAnswer, setAiAnswer] = useState("");
+  const aiSessionByQuestionRef = useRef<Record<number, string>>({});
   // 问 AI answers stream through the same 30fps typewriter buffer as Chat so
   // SSE bursts don't appear as raw block dumps.
   const aiBufferRef = useRef<StreamBuffer | null>(null);
@@ -118,6 +120,7 @@ export function PracticePage() {
     setAiOpen(false);
     setAiAnswer("");
     setAiError("");
+    aiSessionByQuestionRef.current = {};
     setWebConsent(null);
     if (id) {
       try { setResolution(JSON.parse(sessionStorage.getItem(`bobodan:practice-resolution:${id}`) || "null")); }
@@ -196,6 +199,10 @@ export function PracticePage() {
     if (!id) return;
     setAnswer("");
     setResult(null);
+    setAiOpen(false);
+    setAiAnswer("");
+    setAiError("");
+    setAiStatus("");
     await loadSession(id);
   }
 
@@ -213,7 +220,8 @@ export function PracticePage() {
     aiBufferRef.current?.reset();
     setAiError("");
     setAiStatus("正在理解这道题");
-    let nextSessionId: string | undefined;
+    const previousSessionId = aiSessionByQuestionRef.current[currentQuestion.id];
+    let nextSessionId = previousSessionId;
     try {
       const profile = useUiStore.getState().learningProfile;
       const prompt = [
@@ -222,8 +230,11 @@ export function PracticePage() {
         `我的问题：${aiQuestion.trim()}`,
         "请只围绕当前题目给出分步提示或指出思考方向，不要直接替我完成答案。",
       ].join("\n\n");
-      await streamChat(prompt, undefined, selectedDocumentIds, profile, (streamEvent) => {
-        if (streamEvent.event === "run_started") nextSessionId = streamEvent.data.chat_session_id;
+      await streamChat(prompt, previousSessionId, selectedDocumentIds, profile, (streamEvent) => {
+        if (streamEvent.event === "run_started") {
+          nextSessionId = streamEvent.data.chat_session_id;
+          aiSessionByQuestionRef.current[currentQuestion.id] = nextSessionId;
+        }
         if (streamEvent.event === "status") setAiStatus(streamEvent.data.message);
         if (streamEvent.event === "message_delta") {
           setAiStatus("正在整理提示");
@@ -233,7 +244,7 @@ export function PracticePage() {
         if (streamEvent.event === "run_completed") { ensureAiBuffer().drain(); setAiStatus(""); }
       });
       await refreshSessions();
-      if (nextSessionId) void api.generateSessionTitle(nextSessionId).then(refreshSessions).catch(() => undefined);
+      if (!previousSessionId && nextSessionId) void api.generateSessionTitle(nextSessionId).then(refreshSessions).catch(() => undefined);
     } catch (reason) {
       setAiError(toErrorMessage(reason, "暂时无法获得提示，请稍后重试。"));
       setAiStatus("");
@@ -319,6 +330,7 @@ export function PracticePage() {
         marker: String.fromCharCode(65 + index),
         label: option,
       }));
+  const visibleExplanation = result ? distinctExplanation(result.feedback, result.explanation) : "";
   return (
     <section className="page-scroll practice-page">
       {confirmElement}
@@ -333,7 +345,7 @@ export function PracticePage() {
           ))}</div> : <textarea className="short-answer" rows={6} value={answer} disabled={Boolean(result)} onChange={(event) => setAnswer(event.target.value)} placeholder="用自己的话写下答案。可以不完整，Bobodan 会指出缺少的部分。" />}
           <AttributionBadges attribution={currentQuestion.attribution} />
           {error && <ErrorNotice message={error} />}
-          {result && <div className={`answer-feedback ${result.verdict === "partial" ? "partial" : result.is_correct ? "correct" : "review"}`}><div>{result.verdict === "partial" || result.is_correct ? <img className="brand-expression" src="/assets/brand/expressions/bobodan-expression-content.webp" width="42" height="42" alt="" /> : <CheckCircle2 size={19} />}<strong>{verdictLabel(result)}</strong></div><p>{result.feedback}</p>{result.explanation && <p>{result.explanation}</p>}{result.verdict !== "correct" && result.correct_answer && <small>参考答案：{result.correct_answer}</small>}{result.mastery_changes?.length ? <div className="mastery-changes">{result.mastery_changes.map((change, index) => change.concept ? <small key={index}>知识点「{change.concept}」：{masteryStatusText(change.status)}</small> : null)}</div> : null}</div>}
+          {result && <div className={`answer-feedback ${result.verdict === "partial" ? "partial" : result.is_correct ? "correct" : "review"}`}><div>{result.verdict === "partial" || result.is_correct ? <img className="brand-expression" src="/assets/brand/expressions/bobodan-expression-content.webp" width="42" height="42" alt="" /> : <CheckCircle2 size={19} />}<strong>{verdictLabel(result)}</strong></div><p>{result.feedback}</p>{visibleExplanation && <p>{visibleExplanation}</p>}{result.verdict !== "correct" && result.correct_answer && <small>参考答案：{result.correct_answer}</small>}{result.mastery_changes?.length ? <div className="mastery-changes">{result.mastery_changes.map((change, index) => change.concept ? <small key={index}>知识点「{change.concept}」：{masteryStatusText(change.status)}</small> : null)}</div> : null}</div>}
           <footer className="practice-actions">
             <button type="button" className="quiet-button" onClick={() => setAiOpen(true)}><CircleHelp size={16} />问 AI</button>
             {result ? <button type="button" className="primary-button" onClick={() => void nextQuestion()}>{result.session_completed ? "查看小结" : "下一题"}<ArrowRight size={16} /></button>

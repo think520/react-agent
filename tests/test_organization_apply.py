@@ -79,3 +79,50 @@ def test_undo_puts_everything_back(library, monkeypatch):
     documents = service.list_documents(collection="all")["documents"]
     restored = next((item for item in documents if item["document_id"] == document_id), None)
     assert restored is not None and restored["relative_path"] == "散落的一课.md"
+
+
+def test_apply_preflights_all_destination_conflicts_before_moving_anything(library):
+    (library / "第一课.md").write_text("# 第一课", encoding="utf-8")
+    (library / "第二课.md").write_text("# 第二课", encoding="utf-8")
+    (library / "课程").mkdir()
+    (library / "课程" / "第二课.md").write_text("# 已有第二课", encoding="utf-8")
+
+    result = KBService(str(library)).apply_organization(["第一课.md", "第二课.md"], "课程")
+
+    assert not result["ok"]
+    assert result["code"] == "target_exists"
+    assert (library / "第一课.md").is_file(), "后一个文件冲突时，前一个也不能先被移动"
+    assert (library / "第二课.md").is_file()
+    assert not (library / "课程" / "第一课.md").exists()
+
+
+def test_apply_records_partial_moves_when_an_unexpected_failure_interrupts_the_batch(library, monkeypatch):
+    import shutil
+
+    (library / "第一课.md").write_text("# 第一课", encoding="utf-8")
+    (library / "第二课.md").write_text("# 第二课", encoding="utf-8")
+    original_move = shutil.move
+    calls = 0
+
+    def fail_second_move(source, destination):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("disk interrupted")
+        return original_move(source, destination)
+
+    monkeypatch.setattr("service.kb_service.shutil.move", fail_second_move)
+    service = KBService(str(library))
+
+    result = service.apply_organization(["第一课.md", "第二课.md"], "课程")
+
+    assert not result["ok"]
+    assert result["code"] == "organization_move_failed"
+    assert result["batch_id"]
+    assert [item["from"] for item in result["moved"]] == ["第一课.md"]
+    assert service.organization_state()["pending_undo"]["batch_id"] == result["batch_id"]
+
+    undone = service.undo_organization(batch_id=result["batch_id"])
+    assert undone["ok"], undone
+    assert (library / "第一课.md").is_file()
+    assert (library / "第二课.md").is_file()

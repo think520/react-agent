@@ -1292,17 +1292,45 @@ class KBService:
         self,
         files: list[tuple[str, bytes]],
         config: dict | None = None,
+        duplicate_strategy: str = "keep_existing",
     ) -> dict[str, Any]:
-        allowed = {".md", ".pdf", ".docx", ".pptx"}
+        if duplicate_strategy not in {"keep_existing", "save_copy"}:
+            return _err(
+                "duplicate_strategy must be keep_existing or save_copy",
+                code="invalid_duplicate_strategy",
+            )
+        allowed = {".md", ".txt", ".pdf", ".docx", ".pptx"}
         os.makedirs(self.managed_sources_dir, exist_ok=True)
         imported = []
+        duplicates = []
         rejected = []
+        existing_hashes: dict[str, str] = {}
+        if duplicate_strategy == "keep_existing":
+            for root, _dirs, names in os.walk(self.managed_sources_dir):
+                for name in names:
+                    path = os.path.join(root, name)
+                    try:
+                        with open(path, "rb") as handle:
+                            existing_hashes.setdefault(
+                                hashlib.sha256(handle.read()).hexdigest(),
+                                os.path.relpath(path, self.managed_sources_dir).replace(os.sep, "/"),
+                            )
+                    except OSError:
+                        continue
 
         for filename, content in files:
             safe_name = os.path.basename(filename).strip()
             extension = os.path.splitext(safe_name)[1].lower()
             if not safe_name or extension not in allowed:
                 rejected.append({"filename": filename, "reason": "unsupported_file_type"})
+                continue
+            content_digest = hashlib.sha256(content).hexdigest()
+            if duplicate_strategy == "keep_existing" and content_digest in existing_hashes:
+                duplicates.append({
+                    "filename": filename,
+                    "existing": existing_hashes[content_digest],
+                    "reason": "identical_content",
+                })
                 continue
             target = os.path.join(self.managed_sources_dir, safe_name)
             stem, extension = os.path.splitext(safe_name)
@@ -1313,12 +1341,21 @@ class KBService:
             with open(target, "wb") as handle:
                 handle.write(content)
             imported.append(os.path.basename(target))
+            existing_hashes.setdefault(
+                content_digest,
+                os.path.relpath(target, self.managed_sources_dir).replace(os.sep, "/"),
+            )
 
-        if not imported:
+        if not imported and not duplicates:
             return _err("No supported files were provided")
 
-        summary = self._sync_registered_sources(mode="incremental", config=config or {})
-        return _ok(imported=imported, rejected=rejected, sync=summary.to_dict())
+        summary = self._sync_registered_sources(mode="incremental", config=config or {}) if imported else None
+        return _ok(
+            imported=imported,
+            duplicates=duplicates,
+            rejected=rejected,
+            sync=summary.to_dict() if summary else {"extraction_counts": {}, "error_files": 0},
+        )
 
     # --- Status ---
 
@@ -1847,6 +1884,37 @@ class KBService:
         target_dir = os.path.abspath(os.path.join(self.workspace, cleaned))
         if not self._is_within_workspace(target_dir, self.workspace) or self._is_internal_path(target_dir):
             return _err("目标文件夹不合法", code="invalid_target")
+
+        plans: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for name in items or []:
+            relative = self._clean_relative(name)
+            if not relative or "/" in relative or relative in seen:
+                continue
+            seen.add(relative)
+            source = os.path.abspath(os.path.join(self.workspace, relative))
+            if not os.path.isfile(source):
+                continue
+            destination_relative = f"{cleaned}/{os.path.basename(relative)}"
+            destination = os.path.abspath(os.path.join(self.workspace, destination_relative))
+            if os.path.exists(destination):
+                return _err(
+                    "目标位置已经有同名文件，未移动任何资料",
+                    code="target_exists",
+                    item=relative,
+                    destination=destination_relative,
+                )
+            plans.append({
+                "relative": relative,
+                "source": source,
+                "destination_relative": destination_relative,
+                "destination": destination,
+                "document": self._document_by_path(source),
+            })
+
+        if not plans:
+            return _ok(moved=[], batch_id="")
+
         created_folders: list[str] = []
         if not os.path.isdir(target_dir):
             created = self.create_folder(cleaned)
@@ -1855,22 +1923,35 @@ class KBService:
             created_folders.append(cleaned)
 
         moves: list[dict[str, str]] = []
-        for name in items or []:
-            relative = self._clean_relative(name)
-            if not relative or "/" in relative:
-                continue
-            source = os.path.abspath(os.path.join(self.workspace, relative))
-            if not os.path.isfile(source):
-                continue
-            destination_relative = f"{cleaned}/{os.path.basename(relative)}"
-            document = self._document_by_path(source)
+
+        def failed(result: dict[str, Any]) -> dict[str, Any]:
+            batch = self._remember_organization(cleaned, moves, created_folders) if moves else None
+            if not moves:
+                for folder in reversed(created_folders):
+                    try:
+                        os.rmdir(os.path.join(self.workspace, folder))
+                    except OSError:
+                        pass
+            return {
+                **result,
+                "moved": list(moves),
+                "batch_id": (batch or {}).get("batch_id", ""),
+            }
+
+        for plan in plans:
+            relative = str(plan["relative"])
+            destination_relative = str(plan["destination_relative"])
+            document = plan["document"]
             if document is not None:
                 result = self.move_document(str(document.get("id")), destination_relative, config=config)
                 if not result.get("ok"):
-                    return result
+                    return failed(result)
                 moves.append({"document_id": str(document.get("id")), "from": relative, "to": destination_relative})
             else:
-                shutil.move(source, os.path.join(target_dir, os.path.basename(relative)))
+                try:
+                    shutil.move(str(plan["source"]), str(plan["destination"]))
+                except OSError as exc:
+                    return failed(_err(str(exc), code="organization_move_failed"))
                 moves.append({"document_id": "", "from": relative, "to": destination_relative})
         batch = self._remember_organization(cleaned, moves, created_folders) if moves else None
         return _ok(moved=moves, batch_id=(batch or {}).get("batch_id", ""))
@@ -2426,6 +2507,7 @@ class KBService:
             "extraction_total_units": document.get("extraction_total_units", 0),
             "extraction_extracted_units": document.get("extraction_extracted_units", 0),
             "extraction_empty_units": document.get("extraction_empty_units", 0),
+            "chunk_count": int(document.get("chunk_count") or 0),
             "updated_at": document.get("updated_at", ""),
             "content_hash": document.get("content_hash", ""),
             "managed": managed,

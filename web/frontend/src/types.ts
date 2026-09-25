@@ -257,6 +257,7 @@ export interface ReviewQueue {
   /** The bank's true wrong-answer count; wrong_answers is only a window of it. */
   wrong_total?: number;
   weaknesses: Array<Record<string, unknown>>;
+  next_review?: { concept: string; status: string; next_review: string } | null;
   personalization?: PersonalizationRef[];
 }
 

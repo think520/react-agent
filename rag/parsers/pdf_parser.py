@@ -26,8 +26,8 @@ def parse(path: str | Path, base_dir: str | Path = ".") -> list[SourceSection]:
 
     try:
         from pypdf import PdfReader
-    except ImportError:
-        return []
+    except ImportError as error:
+        raise RuntimeError("pypdf is required to parse PDF files") from error
 
     # pypdf logs and returns an empty reader instead of raising on garbage
     # input; treat files that are not actually PDFs as parse failures.
@@ -35,14 +35,14 @@ def parse(path: str | Path, base_dir: str | Path = ".") -> list[SourceSection]:
         with open(path, "rb") as handle:
             header = handle.read(5)
     except OSError:
-        return []
+        raise
     if header != b"%PDF-":
         raise ValueError(f"not a PDF file: {path.name}")
 
     try:
         reader = PdfReader(str(path))
-    except Exception:
-        return []
+    except Exception as error:
+        raise ValueError(f"cannot parse PDF file: {path.name}") from error
 
     sections: list[SourceSection] = []
     for i, page in enumerate(reader.pages):

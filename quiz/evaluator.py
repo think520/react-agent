@@ -107,11 +107,9 @@ class QuizEvaluator:
                     break
         correct = normalized == question.answer.strip().upper()
         if correct:
-            feedback = f"正确！{question.explanation}" if question.explanation else "正确！"
+            feedback = "正确！"
         else:
             feedback = f"错误。正确答案是 {question.answer}。"
-            if question.explanation:
-                feedback += f" {question.explanation}"
         return correct, feedback
 
     def _evaluate_true_false(self, question: Question, user_answer: str) -> tuple[bool, str]:
@@ -119,11 +117,9 @@ class QuizEvaluator:
         normalized = _normalize_bool_answer(user_answer)
         correct = normalized == _normalize_bool_answer(question.answer)
         if correct:
-            feedback = f"正确！{question.explanation}" if question.explanation else "正确！"
+            feedback = "正确！"
         else:
             feedback = f"错误。正确答案是 {question.answer}。"
-            if question.explanation:
-                feedback += f" {question.explanation}"
         return correct, feedback
 
     def _evaluate_short_answer(

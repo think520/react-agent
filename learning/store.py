@@ -171,6 +171,28 @@ class LearningStore:
             for r in rows
         ]
 
+    def get_next_scheduled_review(self) -> Mastery | None:
+        """Get the next future review so an empty queue can explain what is next."""
+        now = _now_iso()
+        with self._conn() as conn:
+            row = conn.execute(
+                """SELECT * FROM mastery
+                   WHERE status IN ('learning', 'needs_review', 'mastered')
+                   AND next_review IS NOT NULL AND next_review > ?
+                   ORDER BY next_review ASC LIMIT 1""",
+                (now,),
+            ).fetchone()
+        if not row:
+            return None
+        return Mastery(
+            concept=row["concept"], status=row["status"], score=row["score"],
+            review_count=row["review_count"],
+            consecutive_correct=row["consecutive_correct"],
+            ease_factor=row["ease_factor"], interval_days=row["interval_days"],
+            last_reviewed=row["last_reviewed"], next_review=row["next_review"],
+            source=row["source"], updated_at=row["updated_at"],
+        )
+
     def count_by_status(self) -> dict[str, int]:
         with self._conn() as conn:
             rows = conn.execute(

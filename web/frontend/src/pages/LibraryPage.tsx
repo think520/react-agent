@@ -58,6 +58,8 @@ export function LibraryPage() {
     documentImporting,
     documentImportNotice,
     documentImportError,
+    documentImportDuplicateCount,
+    importDuplicatesAsCopies,
     documentImportVersion,
     selectedDocumentIds,
     setDocumentScope,
@@ -1146,7 +1148,7 @@ export function LibraryPage() {
             <footer>{wikiEditor.document_id && <button className="danger-text-button" disabled={wikiEditorSaving} onClick={() => void archiveSelectedWikiPage()}><Trash2 size={15} />归档</button>}<div><button className="quiet-button" disabled={wikiEditorSaving} onClick={() => setWikiEditorOpen(false)}>取消</button><button className="primary-button" disabled={wikiEditorSaving || !wikiEditor.title.trim() || !wikiEditor.body.trim()} onClick={() => void saveWikiEditor()}><Save size={15} />{wikiEditorSaving ? "正在保存" : "保存页面"}</button></div></footer>
         </Modal>}
         {confirmElement}
-        {(documentImportNotice || notice) && <div className="success-notice"><CheckCircle2 size={17} />{documentImportNotice || notice}</div>}
+        {(documentImportNotice || notice) && <div className="success-notice"><CheckCircle2 size={17} /><span>{documentImportNotice || notice}</span>{documentImportDuplicateCount > 0 && <button className="text-link" type="button" onClick={importDuplicatesAsCopies}>重复文件仍要另存副本</button>}</div>}
         {documentImportError && <ErrorNotice message={documentImportError} />}
         {error && <ErrorNotice message={error} action={<button className="quiet-button" onClick={() => void loadDocuments()}>重试</button>} />}
         {loading ? <div className="illustrated-loading"><BrandIllustration state="reading" size={76} /><LoadingState label={collection === "wiki" ? "正在整理 Wiki…" : "正在读取本地资料…"} /></div> : documents.length ? (

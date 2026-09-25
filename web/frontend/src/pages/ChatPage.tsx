@@ -176,11 +176,15 @@ export function ChatPage() {
   const showKnowledgeContextRef = useRef(showKnowledgeContext);
   const receiveKnowledgeContextRef = useRef(receiveKnowledgeContext);
   const clearKnowledgeContextRef = useRef(clearKnowledgeContext);
+  const settingsRef = useRef(settings);
   useEffect(() => {
     showKnowledgeContextRef.current = showKnowledgeContext;
     receiveKnowledgeContextRef.current = receiveKnowledgeContext;
     clearKnowledgeContextRef.current = clearKnowledgeContext;
   }, [showKnowledgeContext, receiveKnowledgeContext, clearKnowledgeContext]);
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
   const {
     messages,
     setMessages,
@@ -211,9 +215,9 @@ export function ChatPage() {
     if (!ref) return "";
     const [provider, model] = ref.split("::");
     if (model) return ref;
-    const found = settings?.providers.find((item) => item.name === provider);
+    const found = settingsRef.current?.providers.find((item) => item.name === provider);
     return found?.model ? `${provider}::${found.model}` : ref;
-  }, [settings?.providers]);
+  }, []);
 
   function sessionRef(session: { provider_name?: string | null; model_name?: string | null }): string {
     if (!session.provider_name) return "";
@@ -238,6 +242,7 @@ export function ChatPage() {
 
   useEffect(() => {
     let cancelled = false;
+    const defaultProvider = settingsRef.current?.default_provider || "";
     setDraft(initialDraft(sessionId));
     setError("");
     useUiStore.getState().setSourceContext(null);
@@ -245,7 +250,7 @@ export function ChatPage() {
       setMessages([]);
       setReferences([]);
       clearKnowledgeContextRef.current();
-      setSelectedProvider(resolveModelRef(useUiStore.getState().newSessionProvider || settings?.default_provider || ""));
+      setSelectedProvider(resolveModelRef(useUiStore.getState().newSessionProvider || defaultProvider));
       setLoading(false);
       return;
     }
@@ -255,7 +260,7 @@ export function ChatPage() {
         if (cancelled) return;
         setMessages(session.messages);
         setReferences([]);
-        setSelectedProvider(resolveModelRef(sessionRef(session) || settings?.default_provider || ""));
+        setSelectedProvider(resolveModelRef(sessionRef(session) || defaultProvider));
         const latestKnowledgeContext = session.messages
           .flatMap((message) => message.artifacts || [])
           .filter((artifact): artifact is KnowledgeContextArtifact => artifact.type === "knowledge_context")
@@ -266,11 +271,12 @@ export function ChatPage() {
       .catch((reason: Error) => { if (!cancelled) setInlineError(reason.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [sessionId, settings?.default_provider, setMessages, resolveModelRef]);
+  }, [sessionId, setMessages, resolveModelRef]);
 
   useEffect(() => {
-    if (!selectedProvider && settings?.default_provider) setSelectedProvider(resolveModelRef(settings.default_provider));
-  }, [selectedProvider, settings?.default_provider, resolveModelRef]);
+    const resolved = resolveModelRef(selectedProvider || settings?.default_provider || "");
+    if (resolved && resolved !== selectedProvider) setSelectedProvider(resolved);
+  }, [selectedProvider, settings, resolveModelRef]);
 
   useEffect(() => {
     if (!activeLibrary) {

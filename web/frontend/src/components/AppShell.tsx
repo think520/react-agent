@@ -22,6 +22,7 @@ import { NavLink, Outlet, useLocation, useNavigate, useParams, useSearchParams }
 
 import { api, setActiveLibraryId } from "../lib/api";
 import { toErrorMessage } from "../lib/errors";
+import { describeDocumentImport } from "../lib/importSummary";
 import { notifyError } from "../stores/noticeStore";
 import { useUiStore } from "../stores/uiStore";
 import type { Attribution, ChatSessionSummary, DocumentSummary, KnowledgeContext, LibraryMigrationPreview, LibrarySummary, ReviewQueue, SettingsSummary } from "../types";
@@ -67,6 +68,8 @@ export interface AppOutletContext {
   documentImporting: boolean;
   documentImportNotice: string;
   documentImportError: string;
+  documentImportDuplicateCount: number;
+  importDuplicatesAsCopies: () => void;
   documentImportVersion: number;
   libraryReady: boolean;
 }
@@ -201,7 +204,8 @@ export function AppShell() {
   const [activeLibrary, setActiveLibrary] = useState<LibrarySummary | null>(null);
   const documentImportInput = useRef<HTMLInputElement>(null);
   const pendingDocumentFiles = useRef<File[]>([]);
-  const [documentImport, setDocumentImport] = useState({ importing: false, notice: "", error: "", version: 0 });
+  const pendingDuplicateFiles = useRef<File[]>([]);
+  const [documentImport, setDocumentImport] = useState({ importing: false, notice: "", error: "", duplicateCount: 0, version: 0 });
   const [backendState, setBackendState] = useState<"connected" | "disconnected" | "reconnecting">("connected");
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
@@ -281,14 +285,21 @@ export function AppShell() {
     ]);
   }, [refreshSessions]);
 
-  const uploadDocuments = useCallback(async (files: File[]) => {
-    setDocumentImport((current) => ({ ...current, importing: true, notice: "", error: "" }));
+  const uploadDocuments = useCallback(async (files: File[], duplicateStrategy: "keep_existing" | "save_copy" = "keep_existing") => {
+    setDocumentImport((current) => ({ ...current, importing: true, notice: "", error: "", duplicateCount: duplicateStrategy === "save_copy" ? 0 : current.duplicateCount }));
     try {
-      const result = await api.importDocuments(files);
-      const rejected = result.rejected.length ? `，${result.rejected.length} 份未能导入` : "";
+      const result = await api.importDocuments(files, duplicateStrategy);
+      const duplicates = result.duplicates || [];
+      if (duplicateStrategy === "keep_existing") {
+        const duplicateNames = new Set(duplicates.map((item) => item.filename));
+        pendingDuplicateFiles.current = files.filter((file) => duplicateNames.has(file.name));
+      } else {
+        pendingDuplicateFiles.current = [];
+      }
       setDocumentImport((current) => ({
         ...current,
-        notice: `已导入 ${result.imported.length} 份资料并建立索引${rejected}。`,
+        notice: describeDocumentImport(result),
+        duplicateCount: duplicates.length,
         version: current.version + 1,
       }));
       await loadScopedData();
@@ -300,13 +311,20 @@ export function AppShell() {
     }
   }, [loadScopedData, navigate]);
 
+  const importDuplicatesAsCopies = useCallback(() => {
+    const files = pendingDuplicateFiles.current;
+    pendingDuplicateFiles.current = [];
+    if (files.length) void uploadDocuments(files, "save_copy");
+  }, [uploadDocuments]);
+
   function cancelLibrarySetup() {
     if (librarySetup?.importCount) pendingDocumentFiles.current = [];
     closeLibrarySetup();
   }
 
   function startDocumentImport() {
-    setDocumentImport((current) => ({ ...current, notice: "", error: "" }));
+    pendingDuplicateFiles.current = [];
+    setDocumentImport((current) => ({ ...current, notice: "", error: "", duplicateCount: 0 }));
     documentImportInput.current?.click();
   }
 
@@ -529,17 +547,25 @@ export function AppShell() {
   const leftOpen = leftSavedOpen && !leftAutoCollapsed;
   const rightOpen = rightSavedOpen && !rightAutoCollapsed;
 
+  const openRightPanel = useCallback(() => {
+    if (!desktop) {
+      setContextOpen(true);
+    } else if (rightAutoCollapsed) {
+      setPreview("right", true);
+    } else {
+      setPanelOpen("right", true);
+    }
+  }, [desktop, rightAutoCollapsed, setContextOpen, setPanelOpen, setPreview]);
+
   function openConceptDetail(conceptId: string) {
     setConceptDetailId(conceptId);
-    if (desktop) setPanelOpen("right", true);
-    else setContextOpen(true);
+    openRightPanel();
   }
 
   const showKnowledgeContext = useCallback((context: KnowledgeContext) => {
     setKnowledgeContext(context);
-    if (desktop) setPanelOpen("right", true);
-    else setContextOpen(true);
-  }, [desktop, setContextOpen, setKnowledgeContext, setPanelOpen]);
+    openRightPanel();
+  }, [openRightPanel, setKnowledgeContext]);
 
   // 流式/恢复时只记录上下文，不自动打开面板（P5G 体验整改：卡片不自动弹面板）
   const receiveKnowledgeContext = useCallback((context: KnowledgeContext) => {
@@ -551,8 +577,7 @@ export function AppShell() {
   function showSourceContext(attribution: Attribution) {
     setSourceContext(attribution);
     setConceptDetailId(null);
-    if (desktop) setPanelOpen("right", true);
-    else setContextOpen(true);
+    openRightPanel();
   }
 
   function schedulePreview(side: "left" | "right", open: boolean) {
@@ -624,7 +649,7 @@ export function AppShell() {
           settings,
           refreshSettings,
           refreshSessions,
-          openContext: () => desktop ? setPanelOpen("right", true) : setContextOpen(true),
+          openContext: openRightPanel,
           conceptDetailId,
           openConceptDetail,
           closeConceptDetail: () => setConceptDetailId(null),
@@ -647,17 +672,23 @@ export function AppShell() {
           documentImporting: documentImport.importing,
           documentImportNotice: documentImport.notice,
           documentImportError: documentImport.error,
+          documentImportDuplicateCount: documentImport.duplicateCount,
+          importDuplicatesAsCopies,
           documentImportVersion: documentImport.version,
           libraryReady: initialDataLoaded,
         } satisfies AppOutletContext} />
       </main>
 
-      <aside className={`context-panel ${contextOpen ? "open" : ""}`} aria-label="学习上下文" onMouseEnter={() => schedulePreview("right", true)} onMouseLeave={() => schedulePreview("right", false)}>
+      <aside className={`context-panel ${contextOpen ? "open" : ""}`} aria-label="学习上下文">
         <div className="context-header">
           <strong>{conceptDetailId ? "概念详情" : "学习书桌"}</strong>
           <IconButton
             label={conceptDetailId ? "返回学习书桌" : "关闭上下文"}
-            onClick={() => conceptDetailId ? setConceptDetailId(null) : setContextOpen(false)}
+            onClick={() => conceptDetailId
+              ? setConceptDetailId(null)
+              : desktop && rightAutoCollapsed
+                ? setPreview("right", false)
+                : setContextOpen(false)}
           ><X /></IconButton>
         </div>
         {conceptDetailId ? (
@@ -683,7 +714,6 @@ export function AppShell() {
       </aside>
 
       {!leftOpen && <div className="panel-hover-edge left" onMouseEnter={() => schedulePreview("left", true)} onMouseLeave={() => schedulePreview("left", false)} />}
-      {!rightOpen && <div className="panel-hover-edge right" onMouseEnter={() => schedulePreview("right", true)} onMouseLeave={() => schedulePreview("right", false)} />}
 
       <nav className="mobile-nav" aria-label="移动端主导航">
         {navItems.map(({ to, label, icon: Icon }) => <NavLink to={to} key={to} className={({ isActive }) => isActive ? "active" : ""}><Icon /><span>{label}</span></NavLink>)}
@@ -717,7 +747,7 @@ export function AppShell() {
         initialMode={librarySetup.initialMode}
         importCount={librarySetup.importCount}
       />}
-      <input ref={documentImportInput} className="visually-hidden" type="file" multiple accept=".md,.pdf,.docx,.pptx" onChange={(event) => void selectDocumentsForImport(event)} />
+      <input ref={documentImportInput} className="visually-hidden" type="file" multiple accept=".md,.txt,.pdf,.docx,.pptx" onChange={(event) => void selectDocumentsForImport(event)} />
       {backendState !== "connected" && <div className={`connection-bar ${backendState}`} role="status">
         <span>{backendState === "reconnecting" ? "正在重新连接 Bobodan…" : `Bobodan 后端已断开${reconnectAttempt ? `，已重试 ${reconnectAttempt} 次` : ""}`}</span>
         <button type="button" onClick={() => void reconnectBackend()}>重新连接</button>

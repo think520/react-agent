@@ -42,7 +42,7 @@ describe("api client", () => {
     const body = new ReadableStream<Uint8Array>({
       start(controller) {
         controller.enqueue(encoder.encode("event: run_started\ndata: {\"run_id\":\"r1\","));
-        controller.enqueue(encoder.encode("\"chat_session_id\":\"s1\"}\n\nevent: message_delta\ndata: {\"content\":\"你好\"}\n\n"));
+        controller.enqueue(encoder.encode("\"chat_session_id\":\"s1\"}\n\nevent: message_delta\ndata: {\"content\":\"你好\"}\n\nevent: run_completed\ndata: {\"chat_session_id\":\"s1\",\"termination_reason\":\"final_answer\"}\n\n"));
         controller.close();
       },
     });
@@ -57,7 +57,7 @@ describe("api client", () => {
       references: [{ type: "document", id: "doc-2", title: "第二课", collection: "material" }],
     }, (event) => events.push(event.event));
 
-    expect(events).toEqual(["run_started", "message_delta"]);
+    expect(events).toEqual(["run_started", "message_delta", "run_completed"]);
     expect(vi.mocked(fetch)).toHaveBeenCalledWith("/api/chat/runs", expect.objectContaining({
       body: expect.stringContaining('"document_ids":[]'),
     }));
@@ -81,7 +81,7 @@ describe("api client", () => {
       start(controller) {
         controller.enqueue(encoder.encode("event: run_started\ndata: {\"run_id\":\"r1\",\"chat_session_id\":\"s1\"}\n\n"));
         controller.enqueue(encoder.encode("event: message_delta\ndata: {broken json!!\n\n"));
-        controller.enqueue(encoder.encode("event: message_delta\ndata: {\"content\":\"世界\"}\n\n"));
+        controller.enqueue(encoder.encode("event: message_delta\ndata: {\"content\":\"世界\"}\n\nevent: run_completed\ndata: {\"chat_session_id\":\"s1\",\"termination_reason\":\"final_answer\"}\n\n"));
         controller.close();
       },
     });
@@ -91,7 +91,7 @@ describe("api client", () => {
 
     await streamChat("hello", undefined, [], {}, (event) => events.push(event.event));
 
-    expect(events).toEqual(["run_started", "message_delta"]);
+    expect(events).toEqual(["run_started", "message_delta", "run_completed"]);
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
   });
@@ -103,7 +103,8 @@ describe("api client", () => {
         controller.enqueue(encoder.encode(
           'event: message_delta\ndata: {"content":"a","seq":1,"stream_id":"s"}\n\n' +
           'event: message_delta\ndata: {"content":"b","seq":2,"stream_id":"s"}\n\n' +
-          'event: message_delta\ndata: {"content":"a","seq":1,"stream_id":"s"}\n\n',
+          'event: message_delta\ndata: {"content":"a","seq":1,"stream_id":"s"}\n\n' +
+          'event: run_completed\ndata: {"chat_session_id":"s1","termination_reason":"final_answer","seq":3,"stream_id":"s"}\n\n',
         ));
         controller.close();
       },
@@ -180,6 +181,50 @@ describe("api client", () => {
     await streamChat("hello", undefined, [], {}, () => undefined);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a failed terminal event even when the handler throws", async () => {
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({ start(controller) {
+      controller.enqueue(encoder.encode(
+        'event: run_started\ndata: {"run_id":"r1","chat_session_id":"s1","seq":1,"stream_id":"s"}\n\n' +
+        'event: run_failed\ndata: {"error":{"code":"provider_unavailable","message":"供应商离线"},"seq":2,"stream_id":"s"}\n\n',
+      ));
+      controller.close();
+    } });
+    const fetchMock = vi.fn().mockResolvedValue(new Response(body, { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(streamChat("hello", undefined, [], {}, (event) => {
+      if (event.event === "run_failed") throw new Error(event.data.error.message);
+    })).rejects.toThrow("供应商离线");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a clean EOF that never receives a terminal event", async () => {
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({ start(controller) {
+      controller.enqueue(encoder.encode(
+        'event: run_started\ndata: {"run_id":"r1","chat_session_id":"s1","seq":1,"stream_id":"s"}\n\n',
+      ));
+      controller.close();
+    } });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(body, { status: 200 }))
+      .mockResolvedValue(new Response("", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const original = [...RESUME_DELAYS_MS];
+    RESUME_DELAYS_MS.length = 0;
+    RESUME_DELAYS_MS.push(0);
+
+    try {
+      await expect(streamChat("hello", undefined, [], {}, () => undefined))
+        .rejects.toMatchObject({ code: "chat_stream_incomplete" });
+    } finally {
+      RESUME_DELAYS_MS.length = 0;
+      RESUME_DELAYS_MS.push(...original);
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("reports the original failure when it cannot resume", async () => {

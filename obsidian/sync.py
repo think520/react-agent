@@ -523,8 +523,10 @@ def sync_sources(
             # Parse document into sections + extraction report
             sections, extraction_report_obj = parse_document(abs_path, workspace)
             extraction_report = extraction_report_obj.to_dict()
-            if not sections:
-                # Fallback: use legacy chunker for simple text
+            if not sections and os.path.splitext(abs_path)[1].lower() in {".md", ".txt"}:
+                # Only plain-text formats may use the legacy text fallback. A
+                # broken PDF/DOCX/PPTX must keep its typed parser error instead
+                # of becoming searchable garbage just because bytes decode.
                 sections = _fallback_parse(source, abs_path, kind)
                 if sections and not extraction_report.get("total_units"):
                     # Text fallback succeeded where the typed parser found
@@ -808,6 +810,10 @@ def _fallback_parse(source: str, abs_path: str, kind: str) -> list[SourceSection
     except (UnicodeDecodeError, FileNotFoundError):
         return []
 
+    text = text.strip()
+    if not text:
+        return []
+
     doc_title = os.path.splitext(os.path.basename(abs_path))[0]
     return [SourceSection(
         source=source,
@@ -815,7 +821,7 @@ def _fallback_parse(source: str, abs_path: str, kind: str) -> list[SourceSection
         unit_type="paragraph",
         unit_range="",
         heading_path=[],
-        text=text.strip(),
+        text=text,
         metadata={"file_type": "txt"},
     )]
 

@@ -90,6 +90,14 @@ describe("资料库文件夹树", () => {
     expect(screen.getByText("1-1-学习.md")).toBeTruthy();
   });
 
+  it("子节点通过 group 列表嵌套，不生成非法的 li 直属 li", () => {
+    const { container } = render(<LibraryTree tree={tree} selectedFolder="" onSelectFolder={() => {}} onOpenDocument={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: /展开 ai-agents-from-zero/ }));
+
+    expect(container.querySelector("li > li")).toBeNull();
+    expect(container.querySelector("li > ul[role='group'] > li")).toBeTruthy();
+  });
+
   it("点文件打开它，未索引的文件不可点但看得见", () => {
     const onOpenDocument = vi.fn();
     render(<LibraryTree tree={tree} selectedFolder="" onSelectFolder={() => {}} onOpenDocument={onOpenDocument} />);
