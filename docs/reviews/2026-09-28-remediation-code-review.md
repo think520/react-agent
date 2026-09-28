@@ -29,6 +29,8 @@
 
 门禁（本批）：后端 **1644 passed**；前端 24 个文件 / **128 passed**，tsc、eslint、build 通过；live（真实后端 + 真实资料库）**6 passed**。
 
+**真机复验又抓出两处（同批修复）**：① 计划到执行之间索引重建身份，`move_document` 报 `document_not_found`，一份好好的资料搬不动 → 现在按"现在的路径"**重新解析并重试**，索引里彻底没有才退化为裸搬；② 第一项撤销成功、第二项压根没搬成时，台账仍提示"可撤销"且把没搬成的报成 `target_exists` → 现在未搬成的项不参与冲突判断，`organization_state()` 只在**确实还有搬走未归还的项**时才报待撤销。两条都有回归（`test_apply_retries_with_the_current_identity_when_the_index_rebuilt_it`、`test_a_batch_with_nothing_left_to_undo_is_not_reported_pending`），门禁为后端 **1646 passed** / 前端 **128 passed** / live **6 passed**。
+
 **仍未开始**：F01（草稿隔离/恢复）、F04/F08/F09（导入去重与计数）、F05/F06/F10（失败会话与练习关联）。它们的失败探针目前仍只以 `.txt` 归档在 `evidence/` 下，尚未转成正式回归测试——这是下一批的第一件事。
 
 ## 2. 已确认的问题（按处理优先级）

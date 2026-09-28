@@ -7,6 +7,11 @@
 ## [未发布]
 
 ### 变更
+- **R09 真机复验又抓出两处（2026-09-28 后续，同一批文件安全链路）**：把上面那条链路放到**真实资料库**（`note/vault`，2029 个文件 / 47 份资料）上跑"整理 → 撤销"时，暴露两个只有真数据才会出现的问题，都已修并转成回归：
+  - **① 计划→执行之间索引重建身份**：`move_document` 报 `document_not_found`，一份好好的资料就"搬不动"了（真机上 `正则表达式.md` 被卡住，第一项却已经搬走）。现在遇到这个错误会**按现在的路径重新解析身份并重试**；索引里彻底查不到时，才按未索引文件直接搬（裸搬兜底）。回归：`test_apply_retries_with_the_current_identity_when_the_index_rebuilt_it`（断言重试**走索引迁移**，不是退化成一个裸搬文件）。
+  - **② 没有东西可撤了还在提示"可撤销"**：第一项撤销成功、第二项其实没搬成，台账仍挂着待撤销，那一项还被误报成 `target_exists`（"原位被占用"）。现在"压根没搬成"的项直接跳过、不参与冲突判断；`organization_state()` 只在**还有搬走未归还的项**（或计划仍在执行中）时才报 `pending_undo`。回归：`test_a_batch_with_nothing_left_to_undo_is_not_reported_pending`。
+  - **真机复验结果（当前代码）**：apply `ok=true / partial=false`、台账 `status=applied` + 逐项 `moved`；undo `restored=[两条] / skipped=[]`；文件清单逐项回到起点、`未归类` 文件夹清掉、`pending_undo` 清空。
+  - **门禁**：后端 **1646 passed**；前端 24 文件 / **128 passed**、tsc **0**、eslint **0**、构建 **0**；live（真实后端 + 真实资料库）**6 passed**。
 - **R09 文件安全链路补齐：先写计划、异常落账、撤销不覆盖、部分结果穿过 HTTP（2026-09-28，审查 F02/F03/F07）**：按 `docs/reviews/2026-09-28-remediation-code-review.md` §6 的**第 1 批（文件安全）**做完，并把当时失败的探针转成正式回归测试 `tests/test_organization_recovery.py`（**修前 5 条全红，修后 6 条全绿**）。
   - **F02（已索引移动抛异常没有台账）**：`apply_organization` 现在**先写计划再动手** —— 台账在第一次文件系统改动之前落盘，带 `status`（planned/applying/applied/partial/failed）与逐项 `state`；**异常**（不只是 `ok=False`）一律落账；"物理移动已完成、索引迁移失败"按**磁盘事实**判定，照样进 `moved` 并保持可撤销。新增"搬到一半被杀、重启后的实例仍能撤销"的回归。
   - **F03（撤销覆盖用户新文件）**：撤销前检查原位是否已被占用 —— 占用就**跳过、保留台账、如实报告** `skipped[].reason="target_exists"`，绝不 `shutil.move` 覆盖；已还原的项标记 `undone`，冲突处理完还能再撤。
