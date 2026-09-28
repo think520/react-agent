@@ -31,7 +31,13 @@
 
 **真机复验又抓出两处（同批修复）**：① 计划到执行之间索引重建身份，`move_document` 报 `document_not_found`，一份好好的资料搬不动 → 现在按"现在的路径"**重新解析并重试**，索引里彻底没有才退化为裸搬；② 第一项撤销成功、第二项压根没搬成时，台账仍提示"可撤销"且把没搬成的报成 `target_exists` → 现在未搬成的项不参与冲突判断，`organization_state()` 只在**确实还有搬走未归还的项**时才报待撤销。两条都有回归（`test_apply_retries_with_the_current_identity_when_the_index_rebuilt_it`、`test_a_batch_with_nothing_left_to_undo_is_not_reported_pending`），门禁为后端 **1646 passed** / 前端 **128 passed** / live **6 passed**。
 
-**仍未开始**：F01（草稿隔离/恢复）、F04/F08/F09（导入去重与计数）、F05/F06/F10（失败会话与练习关联）。它们的失败探针目前仍只以 `.txt` 归档在 `evidence/` 下，尚未转成正式回归测试——这是下一批的第一件事。
+### 第二批（草稿保护）：F01 已修
+
+| 条目 | 状态 | 修复与证据 |
+|---|---|---|
+| F01 笔记草稿没有按笔记隔离 | **已修** | 草稿改成**按"资料库 + 笔记"存**（新笔记用 `new` 槽位）；`startEdit` **优先恢复这篇笔记自己的草稿**，不再拿服务端旧正文把它盖掉；切换笔记或新建之前先落盘当前草稿；**pagehide / visibilitychange 同步落盘**（250ms 防抖窗口内刷新也不丢）；正文清空后**删掉旧记录**；保存或删除笔记时清掉对应草稿。回归：`web/frontend/src/pages/NotesPage.test.tsx` 新增 4 条（转正自 `evidence/2026-09-28/drafts-probe-source.tsx.txt`，**修前 4 条全红**）+ live 新增 1 条**真浏览器立即刷新**（审查要求：事件模拟不能冒充真刷新）。 |
+
+**仍未开始**：F04/F08/F09（导入去重与计数）、F05/F06/F10（失败会话与练习关联）。它们的失败探针目前仍只以 `.txt` 归档在 `evidence/` 下，尚未转成正式回归测试——这是下一批的第一件事。
 
 ## 2. 已确认的问题（按处理优先级）
 
