@@ -3,7 +3,7 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { LibraryPage } from "./LibraryPage";
-import { api } from "../lib/api";
+import { api, ApiError } from "../lib/api";
 import { useReaderTabsStore } from "../stores/readerTabsStore";
 
 /**
@@ -450,5 +450,47 @@ describe("资料库文件夹同步", () => {
     await waitFor(() => expect(document.querySelector(".document-reader")).not.toBeNull());
     await waitFor(() => expect(document.querySelectorAll(".reader-tabs .reader-tab").length).toBe(1));
     expect(document.querySelector(".document-rail")).toBeNull();
+  });
+
+  // 审查 F07：部分失败时服务端的"已经搬走哪几份"会在 HTTP 边界被丢掉，界面因此既看不到
+  // 已搬走的资料，也拿不到撤销入口。这条钉住"当场读回台账 + 当场能撤销"。
+  it("整理部分失败：当场说明搬走了几份，并且当场能撤销", async () => {
+    vi.mocked(api.knowledgeTree).mockResolvedValue(treeWith([treeFile("散落的一课.md", "doc-1", "散落的一课")]) as never);
+    vi.mocked(api.documents).mockResolvedValue([{
+      document_id: "doc-1", source: "散落的一课.md", relative_path: "散落的一课.md",
+      kind: "course_document", title: "散落的一课", collection: "material", content_role: "content",
+    }] as never);
+    vi.mocked(api.organizationProposals).mockResolvedValue({ ok: true, source: "rules", degraded: "", proposals: [{
+      kind: "loose_materials", title: "库根散落的资料", reason: "直接躺在库根。", items: ["散落的一课.md", "另一份.md"],
+      suggested_folder: "未归类", requires_confirmation: true,
+    }] } as never);
+    vi.mocked(api.applyOrganization).mockRejectedValue(new ApiError(
+      "第二份被占用",
+      "organization_move_failed",
+      400,
+      {
+        moved: [{ document_id: "d1", from: "散落的一课.md", to: "未归类/散落的一课.md" }],
+        failed: [{ from: "另一份.md", to: "未归类/另一份.md", error: "file is locked" }],
+        batch_id: "batch-partial",
+      },
+    ));
+    vi.mocked(api.organizationState).mockResolvedValue({ ok: true, pending_undo: {
+      batch_id: "batch-partial", created_at: "2026-09-28T00:00:00Z", target_folder: "未归类", status: "partial",
+      moves: [{ document_id: "d1", from: "散落的一课.md", to: "未归类/散落的一课.md", state: "moved" }],
+    } } as never);
+
+    render(
+      <MemoryRouter initialEntries={["/library"]}>
+        <LibraryPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByText("看看有什么可以整理的"));
+    fireEvent.click(await screen.findByText("收进「未归类」"));
+
+    expect(await screen.findByText(/已搬走 1 份，1 份没搬成/)).toBeTruthy();
+    expect(screen.getByText(/file is locked/)).toBeTruthy();
+    expect(await screen.findByText(/上一次整理未完成/)).toBeTruthy();
+    expect(screen.getByText("撤销这一步整理")).toBeTruthy();
   });
 });

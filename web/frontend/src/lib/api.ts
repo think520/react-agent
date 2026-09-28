@@ -142,7 +142,9 @@ export interface OrganizationBatch {
   batch_id: string;
   created_at: string;
   target_folder: string;
-  moves: { document_id: string; from: string; to: string }[];
+  moves: { document_id: string; from: string; to: string; state?: string; error?: string }[];
+  /** planned / applying / applied / partial / failed / partial_undo（F02 的"先写计划"）。 */
+  status?: string;
 }
 
 interface ErrorEnvelope {
@@ -231,7 +233,10 @@ export const api = {
   applyOrganization: (items: string[], targetFolder: string) => request<{
     ok: boolean;
     moved: { document_id: string; from: string; to: string }[];
+    /** 部分失败时：没搬成的那几项（F07 —— 界面必须如实说清楚）。 */
+    failed?: { document_id?: string; from: string; to: string; state?: string; error?: string }[];
     batch_id: string;
+    partial?: boolean;
   }>("/api/kb/organize/apply", json({ items, target_folder: targetFolder })),
   /** 还有没有一步可以撤销（刷新页面后仍要知道）。 */
   organizationState: () => request<{ ok: boolean; pending_undo: OrganizationBatch | null }>(
@@ -241,6 +246,8 @@ export const api = {
   undoOrganization: (moves?: { document_id: string; from: string; to: string }[]) => request<{
     ok: boolean;
     restored: string[];
+    /** 原位已经有文件、因此**没有**覆盖的那些项（F03）。 */
+    skipped?: { from: string; to: string; reason: string }[];
   }>("/api/kb/organize/undo", json(moves ? { moves } : {})),
   createFolder: (path: string) => request<{ ok: boolean; folder: { name: string; path: string } }>(
     "/api/kb/folders",

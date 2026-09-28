@@ -1922,39 +1922,78 @@ class KBService:
                 return created
             created_folders.append(cleaned)
 
-        moves: list[dict[str, str]] = []
+        # **先写计划再动手**（write-ahead，审查 F02）：进程在任何一步被强杀，重启后
+        # 都能从台账看出"打算搬什么、已经搬到哪一项"，而不是留下一地搬了一半的文件。
+        entries: list[dict[str, Any]] = [{
+            "document_id": str((plan["document"] or {}).get("id") or ""),
+            "from": str(plan["relative"]),
+            "to": str(plan["destination_relative"]),
+            "state": "planned",
+            "error": "",
+        } for plan in plans]
+        batch = self._write_organization_batch(
+            self._new_organization_batch(cleaned, entries, created_folders, status="applying")
+        )
 
-        def failed(result: dict[str, Any]) -> dict[str, Any]:
-            batch = self._remember_organization(cleaned, moves, created_folders) if moves else None
-            if not moves:
+        def finish(status: str) -> None:
+            batch["status"] = status
+            self._write_organization_batch(batch)
+
+        def failure_payload(result: dict[str, Any], moved: list[dict[str, Any]], failed: list[dict[str, Any]]) -> dict[str, Any]:
+            """部分失败也要把"搬走了哪些、哪些没成、台账 id"如实交出去（审查 F07）。"""
+            if not moved and not failed:
                 for folder in reversed(created_folders):
                     try:
                         os.rmdir(os.path.join(self.workspace, folder))
                     except OSError:
                         pass
+                self._forget_organization(batch["batch_id"])
+                return {**result, "moved": [], "failed": [], "batch_id": "", "partial": False}
             return {
                 **result,
-                "moved": list(moves),
-                "batch_id": (batch or {}).get("batch_id", ""),
+                "moved": list(moved),
+                "failed": list(failed),
+                "batch_id": batch["batch_id"],
+                "partial": bool(moved),
             }
 
-        for plan in plans:
+        moved: list[dict[str, Any]] = []
+        failures: list[dict[str, Any]] = []
+        for index, plan in enumerate(plans):
+            entry = entries[index]
             relative = str(plan["relative"])
             destination_relative = str(plan["destination_relative"])
             document = plan["document"]
-            if document is not None:
-                result = self.move_document(str(document.get("id")), destination_relative, config=config)
-                if not result.get("ok"):
-                    return failed(result)
-                moves.append({"document_id": str(document.get("id")), "from": relative, "to": destination_relative})
-            else:
-                try:
+            result: dict[str, Any]
+            try:
+                if document is not None:
+                    result = self.move_document(str(document.get("id")), destination_relative, config=config)
+                else:
                     shutil.move(str(plan["source"]), str(plan["destination"]))
-                except OSError as exc:
-                    return failed(_err(str(exc), code="organization_move_failed"))
-                moves.append({"document_id": "", "from": relative, "to": destination_relative})
-        batch = self._remember_organization(cleaned, moves, created_folders) if moves else None
-        return _ok(moved=moves, batch_id=(batch or {}).get("batch_id", ""))
+                    result = {"ok": True}
+            except Exception as exc:  # 审查 F02：异常同样要落账，不只是"返回 ok=False"
+                result = _err(str(exc) or exc.__class__.__name__, code="organization_move_failed")
+
+            if result.get("ok"):
+                entry.update(state="moved", error="")
+                moved.append({key: entry[key] for key in ("document_id", "from", "to")})
+                finish("applying")
+                continue
+
+            # 失败也可能是"文件已经搬过去了、只是索引/引用迁移没成"——按磁盘事实判断，
+            # 搬过去的照样进 moved 并保持可撤销（审查 F02 的第二条探针）。
+            physical_moved = os.path.isfile(str(plan["destination"])) and not os.path.isfile(str(plan["source"]))
+            reason = str(result.get("error") or "移动失败")
+            entry.update(state="moved" if physical_moved else "failed", error=reason)
+            if physical_moved:
+                moved.append({key: entry[key] for key in ("document_id", "from", "to")})
+            failures.append({**entry})
+            finish("partial" if moved else "failed")
+            error_code = "organization_index_failed" if physical_moved else str(result.get("code") or "organization_move_failed")
+            return failure_payload(_err(reason, code=error_code), moved, failures)
+
+        finish("applied")
+        return _ok(moved=moved, failed=[], batch_id=batch["batch_id"], partial=False)
 
     # --- 整理台账：撤销必须活过刷新与重启（E17 ⑤）------------------------
 
@@ -1984,27 +2023,41 @@ class KBService:
         os.makedirs(self._organize_root(), exist_ok=True)
         atomic_write_json(self._organize_index_path(), batches)
 
-    def _remember_organization(
+    def _new_organization_batch(
         self,
         target_folder: str,
-        moves: list[dict[str, str]],
+        moves: list[dict[str, Any]],
         created_folders: list[str] | None = None,
+        status: str = "planned",
     ) -> dict[str, Any]:
-        """把这一步整理记在服务端，而不是只交给调用方（刷新就丢）。"""
+        """造一条台账（**先写计划再动手**，2026-09-28 审查 F02）。
+
+        `status`：planned（计划已落盘，还没动文件）→ applying → applied
+        ｜ partial（部分成功）｜ failed（一份都没成）。每一项还带自己的 `state`。
+        """
         from datetime import datetime, timezone
         import uuid as _uuid
 
-        batch = {
+        return {
             "batch_id": _uuid.uuid4().hex,
             "created_at": datetime.now(timezone.utc).isoformat(),
             "target_folder": target_folder,
             "moves": moves,
             # 这一步自己建了哪些文件夹：撤销时要把它们收回去（用户自己的文件夹不在此列）。
             "created_folders": list(created_folders or []),
+            "status": status,
         }
+
+    def _write_organization_batch(self, batch: dict[str, Any]) -> dict[str, Any]:
+        """把台账写进磁盘（同 id 覆盖，新 id 追加）。每次文件系统动作前后都要调它。"""
         batches = self._load_organize_batches()
-        batches.append(batch)
-        del batches[:-20]  # 只留最近 20 步，台账不是无限日志
+        for index, existing in enumerate(batches):
+            if existing.get("batch_id") == batch.get("batch_id"):
+                batches[index] = batch
+                break
+        else:
+            batches.append(batch)
+            del batches[:-20]  # 只留最近 20 步，台账不是无限日志
         self._save_organize_batches(batches)
         return batch
 
@@ -2040,38 +2093,64 @@ class KBService:
                 recorded = batches[-1] if batches else None
             moves = [item for item in (recorded or {}).get("moves") or [] if isinstance(item, dict)]
         restored: list[str] = []
+        skipped: list[dict[str, str]] = []
         for move in moves or []:
             destination = self._clean_relative(str(move.get("to") or ""))
             original = self._clean_relative(str(move.get("from") or ""))
             if not destination or not original:
                 continue
+            if str(move.get("state") or "moved") in {"planned", "undone"}:
+                continue  # 计划里还没动过 / 上次撤销已经还回去了：没有东西要还
+            source = os.path.abspath(os.path.join(self.workspace, destination))
+            target = os.path.abspath(os.path.join(self.workspace, original))
+            # **绝不覆盖**（审查 F03）：原位又出现了文件（用户后来新建的同名资料）就跳过
+            # 这一项、保留台账并如实报告 —— 撤销不允许把用户的新内容变成旧内容。
+            if os.path.exists(target):
+                skipped.append({"from": original, "to": destination, "reason": "target_exists"})
+                continue
+            if not os.path.isfile(source):
+                skipped.append({"from": original, "to": destination, "reason": "source_missing"})
+                continue
             # 撤销**以"文件现在在哪"为准**：移动之后索引可能给这份资料重新分配身份，
             # 台账里记下的 document_id 不一定还查得到 —— 2026-09-24 在真实资料库上
             # 就是这样 404 的（文件躺在「未归类」里撤不回来）。台账仍保留该 id 供审计。
-            current = self._document_by_path(os.path.abspath(os.path.join(self.workspace, destination)))
-            if current is not None:
-                result = self.move_document(str(current.get("id") or ""), original, config=config)
-                if not result.get("ok"):
-                    return result
-            else:
-                source = os.path.abspath(os.path.join(self.workspace, destination))
-                if not os.path.isfile(source):
-                    continue
-                target = os.path.abspath(os.path.join(self.workspace, original))
-                os.makedirs(os.path.dirname(target), exist_ok=True)
-                shutil.move(source, target)
+            current = self._document_by_path(source)
+            try:
+                if current is not None:
+                    result = self.move_document(str(current.get("id") or ""), original, config=config)
+                    if not result.get("ok"):
+                        skipped.append({"from": original, "to": destination,
+                                        "reason": str(result.get("code") or "move_failed")})
+                        continue
+                else:
+                    os.makedirs(os.path.dirname(target), exist_ok=True)
+                    shutil.move(source, target)
+            except Exception as exc:  # 单项失败不该让整次撤销无声中断
+                skipped.append({"from": original, "to": destination,
+                                "reason": str(exc) or exc.__class__.__name__})
+                continue
             restored.append(original)
         cleanup: list[str] = []
         if recorded is not None:
             cleanup = [str(item) for item in recorded.get("created_folders") or []]
-            self._forget_organization(str(recorded.get("batch_id") or ""))
+            if skipped:
+                # 有跳过的项：台账必须留着（用户处理完冲突还能再撤），并把已还原的标出来，
+                # 免得下次重试又把它们当成"还躺在目标目录里"。
+                done = set(restored)
+                for entry in recorded.get("moves") or []:
+                    if str(entry.get("from") or "") in done:
+                        entry["state"] = "undone"
+                recorded["status"] = "partial_undo"
+                self._write_organization_batch(recorded)
+            else:
+                self._forget_organization(str(recorded.get("batch_id") or ""))
         else:
             # 调用方自带清单（旧调用方式）：把与之相符的那一步台账也清掉，
             # 否则界面会继续提示"可撤销"，而实际上已经撤销过了。
             undone = {(str(item.get("from") or ""), str(item.get("to") or "")) for item in moves or []}
             for candidate in self._load_organize_batches():
                 pairs = {(str(item.get("from") or ""), str(item.get("to") or "")) for item in candidate.get("moves") or []}
-                if pairs and pairs <= undone:
+                if pairs and pairs <= undone and not skipped:
                     cleanup.extend(str(item) for item in candidate.get("created_folders") or [])
                     self._forget_organization(str(candidate.get("batch_id") or ""))
         # 撤销要把这一步**自己建的空文件夹**一起收回去 —— 但用户原本就有的文件夹一根汗毛都不动。
@@ -2084,7 +2163,7 @@ class KBService:
                     os.rmdir(target)
             except OSError as exc:
                 logger.warning("organize: 撤销后清不掉空文件夹 %s：%s", folder, exc)
-        return _ok(restored=restored)
+        return _ok(restored=restored, skipped=skipped)
     def create_folder(self, relative_path: str) -> dict[str, Any]:
         """在资料库里新建一个真实文件夹（E17 ③）。"""
         cleaned = self._clean_relative(relative_path)
