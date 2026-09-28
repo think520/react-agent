@@ -172,3 +172,70 @@ def test_restart_can_undo_what_a_crash_left_behind(library, monkeypatch):
     assert (library / "first.md").is_file()
     assert not (library / "Lessons/first.md").exists()
     assert (library / "second.md").is_file(), "没搬成的那一份必须原样留在原地"
+
+def _rename_document_id(service: KBService, document_id: str, new_id: str) -> None:
+    """把索引里的身份换掉，模拟"索引重建"（真机上就是这么发生的）。"""
+    store = KBSQLiteStore(service.workspace)
+    store.init_db()
+    try:
+        conn = store._get_conn()
+        conn.execute("PRAGMA foreign_keys = OFF")
+        conn.execute("UPDATE documents SET id = ? WHERE id = ?", (new_id, document_id))
+        conn.commit()
+    finally:
+        store.close()
+
+
+def test_apply_retries_with_the_current_identity_when_the_index_rebuilt_it(library, monkeypatch):
+    """真机（2026-09-28）：计划到执行之间索引重建了身份，计划里的 id 已查不到 ——
+    必须按**现在的路径**重新解析并重试，而不是把一份好好的资料判成"搬不动"。
+    """
+    _sync(library, monkeypatch)
+    service = KBService(str(library))
+    renamed = {"done": False}
+    original_move = KBService.move_document
+
+    def flaky_move(self, document_id, target, config=None):
+        if not renamed["done"]:
+            renamed["done"] = True
+            _rename_document_id(self, str(document_id), "reindexed0000001")
+            return {"ok": False, "code": "document_not_found", "error": f"Document not found: {document_id}"}
+        return original_move(self, document_id, target, config=config)
+
+    monkeypatch.setattr(KBService, "move_document", flaky_move)
+
+    result = service.apply_organization(["first.md"], "Lessons")
+
+    assert result["ok"], result
+    assert (library / "Lessons/first.md").is_file()
+    sources = {row["source"] for row in KBSQLiteStore(str(library)).list_documents()}
+    assert any(source.endswith("Lessons/first.md") for source in sources), \
+        "重试必须走索引迁移（身份保留），而不是退化成一个裸搬文件"
+
+
+def test_a_batch_with_nothing_left_to_undo_is_not_reported_pending(library, monkeypatch):
+    """真机（2026-09-28）：第一项撤销成功、第二项其实**没搬成** ——
+    台账不该继续提示"可撤销"，那一项也不该被误报成"原位被占用"。
+    """
+    original = shutil.move
+    calls = 0
+
+    def fail_second(source, target):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("review injected failure")
+        return original(source, target)
+
+    monkeypatch.setattr("service.kb_service.shutil.move", fail_second)
+
+    service = KBService(str(library))
+    applied = service.apply_organization(["first.md", "second.md"], "Lessons")
+    assert applied["ok"] is False and len(applied["moved"]) == 1, applied
+    assert service.organization_state()["pending_undo"] is not None, "还有一份可以撤"
+
+    undone = service.undo_organization(batch_id=applied["batch_id"])
+
+    assert undone["restored"] == ["first.md"], undone
+    assert undone["skipped"] == [], "没搬成的那一项不该被报成'原位被占用'"
+    assert service.organization_state()["pending_undo"] is None, "已经没有可撤销的东西了"

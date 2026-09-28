@@ -1968,6 +1968,16 @@ class KBService:
             try:
                 if document is not None:
                     result = self.move_document(str(document.get("id")), destination_relative, config=config)
+                    if not result.get("ok") and str(result.get("code") or "") == "document_not_found":
+                        # 真机（2026-09-28）撞到过：计划到执行之间索引重建了身份，计划里记的 id
+                        # 已经查不到 —— 按**现在的路径**重新解析一次，别让资料因为过期 id 搬不动。
+                        fresh = self._document_by_path(str(plan["source"]))
+                        if fresh is not None:
+                            result = self.move_document(str(fresh.get("id")), destination_relative, config=config)
+                        if not result.get("ok") and str(result.get("code") or "") == "document_not_found":
+                            # 索引里彻底没有这条记录了：按未索引文件直接搬（身份已无从谈起）。
+                            shutil.move(str(plan["source"]), str(plan["destination"]))
+                            result = {"ok": True}
                 else:
                     shutil.move(str(plan["source"]), str(plan["destination"]))
                     result = {"ok": True}
@@ -2068,10 +2078,27 @@ class KBService:
             [batch for batch in self._load_organize_batches() if batch.get("batch_id") != batch_id]
         )
 
+    @staticmethod
+    def _batch_has_actionable_moves(batch: dict[str, Any]) -> bool:
+        """这一批还有没有"搬走了、没还回来"的项。
+
+        真机（2026-09-28）：一批里第一项撤销成功、第二项其实没搬成，台账却还挂着"可撤销"，
+        界面就会一直显示撤销入口 —— 没有任何东西可以撤销时不该提示撤销（状态字段见 apply_organization）。
+        """
+        moves = [item for item in batch.get("moves") or [] if isinstance(item, dict)]
+        if not moves:
+            return False
+        states = {str(item.get("state") or "moved") for item in moves}
+        if "moved" in states:
+            return True
+        # 计划已落盘、可能已经动过文件（进程被杀在这一刻）：仍然算待处理。
+        return str(batch.get("status") or "") in {"planned", "applying"}
+
     def organization_state(self) -> dict[str, Any]:
         """界面刷新后要知道"还有没有一步可以撤销"（E17 ⑤）。"""
         batches = self._load_organize_batches()
-        return _ok(pending_undo=batches[-1] if batches else None)
+        pending = next((batch for batch in reversed(batches) if self._batch_has_actionable_moves(batch)), None)
+        return _ok(pending_undo=pending)
 
     def undo_organization(
         self,
@@ -2099,8 +2126,10 @@ class KBService:
             original = self._clean_relative(str(move.get("from") or ""))
             if not destination or not original:
                 continue
-            if str(move.get("state") or "moved") in {"planned", "undone"}:
-                continue  # 计划里还没动过 / 上次撤销已经还回去了：没有东西要还
+            if str(move.get("state") or "moved") in {"planned", "undone", "failed"}:
+                # planned：计划里还没动过；undone：上次撤销已经还回去了；failed：它压根没搬成。
+                # 这三种都没有东西要还，也不该被误报成"原位被占用"。
+                continue
             source = os.path.abspath(os.path.join(self.workspace, destination))
             target = os.path.abspath(os.path.join(self.workspace, original))
             # **绝不覆盖**（审查 F03）：原位又出现了文件（用户后来新建的同名资料）就跳过
