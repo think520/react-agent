@@ -1,5 +1,5 @@
 import { readerLocation } from "../lib/documentLinks";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BookOpen, Check, Eye, Pencil, Pin, Plus, Search, Trash2, X } from "lucide-react";
 import { useOutletContext } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
@@ -23,10 +23,13 @@ interface NoteDraft {
 
 const emptyDraft: NoteDraft = { id: "", revision: 0, scope: "library", markdown: "", pinned: false, references: [] };
 const NOTE_DRAFT_PREFIX = "bobodan:note-draft:";
+/** 新笔记的草稿槽位：同一个资料库里同时只会写一篇新笔记。 */
+const NEW_NOTE_DRAFT_ID = "new";
 const MAX_NOTE_CONTENT_LENGTH = 5000;
 
-function noteDraftKey(libraryId?: string): string {
-  return NOTE_DRAFT_PREFIX + (libraryId || "global");
+/** 草稿**按笔记隔离**（F01）：资料库 + 笔记 id（新笔记用 new 槽位）。 */
+function noteDraftKey(libraryId: string | undefined, draftId: string): string {
+  return `${NOTE_DRAFT_PREFIX}${libraryId || "global"}:${draftId}`;
 }
 
 function readSavedDraft(key: string): NoteDraft | null {
@@ -60,10 +63,16 @@ function parseMarkdown(markdown: string): { title: string; content: string } {
 /** P5G.5 体验整改：个人笔记一级入口，沉浸式 Markdown 编辑（非填表）。 */
 export function NotesPage() {
   const { documents, activeLibrary, settings } = useOutletContext<AppOutletContext>();
-  const draftStorageKey = noteDraftKey(activeLibrary?.library_id);
+  const draftLibraryId = activeLibrary?.library_id;
+  const storageKeyFor = useCallback(
+    (item: { id: string } | null) => noteDraftKey(draftLibraryId, (item && item.id) || NEW_NOTE_DRAFT_ID),
+    [draftLibraryId],
+  );
   const [notes, setNotes] = useState<PersonalKnowledgeItem[]>([]);
   const [query, setQuery] = useState("");
-  const [draft, setDraft] = useState<NoteDraft | null>(() => readSavedDraft(draftStorageKey));
+  const [draft, setDraft] = useState<NoteDraft | null>(
+    () => readSavedDraft(noteDraftKey(draftLibraryId, NEW_NOTE_DRAFT_ID)),
+  );
   const latestDraftRef = useRef<NoteDraft | null>(draft);
   const [preview, setPreview] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -88,27 +97,46 @@ export function NotesPage() {
 
   useEffect(() => { void loadNotes(); }, []);
 
+  /** 落盘一篇草稿：有内容才写，**空草稿要删掉旧记录**（F01：清空后不许把旧正文找回来）。 */
+  const persistDraft = useCallback((next: NoteDraft | null) => {
+    if (!next) return;
+    const key = noteDraftKey(draftLibraryId, next.id || NEW_NOTE_DRAFT_ID);
+    try {
+      if (hasDraftContent(next)) window.localStorage.setItem(key, JSON.stringify(next));
+      else window.localStorage.removeItem(key);
+    } catch {
+      // 隐私模式等写不了 localStorage：不能因此影响编辑。
+    }
+  }, [draftLibraryId]);
+
   useEffect(() => {
-    const saved = readSavedDraft(draftStorageKey);
+    const saved = readSavedDraft(noteDraftKey(draftLibraryId, NEW_NOTE_DRAFT_ID));
     latestDraftRef.current = saved;
     setDraft(saved);
-  }, [draftStorageKey]);
+  }, [draftLibraryId]);
 
   useEffect(() => {
     latestDraftRef.current = draft;
-    if (!draft || !hasDraftContent(draft)) return;
-    const timer = window.setTimeout(() => {
-      localStorage.setItem(draftStorageKey, JSON.stringify(draft));
-    }, 250);
+    if (!draft) return;
+    const timer = window.setTimeout(() => persistDraft(draft), 250);
     return () => window.clearTimeout(timer);
-  }, [draft, draftStorageKey]);
+  }, [draft, persistDraft]);
 
-  useEffect(() => () => {
-    const current = latestDraftRef.current;
-    if (current && hasDraftContent(current)) {
-      localStorage.setItem(draftStorageKey, JSON.stringify(current));
-    }
-  }, [draftStorageKey]);
+  // F01 第三条：250ms 防抖窗口内刷新或关掉页面时，**浏览器不会等组件卸载** ——
+  // 页面生命周期事件里必须同步落一次盘，卸载清理只能算正常路由切换的兜底。
+  useEffect(() => {
+    const flush = () => persistDraft(latestDraftRef.current);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      flush();
+    };
+  }, [persistDraft]);
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
@@ -119,13 +147,24 @@ export function NotesPage() {
   const draftContentLength = useMemo(() => (draft ? parseMarkdown(draft.markdown).content.length : 0), [draft]);
 
   function startNew() {
-    setDraft(readSavedDraft(draftStorageKey) || { ...emptyDraft, scope: activeLibrary ? "library" : "global" });
+    persistDraft(latestDraftRef.current); // 切换前先把上一篇的草稿落盘（F01）
+    setDraft(readSavedDraft(noteDraftKey(draftLibraryId, NEW_NOTE_DRAFT_ID)) || { ...emptyDraft, scope: activeLibrary ? "library" : "global" });
     setPreview(false);
     setError("");
     setNotice("");
   }
 
   function startEdit(item: PersonalKnowledgeItem) {
+    persistDraft(latestDraftRef.current); // 切换前落盘，别让上一篇的未保存内容被顶掉（F01）
+    // F01 第一条：这篇笔记**自己有草稿就优先恢复草稿** —— 不拿服务端旧正文把它盖掉。
+    const saved = readSavedDraft(storageKeyFor(item));
+    if (saved && hasDraftContent(saved)) {
+      setDraft(saved);
+      setPreview(false);
+      setError("");
+      setNotice("已恢复这篇笔记没保存的修改。");
+      return;
+    }
     setDraft({
       id: item.id,
       revision: item.revision,
@@ -140,12 +179,8 @@ export function NotesPage() {
   }
 
   function closeEditor() {
-    if (draft && hasDraftContent(draft)) {
-      localStorage.setItem(draftStorageKey, JSON.stringify(draft));
-      setNotice("草稿已保留，点“写笔记”可以继续。");
-    } else {
-      localStorage.removeItem(draftStorageKey);
-    }
+    persistDraft(draft);
+    setNotice(draft && hasDraftContent(draft) ? "草稿已保留，点“写笔记”可以继续。" : "");
     setDraft(null);
     setPreview(false);
     setError("");
@@ -193,7 +228,7 @@ export function NotesPage() {
           references: draft.references,
         });
       }
-      localStorage.removeItem(draftStorageKey);
+      window.localStorage.removeItem(storageKeyFor(draft));
       latestDraftRef.current = null;
       setDraft(null);
       setPreview(false);
@@ -219,6 +254,7 @@ export function NotesPage() {
     if (!(await confirm({ title: `删除笔记“${item.title}”？`, detail: "删除后无法恢复。", confirmLabel: "删除笔记", danger: true }))) return;
     try {
       await api.deleteMemoryKnowledge(item.id);
+      window.localStorage.removeItem(storageKeyFor(item)); // 笔记没了，草稿也别留着
       await loadNotes();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "删除失败。");
