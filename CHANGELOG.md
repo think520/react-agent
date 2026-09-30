@@ -7,6 +7,12 @@
 ## [未发布]
 
 ### 变更
+- **审查整改收尾：F01–F10 全部修完，状态表按实际验收更正（2026-09-28 后续）**：
+  - **第四批（失败会话与练习关联）**：F05 失败重试沿用已分配会话、F06 失败一轮写进会话历史（含会话详情投影修正）、F10 辅导关联跨重新挂载恢复 —— 见上一条。
+  - **终局门禁**：后端 **1651 passed**、前端 24 文件 / **136 passed**、tsc/eslint/build **0**、live **7 passed**。
+  - **真机三场景**：整理中断（搬到一半被杀 → 重启仍可撤销）、**撤销冲突**（scratch 资料库：原位有新文件时 `restored=[]`、`skipped=[target_exists]`、新文件内容完好、台账保留）、导入重复零写入（真库 inbox 1→1、文档 47→47）。
+  - **文档**：`docs/reviews/2026-09-28-remediation-code-review.md` 新增 §4.2 终局门禁与真机场景、§5 明确 PR 基线（建议 `codex/…` → `feat/in-page-original-view`，不是 main）、§6 五步全部勾掉；`docs/ROADMAP.md` §0.1 的状态按实际验收结果更正（R01/R02/R09/R11/R12 已验证；**R05 只保留"取消导入"未做**）。
+  - **仍未做（明确不在本轮，且不冒充完成）**：R05 取消进行中的导入、R03 抽屉焦点/Escape 专项、R04 截断 PDF 专项、R06 300 文件性能实验复跑、R07 完整连接验收、R10 真实模型教学质量；F05/F06/F10 未做真实 provider 失败/真实练习会话下的端到端验收。
 - **R01/R11 失败会话与练习关联补齐（2026-09-28，审查 F05/F06/F10）**：按审查 §6 的**第 4 批（失败会话与恢复）**做完，三条失败探针转正为回归。
   - **F05（失败重试丢掉已分配的会话）**：`run_started` 里回来的 `chat_session_id` 已经存在 ref 上，重试现在沿用它（`sessionId || sessionIdRef.current`），不再因为路由参数没更新而另开一个新会话、把上一轮历史丢掉。回归：`ChatPage.test.tsx`（**修前红**：`expected undefined to be 'allocated-session'`）。
   - **F06（失败一轮不进历史）**：后端在 run 异常时用 `Session.add_failed_message` 把这一轮写进会话（带 `failed`/`error`），并修掉 `_session_detail` 投影**把失败标记静默丢掉**的问题（此前只输出 role/content）。回归：`tests/test_web_backend.py::test_failed_chat_run_keeps_a_failed_turn_in_the_history`。

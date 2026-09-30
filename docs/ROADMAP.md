@@ -56,7 +56,9 @@
 R12 的覆盖式“导入为新版本”仍是独立产品能力，不能用当前的安全另存规则替代；如果要实现，必须先补版本快照、冲突确认、恢复和引用迁移验收。
 
 2026-09-25 原始整改门禁：后端 `1638 passed`；前端 24 个测试文件、`127 passed`，lint 与 production build 通过；Playwright desktop / narrow-desktop / mobile `89 passed`、19 skipped、0 failed。跳过项为需要真实后端的 live 用例与移动端不适用的 reduced-motion 用例，不作为已验证能力冒充通过。
-随后 R09/R02 修复的最近门禁：后端全量 `1647 passed`；前端 24 个测试文件、`132 passed`，tsc、lint 与 production build 通过；R09 恢复回归 `9 passed`。
+随后 R09/R02 修复的门禁：后端全量 `1647 passed`；前端 24 个测试文件、`132 passed`，tsc、lint 与 production build 通过；R09 恢复回归 `9 passed`。
+
+**2026-09-28 审查整改终局门禁（F01–F10 全部修完）**：后端全量 **`1651 passed`**；前端 24 个测试文件 / **`136 passed`**，tsc / eslint / production build **0 错误**；Playwright live（真实后端 + 真实资料库）**`7 passed`**。真机场景：整理中断可恢复、撤销冲突不覆盖（scratch 资料库实测）、导入重复零写入（真库 inbox 1→1、文档 47→47）。详见 `docs/reviews/2026-09-28-remediation-code-review.md` §4.2。
 
 ### 状态口径
 
