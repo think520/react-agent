@@ -7,6 +7,13 @@
 ## [未发布]
 
 ### 变更
+- **R01/R11 失败会话与练习关联补齐（2026-09-28，审查 F05/F06/F10）**：按审查 §6 的**第 4 批（失败会话与恢复）**做完，三条失败探针转正为回归。
+  - **F05（失败重试丢掉已分配的会话）**：`run_started` 里回来的 `chat_session_id` 已经存在 ref 上，重试现在沿用它（`sessionId || sessionIdRef.current`），不再因为路由参数没更新而另开一个新会话、把上一轮历史丢掉。回归：`ChatPage.test.tsx`（**修前红**：`expected undefined to be 'allocated-session'`）。
+  - **F06（失败一轮不进历史）**：后端在 run 异常时用 `Session.add_failed_message` 把这一轮写进会话（带 `failed`/`error`），并修掉 `_session_detail` 投影**把失败标记静默丢掉**的问题（此前只输出 role/content）。回归：`tests/test_web_backend.py::test_failed_chat_run_keeps_a_failed_turn_in_the_history`。
+  - **F10（练习辅导关联刷新即失效）**：辅导会话按"练习题 + 题目"记进 `sessionStorage`（`bobodan:practice-tutor:<练习 id>`），挂载/切换练习时恢复。回归：`PracticePage.test.tsx`（**红/绿都验过**：两处恢复都关掉时 `expected undefined to be 'tutor-session-1'`）。
+  - **验证口径**：F05/F10 组件级、F06 HTTP 级（FastAPI TestClient + 临时工作区）；这三条**没有**真机端到端验收（需要真实 provider 失败或真实练习会话，会污染资料库/消耗额度），不冒充真机结论。
+  - **验证**：后端 **1651 passed**；前端 24 文件 / **136 passed**、tsc **0**、eslint **0**、构建 **0**；live **7 passed**。
+  - **状态**：审查的 **F01–F10 全部有修复与回归**。仍未做的是**不属于 F 系列**的边界项：R05 的"取消导入"、R03 抽屉焦点、R04 截断 PDF 专项、R06 性能实验复跑、R07 完整连接验收、R10 真实模型教学质量。
 - **R05/R12 导入链路补齐：去重以索引为准、重试真的补索引、计数只算这批（2026-09-28，审查 F04/F08/F09）**：按审查 §6 的**第 3 批（导入）**做完，三条失败探针从 `evidence/2026-09-28/backend-probe-source.py.txt` 转正为回归（**修前 3 条全红**）。
   - **F08（去重只扫 inbox）**：`documents.content_hash` 存的就是文件字节的 sha256（与上传时同算法），去重因此改成**查索引** —— 资料被整理到别的目录后，再传同样字节也认得出；inbox 扫描只保留来兜"盘上有、索引里没有"的那种。
   - **F04（重试被当成重复、永不补索引）**：命中相同字节时区分"**已建索引**"（跳过）与"**盘上有、索引没建完**"（不写副本、重新送进同步、报 `pending`）。同步失败不再抛 500，而是结构化返回 `import_sync_failed`（带 imported/pending/results）。
