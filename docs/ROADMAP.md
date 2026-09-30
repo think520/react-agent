@@ -47,7 +47,7 @@
 | R06 知识块数量 | 已验证 | 单次 SQL 携带 chunk_count；本次未重跑 300 文件性能实验 |
 | R07 引导连接状态 | 已验证（限定） | 配置存在不再冒充连接已验证；最近验证时间等未完整验收 |
 | R08 手动笔记与记忆开关 | 已验证 | 手动创建/更新不再受自动记忆开关限制 |
-| R09 文件整理恢复 | **已验证（2026-09-28 补齐）** | 先写计划再动手、已索引异常落账、撤销不覆盖用户新文件、部分结果穿过 HTTP 并给出界面恢复入口；回归见 `tests/test_organization_recovery.py` |
+| R09 文件整理恢复 | **已验证（2026-09-30 复核）** | 先写计划再动手、已索引异常落账、撤销不覆盖用户新文件、部分结果穿过 HTTP 并给出界面恢复入口；无 `batch_id` 撤销会跳过零成功失败批次，选择最近仍可恢复的批次；回归见 `tests/test_organization_recovery.py`（9 条） |
 | R10 反馈与解析 | 已验证 | 客观题语义拆分与历史重复解释显示有测试；真实模型质量不在验证范围 |
 | R11 同题辅导 | 进行中 | 单次挂载内复用；**刷新后恢复关联失败**（F10） |
 | R12 复习 / 重复导入 | 进行中 | 下一次复习解释已实现；**去重失败重试与跨目录匹配有问题**（F04/F08） |
@@ -55,7 +55,8 @@
 
 R12 的覆盖式“导入为新版本”仍是独立产品能力，不能用当前的安全另存规则替代；如果要实现，必须先补版本快照、冲突确认、恢复和引用迁移验收。
 
-本轮最终门禁：后端 `1638 passed`；前端 24 个测试文件、`127 passed`，lint 与 production build 通过；Playwright desktop / narrow-desktop / mobile `89 passed`、19 skipped、0 failed。跳过项为需要真实后端的 live 用例与移动端不适用的 reduced-motion 用例，不作为已验证能力冒充通过。
+2026-09-25 原始整改门禁：后端 `1638 passed`；前端 24 个测试文件、`127 passed`，lint 与 production build 通过；Playwright desktop / narrow-desktop / mobile `89 passed`、19 skipped、0 failed。跳过项为需要真实后端的 live 用例与移动端不适用的 reduced-motion 用例，不作为已验证能力冒充通过。
+随后 R09/R02 修复的最近门禁：后端全量 `1647 passed`；前端 24 个测试文件、`132 passed`，tsc、lint 与 production build 通过；R09 恢复回归 `9 passed`。
 
 ### 状态口径
 

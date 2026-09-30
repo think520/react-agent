@@ -2108,8 +2108,8 @@ class KBService:
     ) -> dict[str, Any]:
         """一键撤销上一步整理：按 moved 清单把每份资料放回原位（身份同样保留）。
 
-        不传清单时，用**服务端台账里的最后一步**——这样刷新页面、甚至重启应用之后，
-        用户仍然点得到「撤销」。
+        不传清单时，用**服务端台账里最近仍有可执行动作的一步**——零成功的失败批次
+        不会遮蔽旧批次；这样刷新页面、甚至重启应用之后，用户仍然点得到「撤销」。
         """
         batches = self._load_organize_batches()
         recorded: dict[str, Any] | None = None
@@ -2117,7 +2117,12 @@ class KBService:
             if batch_id:
                 recorded = next((item for item in batches if item.get("batch_id") == batch_id), None)
             else:
-                recorded = batches[-1] if batches else None
+                # Keep selection consistent with organization_state(). A newer
+                # zero-success failure batch must not hide an older actionable batch.
+                recorded = next(
+                    (batch for batch in reversed(batches) if self._batch_has_actionable_moves(batch)),
+                    None,
+                )
             moves = [item for item in (recorded or {}).get("moves") or [] if isinstance(item, dict)]
         restored: list[str] = []
         skipped: list[dict[str, str]] = []

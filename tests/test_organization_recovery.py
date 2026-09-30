@@ -239,3 +239,24 @@ def test_a_batch_with_nothing_left_to_undo_is_not_reported_pending(library, monk
     assert undone["restored"] == ["first.md"], undone
     assert undone["skipped"] == [], "没搬成的那一项不该被报成'原位被占用'"
     assert service.organization_state()["pending_undo"] is None, "已经没有可撤销的东西了"
+
+def test_undo_without_batch_id_uses_the_latest_actionable_batch(library, monkeypatch):
+    """最新的失败批次不能遮住更早仍可撤销的批次。"""
+    service = KBService(str(library))
+    applied = service.apply_organization(["first.md"], "Lessons")
+    assert applied["ok"], applied
+
+    def fail_move(source, target):
+        raise OSError("review injected: no move completed")
+
+    monkeypatch.setattr("service.kb_service.shutil.move", fail_move)
+    failed = service.apply_organization(["second.md"], "Blocked")
+    assert failed["ok"] is False and failed["moved"] == [], failed
+    assert service.organization_state()["pending_undo"]["batch_id"] == applied["batch_id"]
+
+    monkeypatch.undo()
+    undone = service.undo_organization()
+
+    assert undone["ok"], undone
+    assert undone["restored"] == ["first.md"], undone
+    assert service.organization_state()["pending_undo"] is None
