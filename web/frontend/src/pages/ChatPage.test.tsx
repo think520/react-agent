@@ -71,3 +71,27 @@ describe("ChatPage initialization", () => {
     await waitFor(() => expect(composer).toHaveValue("帮我安排学习路线"));
   });
 });
+
+import { streamChat } from "../lib/api";
+vi.mock("../lib/api", async (original) => ({ ...await original<typeof import("../lib/api")>(), streamChat: vi.fn() }));
+
+// R01/F05（2026-09-28 审查）：run_failed 之前服务端已经分配了会话，重试必须**沿用它**。
+// 修之前：重试走的是路由参数（此时还是空的），于是又开了一个新会话，上一轮的历史找不回来。
+it("R01: retry after run_failed preserves the allocated chat session", async () => {
+  hoisted.ctx.activeLibrary = { library_id: "audit-library" };
+  vi.mocked(streamChat).mockImplementation(async (...args) => {
+    args[4]({ event: "run_started", data: { run_id: "r", chat_session_id: "allocated-session" } });
+    throw new Error("provider unavailable");
+  });
+  render(<MemoryRouter initialEntries={["/chat"]}><ChatPage /></MemoryRouter>);
+  const composer = screen.getByRole("textbox", { name: "消息" });
+  fireEvent.change(composer, { target: { value: "请解释这段内容" } });
+  fireEvent.submit(composer.closest("form")!);
+  await waitFor(() => expect(streamChat).toHaveBeenCalledTimes(1), { timeout: 700 });
+  await waitFor(() => expect(screen.getByRole("button", { name: "发送" })).toBeInTheDocument(), { timeout: 700 });
+
+  fireEvent.click(screen.getByRole("button", { name: "重新发送本轮" }));
+  await waitFor(() => expect(streamChat).toHaveBeenCalledTimes(2), { timeout: 700 });
+
+  expect(vi.mocked(streamChat).mock.calls[1][1]).toBe("allocated-session");
+});

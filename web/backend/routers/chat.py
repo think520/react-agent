@@ -241,6 +241,12 @@ def _session_detail(session: Session, workspace: str | None = None) -> dict[str,
             messages.append(item)
         elif role == "assistant" and not message.get("tool_calls") and content:
             item = {"role": "assistant", "content": content}
+            # F06：失败标记必须一起出去，否则刷新后这一轮看起来像正常回答过。
+            for flag in ("failed", "stopped"):
+                if message.get(flag):
+                    item[flag] = True
+            if message.get("failed") and message.get("error"):
+                item["error"] = message["error"]
             attribution = _public_attribution(message.get("attribution"))
             if attribution:
                 item["attribution"] = attribution
@@ -1712,12 +1718,19 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
             })
         except Exception as exc:
             logger.exception("Web chat run failed: %s", exc)
+            failure = {
+                "code": "run_failed",
+                "message": "The AI run failed. Please try again.",
+            }
+            # F06：失败也要写进会话（下面 finally 会保存）—— 否则刷新之后这一轮凭空消失，
+            # 用户只看见自己那句提问，也不知道刚才到底发生了什么。
+            try:
+                session.add_failed_message("assistant", failure["message"], failure["message"], failure["code"])
+            except Exception:  # 记不上失败也不能影响 run_failed 事件本身
+                logger.warning("Could not record the failed turn in the session", exc_info=True)
             yield emitter.emit("run_failed", {
                 "run_id": run_id,
-                "error": {
-                    "code": "run_failed",
-                    "message": "The AI run failed. Please try again.",
-                },
+                "error": failure,
             })
         finally:
             # A4 batch 3: the pump owns this generator, so a dropped client no

@@ -87,3 +87,25 @@ describe("PracticePage AI tutor", () => {
     expect(vi.mocked(streamChat).mock.calls[1][1]).toBe("tutor-session-1");
   });
 });
+
+// R11/F10（2026-09-28 审查）：辅导会话关联原来只存在组件 ref 里，重新挂载就没了。
+beforeEach(() => {
+  window.sessionStorage.clear();
+});
+
+it("R11: reuses tutor session after remounting the same practice", async () => {
+  const view = render(<PracticePage />);
+  await screen.findByText("什么是 RAG？");
+  fireEvent.click(screen.getByRole("button", { name: "问 AI" }));
+  fireEvent.click(screen.getByRole("button", { name: "发送" }));
+  await waitFor(() => expect(streamChat).toHaveBeenCalledTimes(1));
+
+  view.unmount();
+  render(<PracticePage />);
+  await screen.findByText("什么是 RAG？");
+  fireEvent.click(screen.getByRole("button", { name: "问 AI" }));
+  fireEvent.click(screen.getByRole("button", { name: "发送" }));
+  await waitFor(() => expect(streamChat).toHaveBeenCalledTimes(2));
+
+  expect(vi.mocked(streamChat).mock.calls[1][1]).toBe("tutor-session-1");
+});

@@ -61,6 +61,41 @@ function difficultyLabel(value?: string) {
   return value || "自适应难度";
 }
 
+const TUTOR_SESSION_PREFIX = "bobodan:practice-tutor:";
+
+/** 辅导会话按"练习题 + 题目"记在 sessionStorage 里（R11/F10）。
+
+2026-09-28 审查：关联原来只存在组件 ref 里，重新挂载/刷新就没了，同一个问题会另开一个
+会话，上一轮追问的上下文接不上。题目 id 跟着练习走，练习结束（关标签页）就该清掉，
+所以用 sessionStorage 而不是 localStorage。
+*/
+function readTutorSessions(practiceSessionId: number | null): Record<number, string> {
+  if (!practiceSessionId) return {};
+  try {
+    const raw = window.sessionStorage.getItem(TUTOR_SESSION_PREFIX + practiceSessionId);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, string>;
+    return Object.fromEntries(
+      Object.entries(parsed).map(([key, value]) => [Number(key), String(value)]),
+    );
+  } catch {
+    return {};
+  }
+}
+
+function writeTutorSessions(practiceSessionId: number | null, sessions: Record<number, string>): void {
+  if (!practiceSessionId) return;
+  try {
+    if (Object.keys(sessions).length) {
+      window.sessionStorage.setItem(TUTOR_SESSION_PREFIX + practiceSessionId, JSON.stringify(sessions));
+    } else {
+      window.sessionStorage.removeItem(TUTOR_SESSION_PREFIX + practiceSessionId);
+    }
+  } catch {
+    // 隐私模式等写不了 sessionStorage：记不住关联不影响提问本身。
+  }
+}
+
 export function PracticePage() {
   const { practiceSessionId } = useParams();
   const navigate = useNavigate();
@@ -84,7 +119,7 @@ export function PracticePage() {
   const [aiOpen, setAiOpen] = useState(false);
   const [aiQuestion, setAiQuestion] = useState("给我一个不直接揭示答案的提示。");
   const [aiAnswer, setAiAnswer] = useState("");
-  const aiSessionByQuestionRef = useRef<Record<number, string>>({});
+  const aiSessionByQuestionRef = useRef<Record<number, string>>(readTutorSessions(id));
   // 问 AI answers stream through the same 30fps typewriter buffer as Chat so
   // SSE bursts don't appear as raw block dumps.
   const aiBufferRef = useRef<StreamBuffer | null>(null);
@@ -120,7 +155,7 @@ export function PracticePage() {
     setAiOpen(false);
     setAiAnswer("");
     setAiError("");
-    aiSessionByQuestionRef.current = {};
+    aiSessionByQuestionRef.current = readTutorSessions(id);
     setWebConsent(null);
     if (id) {
       try { setResolution(JSON.parse(sessionStorage.getItem(`bobodan:practice-resolution:${id}`) || "null")); }
@@ -234,6 +269,7 @@ export function PracticePage() {
         if (streamEvent.event === "run_started") {
           nextSessionId = streamEvent.data.chat_session_id;
           aiSessionByQuestionRef.current[currentQuestion.id] = nextSessionId;
+          writeTutorSessions(id, aiSessionByQuestionRef.current);
         }
         if (streamEvent.event === "status") setAiStatus(streamEvent.data.message);
         if (streamEvent.event === "message_delta") {

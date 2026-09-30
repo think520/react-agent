@@ -1365,6 +1365,49 @@ def test_chat_stream_finalizer_retries_failed_session_save(backend_client, monke
     assert len(save_calls) == 2
 
 
+def test_failed_chat_run_keeps_a_failed_turn_in_the_history(backend_client, monkeypatch):
+    """R01/F06：失败的那一轮必须留在会话历史里，刷新后还看得见。
+
+    来源：`docs/reviews/2026-09-28-remediation-code-review.md` §2 与
+    `docs/reviews/evidence/2026-09-28/backend-probe-source.py.txt:123-139`。
+    修之前：run_failed 只把错误发进流里，会话里只剩用户那一句 —— 刷新后这一轮像没发生过。
+    """
+    runtime = SimpleNamespace(
+        workspace=str(backend_client.workspace),
+        skills_prompt=None,
+        memory_prompt=None,
+        create_provider=lambda _name, model=None: object(),
+        refresh_memory=lambda: None,
+        create_trace=lambda _session_id: object(),
+    )
+
+    def failed_run(**kwargs):
+        kwargs["session"].add_message("user", kwargs["user_input"])
+        raise RuntimeError("review simulated provider exception")
+        yield  # pragma: no cover - 保持生成器形状
+
+    monkeypatch.setattr("web.backend.routers.chat.get_runtime_context", lambda: runtime)
+    monkeypatch.setattr("web.backend.routers.chat.AgentService.run_stream", failed_run)
+
+    response = backend_client.post("/api/chat/runs", json={"message": "explain vectors", "save": True})
+
+    assert "event: run_failed" in response.text
+    payloads = [
+        json.loads(line[len("data: "):])
+        for line in response.text.splitlines()
+        if line.startswith("data: ")
+    ]
+    session_id = next(item["chat_session_id"] for item in payloads if "chat_session_id" in item)
+
+    detail = backend_client.get(f"/api/chat/sessions/{session_id}").json()
+    messages = detail["messages"]
+    assert any(
+        message.get("failed")
+        or any(artifact.get("status") == "failed" for artifact in message.get("artifacts", []))
+        for message in messages
+    ), f"失败的一轮没有留在历史里: {messages}"
+
+
 def test_chat_persists_web_consent_artifact_without_network_access(backend_client, monkeypatch):
     runtime = SimpleNamespace(
         workspace=str(backend_client.workspace), skills_prompt=None, memory_prompt=None,

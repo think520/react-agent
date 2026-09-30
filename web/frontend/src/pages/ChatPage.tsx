@@ -398,13 +398,17 @@ export function ChatPage() {
     const outgoingReferences = [...references];
     setReferences([]);
     setMessages((current) => [...current, { role: "user", content: message, references: outgoingReferences }, { role: "assistant", content: "", pending: true }]);
-    let nextSessionId = sessionId;
+    // F05（2026-09-28 审查）：上一轮失败时，服务端其实**已经分配了会话**（run_started 里回过
+    // chat_session_id），只是路由还没跳过去。重试必须沿用它 —— 否则又开一个新会话，
+    // 用户刚才那一轮的历史就再也接不上了。
+    const targetSessionId = sessionId || sessionIdRef.current || undefined;
+    let nextSessionId = targetSessionId;
     const controller = new AbortController();
     abortRef.current = controller;
     try {
       const profile = useUiStore.getState().learningProfile;
       const [sendProvider, sendModel] = (selectedProvider || settings?.default_provider || "").split("::");
-      await streamChat(message, sessionId, selectedDocumentIds, {
+      await streamChat(message, targetSessionId, selectedDocumentIds, {
         ...profile,
         memoryEnabled: settings?.preferences.memory.enabled ?? true,
         provider: sendProvider || undefined,

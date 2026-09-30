@@ -95,6 +95,22 @@ class Session:
         self.last_active = datetime.now().isoformat()
         self._trim_messages()
 
+    def add_failed_message(self, role: str, content: str, error: str, code: str = "run_failed") -> None:
+        """记下"这一轮失败了"。
+
+        2026-09-28 审查 F06：失败如果只发进 SSE 流、不写进会话，刷新或重开会话后这一轮
+        就像没发生过（用户只看到自己那句提问）。失败也是历史的一部分，要留在会话里。
+        """
+        self.messages.append({
+            "role": role,
+            "content": content,
+            "failed": True,
+            "error": error,
+            "error_code": code,
+        })
+        self.last_active = datetime.now().isoformat()
+        self._trim_messages()
+
     def add_message_with_tool_calls(self, role: str, content: str, tool_calls: list) -> None:
         msg = {"role": role, "content": content, "tool_calls": tool_calls}
         self.messages.append(msg)
