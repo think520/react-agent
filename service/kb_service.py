@@ -1301,37 +1301,70 @@ class KBService:
             )
         allowed = {".md", ".txt", ".pdf", ".docx", ".pptx"}
         os.makedirs(self.managed_sources_dir, exist_ok=True)
-        imported = []
-        duplicates = []
-        rejected = []
-        existing_hashes: dict[str, str] = {}
+
+        # 去重有**两个**来源，职责不同（审查 F08 修的就是第一个只扫 inbox 的问题）：
+        #   1. 索引里的内容哈希 —— 资料被移动/改名后依然认得出来；
+        #   2. inbox 里"盘上有、索引里没有"的文件 —— 上次同步失败留下的那一份（审查 F04）。
+        indexed_hashes = self._indexed_content_hashes() if duplicate_strategy == "keep_existing" else {}
+        inbox_hashes: dict[str, str] = {}
         if duplicate_strategy == "keep_existing":
             for root, _dirs, names in os.walk(self.managed_sources_dir):
                 for name in names:
                     path = os.path.join(root, name)
                     try:
                         with open(path, "rb") as handle:
-                            existing_hashes.setdefault(
+                            inbox_hashes.setdefault(
                                 hashlib.sha256(handle.read()).hexdigest(),
                                 os.path.relpath(path, self.managed_sources_dir).replace(os.sep, "/"),
                             )
                     except OSError:
                         continue
 
+        imported: list[str] = []
+        duplicates: list[dict[str, Any]] = []
+        rejected: list[dict[str, Any]] = []
+        pending: list[dict[str, Any]] = []
+        outcomes: list[dict[str, Any]] = []
+
+        def record(filename: str, status: str, absolute: str, **extra: Any) -> None:
+            outcomes.append({
+                "filename": filename,
+                "status": status,
+                "path": self._relative_to_workspace(absolute) if absolute else "",
+                **extra,
+            })
+
         for filename, content in files:
             safe_name = os.path.basename(filename).strip()
             extension = os.path.splitext(safe_name)[1].lower()
             if not safe_name or extension not in allowed:
                 rejected.append({"filename": filename, "reason": "unsupported_file_type"})
+                record(filename, "rejected", "", reason="unsupported_file_type")
                 continue
             content_digest = hashlib.sha256(content).hexdigest()
-            if duplicate_strategy == "keep_existing" and content_digest in existing_hashes:
-                duplicates.append({
-                    "filename": filename,
-                    "existing": existing_hashes[content_digest],
-                    "reason": "identical_content",
-                })
-                continue
+            if duplicate_strategy == "keep_existing":
+                known = indexed_hashes.get(content_digest)
+                if known is not None and known.get("indexed"):
+                    duplicates.append({
+                        "filename": filename,
+                        "existing": known.get("path", ""),
+                        "reason": "identical_content",
+                    })
+                    record(filename, "duplicate", os.path.join(self.workspace, str(known.get("path") or "")),
+                           existing=known.get("path", ""), reason="identical_content")
+                    continue
+                on_disk = inbox_hashes.get(content_digest)
+                if on_disk is not None or known is not None:
+                    # 字节已经在库里，但**索引没建完**（上次同步失败 / 只切了行没有片段）：
+                    # 不再写一份副本，直接把这份重新送进同步（审查 F04）。
+                    pending.append({
+                        "filename": filename,
+                        "existing": on_disk or str(known.get("path") or ""),
+                        "reason": "awaiting_index",
+                    })
+                    record(filename, "pending", os.path.join(self.managed_sources_dir, on_disk or safe_name),
+                           existing=on_disk or "", reason="awaiting_index")
+                    continue
             target = os.path.join(self.managed_sources_dir, safe_name)
             stem, extension = os.path.splitext(safe_name)
             counter = 2
@@ -1341,20 +1374,53 @@ class KBService:
             with open(target, "wb") as handle:
                 handle.write(content)
             imported.append(os.path.basename(target))
-            existing_hashes.setdefault(
+            inbox_hashes.setdefault(
                 content_digest,
                 os.path.relpath(target, self.managed_sources_dir).replace(os.sep, "/"),
             )
+            record(filename, "imported", target)
 
-        if not imported and not duplicates:
+        if not imported and not duplicates and not pending:
             return _err("No supported files were provided")
 
-        summary = self._sync_registered_sources(mode="incremental", config=config or {}) if imported else None
+        # 逐文件结果要**绑定到本次批次**：这一批里哪些能检索、哪些还在等索引（审查 F09）。
+        def results_for_batch(documents: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+            described: list[dict[str, Any]] = []
+            for outcome in outcomes:
+                document = documents.get(os.path.abspath(os.path.join(self.workspace, outcome["path"]))) if outcome["path"] else None
+                chunks = int((document or {}).get("chunk_count") or 0)
+                described.append({
+                    **outcome,
+                    "searchable": chunks > 0,
+                    "chunks": chunks,
+                    "extraction": (document or {}).get("extraction_status") or None,
+                })
+            return described
+
+        summary = None
+        if imported or pending:
+            try:
+                summary = self._sync_registered_sources(mode="incremental", config=config or {})
+            except Exception as exc:  # 同步失败要**如实结构化返回**，而不是把 500 抛给界面（审查 F04）
+                return _err(
+                    f"文件已经收进资料库，但建立索引失败：{exc}",
+                    code="import_sync_failed",
+                    imported=imported,
+                    duplicates=duplicates,
+                    rejected=rejected,
+                    pending=pending,
+                    results=results_for_batch(self._documents_by_path()),
+                    library_sync={"extraction_counts": {}, "error_files": 0},
+                )
         return _ok(
             imported=imported,
             duplicates=duplicates,
             rejected=rejected,
-            sync=summary.to_dict() if summary else {"extraction_counts": {}, "error_files": 0},
+            pending=pending,
+            results=results_for_batch(self._documents_by_path()),
+            # 全库增量同步单独一个字段：它可以比这批大（资料库里别的文件也变了），
+            # 但**不能**拿来当本次上传的计数（审查 F09）。
+            library_sync=summary.to_dict() if summary else {"extraction_counts": {}, "error_files": 0},
         )
 
     # --- Status ---
@@ -1855,9 +1921,11 @@ class KBService:
                 return _ok(proposals=proposals, source="model", degraded=degraded)
         return _ok(proposals=self._rule_organization_proposals(loose), source="rules", degraded=degraded)
 
-    def _document_by_path(self, absolute: str) -> dict[str, Any] | None:
+    def _documents_by_path(self) -> dict[str, dict[str, Any]]:
+        """绝对路径 → 文档行。**一次扫描**建索引，别每个文件都 list_documents 一遍。"""
         from rag.sqlite_store import KBSQLiteStore
 
+        index: dict[str, dict[str, Any]] = {}
         store = KBSQLiteStore(self.workspace)
         store.init_db()
         try:
@@ -1866,11 +1934,46 @@ class KBService:
                 if not stored:
                     continue
                 candidate = stored if os.path.isabs(stored) else os.path.join(self.workspace, stored)
-                if os.path.abspath(candidate) == os.path.abspath(absolute):
-                    return document
+                index.setdefault(os.path.abspath(candidate), document)
         finally:
             store.close()
-        return None
+        return index
+
+    def _document_by_path(self, absolute: str) -> dict[str, Any] | None:
+        return self._documents_by_path().get(os.path.abspath(absolute))
+
+    def _indexed_content_hashes(self) -> dict[str, dict[str, Any]]:
+        """内容哈希 → {path, indexed}（F08：去重以**索引**为准，资料被移动/改名也认得出来）。
+
+        `documents.content_hash` 存的就是文件字节的 sha256（`obsidian/sync.py:220/294`），
+        与上传时算的 `sha256(content)` 同一算法 —— 所以不必每次上传把全库文件读一遍。
+        老数据可能没有 content_hash：那种行会被跳过（见 CHANGELOG 的已知边界）。
+        """
+        from rag.sqlite_store import KBSQLiteStore
+
+        index: dict[str, dict[str, Any]] = {}
+        db_path = knowledge_path(self.workspace, "knowledge.db")
+        if not os.path.exists(db_path):
+            return index
+        store = KBSQLiteStore(self.workspace)
+        store.init_db()
+        try:
+            for document in store.list_documents():
+                digest = str(document.get("content_hash") or "")
+                stored = str(document.get("path") or "")
+                if not digest or not stored:
+                    continue
+                candidate = stored if os.path.isabs(stored) else os.path.join(self.workspace, stored)
+                if not self._is_within_workspace(candidate, self.workspace) or self._is_internal_path(candidate):
+                    continue
+                index.setdefault(digest, {
+                    "path": self._relative_to_workspace(candidate),
+                    # 只有真的切出片段才算"建好了索引"：光有行不算完成（审查 F04）。
+                    "indexed": bool(document.get("chunk_count") or 0) > 0,
+                })
+        finally:
+            store.close()
+        return index
 
     def apply_organization(self, items: list[str], target_folder: str, config: dict | None = None) -> dict[str, Any]:
         """把散落的资料收进一个文件夹，并返回**可撤销的动作清单**（E17 ⑤）。

@@ -191,7 +191,9 @@ async def import_files(
         )
     )
     result = unwrap_service_result(service_result)
-    result["sync"] = _public_sync(result["sync"])
+    # 全库增量同步单列一个字段：它可以比这批大（资料库里别的文件也变了），
+    # 但**不能**拿来当本次上传的计数（审查 F09）。
+    result["library_sync"] = _public_sync(result["library_sync"])
     return result
 
 

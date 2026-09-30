@@ -388,7 +388,20 @@ export const api = {
     const form = new FormData();
     files.forEach((file) => form.append("files", file));
     form.append("duplicate_strategy", duplicateStrategy);
-    return request<{ imported: string[]; duplicates?: Array<{ filename: string; existing: string; reason: string }>; rejected: unknown[]; sync: KnowledgeSyncSummary }>(
+    return request<{
+      imported: string[];
+      duplicates?: Array<{ filename: string; existing: string; reason: string }>;
+      /** 字节已经在库里、这次是**补做索引**的那些（F04）。 */
+      pending?: Array<{ filename: string; existing: string; reason: string }>;
+      rejected: unknown[];
+      /** 本次上传的逐文件结果（F09：批次计数只认它）。 */
+      results?: Array<{
+        filename: string; status: string; path?: string;
+        searchable?: boolean; chunks?: number; extraction?: string | null;
+      }>;
+      /** 全库增量同步：单独展示，不当批次计数用。 */
+      library_sync: KnowledgeSyncSummary;
+    }>(
       "/api/kb/import",
       { method: "POST", body: form },
     );

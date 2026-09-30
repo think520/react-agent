@@ -2053,7 +2053,8 @@ def test_library_import_strips_internal_paths(backend_client, monkeypatch):
             "ok": True,
             "imported": [files[0][0]],
             "rejected": [],
-            "sync": {
+            # 导入结果里全库同步叫 library_sync（2026-09-28 审查 F09：它不能冒充批次计数）。
+            "library_sync": {
                 "scanned_files": 1,
                 "updated_files": 1,
                 "chunk_count": 2,
