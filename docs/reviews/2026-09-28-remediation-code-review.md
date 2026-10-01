@@ -85,8 +85,29 @@
 | 1 | **回退：「回答已停止」的重新发送会 409**。前端两个按钮共用 `retryMessage`，都会带 `retry_failed`；而被停止的那一轮没有失败标记，后端直接 `raise APIError(409, retry_not_available)` → 用户点了按钮什么都发不出去。**修前红**：`assert 409 == 200` | 后端**优雅降级**（清不到失败尾部就按普通一轮继续跑），前端只在 `message.failed` 时声明该标志。回归：`tests/test_web_backend.py::test_retry_flag_without_a_failed_turn_still_runs` |
 | 2 | **死代码**：`obsidian/sync.py` 里第一次 `_resolve_deletions` 的结果会被后面那次覆盖，中间无人使用 | 删掉第一次调用（函数是纯函数，原行为不变），留下注释说明判定为什么必须在 Step 4 之后 |
 | 3 | **错误归因过粗**：`results_for_batch` 用 `source.endswith(basename)`，不同目录的同名文件会互相串 | 改成按"**最后两段路径**"匹配。实测两边命名空间确实不同（上传落在 `raw/inbox/x.md`，同步报错写 `course/inbox/x.md`），而且**解析失败时根本没有文档行**可查 —— 所以既不能直接比 source，也不能只比 basename |
-| 4 | **主审自己的误判（如实更正）**：原先担心 vault hash 口径变更会让老 state 全部失效、触发**全量重解析**。真机实测**推翻了这个判断**：一次真实增量同步只更新 **1 个文件、3.3 秒**，文档 `47→47`、chunk `1694→1694`。原因是 `_hash_text(text) = sha256(text.encode("utf-8"))`，对合法 UTF-8 文件与字节哈希**本来就相等**，只有 BOM/编码回退的文件才会变 | 不再按"需全量重建"记录；改为记录实测数字，并把结论写进 CHANGELOG |
+| 4 | **主审初判被独立审查纠正（如实更正两次）**：我先担心 vault hash 口径变更触发**全量重解析**，真机实测只更新 **1 个文件、3.3 秒**（文档 `47→47`、chunk `1694→1694`）；**但我的解释也是错的** —— 独立审查实测：差异来源是 **CRLF**（旧代码文本模式把 `\r\n` 折成 `\n`），**BOM 反而不变**，而 `utf-8-sig` 那条回退路径根本走不到（GBK 的 .md 直接抛 `UnicodeDecodeError` 出 `scan_vault`，是基线就有的问题）。所以：CRLF 笔记会**一次性**重解析并重建 chunk（开向量则重新 embedding），成本与 CRLF 笔记数成正比；「真机只更新 1 个文件」只证明那份 vault 是 LF 的，**不能外推** |
 
+
+
+### 独立审查（2026-09-30，另一个 AI 的只读审查）
+
+这次请了一个**独立上下文**的审查者（不继承主审的推理，避免自我确认）。它的结论是"**有条件合入**"：F01–F10 主路径经它独立复现成立（把 19 条新回归放到 merge-base `f6c3562` 上跑 = **19/19 全红**；`209934a` 引入的 409 回退也能复现），没有发现新的用户数据丢失路径，但**指出了这批自己引入的一个病态循环和我的一处错误归因**。
+
+| # | 独立审查的发现 | 处理 |
+|---|---|---|
+| 1 | **【中·本批新引入】永久失败的文件每次同步都被重解析**：`_sources_needing_reindex` 只排除 `empty`，而永久失败那类恰好是 `error`（`parse_document` 吞异常返回 error report、零 chunk 照样 upsert）。实测：一个坏 PDF 让每次增量同步都 `changed=1`，代价随文件大小线性增长，且**每次上传都连带重跑一遍** | **已修**：加**有界重试**（`MAX_REINDEX_ATTEMPTS = 2`，计数按 `source+content_hash` 记在 `sync_state.json` 的 `retries` 里；字节一变计数自动归零，用户换掉文件照样重试）。回归：`tests/test_sync_extraction_status.py::test_a_permanently_broken_file_is_not_reparsed_on_every_sync`（新契约常量缺失 → 修前红） |
+| 2 | **【中·声明与事实不符】vault hash 的差异来源是 CRLF 不是 BOM**，「编码回退」那条路实际走不到 | **已更正**：见上表第 4 行与 CHANGELOG；并记录 CRLF 笔记一次性重解析的成本 |
+| 4 | **【低·真 bug】零成功时"自建文件夹回收 + 忘记台账"从未生效**：`if not moved and not failed:` 永远为假（调用点传入的 failed 至少含当前项），实测文件夹留盘、台账挂着空批次 | **已修**：判定改为只看 `moved`；回归：`tests/test_organization_recovery.py::test_a_zero_success_apply_does_not_leave_its_own_folder_behind`（**先证明它红**：`assert 'ff97c0b4…' == ''`） |
+| 7 | **【低·口子】`remove_failed_turn_for_retry` 在 `retry_input is None` 时无条件匹配任意失败标记**，再删中间整段；当前唯一写入点总带 retry_input，所以不可达，但未来任何漏传的调用者会删掉不相干的一轮 | **已修**：改成显式匹配（记不上就什么都不动，重试照常）；回归：`tests/test_session_retry.py::test_a_failure_without_a_recorded_input_is_not_removed`（修前红：`assert True is False`） |
+| 5 | 报告 F04 行的"解析异常后不再保存该 source 的 hash"**过窄**：`new_state.pop` 只在 Step 4 抛异常时生效；真实解析失败被吞掉、hash 照写，真正兜底的是 `_sources_needing_reindex`（现在它自身也有了上限） | **已登记**（本轮修 1 之后，口径以「有界自动重试 + 字节变化重试」为准） |
+| 3 | `web/frontend/e2e/app.spec.ts` 删掉了过程卡片 3 条断言，改完之后**没有任何测试**覆盖 `.bobodan-process` 的可见性/动画 | **已登记未修**（属于覆盖回退，应改用"慢速 SSE fixture"重写而不是删除） |
+| 7b | **「被停止」的那一轮重试仍会重复保存同一句 user turn**（前端对 stopped 传 `retryFailed=false`，后端不去重）—— F05 只修了 failed 路径 | **已登记未修**（需要先定"停止"的语义） |
+| 6 | 门禁数字：`pytest --collect-only` = **1660**；前端独立实跑 **1 failed / 136 passed**（`App.test.tsx` 5s 超时，单跑 4/4 通过） | **已更正**：§4.2 的数字与注脚 |
+| 8 | `unwrap_service_result` 现在把所有非 ok/code/error/details 的键都塞进 `error.details`，错误信封数据面被放大（当前消费者兼容） | **已登记**（有意为之：F07 要求部分结果穿过 HTTP；服务层 `_err(**)` 的载荷都不含内部路径） |
+| 9 | 死代码：`obsidian/vault.py` 的 `_hash_text` 已无调用点；`chat.py` 投影的 `stopped` 不可达（Python 从不把 stopped 写进会话消息） | **已登记**（`stopped` 留给将来的"停止"语义；`_hash_text` 保留会误导，下轮清理时一并删） |
+| 10 | `_document_by_path` 转调全表 `_documents_by_path()`，`apply_organization`/`undo_organization` 每项一次全表扫描 | **已登记**（纯性能，正确性无影响） |
+
+**它没验证的（它自己声明）**：全量后端套件、Playwright live、真实资料库/真实 provider、CRLF 笔记在真机上的升级数字、GBK .md 崩溃后路由给用户的提示。
 
 **到此，审查的 F01–F10 全部有修复与回归。** 仍未做的是报告里**不属于 F 系列**的边界项：R05 的"取消进行中的导入"、R03 的抽屉焦点/Escape 专项、R04 的截断 PDF 专项、R06 的 300 文件性能实验复跑、R07 的完整连接验收、R10 的真实模型教学质量。
 
@@ -246,8 +267,8 @@
 
 | 检查 | 结果 |
 |---|---|
-| 后端全套 pytest | **1651 passed**（含本轮新增的整理恢复 9 条、导入 3 条、失败会话 1 条） |
-| 前端 Vitest | **24 files / 136 passed**（含草稿 4 条、导入文案 5 条、失败重试 1 条、辅导恢复 1 条） |
+| 后端全套 pytest | **1651 passed**（含本轮新增的整理恢复 9 条、导入 3 条、失败会话 1 条）；**同一代码在后续收尾提交上复跑为 1660 passed（独立审查的收集数也是 1660）** |
+| 前端 Vitest | **24 files / 136 passed**（含草稿 4 条、导入文案 5 条、失败重试 1 条、辅导恢复 1 条）。注：另有 1 条 `App.test.tsx` 在前后端并行/高负载时会 5s 超时（独立审查实跑同样命中：**1 failed / 136 passed**），**定向单跑该文件 4/4 通过、约 1.4s**；「137 passed」只在先单跑挤掉 flaky 时成立，本表如实保留两种结果 |
 | TypeScript / ESLint / Vite build | **全部通过（0 错误）** |
 | Playwright live（真实后端 + 真实资料库） | **7 passed**（含"真浏览器立即刷新后草稿仍在"） |
 | 真机 · 整理中断恢复 | 搬到一半被杀 → 重启后的实例仍能撤销已搬走的那份（`test_restart_can_undo_what_a_crash_left_behind`）；真实资料库上 apply/undo 清单逐项归位 |

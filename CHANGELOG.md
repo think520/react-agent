@@ -7,12 +7,19 @@
 ## [未发布]
 
 ### 变更
+- **独立审查后的修复（2026-09-30，本地未推送）**：另一个 AI 在独立上下文里只读审查了这批改动，结论"有条件合入"，并指出**这批自己引入的一个病态循环**与我的一处错误归因。已修 3 处、登记 6 处。
+  - **【已修·中】永久失败的文件每次同步都被重解析**：`_sources_needing_reindex` 只排除 `empty`，而永久失败那类恰好是 `error`（`parse_document` 吞异常返回 error report、零 chunk 照样 upsert）→ 一个坏 PDF 让每次增量同步都 `changed=1`，代价随文件大小线性增长，且**每次上传都连带重跑一遍**。现在改成**有界重试**：`MAX_REINDEX_ATTEMPTS = 2`，计数按 `source+content_hash` 记进 `sync_state.json` 的 `retries`，字节一变计数自动归零（用户换掉文件照样重试）。回归：`tests/test_sync_extraction_status.py::test_a_permanently_broken_file_is_not_reparsed_on_every_sync`。
+  - **【已修·低】零成功时"自建文件夹回收 + 忘记台账"从未生效**：`if not moved and not failed:` 永远为假（调用点传入的 failed 至少含当前项）→ 文件夹留盘、台账挂空批次。现在只看 `moved`。回归：`tests/test_organization_recovery.py::test_a_zero_success_apply_does_not_leave_its_own_folder_behind`（**先证明它红**：`assert 'ff97c0b4…' == ''`）。
+  - **【已修·低】`remove_failed_turn_for_retry` 的危险口子**：`retry_input is None` 会无条件匹配任意失败标记并删中间整段（当前不可达，但漏传就删错轮）。改成显式匹配。回归：`tests/test_session_retry.py::test_a_failure_without_a_recorded_input_is_not_removed`（修前红：`assert True is False`）。
+  - **【已更正】vault hash 归因**：见上一条（CRLF 而非 BOM；`utf-8-sig` 回退不可达）；门禁数字也更正为「后端 1660 / 前端 136 passed + 1 flaky（单跑 4/4）」。
+  - **【已登记未修】**：e2e 过程卡片 3 条断言被删除后无任何测试覆盖 `.bobodan-process`（应用慢速 SSE fixture 重写而不是删）；「被停止」的那一轮重试仍重复保存同一句 user turn（F05 只修了 failed）；`unwrap_service_result` 把失败结果的额外键全部放进 `error.details`（有意为之，但数据面变大）；死代码 `vault._hash_text`（无调用点）与 `chat.py` 投影里不可达的 `stopped`；`_document_by_path` 每次全表扫描（纯性能）。
+  - **独立审查的对照实验（值得记下）**：它把 19 条新回归覆盖到 merge-base `f6c3562` 的导出树上跑 → **19/19 全红**，证明这些回归真的指向 bug；`209934a` 的 409 回退也在该版本上复现，说明"修前红"的说法属实。
 - **审查整改已开 PR（2026-09-30）**：这批 17 个提交（审查基线 + 四批整改 + 复审批次 + 收尾）开成 **PR #5**，base 特意选 `feat/in-page-original-view` 让 diff 只包含本轮整改；**不要直接合 main**（相对 main 是上百个提交）。https://github.com/think520/react-agent/pull/5 —— 被审那一版同时冻结为 tag `audit-remediation-2026-09-30`，避免 PR 跟着后续提交漂移。
 - **2026-09-30 复审批次收下 + 主审收尾（导入/重试/去重三处边界）**：GPT 的复审补齐了三个真实漏洞，主审逐条复核、跑通门禁后收下（提交 `209934a`），并修掉复审本身引入的一处回退。
   - **收下的三处（比我的实现更到位）**：① `obsidian/vault.py` 的 vault hash 从"文本 hash"改成**字节 sha256** —— 我之前断言"content_hash 就是字节 sha256"对 obsidian 笔记并不成立，F08 对 vault 笔记一直是漏的；② `obsidian/sync.py` 解析失败后**不再把 hash 写进 state**，且零 chunk 的可见文件会在增量同步里补做索引 —— 这才是 F04 的**根因层**修复（我只修了导入层），并用 `deletion_state` 防止"解析失败"被误判成"文件被删"；③ `service/kb_service.py` 对命中 hash 的候选项做**磁盘复核** —— 我原来的实现会在用户删/改文件后拿过期索引把新上传静默判成 duplicate 吞掉。
   - **主审修掉的回退**：前端「失败」与「停止」两个按钮共用一个 handler，都会带 `retry_failed`，而被停止的那一轮没有失败标记 → 后端直接 409，用户点了「重新发送本轮」什么都发不出去（**修前红**：`assert 409 == 200`）。现在后端**优雅降级**（清不到失败尾部就按普通一轮跑），前端只在 `message.failed` 时声明该标志。
   - **另外两处收尾**：删掉 `obsidian/sync.py` 里被后面覆盖的第一次 `_resolve_deletions`（死代码，纯函数所以行为不变）；`results_for_batch` 的错误归因从裸 basename 改成"最后两段路径"（实测上传落在 `raw/inbox/x.md`、同步报错写 `course/inbox/x.md`，且解析失败时**根本没有文档行**可查，所以既不能直接比 source 也不能只比 basename）。
-  - **主审误判的更正（如实记账）**：我原先担心 vault hash 口径变更触发**全量重解析**。真机实测推翻了它：真实资料库一次增量同步**只更新 1 个文件、3.3 秒**，文档 47→47、chunk 1694→1694 —— 因为 `_hash_text(text) = sha256(text.encode("utf-8"))` 对合法 UTF-8 文件与字节哈希本来就相等，只有 BOM/编码回退的文件才会变。
+  - **主审误判的更正（如实记账，两次）**：我原先担心 vault hash 口径变更触发**全量重解析**，真机实测只更新 1 个文件 / 3.3 秒（文档 47→47、chunk 1694→1694）；**但我的解释也被独立审查纠正了** —— 差异来源是 **CRLF**（旧代码文本模式把 `\r\n` 折成 `\n`），**BOM 反而不变**，而 `utf-8-sig` 那条回退路径走不到（GBK 的 .md 直接抛 `UnicodeDecodeError` 出 `scan_vault`，基线问题）。结论：CRLF 笔记会一次性重解析并重建 chunk，成本与 CRLF 笔记数成正比；「真机只更新 1 个文件」只证明那份 vault 是 LF 的。
   - **门禁**：后端 `1659 passed`、前端 24 文件 / 137 passed、tsc / eslint / production build 0 错误；`App.test.tsx` 在并行负载下有一条 5s 超时（原审查记录的已知 flaky，定向单跑 4/4 通过，**没有调大超时掩盖**）。
   - **仍未做**：F 系列之外的边界项（R05 取消导入、R03 抽屉焦点、R04 截断 PDF、R06 性能复跑、R07 完整连接验收、R10 真实模型质量），以及真实 provider 失败 / 真实练习会话 / live 的真机验收。
 - **审查整改收尾：F01–F10 全部修完，状态表按实际验收更正（2026-09-28 后续）**：
