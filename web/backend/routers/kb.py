@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from fastapi import APIRouter, File, Request, UploadFile
+from fastapi import APIRouter, File, Form, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
@@ -166,7 +166,11 @@ def sync(body: KBSyncRequest, request: Request) -> dict:
 
 
 @router.post("/import")
-async def import_files(request: Request, files: list[UploadFile] = File(...)) -> dict:
+async def import_files(
+    request: Request,
+    files: list[UploadFile] = File(...),
+    duplicate_strategy: str = Form("keep_existing"),
+) -> dict:
     payload = []
     for upload in files:
         content = await upload.read(_MAX_UPLOAD_BYTES + 1)
@@ -180,10 +184,16 @@ async def import_files(request: Request, files: list[UploadFile] = File(...)) ->
     # Parsing/extraction is CPU- and disk-bound; running it inline here would
     # freeze the event loop for every concurrent request.
     service_result = await run_in_threadpool(
-        lambda: _service(request).import_files(payload, config=get_config())
+        lambda: _service(request).import_files(
+            payload,
+            config=get_config(),
+            duplicate_strategy=duplicate_strategy,
+        )
     )
     result = unwrap_service_result(service_result)
-    result["sync"] = _public_sync(result["sync"])
+    # 全库增量同步单列一个字段：它可以比这批大（资料库里别的文件也变了），
+    # 但**不能**拿来当本次上传的计数（审查 F09）。
+    result["library_sync"] = _public_sync(result["library_sync"])
     return result
 
 

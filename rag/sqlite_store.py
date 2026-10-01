@@ -197,14 +197,17 @@ class KBSQLiteStore:
 
     def list_documents(self, course: str | None = None) -> list[dict]:
         conn = self._get_conn()
+        select = """SELECT documents.*,
+                    (SELECT COUNT(*) FROM chunks WHERE chunks.document_id = documents.id) AS chunk_count
+                 FROM documents"""
         if course:
             rows = conn.execute(
-                "SELECT * FROM documents WHERE course = ? ORDER BY source",
+                f"{select} WHERE course = ? ORDER BY source",
                 (course,),
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT * FROM documents ORDER BY source"
+                f"{select} ORDER BY source"
             ).fetchall()
         return [dict(r) for r in rows]
 

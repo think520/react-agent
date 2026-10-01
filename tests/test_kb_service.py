@@ -826,16 +826,58 @@ def test_import_files_uses_managed_sources_and_preserves_registered_roots(
     monkeypatch.setattr(svc, "_sync_registered_sources", fake_sync)
     result = svc.import_files([
         ("../lesson.md", b"# Lesson"),
+        ("notes.txt", b"plain text notes"),
         ("malware.exe", b"no"),
     ])
 
     assert result["ok"]
-    assert result["imported"] == ["lesson.md"]
+    assert result["imported"] == ["lesson.md", "notes.txt"]
     assert result["rejected"][0]["reason"] == "unsupported_file_type"
     assert os.path.exists(os.path.join(svc.managed_sources_dir, "lesson.md"))
+    assert os.path.exists(os.path.join(svc.managed_sources_dir, "notes.txt"))
     _, roots = captured["roots"]
     assert os.path.abspath(course) in roots
     assert os.path.abspath(svc.managed_sources_dir) in roots
+
+
+def test_import_files_reindexes_identical_content_that_was_never_indexed(
+    svc, workspace, monkeypatch
+):
+    """盘上有同字节的文件、但它**从未建过索引**：不能判成"重复已完成"，要补做索引。
+
+    2026-09-28 审查 F04 之前，这里断言的是"duplicate-only 不许同步"——那条契约正是 bug：
+    上一次同步失败留下的文件会被永久跳过，界面上写着"重复文件已保留已有版本"，而它永远检索不到。
+    现在：不新写副本，但把它送进同步，并如实报成 pending。
+    """
+    os.makedirs(svc.managed_sources_dir, exist_ok=True)
+    existing = os.path.join(svc.managed_sources_dir, "lesson.md")
+    with open(existing, "wb") as handle:
+        handle.write(b"# Same lesson")
+
+    synced: list[str] = []
+
+    class _Summary:
+        def to_dict(self):
+            return {"extraction_counts": {"complete": 1}, "error_files": 0}
+
+    monkeypatch.setattr(
+        svc,
+        "_sync_registered_sources",
+        lambda mode, config: (synced.append(mode), _Summary())[1],
+    )
+
+    result = svc.import_files([("lesson-copy.md", b"# Same lesson")])
+
+    assert result["ok"]
+    assert result["imported"] == [], "不该再写一份副本"
+    assert result["duplicates"] == [], "没建过索引就谈不上'重复已完成'"
+    assert result["pending"] == [{
+        "filename": "lesson-copy.md",
+        "existing": "lesson.md",
+        "reason": "awaiting_index",
+    }]
+    assert synced == ["incremental"], "重试必须真的去补索引（F04）"
+    assert not os.path.exists(os.path.join(svc.managed_sources_dir, "lesson-copy.md"))
 
 
 def test_portable_library_upload_uses_raw_inbox_without_creating_wiki_pages(tmp_path, monkeypatch):

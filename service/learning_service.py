@@ -119,6 +119,7 @@ class LearningService:
         from service.quiz_service import QuizService
         quiz_store = QuizStore(self.workspace)
         quiz_service = QuizService(self.workspace, config=self.config)
+        learning_store = LearningStore(self.workspace)
         bounded_wrong = max(1, min(int(wrong_limit or self.WRONG_ANSWER_LIMIT), 500))
         wrong_result = quiz_service.get_wrong_answer_book(limit=bounded_wrong)
         wrong_total = quiz_service.count_bank(state="incorrect").get("total", 0)
@@ -137,11 +138,20 @@ class LearningService:
             }
             for record in weakness_result.get("analysis", [])
         ]
+        next_review = learning_store.get_next_scheduled_review()
         return _ok(
             due_concepts=due_concepts,
             wrong_answers=wrong_result.get("entries", []),
             wrong_total=wrong_total,
             weaknesses=weaknesses,
+            next_review=(
+                {
+                    "concept": next_review.concept,
+                    "status": next_review.status,
+                    "next_review": next_review.next_review,
+                }
+                if next_review else None
+            ),
         )
 
     # --- Manual mastery ---

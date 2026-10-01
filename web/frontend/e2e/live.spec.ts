@@ -198,3 +198,19 @@ test("the library page reads a material in place", async ({ page }) => {
   await page.keyboard.press("Escape");
   await expect(page.locator(".chapter-rail")).toHaveCount(0);
 });
+
+test("an unsaved note draft survives a real page reload", async ({ page }) => {
+  // R02/F01（2026-09-28 审查）：250ms 防抖窗口内直接刷新页面 —— 草稿必须还在。
+  // 审查明确说组件测试里的 pagehide 只是**事件模拟**，不能冒充真刷新，所以这条跑真浏览器。
+  // 只写 localStorage，不点保存，不碰真实笔记内容。
+  await page.addInitScript(() => localStorage.setItem("bobodan:onboarding:v1", "complete"));
+  await page.goto(BASE + "/notes");
+  await page.getByRole("button", { name: "写笔记" }).click();
+  const body = page.getByRole("textbox", { name: "笔记正文" });
+  await body.fill("# 刷新前没保存\n\n这段必须活下来");
+
+  await page.reload(); // 立刻刷新：防抖还没到期，只能靠 pagehide 落盘
+
+  await expect(page.getByRole("textbox", { name: "笔记正文" }))
+    .toHaveValue("# 刷新前没保存\n\n这段必须活下来", { timeout: 15_000 });
+});

@@ -120,6 +120,7 @@ def test_material_files_carry_their_index_badges(library, monkeypatch):
     assert indexed["indexed"] is True
     assert indexed["document_id"]
     assert indexed["extraction_status"] in {"complete", "partial", "empty", "error"}
+    assert indexed["chunk_count"] > 0
 
     pending = next(item for item in pack["files"] if item["name"] == "还没同步.md")
     assert pending["indexed"] is False, "未索引的资料也要看得见，否则用户以为没进去"
@@ -152,5 +153,6 @@ def test_document_list_exposes_the_real_relative_path(library, monkeypatch):
     # 库根的 markdown 由 vault 扫描收进来，title 是 H1，不是文件名——所以按路径断言
     paths = {item["relative_path"] for item in documents}
     assert "正则表达式.md" in paths
+    assert all(item["chunk_count"] > 0 for item in documents if item["extraction_status"] == "complete")
     assert all(not item["relative_path"].startswith("/") for item in documents)
     assert all(":" not in item["relative_path"] for item in documents), "绝不能出现盘符"

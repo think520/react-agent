@@ -1,0 +1,65 @@
+
+Running 1 test using 1 worker
+
+(node:37864) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  x  1 [narrow-desktop] › e2e\app.spec.ts:96:1 › the chapter outline opens from the toolbar, never from hovering the right edge (30.3s)
+
+
+  1) [narrow-desktop] › e2e\app.spec.ts:96:1 › the chapter outline opens from the toolbar, never from hovering the right edge
+
+    Test timeout of 30000ms exceeded.
+
+    Error: locator.click: Test timeout of 30000ms exceeded.
+    Call log:
+      - waiting for getByRole('button', { name: '目录' })
+        - locator resolved to <button type="button" aria-expanded="false" title="章节目录（快捷键 ] 打开、[ 或 Esc 关闭）" class="quiet-button reader-toc-button">…</button>
+      - attempting click action
+        2 × waiting for element to be visible, enabled and stable
+          - element is visible, enabled and stable
+          - scrolling into view if needed
+          - done scrolling
+          - <section class="context-section">…</section> from <aside aria-label="学习上下文" class="context-panel ">…</aside> subtree intercepts pointer events
+        - retrying click action
+        - waiting 20ms
+        2 × waiting for element to be visible, enabled and stable
+          - element is visible, enabled and stable
+          - scrolling into view if needed
+          - done scrolling
+          - <section class="context-section">…</section> from <aside aria-label="学习上下文" class="context-panel ">…</aside> subtree intercepts pointer events
+        - retrying click action
+          - waiting 100ms
+        53 × waiting for element to be visible, enabled and stable
+           - element is visible, enabled and stable
+           - scrolling into view if needed
+           - done scrolling
+           - <section class="context-section">…</section> from <aside aria-label="学习上下文" class="context-panel ">…</aside> subtree intercepts pointer events
+         - retrying click action
+           - waiting 500ms
+
+
+      129 |
+      130 |   // 工具条「目录」按钮能打开，X 能关；] 再开、Esc 关。
+    > 131 |   await page.getByRole("button", { name: "目录" }).click();
+          |                                                  ^
+      132 |   await expect(page.locator(".chapter-rail")).toBeVisible();
+      133 |   await expect(page.getByRole("button", { name: "第一节 概念" })).toBeVisible();
+      134 |   await page.getByRole("button", { name: "关闭目录" }).click();
+        at <project-root>\web\frontend\e2e\app.spec.ts:131:50
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results\app-the-chapter-outline-op-d0be3-rom-hovering-the-right-edge-narrow-desktop\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results\app-the-chapter-outline-op-d0be3-rom-hovering-the-right-edge-narrow-desktop\error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results\app-the-chapter-outline-op-d0be3-rom-hovering-the-right-edge-narrow-desktop\trace.zip
+    Usage:
+
+        npx playwright show-trace test-results\app-the-chapter-outline-op-d0be3-rom-hovering-the-right-edge-narrow-desktop\trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    [narrow-desktop] › e2e\app.spec.ts:96:1 › the chapter outline opens from the toolbar, never from hovering the right edge

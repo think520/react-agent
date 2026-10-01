@@ -142,7 +142,9 @@ export interface OrganizationBatch {
   batch_id: string;
   created_at: string;
   target_folder: string;
-  moves: { document_id: string; from: string; to: string }[];
+  moves: { document_id: string; from: string; to: string; state?: string; error?: string }[];
+  /** planned / applying / applied / partial / failed / partial_undo（F02 的"先写计划"）。 */
+  status?: string;
 }
 
 interface ErrorEnvelope {
@@ -231,7 +233,10 @@ export const api = {
   applyOrganization: (items: string[], targetFolder: string) => request<{
     ok: boolean;
     moved: { document_id: string; from: string; to: string }[];
+    /** 部分失败时：没搬成的那几项（F07 —— 界面必须如实说清楚）。 */
+    failed?: { document_id?: string; from: string; to: string; state?: string; error?: string }[];
     batch_id: string;
+    partial?: boolean;
   }>("/api/kb/organize/apply", json({ items, target_folder: targetFolder })),
   /** 还有没有一步可以撤销（刷新页面后仍要知道）。 */
   organizationState: () => request<{ ok: boolean; pending_undo: OrganizationBatch | null }>(
@@ -241,6 +246,8 @@ export const api = {
   undoOrganization: (moves?: { document_id: string; from: string; to: string }[]) => request<{
     ok: boolean;
     restored: string[];
+    /** 原位已经有文件、因此**没有**覆盖的那些项（F03）。 */
+    skipped?: { from: string; to: string; reason: string }[];
   }>("/api/kb/organize/undo", json(moves ? { moves } : {})),
   createFolder: (path: string) => request<{ ok: boolean; folder: { name: string; path: string } }>(
     "/api/kb/folders",
@@ -377,10 +384,24 @@ export const api = {
   documentImpact: (id: string) => request<DocumentImpact>(
     `/api/kb/documents/${encodeURIComponent(id)}/impact`,
   ),
-  importDocuments: async (files: File[]) => {
+  importDocuments: async (files: File[], duplicateStrategy: "keep_existing" | "save_copy" = "keep_existing") => {
     const form = new FormData();
     files.forEach((file) => form.append("files", file));
-    return request<{ imported: string[]; rejected: unknown[]; sync: Record<string, unknown> }>(
+    form.append("duplicate_strategy", duplicateStrategy);
+    return request<{
+      imported: string[];
+      duplicates?: Array<{ filename: string; existing: string; reason: string }>;
+      /** 字节已经在库里、这次是**补做索引**的那些（F04）。 */
+      pending?: Array<{ filename: string; existing: string; reason: string }>;
+      rejected: unknown[];
+      /** 本次上传的逐文件结果（F09：批次计数只认它）。 */
+      results?: Array<{
+        filename: string; status: string; path?: string;
+        searchable?: boolean; chunks?: number; extraction?: string | null;
+      }>;
+      /** 全库增量同步：单独展示，不当批次计数用。 */
+      library_sync: KnowledgeSyncSummary;
+    }>(
       "/api/kb/import",
       { method: "POST", body: form },
     );
@@ -1038,6 +1059,8 @@ export async function streamChat(
     strictDocumentScope?: boolean;
     /** E4: continue a paused ask_user turn instead of sending a new message. */
     resumeInteractionId?: string;
+    /** F05: replay the persisted failed turn without duplicating its user message. */
+    retryFailed?: boolean;
     /** P0-1: called with the stream id as soon as a frame names it. */
     onStreamId?: (streamId: string) => void;
   },
@@ -1048,6 +1071,7 @@ export async function streamChat(
     ...json({
       message,
       resume_interaction_id: preferences.resumeInteractionId || null,
+      retry_failed: preferences.retryFailed ?? false,
       chat_session_id: chatSessionId || null,
       document_ids: preferences.strictDocumentScope ? documentIds : [],
       preferred_document_ids: preferences.strictDocumentScope ? [] : documentIds,
@@ -1087,7 +1111,8 @@ export async function streamChat(
   const consumedSeqs = new Set<number>();
   let lastSeq = 0;
   let streamId = "";
-  let terminal = false;
+  let terminal: "completed" | "failed" | null = null;
+  let terminalError: unknown = null;
   const dispatch = (parsed: ChatStreamEvent) => {
     const seq = parsed.data.seq;
     if (typeof seq === "number" && consumedSeqs.has(seq)) return;
@@ -1101,8 +1126,21 @@ export async function streamChat(
       // response, so it needs the id as soon as one frame names it.
       preferences.onStreamId?.(streamId);
     }
-    if (parsed.event === "run_completed" || parsed.event === "run_failed") terminal = true;
-    onEvent(parsed);
+    if (parsed.event === "run_completed") terminal = "completed";
+    if (parsed.event === "run_failed") {
+      terminal = "failed";
+      terminalError = new ApiError(
+        parsed.data.error.message || "AI 运行失败，请重试。",
+        parsed.data.error.code || "chat_run_failed",
+        0,
+      );
+    }
+    try {
+      onEvent(parsed);
+    } catch (error) {
+      if (parsed.event === "run_failed") terminalError = error;
+      else throw error;
+    }
   };
   const pump = async (body: ReadableStream<Uint8Array>): Promise<number> => {
     const reader = body.getReader();
@@ -1157,18 +1195,23 @@ export async function streamChat(
     networkError = error;
   }
 
-  // Only a *broken* reader resumes: a clean end without a terminal event is
-  // the server saying the run is over, and retrying it would just add delay.
-  if (networkError != null && !terminal && streamId) {
+  // A stream is complete only after an explicit terminal event. A clean EOF
+  // without one is an interrupted protocol and must try the event log.
+  if (!terminal && streamId) {
+    if (networkError == null) {
+      networkError = new ApiError(
+        "对话连接提前结束，请重试。",
+        "chat_stream_incomplete",
+        0,
+      );
+    }
     for (const delay of RESUME_DELAYS_MS) {
       if (terminal) break;
       await sleep(delay);
       const body = await openResume(streamId, lastSeq);
       if (!body) continue;
       try {
-        // Zero frames after our cursor means the log has nothing left for us,
-        // which is exactly how a run that already finished looks.
-        if ((await pump(body)) === 0) break;
+        await pump(body);
       } catch (error) {
         // This attempt broke too: keep the remaining delays instead of giving
         // up on the run after the first unlucky reconnect.
@@ -1178,7 +1221,14 @@ export async function streamChat(
       }
     }
   }
+  if (terminal === "failed") throw terminalError;
   // Nothing resumed and nothing terminal: report the original failure instead
   // of returning a silently truncated answer.
-  if (!terminal && networkError) throw networkError;
+  if (!terminal) {
+    throw networkError || new ApiError(
+      "对话连接提前结束，请重试。",
+      "chat_stream_incomplete",
+      0,
+    );
+  }
 }

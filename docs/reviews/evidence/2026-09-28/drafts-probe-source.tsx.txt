@@ -1,0 +1,65 @@
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { api } from "../lib/api";
+import { NotesPage } from "./NotesPage";
+const ctx = vi.hoisted(() => ({ documents: [], activeLibrary: { library_id: "audit-library" }, settings: { preferences: { memory: { enabled: true } } } }));
+vi.mock("react-router-dom", async (original) => ({ ...await original<typeof import("react-router-dom")>(), useOutletContext: () => ctx }));
+vi.mock("../lib/api", async (original) => ({ ...await original<typeof import("../lib/api")>(), api: { memoryKnowledge: vi.fn(), createMemoryKnowledge: vi.fn(), updateMemoryKnowledge: vi.fn() } }));
+const key = "bobodan:note-draft:audit-library";
+const originalA = ["# Note A", "", "Saved A"].join(String.fromCharCode(10));
+const editedA = ["# Note A", "", "Unsaved A must survive"].join(String.fromCharCode(10));
+function mount() { return render(<MemoryRouter><NotesPage /></MemoryRouter>); }
+beforeEach(() => {
+  localStorage.clear();
+  vi.mocked(api.memoryKnowledge).mockResolvedValue({ items: [
+    { id: "a", title: "Note A", content: "Saved A", revision: 1, scope: "library", pinned: false, references: [], updated_at: "2026-09-28" },
+    { id: "b", title: "Note B", content: "Saved B", revision: 1, scope: "library", pinned: false, references: [], updated_at: "2026-09-28" },
+  ] } as never);
+});
+afterEach(() => { cleanup(); vi.clearAllMocks(); localStorage.clear(); });
+it("R02: reopening the same note restores its unsaved revision", async () => {
+  mount();
+  const edit = (await screen.findAllByRole("button", { name: "编辑" }))[0];
+  fireEvent.click(edit);
+  expect(screen.getByRole("textbox", { name: "笔记正文" })).toHaveValue(originalA);
+  fireEvent.change(screen.getByRole("textbox", { name: "笔记正文" }), { target: { value: editedA } });
+  fireEvent.keyDown(screen.getByRole("textbox", { name: "笔记正文" }), { key: "Escape" });
+  expect(JSON.parse(localStorage.getItem(key)!).markdown).toBe(editedA);
+  fireEvent.click(edit);
+  expect(screen.getByRole("textbox", { name: "笔记正文" })).toHaveValue(editedA);
+});
+it("R02: editing another note preserves the retained draft", async () => {
+  const page = mount();
+  const edit = await screen.findAllByRole("button", { name: "编辑" });
+  fireEvent.click(edit[0]);
+  fireEvent.change(screen.getByRole("textbox", { name: "笔记正文" }), { target: { value: editedA } });
+  fireEvent.keyDown(screen.getByRole("textbox", { name: "笔记正文" }), { key: "Escape" });
+  fireEvent.click(edit[1]);
+  fireEvent.keyDown(screen.getByRole("textbox", { name: "笔记正文" }), { key: "Escape" });
+  page.unmount();
+  mount();
+  await screen.findAllByRole("button", { name: "编辑" });
+  fireEvent.click(screen.getAllByRole("button", { name: "编辑" })[0]);
+  expect(screen.getByRole("textbox", { name: "笔记正文" })).toHaveValue(editedA);
+});
+it("R02: pagehide flushes keystrokes within the debounce window", async () => {
+  mount();
+  await screen.findAllByRole("button", { name: "编辑" });
+  fireEvent.click(screen.getByRole("button", { name: "写笔记" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "笔记正文" }), { target: { value: editedA } });
+  fireEvent(window, new Event("pagehide"));
+  expect(localStorage.getItem(key)).not.toBeNull();
+});
+it("R02: clearing content does not restore stale text", async () => {
+  const page = mount();
+  fireEvent.click(await screen.findByRole("button", { name: "写笔记" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "笔记正文" }), { target: { value: editedA } });
+  await waitFor(() => expect(localStorage.getItem(key)).toContain("Unsaved A must survive"));
+  fireEvent.change(screen.getByRole("textbox", { name: "笔记正文" }), { target: { value: "" } });
+  page.unmount();
+  mount();
+  expect(screen.queryByRole("textbox", { name: "笔记正文" })).not.toHaveValue(editedA);
+});
+
+

@@ -47,10 +47,20 @@ def unwrap_service_result(
             "self_relationship": 409,
             "invalid_rel_type": 400,
         }.get(error_code, 400)
+        # 审查 F07：失败结果里的**结构化部分结果**（moved / failed / batch_id …）必须穿过
+        # HTTP 边界。丢掉它们，界面就不知道"已经搬走了哪几份"，也就没有恢复入口。
+        details = result.get("details")
+        if details is None:
+            extra = {
+                key: value for key, value in result.items()
+                if key not in {"ok", "code", "error", "details"}
+            }
+            details = extra or None
         raise APIError(
             status_code=status_code or mapped_status,
             code=error_code,
             message=result.get("error", "request failed"),
+            details=details,
         )
     return result
 

@@ -85,11 +85,11 @@ def scan_vault(
             abs_path = os.path.join(root, filename)
             rel_path = os.path.relpath(abs_path, vault_path).replace(os.sep, "/")
             try:
-                with open(abs_path, "r", encoding="utf-8") as f:
-                    content = f.read()
+                with open(abs_path, "rb") as f:
+                    raw_content = f.read()
+                content = raw_content.decode("utf-8")
             except UnicodeDecodeError:
-                with open(abs_path, "r", encoding="utf-8-sig") as f:
-                    content = f.read()
+                content = raw_content.decode("utf-8-sig")
             except OSError as exc:
                 if errors is not None:
                     errors.append(f"{rel_path}: {exc}")
@@ -100,7 +100,9 @@ def scan_vault(
                 ScannedNote(
                     abs_path=abs_path,
                     rel_path=rel_path,
-                    content_hash=_hash_text(content),
+                    # Keep the scanner hash identical to uploads and course
+                    # files: dedupe compares the bytes on disk.
+                    content_hash=hashlib.sha256(raw_content).hexdigest(),
                     note=parsed,
                 )
             )

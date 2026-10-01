@@ -7,6 +7,56 @@
 ## [未发布]
 
 ### 变更
+- **审查整改已开 PR（2026-09-30）**：这批 17 个提交（审查基线 + 四批整改 + 复审批次 + 收尾）开成 **PR #5**，base 特意选 `feat/in-page-original-view` 让 diff 只包含本轮整改；**不要直接合 main**（相对 main 是上百个提交）。https://github.com/think520/react-agent/pull/5 —— 被审那一版同时冻结为 tag `audit-remediation-2026-09-30`，避免 PR 跟着后续提交漂移。
+- **2026-09-30 复审批次收下 + 主审收尾（导入/重试/去重三处边界）**：GPT 的复审补齐了三个真实漏洞，主审逐条复核、跑通门禁后收下（提交 `209934a`），并修掉复审本身引入的一处回退。
+  - **收下的三处（比我的实现更到位）**：① `obsidian/vault.py` 的 vault hash 从"文本 hash"改成**字节 sha256** —— 我之前断言"content_hash 就是字节 sha256"对 obsidian 笔记并不成立，F08 对 vault 笔记一直是漏的；② `obsidian/sync.py` 解析失败后**不再把 hash 写进 state**，且零 chunk 的可见文件会在增量同步里补做索引 —— 这才是 F04 的**根因层**修复（我只修了导入层），并用 `deletion_state` 防止"解析失败"被误判成"文件被删"；③ `service/kb_service.py` 对命中 hash 的候选项做**磁盘复核** —— 我原来的实现会在用户删/改文件后拿过期索引把新上传静默判成 duplicate 吞掉。
+  - **主审修掉的回退**：前端「失败」与「停止」两个按钮共用一个 handler，都会带 `retry_failed`，而被停止的那一轮没有失败标记 → 后端直接 409，用户点了「重新发送本轮」什么都发不出去（**修前红**：`assert 409 == 200`）。现在后端**优雅降级**（清不到失败尾部就按普通一轮跑），前端只在 `message.failed` 时声明该标志。
+  - **另外两处收尾**：删掉 `obsidian/sync.py` 里被后面覆盖的第一次 `_resolve_deletions`（死代码，纯函数所以行为不变）；`results_for_batch` 的错误归因从裸 basename 改成"最后两段路径"（实测上传落在 `raw/inbox/x.md`、同步报错写 `course/inbox/x.md`，且解析失败时**根本没有文档行**可查，所以既不能直接比 source 也不能只比 basename）。
+  - **主审误判的更正（如实记账）**：我原先担心 vault hash 口径变更触发**全量重解析**。真机实测推翻了它：真实资料库一次增量同步**只更新 1 个文件、3.3 秒**，文档 47→47、chunk 1694→1694 —— 因为 `_hash_text(text) = sha256(text.encode("utf-8"))` 对合法 UTF-8 文件与字节哈希本来就相等，只有 BOM/编码回退的文件才会变。
+  - **门禁**：后端 `1659 passed`、前端 24 文件 / 137 passed、tsc / eslint / production build 0 错误；`App.test.tsx` 在并行负载下有一条 5s 超时（原审查记录的已知 flaky，定向单跑 4/4 通过，**没有调大超时掩盖**）。
+  - **仍未做**：F 系列之外的边界项（R05 取消导入、R03 抽屉焦点、R04 截断 PDF、R06 性能复跑、R07 完整连接验收、R10 真实模型质量），以及真实 provider 失败 / 真实练习会话 / live 的真机验收。
+- **审查整改收尾：F01–F10 全部修完，状态表按实际验收更正（2026-09-28 后续）**：
+  - **第四批（失败会话与练习关联）**：F05 失败重试沿用已分配会话、F06 失败一轮写进会话历史（含会话详情投影修正）、F10 辅导关联跨重新挂载恢复 —— 见上一条。
+  - **终局门禁**：后端 **1651 passed**、前端 24 文件 / **136 passed**、tsc/eslint/build **0**、live **7 passed**。
+  - **真机三场景**：整理中断（搬到一半被杀 → 重启仍可撤销）、**撤销冲突**（scratch 资料库：原位有新文件时 `restored=[]`、`skipped=[target_exists]`、新文件内容完好、台账保留）、导入重复零写入（真库 inbox 1→1、文档 47→47）。
+  - **文档**：`docs/reviews/2026-09-28-remediation-code-review.md` 新增 §4.2 终局门禁与真机场景、§5 明确 PR 基线（建议 `codex/…` → `feat/in-page-original-view`，不是 main）、§6 五步全部勾掉；`docs/ROADMAP.md` §0.1 的状态按实际验收结果更正（R01/R02/R09/R11/R12 已验证；**R05 只保留"取消导入"未做**）。
+  - **仍未做（明确不在本轮，且不冒充完成）**：R05 取消进行中的导入、R03 抽屉焦点/Escape 专项、R04 截断 PDF 专项、R06 300 文件性能实验复跑、R07 完整连接验收、R10 真实模型教学质量；F05/F06/F10 未做真实 provider 失败/真实练习会话下的端到端验收。
+- **R01/R11 失败会话与练习关联补齐（2026-09-28，审查 F05/F06/F10）**：按审查 §6 的**第 4 批（失败会话与恢复）**做完，三条失败探针转正为回归。
+  - **F05（失败重试丢掉已分配的会话）**：`run_started` 里回来的 `chat_session_id` 已经存在 ref 上，重试现在沿用它（`sessionId || sessionIdRef.current`），不再因为路由参数没更新而另开一个新会话、把上一轮历史丢掉。回归：`ChatPage.test.tsx`（**修前红**：`expected undefined to be 'allocated-session'`）。
+  - **F06（失败一轮不进历史）**：后端在 run 异常时用 `Session.add_failed_message` 把这一轮写进会话（带 `failed`/`error`），并修掉 `_session_detail` 投影**把失败标记静默丢掉**的问题（此前只输出 role/content）。回归：`tests/test_web_backend.py::test_failed_chat_run_keeps_a_failed_turn_in_the_history`。
+  - **F10（练习辅导关联刷新即失效）**：辅导会话按"练习题 + 题目"记进 `sessionStorage`（`bobodan:practice-tutor:<练习 id>`），挂载/切换练习时恢复。回归：`PracticePage.test.tsx`（**红/绿都验过**：两处恢复都关掉时 `expected undefined to be 'tutor-session-1'`）。
+  - **验证口径**：F05/F10 组件级、F06 HTTP 级（FastAPI TestClient + 临时工作区）；这三条**没有**真机端到端验收（需要真实 provider 失败或真实练习会话，会污染资料库/消耗额度），不冒充真机结论。
+  - **验证**：后端 **1651 passed**；前端 24 文件 / **136 passed**、tsc **0**、eslint **0**、构建 **0**；live **7 passed**。
+  - **状态**：审查的 **F01–F10 全部有修复与回归**。仍未做的是**不属于 F 系列**的边界项：R05 的"取消导入"、R03 抽屉焦点、R04 截断 PDF 专项、R06 性能实验复跑、R07 完整连接验收、R10 真实模型教学质量。
+- **R05/R12 导入链路补齐：去重以索引为准、重试真的补索引、计数只算这批（2026-09-28，审查 F04/F08/F09）**：按审查 §6 的**第 3 批（导入）**做完，三条失败探针从 `evidence/2026-09-28/backend-probe-source.py.txt` 转正为回归（**修前 3 条全红**）。
+  - **F08（去重只扫 inbox）**：`documents.content_hash` 存的就是文件字节的 sha256（与上传时同算法），去重因此改成**查索引** —— 资料被整理到别的目录后，再传同样字节也认得出；inbox 扫描只保留来兜"盘上有、索引里没有"的那种。
+  - **F04（重试被当成重复、永不补索引）**：命中相同字节时区分"**已建索引**"（跳过）与"**盘上有、索引没建完**"（不写副本、重新送进同步、报 `pending`）。同步失败不再抛 500，而是结构化返回 `import_sync_failed`（带 imported/pending/results）。
+  - **F09（计数拿全库同步冒充本批）**：返回逐文件 `results[]`，全库增量同步改名 `library_sync` 单独展示；界面文案只按批次计数，有增量时单列"资料库里其它 N 份资料"（此前"上传 1 份"会显示"2 份可用于检索"）。
+  - **契约变更（有意，调用方已同步）**：`sync` → `library_sync`（路由 / `api.ts` / `importSummary.ts`）；"盘上同字节但没索引"从 duplicate 改成 pending。两条既有测试随之更新：`test_kb_service.py` 里那条"duplicate-only 不许同步"的断言**正是 bug 本身**，已改写为"重试必须补索引"。
+  - **验证**：后端 **1650 passed**（1647 + 3，另 2 条既有测试随契约更新）；前端 24 文件 / **134 passed**、tsc **0**、eslint **0**、构建 **0**；live **7 passed**；**真机零写入验证**：原样重传真库里的 `ai-agents-from-zero/1-1-大模型认知与工程概览.md` → 判 duplicate（认出真实路径）、`imported=[]`、inbox `1→1`、文档 `47→47`。
+  - **仍未做（下一批）**：F05/F06/F10 失败会话与练习关联；R05 的"取消进行中的导入"。
+- **R09 撤销入口选择修正（2026-09-30）**：当最新失败批次没有任何成功移动时，`undo_organization()` 无 `batch_id` 现在会向前选择最近仍有可执行恢复动作的批次，避免零成功批次遮蔽旧批次，导致界面显示可撤销但点击无效。新增 `test_undo_without_batch_id_uses_the_latest_actionable_batch`；`tests/test_organization_recovery.py` 现为 **9 passed**，后端全量 **1647 passed**。
+- **R02 笔记草稿补齐：按笔记隔离、重开恢复、刷新不丢、清空即删（2026-09-28，审查 F01）**：按审查 §6 的**第 2 批（草稿保护）**做完，四条失败探针从 `evidence/2026-09-28/drafts-probe-source.tsx.txt` 转正为组件回归（**修前 4 条全红**）。
+  - **按笔记隔离**：草稿 key 从"一个资料库一个"改成 **`bobodan:note-draft:<资料库>:<笔记 id>`**（新笔记用 `new` 槽位）——编辑 A 再编辑 B 不再互相顶掉。
+  - **重开优先恢复草稿**：`startEdit` 先看这篇笔记**自己**的草稿，有就用它，不再被服务端旧正文覆盖；切换笔记或新建之前先把当前草稿落盘。
+  - **刷新也不丢**：除了 250ms 防抖，还挂了 **`pagehide` 与 `visibilitychange`（hidden）同步落盘** —— 审查专门指出"组件卸载清理不能替代浏览器刷新/关闭事件"。
+  - **清空即删记录**：正文清空后**删掉本地记录**，不再把旧正文复活；保存成功或删除笔记时也清掉对应草稿。
+  - **验证**：组件测试 **7 passed**（4 条新增 + 原来 3 条，其中"保存后清草稿"改成先确认草稿真的落盘，避免假通过）；**live 新增 1 条真浏览器立即刷新**（`an unsaved note draft survives a real page reload`）→ live **7 passed**；前端 24 文件 / **132 passed**、tsc **0**、eslint **0**、构建 **0**；后端最近全量复验 **1647 passed**。
+  - **仍未做（下一批）**：F04/F08/F09 导入去重与计数、F05/F06/F10 失败会话与练习关联 —— 探针仍以 `.txt` 归档，未转正。
+- **R09 真机复验又抓出两处（2026-09-28 后续，同一批文件安全链路）**：把上面那条链路放到**真实资料库**（`note/vault`，2029 个文件 / 47 份资料）上跑"整理 → 撤销"时，暴露两个只有真数据才会出现的问题，都已修并转成回归：
+  - **① 计划→执行之间索引重建身份**：`move_document` 报 `document_not_found`，一份好好的资料就"搬不动"了（真机上 `正则表达式.md` 被卡住，第一项却已经搬走）。现在遇到这个错误会**按现在的路径重新解析身份并重试**；索引里彻底查不到时，才按未索引文件直接搬（裸搬兜底）。回归：`test_apply_retries_with_the_current_identity_when_the_index_rebuilt_it`（断言重试**走索引迁移**，不是退化成一个裸搬文件）。
+  - **② 没有东西可撤了还在提示"可撤销"**：第一项撤销成功、第二项其实没搬成，台账仍挂着待撤销，那一项还被误报成 `target_exists`（"原位被占用"）。现在"压根没搬成"的项直接跳过、不参与冲突判断；`organization_state()` 只在**还有搬走未归还的项**（或计划仍在执行中）时才报 `pending_undo`。回归：`test_a_batch_with_nothing_left_to_undo_is_not_reported_pending`。
+  - **③ 零成功失败批次不能遮蔽旧批次**：如果后续批次一项也没搬成，服务端状态仍会保留更早的可撤销批次；无 `batch_id` 的撤销现在按最近仍有实际移动动作的批次选择。回归：`test_undo_without_batch_id_uses_the_latest_actionable_batch`。
+  - **真机复验结果（当前代码）**：apply `ok=true / partial=false`、台账 `status=applied` + 逐项 `moved`；undo `restored=[两条] / skipped=[]`；文件清单逐项回到起点、`未归类` 文件夹清掉、`pending_undo` 清空。
+  - **门禁**：后端最近全量复验 **1647 passed**；前端 24 文件 / **128 passed**、tsc **0**、eslint **0**、构建 **0**；live（真实后端 + 真实资料库）**6 passed**。
+- **R09 文件安全链路补齐：先写计划、异常落账、撤销不覆盖、部分结果穿过 HTTP（2026-09-28，审查 F02/F03/F07）**：按 `docs/reviews/2026-09-28-remediation-code-review.md` §6 的**第 1 批（文件安全）**做完，并把当时失败的探针转成正式回归测试 `tests/test_organization_recovery.py`（**修前 5 条全红，修后 6 条全绿**）。
+  - **F02（已索引移动抛异常没有台账）**：`apply_organization` 现在**先写计划再动手** —— 台账在第一次文件系统改动之前落盘，带 `status`（planned/applying/applied/partial/failed）与逐项 `state`；**异常**（不只是 `ok=False`）一律落账；"物理移动已完成、索引迁移失败"按**磁盘事实**判定，照样进 `moved` 并保持可撤销。新增"搬到一半被杀、重启后的实例仍能撤销"的回归。
+  - **F03（撤销覆盖用户新文件）**：撤销前检查原位是否已被占用 —— 占用就**跳过、保留台账、如实报告** `skipped[].reason="target_exists"`，绝不 `shutil.move` 覆盖；已还原的项标记 `undone`，冲突处理完还能再撤。
+  - **F07（部分结果被 HTTP 边界丢掉）**：`unwrap_service_result` 把失败结果里的 `moved/failed/batch_id` 放进 `APIError.details`；界面在失败收尾**当场重新读回台账**，显示"已搬走 N 份 / M 份没搬成（原因）"，并立刻给出撤销入口（此前要刷新才发现）。撤销的 `skipped` 也在界面上如实说明。
+  - **顺带修掉一个界面真 bug**：`loadDocuments()` 开头会 `setError("")`，把刚写的错误信息冲掉 —— 整理失败的提示因此从来显示不出来（写这条测试时才暴露）；现在先刷新再设错。
+  - **验证**：后端 **1644 passed**（1638 + 6）；前端 24 文件 / **128 passed**、tsc **0**、eslint **0**、构建 **0**；live（真实后端 + 真实资料库）**6 passed**。
+  - **仍未做（下一批）**：F01 草稿隔离与恢复、F04/F08/F09 导入去重与计数、F05/F06/F10 失败会话与练习关联 —— 探针目前仍只以 `.txt` 归档在证据目录，尚未转正；`docs/ROADMAP.md` §0.1 已按复审结论把 R01/R02/R05/R11/R12 从"已验证"改回"进行中"。
+- **2026-09-25 审查整改分支（R01–R13，`ceb9cc2`）**：基于项目深度体验报告补齐关键可靠性闭环。流式业务失败和无终态断流不再被当作成功；笔记草稿按资料库隔离并可恢复；窄桌面阅读区不再被右侧面板遮挡；PDF 解析失败不再走文本回退，TXT 真正接入；资料树返回真实 chunk 数；Provider 引导区分已保存与已验证；手动笔记不再受自动记忆开关阻断并显示 5000 字符限制；资料整理先预检冲突并保留可撤销批次；判题反馈去重；同题练习追问复用辅导 session；复习页返回下一次复习时间并解释错题/薄弱点口径；完全相同内容导入默认保留已有版本，用户可选择另存副本；设置异步加载不再清空当前聊天草稿、消息或待回答交互。最终门禁为后端 `1638 passed`、前端 `127 passed`、lint/build 通过、Playwright `89 passed / 19 skipped / 0 failed`。对应复验报告见 docs/reviews/2026-09-25-project-review.md，路线图状态见 docs/ROADMAP.md。
 - **④ai 自绘滚动条"只有滚到最上面才看得见"（2026-09-24，用户反馈，`4941104`）**：上一轮的自绘条**住错了地方** —— 它被渲染在 `.library-reader-column` **里面**，而那一层正是滚动容器：`position: absolute` 的元素在滚动容器里是**内容的一部分**，于是它跟着正文一起滚走。实测：滚动 1500px 后轨道 y 从 `133` 变成 **`-1367`**，滑块本身算得没错（`top: 23px / height: 32px`），只是**人已经不在画面里**——正是"只有最上面滑动条才会出现"。
   - **修法**：外面套一层**不滚动**的定位父层 `.library-reader-wrap`（它才是网格列），滚动容器在它里面 `flex: 1 1 auto`，滑块挂在父层上。
   - **真机复验（真实滚轮事件）**：轨道在滚动全程**钉在 y=133**；滑块随滚动从 y=156 移到 260，并且在自身中心点上的顶层元素**始终是它自己**（任何滚动位置都抓得住）。滚到正文 9000px 处截图确认肉眼可见。

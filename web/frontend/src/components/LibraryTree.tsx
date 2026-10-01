@@ -257,33 +257,37 @@ function TreeFolder({
               </ul>
             </details>
           )}
-          {folder.children.map((child) => (
-            <TreeFolder
-              key={child.path}
-              folder={child}
-              depth={depth + 1}
-              expanded={expanded}
-              onToggle={onToggle}
-              selectedFolder={selectedFolder}
-              onSelectFolder={onSelectFolder}
-              activeDocumentId={activeDocumentId}
-              onOpenDocument={onOpenDocument}
-              onMoveDocument={onMoveDocument}
-              onArchiveDocument={onArchiveDocument}
-              onDeleteFolder={onDeleteFolder}
-            />
-          ))}
-          {folder.files.map((file) => (
-            <TreeFile
-              key={file.path}
-              file={file}
-              depth={depth + 1}
-              active={activeDocumentId === file.document_id}
-              onOpenDocument={onOpenDocument}
-              onMoveDocument={onMoveDocument}
-              onArchiveDocument={onArchiveDocument}
-            />
-          ))}
+          {(folder.children.length > 0 || folder.files.length > 0) && (
+            <ul role="group">
+              {folder.children.map((child) => (
+                <TreeFolder
+                  key={child.path}
+                  folder={child}
+                  depth={depth + 1}
+                  expanded={expanded}
+                  onToggle={onToggle}
+                  selectedFolder={selectedFolder}
+                  onSelectFolder={onSelectFolder}
+                  activeDocumentId={activeDocumentId}
+                  onOpenDocument={onOpenDocument}
+                  onMoveDocument={onMoveDocument}
+                  onArchiveDocument={onArchiveDocument}
+                  onDeleteFolder={onDeleteFolder}
+                />
+              ))}
+              {folder.files.map((file) => (
+                <TreeFile
+                  key={file.path}
+                  file={file}
+                  depth={depth + 1}
+                  active={activeDocumentId === file.document_id}
+                  onOpenDocument={onOpenDocument}
+                  onMoveDocument={onMoveDocument}
+                  onArchiveDocument={onArchiveDocument}
+                />
+              ))}
+            </ul>
+          )}
         </>
       )}
     </li>

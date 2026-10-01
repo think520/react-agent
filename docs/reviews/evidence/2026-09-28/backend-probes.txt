@@ -1,0 +1,91 @@
+FFFFFFFFF                                                                [100%]
+================================== FAILURES ===================================
+_____________ test_indexed_move_exception_retains_recovery_batch ______________
+tests\test_audit_review_probe.py:36: in test_indexed_move_exception_retains_recovery_batch
+    assert service.organization_state()["pending_undo"] is not None, "first file moved but no recovery batch"
+E   AssertionError: first file moved but no recovery batch
+E   assert None is not None
+___________ test_index_failure_after_physical_move_retains_recovery ___________
+tests\test_audit_review_probe.py:50: in test_index_failure_after_physical_move_retains_recovery
+    assert service.organization_state()["pending_undo"] is not None, "physical move completed before failing index update, no recovery batch"
+E   AssertionError: physical move completed before failing index update, no recovery batch
+E   assert None is not None
+_________________ test_recovery_plan_exists_before_first_move _________________
+tests\test_audit_review_probe.py:59: in test_recovery_plan_exists_before_first_move
+    service.apply_organization(["first.md"], "Lessons")
+service\kb_service.py:1952: in apply_organization
+    shutil.move(str(plan["source"]), str(plan["destination"]))
+tests\test_audit_review_probe.py:55: in stop_process
+    assert service.organization_state()["pending_undo"] is not None, "no write-ahead plan before filesystem mutation"
+E   AssertionError: no write-ahead plan before filesystem mutation
+E   assert None is not None
+_______________ test_partial_batch_survives_http_error_mapping ________________
+tests\test_audit_review_probe.py:75: in test_partial_batch_survives_http_error_mapping
+    assert caught.value.details and caught.value.details.get("batch_id") == result["batch_id"], "HTTP error discards recovery metadata"
+E   AssertionError: HTTP error discards recovery metadata
+E   assert (None)
+E    +  where None = APIError('review injected failure').details
+E    +    where APIError('review injected failure') = <ExceptionInfo APIError('review injected failure') tblen=2>.value
+_______________ test_undo_does_not_overwrite_new_original_file ________________
+tests\test_audit_review_probe.py:83: in test_undo_does_not_overwrite_new_original_file
+    assert (audit_library / "first.md").read_text(encoding="utf-8") == "New user file created after organizing", "undo replaced a new user file"
+E   AssertionError: undo replaced a new user file
+E   assert 'A lesson wit...or indexing. ' == 'New user fil...er organizing'
+E     
+E     - New user file created after organizing
+E     + A lesson with enough text for indexing. A lesson with enough text for indexing. A lesson with enough text for indexing. A lesson with enough text for indexing. A lesson with enough text for indexing. A lesson with enough text for indexing. A lesson with enough text for indexing. A lesson with enough text for indexing. A lesson with enough text for indexing. A lesson with enough text for indexing. A lesson with enough text for indexing. A lesson with enough text for indexing. A lesson with enough text for indexing. A lesson with ...
+E     
+E     ...Full output truncated (1 line hidden), use '-vv' to show
+__________________ test_retry_failed_import_retries_indexing __________________
+tests\test_audit_review_probe.py:101: in test_retry_failed_import_retries_indexing
+    assert calls == 2, "raw file exists, but retry is silently classified as duplicate without indexing"
+E   AssertionError: raw file exists, but retry is silently classified as duplicate without indexing
+E   assert 1 == 2
+_______________ test_import_summary_counts_only_uploaded_files ________________
+tests\test_audit_review_probe.py:109: in test_import_summary_counts_only_uploaded_files
+    assert result["sync"]["extraction_counts"].get("complete", 0) <= len(result["imported"]), result
+E   AssertionError: {'duplicates': [], 'imported': ['new.md'], 'ok': True, 'rejected': [], ...}
+E   assert 2 <= 1
+E    +  where 2 = <built-in method get of dict object at 0x000001CDB82CFB80>('complete', 0)
+E    +    where <built-in method get of dict object at 0x000001CDB82CFB80> = {'complete': 2, 'empty': 0, 'error': 0, 'partial': 0}.get
+E    +  and   1 = len(['new.md'])
+_________ test_reimport_after_organizing_does_not_duplicate_document __________
+tests\test_audit_review_probe.py:121: in test_reimport_after_organizing_does_not_duplicate_document
+    assert again["imported"] == [], "dedup only scans inbox and misses organized documents"
+E   AssertionError: dedup only scans inbox and misses organized documents
+E   assert ['upload.md'] == []
+E     
+E     Left contains one more item: 'upload.md'
+E     Use -v to get more diff
+____________ test_failed_chat_retains_failure_summary_after_reload ____________
+tests\test_audit_review_probe.py:139: in test_failed_chat_retains_failure_summary_after_reload
+    assert any(message.get("failed") or any(artifact.get("status") == "failed" for artifact in message.get("artifacts", [])) for message in messages), detail
+E   AssertionError: {'chat_session_id': '83c82195-1919-429f-a279-ab1e0cf86e73', 'created_at': '2026-09-28T15:05:30.605565', 'last_active': '2026-09-28T15:05:30.721210', 'message_count': 1, ...}
+E   assert False
+E    +  where False = any(<generator object test_failed_chat_retains_failure_summary_after_reload.<locals>.<genexpr> at 0x000001CDB7CF3A60>)
+------------------------------ Captured log call ------------------------------
+ERROR    web.backend.routers.chat:chat.py:1714 Web chat run failed: review simulated provider exception
+Traceback (most recent call last):
+  File "F:\claude projects\openclaw-main\project_class\web\backend\routers\chat.py", line 1654, in event_stream
+    for event in events:
+                 ^^^^^^
+  File "F:\claude projects\openclaw-main\project_class\tests\test_audit_review_probe.py", line 129, in failed_run
+    raise RuntimeError("review simulated provider exception")
+RuntimeError: review simulated provider exception
+============================== warnings summary ===============================
+.venv\Lib\site-packages\fastapi\testclient.py:1
+  F:\claude projects\openclaw-main\project_class\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/test_audit_review_probe.py::test_indexed_move_exception_retains_recovery_batch
+FAILED tests/test_audit_review_probe.py::test_index_failure_after_physical_move_retains_recovery
+FAILED tests/test_audit_review_probe.py::test_recovery_plan_exists_before_first_move
+FAILED tests/test_audit_review_probe.py::test_partial_batch_survives_http_error_mapping
+FAILED tests/test_audit_review_probe.py::test_undo_does_not_overwrite_new_original_file
+FAILED tests/test_audit_review_probe.py::test_retry_failed_import_retries_indexing
+FAILED tests/test_audit_review_probe.py::test_import_summary_counts_only_uploaded_files
+FAILED tests/test_audit_review_probe.py::test_reimport_after_organizing_does_not_duplicate_document
+FAILED tests/test_audit_review_probe.py::test_failed_chat_retains_failure_summary_after_reload
+9 failed, 1 warning in 2.17s

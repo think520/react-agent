@@ -58,6 +58,8 @@ export function LibraryPage() {
     documentImporting,
     documentImportNotice,
     documentImportError,
+    documentImportDuplicateCount,
+    importDuplicatesAsCopies,
     documentImportVersion,
     selectedDocumentIds,
     setDocumentScope,
@@ -877,18 +879,24 @@ export function LibraryPage() {
     setError("");
     try {
       const result = await api.applyOrganization(proposal.items, proposal.suggested_folder);
-      setOrganizePending({
-        batch_id: result.batch_id,
-        created_at: new Date().toISOString(),
-        target_folder: proposal.suggested_folder,
-        moves: result.moved,
-      });
       setOrganizeProposals([]);
       setNotice(`已把 ${result.moved.length} 份资料收进「${proposal.suggested_folder}」；引用与证据已跟着迁移。`);
-      // 台账已经写在服务端了，这里只是把"可撤销"立刻反映到界面上。
-      await Promise.all([loadTree(), loadDocuments()]);
+      // 台账写在服务端，界面以它为准（刷新/重启后一致）。
+      await Promise.all([loadTree(), loadDocuments(), loadOrganizeState()]);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "整理失败。");
+      // 审查 F07：部分失败时，**当场**把服务端台账读回来 —— 用户要立刻看到
+      // "已经搬走了哪几份"，并且当场就能撤销，而不是刷新以后才发现。
+      const details = reason instanceof ApiError
+        ? reason.details as { moved?: { from: string }[]; failed?: { from: string; error?: string }[] } | undefined
+        : undefined;
+      const movedCount = details?.moved?.length || 0;
+      const failedCount = details?.failed?.length || 0;
+      const message = failedCount > 0
+        ? `整理没有全部完成：已搬走 ${movedCount} 份，${failedCount} 份没搬成（${details?.failed?.[0]?.error || "原因未知"}）。已经搬走的部分可以撤销。`
+        : reason instanceof Error ? reason.message : "整理失败。";
+      // 先刷新（loadDocuments 开头会 setError("")，会把刚写的错误冲掉），再设错误信息。
+      await Promise.all([loadTree(), loadDocuments(), loadOrganizeState()]);
+      setError(message);
     } finally {
       setOrganizeBusy(false);
     }
@@ -899,9 +907,15 @@ export function LibraryPage() {
     setError("");
     try {
       const result = await api.undoOrganization();
-      setNotice(`已撤销整理，${result.restored.length} 份资料回到原位。`);
-      setOrganizePending(null);
-      await Promise.all([loadTree(), loadDocuments()]);
+      const skipped = result.skipped || [];
+      // 审查 F03：有跳过的项要**如实说**（原位已经有文件，我们选择不覆盖），
+      // 而且台账还留着，用户处理完冲突可以再撤销一次。
+      setNotice(
+        skipped.length
+          ? `已还回 ${result.restored.length} 份；${skipped.length} 份因为原位已经有文件被跳过（没有覆盖），台账保留着。`
+          : `已撤销整理，${result.restored.length} 份资料回到原位。`,
+      );
+      await Promise.all([loadTree(), loadDocuments(), loadOrganizeState()]);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "撤销失败。");
     } finally {
@@ -1146,7 +1160,7 @@ export function LibraryPage() {
             <footer>{wikiEditor.document_id && <button className="danger-text-button" disabled={wikiEditorSaving} onClick={() => void archiveSelectedWikiPage()}><Trash2 size={15} />归档</button>}<div><button className="quiet-button" disabled={wikiEditorSaving} onClick={() => setWikiEditorOpen(false)}>取消</button><button className="primary-button" disabled={wikiEditorSaving || !wikiEditor.title.trim() || !wikiEditor.body.trim()} onClick={() => void saveWikiEditor()}><Save size={15} />{wikiEditorSaving ? "正在保存" : "保存页面"}</button></div></footer>
         </Modal>}
         {confirmElement}
-        {(documentImportNotice || notice) && <div className="success-notice"><CheckCircle2 size={17} />{documentImportNotice || notice}</div>}
+        {(documentImportNotice || notice) && <div className="success-notice"><CheckCircle2 size={17} /><span>{documentImportNotice || notice}</span>{documentImportDuplicateCount > 0 && <button className="text-link" type="button" onClick={importDuplicatesAsCopies}>重复文件仍要另存副本</button>}</div>}
         {documentImportError && <ErrorNotice message={documentImportError} />}
         {error && <ErrorNotice message={error} action={<button className="quiet-button" onClick={() => void loadDocuments()}>重试</button>} />}
         {loading ? <div className="illustrated-loading"><BrandIllustration state="reading" size={76} /><LoadingState label={collection === "wiki" ? "正在整理 Wiki…" : "正在读取本地资料…"} /></div> : documents.length ? (
@@ -1251,7 +1265,9 @@ export function LibraryPage() {
                       撤销这一步整理
                     </button>
                     <small className="text-faint">
-                      上一步：{organizePending.moves.length} 份资料收进「{organizePending.target_folder}」
+                      {organizePending.status && organizePending.status !== "applied"
+                        ? `上一次整理未完成（${organizePending.moves.length} 项），可以撤销已经搬走的部分`
+                        : `上一步：${organizePending.moves.length} 份资料收进「${organizePending.target_folder}」`}
                     </small>
                   </div>
                 )}

@@ -123,6 +123,23 @@ def test_get_review_queue_aggregates_learning_and_quiz_data(store, svc, monkeypa
     assert result["weaknesses"] == [{"concept": "A", "question_ids": [question_id]}]
 
 
+def test_review_queue_reports_the_next_future_review(store, svc):
+    from datetime import datetime, timezone, timedelta
+
+    next_review = (datetime.now(timezone.utc) + timedelta(days=2)).isoformat()
+    store.upsert_mastery(Mastery(
+        concept="未来知识点",
+        status="learning",
+        score=0.5,
+        next_review=next_review,
+    ))
+
+    result = svc.get_review_queue()
+
+    assert result["next_review"]["concept"] == "未来知识点"
+    assert result["next_review"]["next_review"] == next_review
+
+
 def test_review_queue_wrong_answers_match_the_bank(store, svc):
     """E18/D5: "wrong" means the same thing in Review and in the question bank."""
     quiz_store = QuizStore(svc.workspace)

@@ -241,6 +241,12 @@ def _session_detail(session: Session, workspace: str | None = None) -> dict[str,
             messages.append(item)
         elif role == "assistant" and not message.get("tool_calls") and content:
             item = {"role": "assistant", "content": content}
+            # F06：失败标记必须一起出去，否则刷新后这一轮看起来像正常回答过。
+            for flag in ("failed", "stopped"):
+                if message.get(flag):
+                    item[flag] = True
+            if message.get("failed") and message.get("error"):
+                item["error"] = message["error"]
             attribution = _public_attribution(message.get("attribution"))
             if attribution:
                 item["attribution"] = attribution
@@ -1470,6 +1476,13 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
         if not resume_record.get("tool_call_id"):
             raise APIError(409, "interaction_not_resumable", "这次交互没有可续跑的工具调用。")
     else:
+        if body.retry_failed:
+            # 复审修正（F05）：这个标志的意思是"顺手把上一轮的失败尾部清掉"，不是前置条件。
+            # 清不到（用户重试的是**被停止**的那一轮、或历史里本来就没有失败标记）就按普通
+            # 一轮继续跑 —— 否则界面上的「重新发送本轮」会直接报错，点了什么都发不出去。
+            removed = bool(body.chat_session_id) and session.remove_failed_turn_for_retry(body.message)
+            if not removed:
+                logger.info("retry_failed requested without a matching failed turn; running normally")
         _close_open_interactions(session, workspace)
     provider_name, preference_model = parse_provider_ref(
         body.provider
@@ -1712,12 +1725,25 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
             })
         except Exception as exc:
             logger.exception("Web chat run failed: %s", exc)
+            failure = {
+                "code": "run_failed",
+                "message": "The AI run failed. Please try again.",
+            }
+            # F06：失败也要写进会话（下面 finally 会保存）—— 否则刷新之后这一轮凭空消失，
+            # 用户只看见自己那句提问，也不知道刚才到底发生了什么。
+            try:
+                session.add_failed_message(
+                    "assistant",
+                    failure["message"],
+                    failure["message"],
+                    failure["code"],
+                    retry_input=body.message,
+                )
+            except Exception:  # 记不上失败也不能影响 run_failed 事件本身
+                logger.warning("Could not record the failed turn in the session", exc_info=True)
             yield emitter.emit("run_failed", {
                 "run_id": run_id,
-                "error": {
-                    "code": "run_failed",
-                    "message": "The AI run failed. Please try again.",
-                },
+                "error": failure,
             })
         finally:
             # A4 batch 3: the pump owns this generator, so a dropped client no

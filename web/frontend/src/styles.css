@@ -1422,6 +1422,7 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 
 .mobile-nav, .mobile-only, .scrim { display: none; }
 .context-header .icon-button { display: none; }
+.app-shell.right-collapsed .context-header .icon-button { display: inline-grid; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; clip-path: inset(50%); }
 
 @keyframes process-enter { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: translateY(0); } }
@@ -1668,6 +1669,7 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 .library-tree-actions > div { position: absolute; z-index: 20; right: 0; top: 22px; display: grid; min-width: 190px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); padding: 4px; background: var(--paper); box-shadow: var(--shadow-float); }
 .library-tree-actions button { border: 0; border-radius: var(--radius-sm); padding: 7px 9px; background: transparent; color: var(--ink); text-align: left; font-size: 12.5px; cursor: pointer; }
 .library-tree-actions button:hover { background: var(--paper-soft); }
+.note-editor-hint.over-limit { color: var(--danger); }
 /* ⑤：整理建议面板（树上，只提议 → 执行 → 撤销）。 */
 .library-organize { margin-top: 10px; color: var(--muted); font-size: 12.5px; }
 .library-organize > summary { cursor: pointer; }

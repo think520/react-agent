@@ -1,0 +1,278 @@
+# 审查整改代码复审与推送评估
+
+- 日期：2026-09-28；后续复审更新：2026-09-30。
+- 分支：`codex/audit-remediation-2026-09-25`。
+- 审查基线：`06e2c3f`；本次复核在该提交上继续进行，当前修复仍在工作区、尚未提交或推送。
+- 范围：3 个提交、61 个变更文件（含原审查报告、图片与日志），并追踪本次变更直接关联的 API、存储和界面调用方。
+- 方法：差异阅读、验收条目对照、全套现有测试、隔离资料库故障注入、组件交互与重新挂载测试。未调用真实付费模型，未修改日常资料库。
+- 初始交付是报告与复现材料；历次修复与复验记录见 §1.1、§4。本次复核重点检查已声称完成的 F04/F05/F08/F10 是否存在遗漏。
+
+## 1. 结论
+
+**不能认定 R01–R13 已全部验收完成；F01–F10 的本次修复与回归已通过，但当前工作区尚未提交，且本轮没有重跑真实 provider / 真实资料库 live 验收。可以整理成 PR 供审查，不建议直接合并 main 或发布。**
+
+下方“初始审查”段落保留历史复现事实；当前状态以 §1.1 的追加修复和 §4.2 的工作区门禁为准。
+
+现有测试大部分覆盖了这轮改动的主路径，但没有覆盖多笔记草稿恢复、已索引文件移动异常、撤销冲突、失败导入重试、失败会话的重试/历史恢复、练习刷新等关键边界。本次补充的 15 个验收断言均失败，它们对应下文 10 组问题，并不代表 15 个独立缺陷。
+
+如果推送只用于备份或 Draft PR，可以保留在独立功能分支并明确标记未完成；这不等于批准合并或发布。必须优先修复数据丢失和错误恢复问题，然后重新验收。
+
+前一份报告与 ROADMAP 将这些条目标为“已实现/已验证”的说法过于乐观，需要依据本报告重新标记。不能通过缩小验收口径，反过来证明原目标已经完成。
+
+## 1.1 整改进度（2026-09-28 后续，文件安全链路）
+
+按本报告 §6 的顺序，**第 1 批（文件安全）已修完并转正为回归测试**，其余批次尚未开始：
+
+| 条目 | 状态 | 修复与证据 |
+|---|---|---|
+| F02 已索引移动异常无台账 | **已修** | `apply_organization` 现在**先写计划再动手**（`status=planned/applying/applied/partial/failed`，逐项 `state`），异常（不只是 `ok=False`）一律落账；物理移动已完成、索引迁移失败时按**磁盘事实**判定并保持可撤销。回归：`tests/test_organization_recovery.py` 4 条（含重启后可撤销） |
+| F03 撤销覆盖新文件 | **已修** | 撤销前检查原位：已被占用就**跳过、保留台账、如实报告** `skipped[].reason="target_exists"`，不再 `shutil.move` 覆盖。回归：同文件第 5 条 |
+| F07 部分结果被 HTTP 边界丢弃 | **已修** | `unwrap_service_result` 把失败结果里的 `moved/failed/batch_id` 放进 `APIError.details`；资料库界面在失败收尾**重新读回台账**并显示"已搬走 N 份 / M 份没搬成"，当场给撤销入口。回归：后端第 4 条 + `LibraryPage.test.tsx` 新增 1 条 |
+
+门禁（本批）：后端 **1644 passed**；前端 24 个文件 / **128 passed**，tsc、eslint、build 通过；live（真实后端 + 真实资料库）**6 passed**。
+
+**真机复验又抓出两处（同批修复）**：① 计划到执行之间索引重建身份，`move_document` 报 `document_not_found`，一份好好的资料搬不动 → 现在按"现在的路径"**重新解析并重试**，索引里彻底没有才退化为裸搬；② 第一项撤销成功、第二项压根没搬成时，台账仍提示"可撤销"且把没搬成的报成 `target_exists` → 现在未搬成的项不参与冲突判断，`organization_state()` 只在**确实还有搬走未归还的项**时才报待撤销。两条都有回归（`test_apply_retries_with_the_current_identity_when_the_index_rebuilt_it`、`test_a_batch_with_nothing_left_to_undo_is_not_reported_pending`），门禁为后端 **1646 passed** / 前端 **128 passed** / live **6 passed**。
+
+**后续边界复核（2026-09-30）**：发现“先有可撤销批次，后有一笔零成功的失败批次”时，`organization_state()` 仍能显示旧批次，但无 `batch_id` 的 `undo_organization()` 会错误取最新失败批次，导致撤销按钮点击后无动作。现已改为从后往前选择最近仍有实际移动动作的批次；回归 `test_undo_without_batch_id_uses_the_latest_actionable_batch` 已加入 `tests/test_organization_recovery.py`。当前该文件 **9 passed**，后端全量复验 **1647 passed**。
+
+### 第二批（草稿保护）：F01 已修
+
+| 条目 | 状态 | 修复与证据 |
+|---|---|---|
+| F01 笔记草稿没有按笔记隔离 | **已修** | 草稿改成**按"资料库 + 笔记"存**（新笔记用 `new` 槽位）；`startEdit` **优先恢复这篇笔记自己的草稿**，不再拿服务端旧正文把它盖掉；切换笔记或新建之前先落盘当前草稿；**pagehide / visibilitychange 同步落盘**（250ms 防抖窗口内刷新也不丢）；正文清空后**删掉旧记录**；保存或删除笔记时清掉对应草稿。回归：`web/frontend/src/pages/NotesPage.test.tsx` 新增 4 条（转正自 `evidence/2026-09-28/drafts-probe-source.tsx.txt`，**修前 4 条全红**）+ live 新增 1 条**真浏览器立即刷新**（审查要求：事件模拟不能冒充真刷新）。 |
+
+### 第三批（导入链路）：F04/F08/F09 已修
+
+| 条目 | 状态 | 修复与证据 |
+|---|---|---|
+| F04 重试被当成重复、永不补索引 | **已修** | 命中相同字节时区分"**已建索引**"（跳过，报 duplicate）与"**盘上有、索引没建完**"（不写副本，重新送进同步并报 `pending`）。同步失败不再抛 500，而是返回结构化错误（`import_sync_failed`，带 imported/pending/results）；本次复审又修掉了解析异常后的 state hash 短路和已有文档零 chunk 不重试。回归：`tests/test_import_retry_and_counts.py` 7 条；`test_kb_service.py` 旧契约已按新语义改写 |
+| F08 去重只扫 inbox | **已修** | 去重改为**以索引为准**（`documents.content_hash` 统一为文件字节的 sha256），资料被移动/改名后依然认得出来；inbox 扫描只保留来兜"盘上有、索引里没有"；本次复审补上过期索引的磁盘校验，且只校验 hash 命中的候选。回归：跨目录去重 + stale hash 两组 |
+| F09 计数拿全库同步冒充本批 | **已修** | 返回**逐文件批次结果** `results[]`（含 searchable/chunks/extraction），全库增量同步改名 `library_sync` 单独展示；界面文案只按批次计数，有增量时单列"资料库里其它 N 份资料"。回归：后端第 3 条 + `importSummary.test.ts` 5 条（含"不许出现 2 份可用于检索"） |
+
+**契约变更（有意，已同步调用方）**：导入结果的 `sync` → `library_sync`（`web/backend/routers/kb.py`、`api.ts`、`importSummary.ts`）；"盘上同字节但没索引"从 duplicate 改成 pending。
+
+**真机零写入验证**：把真实资料库里 `ai-agents-from-zero/1-1-大模型认知与工程概览.md` 的字节原样再传一次 → 判 `duplicate`（认出真实路径）、`imported=[]`、inbox `1→1`、文档 `47→47`。
+
+### 第四批（失败会话与练习关联）：F05/F06/F10 已修
+
+| 条目 | 状态 | 修复与证据 |
+|---|---|---|
+| F05 失败重试丢掉已分配的会话 | **已修** | 重试改为 `sessionId \|\| sessionIdRef.current`，并通过 `retry_failed` 让后端删除上一轮失败尾部，避免同一 user turn 被再次保存；回归：`ChatPage.test.tsx`、`test_retry_failed_chat_run_does_not_duplicate_the_user_turn`、`tests/test_session_retry.py` |
+| F06 失败一轮不进历史 | **已修** | 后端在 run 异常时用 `Session.add_failed_message` 把这一轮写进会话（带 `failed`/`error`），并让 `_session_detail` 的投影**不再把这些标记丢掉**（此前它只输出 role/content，标记被静默吞掉）。回归：`tests/test_web_backend.py::test_failed_chat_run_keeps_a_failed_turn_in_the_history` |
+| F10 练习辅导关联刷新即失效 | **已修** | 辅导会话按"资料库 + 练习题 + 题目"记进 `sessionStorage`（`bobodan:practice-tutor:<library id>:<练习 id>`），挂载时恢复；相同练习/题目 ID 的不同资料库隔离；练习结束关标签页即清。回归：`PracticePage.test.tsx` 含跨库串线用例 |
+
+**验证口径（如实说明）**：F05/F10 是组件级回归，F06 是走 FastAPI TestClient 的 HTTP 级回归（真后端 + 临时工作区）。这三条**没有**做真实资料库上的端到端验收 —— 那需要一次真实 provider 失败或一次真实练习会话，会污染用户资料库/消耗额度；报告本身也要求"事件模拟不能冒充真实实验"，所以这里不声称真机验收。
+
+### 本次复审追加修复（2026-09-30，已提交 `209934a`）
+
+本次复审没有推翻已修主路径，而是补上了四个遗漏边界：
+
+| 条目 | 发现与处理 | 证据 |
+|---|---|---|
+| F04 增量重试仍会被状态 hash 短路 | 解析异常后不再保存该 source 的 hash；有文档行但没有 searchable chunks 的可见文件会在增量同步中补做索引；失败结果下一次重新解析 | `tests/test_import_retry_and_counts.py::test_retry_reparses_a_file_that_failed_inside_the_real_sync`、`test_retry_of_an_unindexed_document_outside_inbox_uses_its_real_path` |
+| F08 hash 口径与过期索引 | Markdown 扫描改用原始字节 SHA-256，与上传一致；只有本次上传 hash 命中的索引候选才读取磁盘校验，文件被删除或编辑后不再误报 duplicate | `test_reimport_after_organizing_is_recognised_as_duplicate`、`test_stale_index_hash_cannot_discard_an_uploaded_file` |
+| F05 重试重复 user turn | 新增 `retry_failed` 契约；重试前移除上一轮失败回合及残留工具调用，再由新运行写入一次 user turn | `tests/test_web_backend.py::test_retry_failed_chat_run_does_not_duplicate_the_user_turn`、`tests/test_session_retry.py` |
+| F10 跨资料库串线 | `sessionStorage` key 加入 `activeLibrary.library_id`，相同练习/题目 ID 在不同资料库不再共享 tutor session | `web/frontend/src/pages/PracticePage.test.tsx` 跨库回归 |
+
+本轮定向回归 **92 passed**；最终全量门禁为后端 **1659 passed**、前端 **24 files / 137 passed**，tsc、eslint、生产构建均通过。真实 provider 失败、真实练习会话和 Playwright live 本轮未重跑。
+
+### 主审复核与收尾（2026-09-30，提交 `209934a` + 本次收尾）
+
+主审通读并复跑了这一批，结论：**方向正确，而且补上了我实现里的三个真实漏洞**（vault 的 hash 口径、同步层"失败即永久跳过"的根因、过期索引会把新上传吞掉）。同时复审发现并处理了下面几点：
+
+| # | 发现 | 处理 |
+|---|---|---|
+| 1 | **回退：「回答已停止」的重新发送会 409**。前端两个按钮共用 `retryMessage`，都会带 `retry_failed`；而被停止的那一轮没有失败标记，后端直接 `raise APIError(409, retry_not_available)` → 用户点了按钮什么都发不出去。**修前红**：`assert 409 == 200` | 后端**优雅降级**（清不到失败尾部就按普通一轮继续跑），前端只在 `message.failed` 时声明该标志。回归：`tests/test_web_backend.py::test_retry_flag_without_a_failed_turn_still_runs` |
+| 2 | **死代码**：`obsidian/sync.py` 里第一次 `_resolve_deletions` 的结果会被后面那次覆盖，中间无人使用 | 删掉第一次调用（函数是纯函数，原行为不变），留下注释说明判定为什么必须在 Step 4 之后 |
+| 3 | **错误归因过粗**：`results_for_batch` 用 `source.endswith(basename)`，不同目录的同名文件会互相串 | 改成按"**最后两段路径**"匹配。实测两边命名空间确实不同（上传落在 `raw/inbox/x.md`，同步报错写 `course/inbox/x.md`），而且**解析失败时根本没有文档行**可查 —— 所以既不能直接比 source，也不能只比 basename |
+| 4 | **主审自己的误判（如实更正）**：原先担心 vault hash 口径变更会让老 state 全部失效、触发**全量重解析**。真机实测**推翻了这个判断**：一次真实增量同步只更新 **1 个文件、3.3 秒**，文档 `47→47`、chunk `1694→1694`。原因是 `_hash_text(text) = sha256(text.encode("utf-8"))`，对合法 UTF-8 文件与字节哈希**本来就相等**，只有 BOM/编码回退的文件才会变 | 不再按"需全量重建"记录；改为记录实测数字，并把结论写进 CHANGELOG |
+
+
+**到此，审查的 F01–F10 全部有修复与回归。** 仍未做的是报告里**不属于 F 系列**的边界项：R05 的"取消进行中的导入"、R03 的抽屉焦点/Escape 专项、R04 的截断 PDF 专项、R06 的 300 文件性能实验复跑、R07 的完整连接验收、R10 的真实模型教学质量。
+
+## 2. 已确认的问题（按处理优先级）
+
+### F01 · P1 · 笔记草稿没有按笔记隔离，重新编辑会覆盖未保存内容
+
+- 位置：`web/frontend/src/pages/NotesPage.tsx:28–30, 97–111, 128–139`。
+- 复现：编辑已保存笔记 A → 修改正文 → Escape 关闭 → 点击 A 的“编辑”。编辑器读取服务端旧正文，忽略刚保存到本地的草稿；250ms 后旧正文又覆盖本地草稿。另一条路径是保留 A 后打开/关闭 B，B 直接占用同一个 localStorage key。
+- 实测：同笔记重开、A/B 切换两项组件断言失败。预期 `Unsaved A must survive`，实际 `Saved A`。
+- 同类边界：输入后在 250ms 内触发 pagehide，没有同步写入；组件卸载清理不能替代浏览器刷新/关闭事件。清空已落盘草稿后离开页面，旧正文还会恢复。后两项也有定向失败断言，其中 pagehide 属于事件模拟，不冒充真实浏览器强制关闭试验。
+- 影响：界面承诺“草稿自动保留”，但正常编辑顺序仍会造成用户内容丢失；缺少明确的丢弃草稿动作。
+- 建议：使用资料库 ID + 笔记 ID（新笔记使用独立草稿 ID）存储；startEdit 优先恢复对应草稿；切换前持久化当前内容；空草稿删除旧记录；增加页面生命周期落盘与显式丢弃。
+- 归因：本轮新增草稿机制未满足 R02；旧版本也没有草稿保护，但本轮新增的隔离与恢复承诺不成立。
+
+### F02 · P1 · 已索引文件移动抛异常时，仍然没有可恢复台账
+
+- 位置：`service/kb_service.py:1927–1956`；实际物理移动和索引更新在 `1627–1638`。
+- 复现 A：两个已经同步入库的文件，第一项成功，第二项的文件移动抛 PermissionError。异常直接从 move_document 逃出，绕过 failed(result)。第一项已经移动，organization_state().pending_undo 为 null。
+- 复现 B：第一项文件移动成功，remap_chunk_ids 抛 SQLite OperationalError。物理文件已在目标目录，旧路径已不存在，也没有撤销批次。
+- 实测：以上两条都确认；另一个前置断言确认第一次文件移动前并未持久化操作计划。这里没有实际强杀进程，不将前置断言描述成强杀测试。
+- 根因：只有未索引分支 catch OSError；已索引分支只检查返回的 ok。批次依旧在完成后或已捕获失败后才写入。
+- 建议：操作前持久化计划，逐项记录文件移动、索引/引用迁移、失败与补偿状态；覆盖抛异常而非仅返回错误，并能通过日志和实际路径进行重启恢复。仅外层加 try/except 不足以解决“已移动但未记账”的窗口。
+- 归因：R09 原有风险未修完；新测试仅覆盖未索引文件的第二次 shutil.move 失败，没有覆盖真实已索引路径。
+
+### F03 · P1 · 撤销未索引文件的整理，可能覆盖后来新建的同名文件
+
+- 位置：`service/kb_service.py:2056–2062`。
+- 复现：将尚未索引的 first.md 整理到 Lessons → 在原位置新建内容不同的 first.md → 撤销。
+- 实测：原位置的新内容被整理前旧内容替换，断言失败；这是 Windows 本地文件系统上的实际执行结果。
+- 根因：未索引撤销分支直接 shutil.move 到原路径，缺少目标占用检查；已索引分支有冲突判断，两个分支不一致。
+- 建议：撤销前检查所有目标，冲突时停止对应项、保留台账并明确提示，不静默覆盖用户文件。
+- 归因：该行并非本轮新增，是基线已存在的缺陷；但“撤销目标又被占用”明确属于本轮 R09 验收，不能以原有代码为由勾选通过。
+
+### F04 · P1 · 导入第一次索引失败后，再次上传会被去重跳过
+
+- 位置：`service/kb_service.py:1328–1336, 1352–1358`。
+- 复现：文件已经写入 inbox 后，同步阶段抛出暂时性异常；用户再次上传完全相同文件。
+- 实测：第二次返回 ok、duplicate，_sync_registered_sources 总共只执行 1 次。原始文件存在，但没有重新尝试完成索引。
+- 影响：用户按“重试上传”操作仍得不到可检索资料，界面却提示保留已有版本。
+- 建议：去重同时检查文档登记、解析和索引状态；已有但未完成的项目应续作/重试，不能仅凭磁盘字节存在判为完成。无需为了重试强制另存一份。
+- 归因：本轮新增 duplicate-only 不同步分支引入。
+
+### F05 · P1 · 新聊天失败后点击重试，丢失已经分配的会话 ID
+
+- 位置：`web/frontend/src/pages/ChatPage.tsx:401–440`，与 `web/frontend/src/lib/api.ts:1107–1118, 1201` 的拒绝失败终态行为关联。
+- 复现：从 /chat 开始新对话 → 收到 run_started 并得到 session ID → 本轮失败 → 点击“重新发送本轮”。
+- 实测：第二次 streamChat 的会话参数为 undefined，预期为第一次分配的 allocated-session。
+- 根因：ID 写入 nextSessionId/sessionIdRef，但发送始终使用路由 sessionId；只有成功分支才导航至已分配会话，失败分支不建立绑定。
+- 影响：同一重试动作再次创建会话，历史碎片化；修复 run_failed 被吞以后，暴露了失败收尾与会话生命周期未衔接的问题。
+- 建议：在 run_started 后可靠绑定会话，失败后保留该绑定；重试同时定义消息/运行幂等语义，避免重复保存用户消息。增加 API 与页面联动回归。
+
+### F06 · P2 · 失败结果仍未保存在会话历史中
+
+- 位置：`web/backend/routers/chat.py:1686–1729`。
+- 复现：保存聊天的情况下，让 AgentService.run_stream 在用户消息写入后抛异常，读取同一会话详情。
+- 实测：SSE 有 run_failed，但 GET 会话只返回 1 条用户消息；没有 failed 消息或 failed run_summary。
+- 根因：run_summary 在正常迭代结束后构建；异常分支仅发送失败事件，finally 保存现有消息，没有把失败摘要写入会话。持久化 SSE 日志并不等同于会话详情会显示该失败。
+- 建议：统一终态持久化契约，记录安全错误摘要、run ID、可重试状态并能在刷新后显示；不要记录敏感异常原文。
+- 归因：R01 原有验收缺口；本轮仅修改流读取层，未完成“刷新后能理解上一轮发生了什么”。
+
+### F07 · P2 · 部分整理失败的恢复信息，在 HTTP 边界被丢弃
+
+- 位置：`service/kb_service.py:1936–1940`；`web/backend/errors.py:23–54`；`web/backend/routers/kb.py:548–557`；`web/frontend/src/pages/LibraryPage.tsx:877–896`。
+- 复现：未索引文件第一项成功、第二项失败，这是本轮新增后端测试覆盖的那条路径。
+- 实测：service 结果有 moved 和 batch_id，但 unwrap_service_result 抛出的 APIError.details 为 None。
+- 界面后果：applyProposal 的 catch 只显示错误，不刷新 organizationState/tree/documents。第一次操作时当前页面看不到新撤销入口，也无法知道已经移动哪一项；已有旧撤销提示时可能继续显示旧批次。刷新后可以重新发现服务端批次，不等于当场有恢复入口。
+- 建议：错误协议携带结构化 partial_result，并在失败收尾刷新批次与目录；明确显示成功项、失败项和可撤销批次。
+- 归因：本轮新增返回字段没有打通前后端，R09 声称“部分失败保留撤销入口”尚未完成。
+
+### F08 · P2 · 去重只扫描 inbox，资料整理后再次导入仍产生副本
+
+- 位置：`service/kb_service.py:1307–1317`。
+- 复现：上传 upload.md → 使用实际 move_document 移到 Lessons/upload.md → 再次上传相同字节。
+- 实测：第二次 imported 为 [upload.md]，在 inbox 新建文件，而不是识别资料库中已存在的同内容文档。
+- 建议：以当前资料库受管理文档的内容哈希索引去重，尊重归档/失败状态和文件类型；路径改变不应使去重失效。避免每次上传完整读取所有既有文件到内存。
+- 归因：R12 新机制的匹配范围不完整。
+
+### F09 · P2 · 导入结果把其他资料的同步统计算进本次上传
+
+- 位置：`service/kb_service.py:1352–1358`；`web/frontend/src/lib/importSummary.ts:10–18`。
+- 复现：修改资料库里已有 first.md，再上传唯一新文件 new.md。
+- 实测：imported 只有 1 项，sync.extraction_counts.complete 为 2；当前 helper 会输出“已接收 1 份文件，2 份可用于检索”。其他本地改动或失败也会污染本次导入统计。
+- 建议：返回与本次 accepted/uploaded 文件明确关联的逐文件结果；全库增量同步结果作为单独字段展示，不能直接作为上传批次计数。
+- 归因：本轮新增汇总逻辑误用了全库同步统计，R05 部分完成。
+
+### F10 · P2 · 练习辅导会话只保存在 ref，刷新/离开再返回即丢失
+
+- 位置：`web/frontend/src/pages/PracticePage.tsx:87, 114–135, 223–237`。
+- 复现：同一道题问 AI → 卸载并重新挂载相同 practiceSessionId → 再问。
+- 实测：首次挂载内连续问答正确复用；重新挂载后的 streamChat 会话参数为 undefined，预期原 tutor-session-1。
+- 建议：按 library + practice session + question 保存关联；优先服务端持久化，最小方案也需可恢复的本地存储与过期/隔离规则。
+- 归因：R11 只修复当前页面内重复提问，没有实现原验收中的“刷新后恢复关联”。
+
+## 3. 目标逐项核对（含后续复验）
+
+“核心实现通过”指本次改动的主要行为有代码/测试支持，不表示对所有长期产品建议作了完整验收。
+
+| 原条目 | 本轮核对结论 | 依据与剩余事项 |
+|---|---|---|
+| R01 流式失败 | **已补齐（2026-09-28 后续）** | run_failed 和缺终态 EOF 正确拒绝；F05 重试沿用已分配会话、F06 失败一轮进历史（含序列化投影修正） |
+| R02 笔记草稿 | **已验证（2026-09-28 后续）** | 草稿按资料库与笔记隔离、重开优先恢复、切换前落盘、pagehide/visibilitychange 刷新保护、清空即删；组件与真实浏览器刷新回归通过 |
+| R03 窄窗口面板 | 核心修复通过 | 去掉右缘误触，三视口 E2E 通过；未新增完整抽屉焦点/Escape专项验收 |
+| R04 损坏 PDF | 核心修复通过 | 二进制文档不再文本回退；伪 PDF/无文本/正常文本 PDF 有覆盖；截断文件专项需补 |
+| R05 导入状态 | **已补齐（2026-09-28 后续）** | F09 修好：逐文件结果 + 批次计数；**唯一未做的是"取消进行中的导入"**（ROADMAP 里保留"进行中"） |
+| R06 知识块数量 | 核心修复通过 | 单次 SQL 携带 chunk_count，已有 document_id 索引；树和存储测试通过；本次未重跑 300 文件性能实验 |
+| R07 引导连接状态 | 核心修复通过 | 配置存在不再冒充连接已验证；最近验证时间、配置变更失效和错误细分未作完整验收 |
+| R08 手动笔记与记忆开关 | 核心修复通过 | 手动创建/更新去掉自动记忆开关限制；正文计数/超限禁用覆盖 |
+| R09 文件整理恢复 | **已验证（2026-09-30 后续）** | F02 先写计划 + 异常落账、F03 撤销不覆盖、F07 部分结果穿过 HTTP 并在界面给恢复入口；默认撤销会跳过零成功批次，见 §1.1 与 `tests/test_organization_recovery.py` |
+| R10 反馈与解析 | 核心修复通过 | 客观题语义拆分与历史重复解释显示测试通过；真实模型教学质量不在本次验证范围 |
+| R11 同题辅导 | **已补齐（2026-09-28 后续）** | 单次挂载内复用 + F10 跨重新挂载/刷新恢复关联（sessionStorage 按练习题隔离） |
+| R12 复习/重复导入 | **已补齐（2026-09-28 后续）** | F04/F08 修好：重试补索引、跨目录去重（以索引内容哈希为准）；“导入为新版本”仍明确暂缓，不冒充交付 |
+| R13 异步设置不重置会话 | 核心修复通过 | 初始化依赖拆分，草稿回归通过 |
+
+`docs/reviews/2026-09-25-project-review.md:12–29` 和 `docs/ROADMAP.md:32` 起的初始完成状态，应按上表与 §1.1 的后续结果修订。仍需明确区分“实现已提交”“主路径通过”“所有验收通过”；R01、R05、R11、R12 仍没有达到第三种状态。
+
+## 4. 初始审查测试结果
+
+| 检查 | 结果 | 解读 |
+|---|---|---|
+| 后端全套 pytest | 1638 passed，9 warnings，165.09s | 在临时审查探针加入前执行；原有 Windows 编码线程、未等待协程、信号与依赖警告仍存在 |
+| 前端首次 npm test | 126 passed，1 failed | App.test.tsx 首个用例 5000ms 超时；当时与后端全套并行运行，不能据此认定根因一定是资源竞争 |
+| App.test.tsx 定向复验 | 4 passed | 未改应用代码、未扩大测试超时 |
+| 前端最终 npm test | 24 files / 127 passed，6.62s | 审查探针归档后正常执行；仍如实保留首次超时记录 |
+| ESLint | 通过 | 未修改规则 |
+| TypeScript + Vite build | 通过 | 生产构建通过，存在插件耗时提示 |
+| Playwright 三视口 | 89 passed，19 skipped，0 failed，2.7min | 18 个 live 用例未连真实后端，1 个 mobile reduced-motion 跳过；mock 未覆盖的可选请求有 ECONNREFUSED 日志 |
+| 新增后端验收探针 | 9 failed | 真实隔离文件操作/API + 明确异常注入；对应 F02–F04、F06–F09 |
+| 新增前端验收探针 | 6 failed，2 个既有控制用例 passed | 四个草稿边界、一次失败重试、一次辅导恢复；无真实模型请求 |
+| git diff --check f6c3562..HEAD | 通过 | 这是空白格式检查，不是功能完整性保证 |
+
+证据目录：`docs/reviews/evidence/2026-09-28/`。包含失败日志、完整探针源文件（以 .txt 归档，避免被正常测试自动收集）、最终前端测试日志和复跑说明。
+
+此次未追加真实模型质量/延迟/成本测试、Electron 验收或整库灾难恢复验收；不应在本次评审中推断这些能力已完成。
+
+### 4.1 后续修复复验（2026-09-30）
+
+| 检查 | 结果 | 解读 |
+|---|---|---|
+| 后端全套 pytest | **1647 passed，9 warnings，207.44s** | 新增的 R09 批次选择回归包含在全量结果中；warning 仍是既有 Windows 编码线程、未等待协程、信号与依赖提示 |
+| 文件整理恢复回归 | **9 passed** | 覆盖先写计划、已索引异常、索引迁移失败、重启撤销、撤销冲突、索引身份重建、零成功批次和默认批次选择 |
+| 前端 Vitest | **24 files / 132 passed** | R02 草稿隔离、重开、刷新保护和清空语义保持通过 |
+| ESLint / TypeScript / Vite build | 通过 | 本轮未引入前端回归 |
+| `git diff --check` | 通过 | 工作区文本差异无空白错误 |
+
+### 4.2 本次工作区复审门禁（2026-09-30）
+
+| 检查 | 结果 | 解读 |
+|---|---|---|
+| 后端全套 pytest | **1659 passed，9 warnings，210.09s** | 包含导入重试、过期 hash、失败回合重试和跨层 HTTP 回归；warning 为既有 Windows 编码线程、未等待协程、信号与依赖提示 |
+| 前端 Vitest | **24 files / 137 passed** | 包含跨资料库 tutor session 隔离和 Chat 重试契约 |
+| TypeScript / ESLint / Vite build | **全部通过（0 错误）** | 生产构建完成 |
+| `git diff --check` | **通过** | 当前工作区无空白错误 |
+| Playwright live / 真实 provider | **本轮未重跑** | 不消耗额度、不写入日常资料库；沿用历史 live 证据但不把它当成本轮证据 |
+
+### 4.3 历史终局门禁与真机场景（2026-09-28 后续，F01–F10 全部修完后）
+
+| 检查 | 结果 |
+|---|---|
+| 后端全套 pytest | **1651 passed**（含本轮新增的整理恢复 9 条、导入 3 条、失败会话 1 条） |
+| 前端 Vitest | **24 files / 136 passed**（含草稿 4 条、导入文案 5 条、失败重试 1 条、辅导恢复 1 条） |
+| TypeScript / ESLint / Vite build | **全部通过（0 错误）** |
+| Playwright live（真实后端 + 真实资料库） | **7 passed**（含"真浏览器立即刷新后草稿仍在"） |
+| 真机 · 整理中断恢复 | 搬到一半被杀 → 重启后的实例仍能撤销已搬走的那份（`test_restart_can_undo_what_a_crash_left_behind`）；真实资料库上 apply/undo 清单逐项归位 |
+| 真机 · 撤销冲突 | scratch 资料库（真实文件系统）：原位有用户新文件时 `restored=[]`、`skipped=[target_exists]`、**新文件内容完好**、台账保留可再撤 |
+| 真机 · 导入去重零写入 | 原样重传真库里的 `ai-agents-from-zero/1-1-大模型认知与工程概览.md` → 判 duplicate、inbox `1→1`、文档 `47→47` |
+
+**未覆盖（如实声明）**：真实 provider 失败下的 F05/F06、真实练习会话下的 F10（会消耗额度/写入用户资料库）；截图 OCR 的密钥审计；Electron 与整库灾难恢复验收。
+
+## 5. 推送与分支风险
+
+1. 初始审查开始时工作区干净；当前基线为 `06e2c3f`。本次复核新增业务代码、回归测试和文档，均在当前工作区，未发现超出授权范围的改动。
+2. 当前本地分支 `codex/audit-remediation-2026-09-25` 仍跟踪 `origin/codex/audit-remediation-2026-09-25`；基线提交远端与本地一致，但**本轮修复尚未提交，也没有执行 push**。提交前应先审阅本报告 §4.2 的门禁和未覆盖项。
+3. **PR 基线（终局）**：相对 `feat/in-page-original-view` 是**十几个提交**（审查基线 + 整改 + 四批修复），相对当前 `origin/main` 则是**上百个提交**；**被审版本已冻结为 tag `audit-remediation-2026-09-30`**（PR 页面会跟着分支更新，tag 不会）。建议 PR 目标分支选 `feat/in-page-original-view`（只有审查整改这批需要审），合并回 main 另开一次；直接面向 main 的改动范围远大于本轮审查，不能把这份结论当成那上百个提交的完整审批。 **PR 已开：#5（base `feat/in-page-original-view`，head `codex/audit-remediation-2026-09-25`，17 个提交 / 80 个文件）—— https://github.com/think520/react-agent/pull/5**。
+4. 对 52 个变更文本文件做了常见私钥头和长 token 特征扫描，未命中；不是完整密钥审计，也未 OCR 检查所有截图中的内容。
+5. **合并建议**：当前工作区改动可以作为独立 PR 提交到 `feat/in-page-original-view` 供审查；不要直接合并 `main`，也不要把本轮未重跑的真实 provider / live 验收写成已通过。R05 的取消进行中导入、R03/R04/R06/R07/R10 的限定项仍按 §1.1 保留。
+
+## 6. 最小修复与复验顺序
+
+1. ~~先处理文件安全：写前计划、已索引异常、撤销冲突、API 部分结果与界面恢复；用 F02/F03/F07 探针转绿，并增加实际进程中断恢复。~~
+   **✅ 已完成（2026-09-28 后续）**：见 §1.1；F02/F03/F07 六条回归全绿（含"搬到一半被杀、重启后仍可撤销"），后续又补上批次选择边界，当前恢复文件共 9 条回归。
+2. ~~修草稿：按笔记隔离、对应恢复、清空/丢弃、页面关闭保护；四个 F01 断言转绿，再做真实浏览器快速刷新验证。~~
+   **✅ 已完成（2026-09-28 后续）**：4 条组件回归与 1 条真实浏览器立即刷新均通过；最近前端门禁为 24 文件 / 132 passed。
+3. ~~修导入：区分字节去重与处理完成，覆盖移出 inbox 后的同内容匹配，返回当前批次计数；F04/F08/F09 转绿。~~
+   **✅ 已完成并在 2026-09-30 复审补齐**：导入 7 条回归覆盖失败后重试、零 chunk 补索引、跨目录去重、过期 hash 与批次计数；全库同步字段改名 `library_sync` 并同步调用方。
+4. ~~修会话恢复：失败重试绑定原 session、失败历史持久化、练习关联可恢复；F05/F06/F10 转绿。~~
+   **✅ 已完成并在 2026-09-30 复审补齐**：F05 增加 `retry_failed` 去重契约和 HTTP 回归；F06 保留失败历史；F10 增加跨资料库隔离回归。
+5. ~~将剩余有效探针正式纳入回归测试，再跑全套门禁及真实后端关键 E2E；更新 ROADMAP/报告，仅将真正满足验收的条目标为已验证。~~
+   **✅ 已完成并在 2026-09-30 复审补齐**：新增回归已纳入工作区；当前门禁见 §4.2，历史真机场景见 §4.3；真实 provider / live 本轮仍明确未重跑。

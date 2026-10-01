@@ -8,6 +8,7 @@ import { api, streamChat } from "../lib/api";
 import { prefersReducedMotion } from "../lib/motion";
 import { StreamBuffer } from "../lib/streamBuffer";
 import { toErrorMessage } from "../lib/errors";
+import { distinctExplanation } from "../lib/practiceFeedback";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useHandoffStore } from "../stores/handoffStore";
@@ -60,10 +61,56 @@ function difficultyLabel(value?: string) {
   return value || "自适应难度";
 }
 
+const TUTOR_SESSION_PREFIX = "bobodan:practice-tutor:";
+
+/** 辅导会话按"练习题 + 题目"记在 sessionStorage 里（R11/F10）。
+
+2026-09-28 审查：关联原来只存在组件 ref 里，重新挂载/刷新就没了，同一个问题会另开一个
+会话，上一轮追问的上下文接不上。题目 id 跟着练习走，练习结束（关标签页）就该清掉，
+所以用 sessionStorage 而不是 localStorage。
+*/
+function tutorStorageKey(libraryId: string | undefined, practiceSessionId: number): string {
+  return `${TUTOR_SESSION_PREFIX}${libraryId || "default"}:${practiceSessionId}`;
+}
+
+function readTutorSessions(
+  libraryId: string | undefined,
+  practiceSessionId: number | null,
+): Record<number, string> {
+  if (!practiceSessionId) return {};
+  try {
+    const raw = window.sessionStorage.getItem(tutorStorageKey(libraryId, practiceSessionId));
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, string>;
+    return Object.fromEntries(
+      Object.entries(parsed).map(([key, value]) => [Number(key), String(value)]),
+    );
+  } catch {
+    return {};
+  }
+}
+
+function writeTutorSessions(
+  libraryId: string | undefined,
+  practiceSessionId: number | null,
+  sessions: Record<number, string>,
+): void {
+  if (!practiceSessionId) return;
+  try {
+    if (Object.keys(sessions).length) {
+      window.sessionStorage.setItem(tutorStorageKey(libraryId, practiceSessionId), JSON.stringify(sessions));
+    } else {
+      window.sessionStorage.removeItem(tutorStorageKey(libraryId, practiceSessionId));
+    }
+  } catch {
+    // 隐私模式等写不了 sessionStorage：记不住关联不影响提问本身。
+  }
+}
+
 export function PracticePage() {
   const { practiceSessionId } = useParams();
   const navigate = useNavigate();
-  const { refreshSessions, selectedDocumentIds, selectedDocuments } = useOutletContext<AppOutletContext>();
+  const { activeLibrary, refreshSessions, selectedDocumentIds, selectedDocuments } = useOutletContext<AppOutletContext>();
   const id = practiceSessionId ? Number(practiceSessionId) : null;
   const [session, setSession] = useState<PracticeSession | null>(null);
   const [active, setActive] = useState<Array<{ practice_session_id: number; updated_at: string; question_count: number }>>([]);
@@ -83,6 +130,9 @@ export function PracticePage() {
   const [aiOpen, setAiOpen] = useState(false);
   const [aiQuestion, setAiQuestion] = useState("给我一个不直接揭示答案的提示。");
   const [aiAnswer, setAiAnswer] = useState("");
+  const aiSessionByQuestionRef = useRef<Record<number, string>>(
+    readTutorSessions(activeLibrary?.library_id, id),
+  );
   // 问 AI answers stream through the same 30fps typewriter buffer as Chat so
   // SSE bursts don't appear as raw block dumps.
   const aiBufferRef = useRef<StreamBuffer | null>(null);
@@ -118,6 +168,7 @@ export function PracticePage() {
     setAiOpen(false);
     setAiAnswer("");
     setAiError("");
+    aiSessionByQuestionRef.current = readTutorSessions(activeLibrary?.library_id, id);
     setWebConsent(null);
     if (id) {
       try { setResolution(JSON.parse(sessionStorage.getItem(`bobodan:practice-resolution:${id}`) || "null")); }
@@ -127,7 +178,7 @@ export function PracticePage() {
     }
     if (id) void loadSession(id);
     else void api.activePractice().then((value) => setActive(value.sessions)).catch(() => setActive([]));
-  }, [id, loadSession]);
+  }, [activeLibrary?.library_id, id, loadSession]);
 
   const currentQuestion = useMemo(() => {
     if (!session) return null;
@@ -196,6 +247,10 @@ export function PracticePage() {
     if (!id) return;
     setAnswer("");
     setResult(null);
+    setAiOpen(false);
+    setAiAnswer("");
+    setAiError("");
+    setAiStatus("");
     await loadSession(id);
   }
 
@@ -213,7 +268,8 @@ export function PracticePage() {
     aiBufferRef.current?.reset();
     setAiError("");
     setAiStatus("正在理解这道题");
-    let nextSessionId: string | undefined;
+    const previousSessionId = aiSessionByQuestionRef.current[currentQuestion.id];
+    let nextSessionId = previousSessionId;
     try {
       const profile = useUiStore.getState().learningProfile;
       const prompt = [
@@ -222,8 +278,12 @@ export function PracticePage() {
         `我的问题：${aiQuestion.trim()}`,
         "请只围绕当前题目给出分步提示或指出思考方向，不要直接替我完成答案。",
       ].join("\n\n");
-      await streamChat(prompt, undefined, selectedDocumentIds, profile, (streamEvent) => {
-        if (streamEvent.event === "run_started") nextSessionId = streamEvent.data.chat_session_id;
+      await streamChat(prompt, previousSessionId, selectedDocumentIds, profile, (streamEvent) => {
+        if (streamEvent.event === "run_started") {
+          nextSessionId = streamEvent.data.chat_session_id;
+          aiSessionByQuestionRef.current[currentQuestion.id] = nextSessionId;
+          writeTutorSessions(activeLibrary?.library_id, id, aiSessionByQuestionRef.current);
+        }
         if (streamEvent.event === "status") setAiStatus(streamEvent.data.message);
         if (streamEvent.event === "message_delta") {
           setAiStatus("正在整理提示");
@@ -233,7 +293,7 @@ export function PracticePage() {
         if (streamEvent.event === "run_completed") { ensureAiBuffer().drain(); setAiStatus(""); }
       });
       await refreshSessions();
-      if (nextSessionId) void api.generateSessionTitle(nextSessionId).then(refreshSessions).catch(() => undefined);
+      if (!previousSessionId && nextSessionId) void api.generateSessionTitle(nextSessionId).then(refreshSessions).catch(() => undefined);
     } catch (reason) {
       setAiError(toErrorMessage(reason, "暂时无法获得提示，请稍后重试。"));
       setAiStatus("");
@@ -319,6 +379,7 @@ export function PracticePage() {
         marker: String.fromCharCode(65 + index),
         label: option,
       }));
+  const visibleExplanation = result ? distinctExplanation(result.feedback, result.explanation) : "";
   return (
     <section className="page-scroll practice-page">
       {confirmElement}
@@ -333,7 +394,7 @@ export function PracticePage() {
           ))}</div> : <textarea className="short-answer" rows={6} value={answer} disabled={Boolean(result)} onChange={(event) => setAnswer(event.target.value)} placeholder="用自己的话写下答案。可以不完整，Bobodan 会指出缺少的部分。" />}
           <AttributionBadges attribution={currentQuestion.attribution} />
           {error && <ErrorNotice message={error} />}
-          {result && <div className={`answer-feedback ${result.verdict === "partial" ? "partial" : result.is_correct ? "correct" : "review"}`}><div>{result.verdict === "partial" || result.is_correct ? <img className="brand-expression" src="/assets/brand/expressions/bobodan-expression-content.webp" width="42" height="42" alt="" /> : <CheckCircle2 size={19} />}<strong>{verdictLabel(result)}</strong></div><p>{result.feedback}</p>{result.explanation && <p>{result.explanation}</p>}{result.verdict !== "correct" && result.correct_answer && <small>参考答案：{result.correct_answer}</small>}{result.mastery_changes?.length ? <div className="mastery-changes">{result.mastery_changes.map((change, index) => change.concept ? <small key={index}>知识点「{change.concept}」：{masteryStatusText(change.status)}</small> : null)}</div> : null}</div>}
+          {result && <div className={`answer-feedback ${result.verdict === "partial" ? "partial" : result.is_correct ? "correct" : "review"}`}><div>{result.verdict === "partial" || result.is_correct ? <img className="brand-expression" src="/assets/brand/expressions/bobodan-expression-content.webp" width="42" height="42" alt="" /> : <CheckCircle2 size={19} />}<strong>{verdictLabel(result)}</strong></div><p>{result.feedback}</p>{visibleExplanation && <p>{visibleExplanation}</p>}{result.verdict !== "correct" && result.correct_answer && <small>参考答案：{result.correct_answer}</small>}{result.mastery_changes?.length ? <div className="mastery-changes">{result.mastery_changes.map((change, index) => change.concept ? <small key={index}>知识点「{change.concept}」：{masteryStatusText(change.status)}</small> : null)}</div> : null}</div>}
           <footer className="practice-actions">
             <button type="button" className="quiet-button" onClick={() => setAiOpen(true)}><CircleHelp size={16} />问 AI</button>
             {result ? <button type="button" className="primary-button" onClick={() => void nextQuestion()}>{result.session_completed ? "查看小结" : "下一题"}<ArrowRight size={16} /></button>

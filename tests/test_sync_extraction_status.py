@@ -82,6 +82,40 @@ def test_scanned_pdf_is_registered_as_empty(portable_library, monkeypatch):
     assert "scanned_or_empty_pages" in report["warnings"]
 
 
+def test_invalid_pdf_is_registered_as_error_without_searchable_chunks(portable_library, monkeypatch):
+    from unittest.mock import MagicMock
+
+    monkeypatch.setattr("rag.qdrant_store.QdrantStore", MagicMock())
+    monkeypatch.setattr("rag.embedding_service.EmbeddingService", lambda *a, **k: type(
+        "Embedding", (), {"is_available": lambda self: False}
+    )())
+    invalid = portable_library / "raw" / "inbox" / "broken.pdf"
+    invalid.write_bytes(b"this is not a PDF")
+
+    summary = sync_sources(
+        workspace=str(portable_library),
+        vault_path=str(portable_library),
+        course_dir=str(portable_library / "raw"),
+        mode="full",
+    )
+
+    assert summary.extraction_counts.get("error", 0) == 1
+    store = KBSQLiteStore(str(portable_library))
+    store.init_db()
+    try:
+        document = next(d for d in store.list_documents() if d["source"].endswith("broken.pdf"))
+        chunks = store.get_chunks_by_document(document["id"])
+        report = store.get_extraction_report(document["id"])
+    finally:
+        store.close()
+
+    assert document["extraction_status"] == "error"
+    assert chunks == []
+    assert report is not None
+    assert report["status"] == "error"
+    assert "parser_error" in report["warnings"]
+
+
 def test_text_pdf_is_registered_as_complete(portable_library, monkeypatch):
     from unittest.mock import MagicMock
 

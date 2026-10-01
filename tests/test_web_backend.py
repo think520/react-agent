@@ -1365,6 +1365,136 @@ def test_chat_stream_finalizer_retries_failed_session_save(backend_client, monke
     assert len(save_calls) == 2
 
 
+def test_failed_chat_run_keeps_a_failed_turn_in_the_history(backend_client, monkeypatch):
+    """R01/F06：失败的那一轮必须留在会话历史里，刷新后还看得见。
+
+    来源：`docs/reviews/2026-09-28-remediation-code-review.md` §2 与
+    `docs/reviews/evidence/2026-09-28/backend-probe-source.py.txt:123-139`。
+    修之前：run_failed 只把错误发进流里，会话里只剩用户那一句 —— 刷新后这一轮像没发生过。
+    """
+    runtime = SimpleNamespace(
+        workspace=str(backend_client.workspace),
+        skills_prompt=None,
+        memory_prompt=None,
+        create_provider=lambda _name, model=None: object(),
+        refresh_memory=lambda: None,
+        create_trace=lambda _session_id: object(),
+    )
+
+    def failed_run(**kwargs):
+        kwargs["session"].add_message("user", kwargs["user_input"])
+        raise RuntimeError("review simulated provider exception")
+        yield  # pragma: no cover - 保持生成器形状
+
+    monkeypatch.setattr("web.backend.routers.chat.get_runtime_context", lambda: runtime)
+    monkeypatch.setattr("web.backend.routers.chat.AgentService.run_stream", failed_run)
+
+    response = backend_client.post("/api/chat/runs", json={"message": "explain vectors", "save": True})
+
+    assert "event: run_failed" in response.text
+    payloads = [
+        json.loads(line[len("data: "):])
+        for line in response.text.splitlines()
+        if line.startswith("data: ")
+    ]
+    session_id = next(item["chat_session_id"] for item in payloads if "chat_session_id" in item)
+
+    detail = backend_client.get(f"/api/chat/sessions/{session_id}").json()
+    messages = detail["messages"]
+    assert any(
+        message.get("failed")
+        or any(artifact.get("status") == "failed" for artifact in message.get("artifacts", []))
+        for message in messages
+    ), f"失败的一轮没有留在历史里: {messages}"
+
+
+def test_retry_flag_without_a_failed_turn_still_runs(backend_client, monkeypatch):
+    """F05 复审：`retry_failed` 不能变成"没有失败回合就发不出去"。
+
+    「重新发送本轮」同时服务两种消息：失败的和**被停止**的（ChatPage 里两个按钮共用一个
+    handler，前端只在 failed 时声明这个标志，但服务端不能把"清理失败"当成前置条件）。
+    被停止的那一轮没有 failed 标记 —— 若后端这时回 409，用户点了按钮却什么都发不出去。
+    """
+    runtime = SimpleNamespace(
+        workspace=str(backend_client.workspace),
+        skills_prompt=None,
+        memory_prompt=None,
+        create_provider=lambda _name, model=None: object(),
+        refresh_memory=lambda: None,
+        create_trace=lambda _session_id: object(),
+    )
+
+    def ok_run(**kwargs):
+        kwargs["session"].add_message("user", kwargs["user_input"])
+        kwargs["session"].add_message("assistant", "everything is fine")
+        yield {"type": "assistant_done", "content": "everything is fine", "termination_reason": "final_answer"}
+
+    monkeypatch.setattr("web.backend.routers.chat.get_runtime_context", lambda: runtime)
+    monkeypatch.setattr("web.backend.routers.chat.AgentService.run_stream", ok_run)
+
+    # 先正常跑一轮：会话里只有正常消息、没有任何 failed 标记（等价于"被停止"的那种历史）。
+    first = backend_client.post("/api/chat/runs", json={"message": "explain vectors"})
+    assert "event: run_completed" in first.text
+    session_id = next(
+        json.loads(line[len("data: "):])["chat_session_id"]
+        for line in first.text.splitlines()
+        if line.startswith("data: ") and "chat_session_id" in line
+    )
+
+    response = backend_client.post("/api/chat/runs", json={
+        "message": "explain vectors",
+        "chat_session_id": session_id,
+        "retry_failed": True,
+    })
+
+    assert response.status_code == 200, response.text
+    assert "event: run_completed" in response.text, response.text
+
+
+def test_retry_failed_chat_run_does_not_duplicate_the_user_turn(backend_client, monkeypatch):
+    runtime = SimpleNamespace(
+        workspace=str(backend_client.workspace),
+        skills_prompt=None,
+        memory_prompt=None,
+        create_provider=lambda _name, model=None: object(),
+        refresh_memory=lambda: None,
+        create_trace=lambda _session_id: object(),
+    )
+    calls = []
+
+    def fake_run_stream(**kwargs):
+        calls.append([dict(message) for message in kwargs["session"].messages])
+        if len(calls) == 1:
+            kwargs["session"].add_message("user", kwargs["user_input"])
+            raise RuntimeError("review simulated provider exception")
+        kwargs["session"].add_message("user", kwargs["user_input"])
+        kwargs["session"].add_message("assistant", "retry succeeded")
+        yield {"type": "assistant_done", "content": "retry succeeded", "termination_reason": "final_answer"}
+
+    monkeypatch.setattr("web.backend.routers.chat.get_runtime_context", lambda: runtime)
+    monkeypatch.setattr("web.backend.routers.chat.AgentService.run_stream", fake_run_stream)
+
+    failed = backend_client.post("/api/chat/runs", json={"message": "explain vectors"})
+    assert "event: run_failed" in failed.text
+    session_id = next(
+        json.loads(line[len("data: "):])["chat_session_id"]
+        for line in failed.text.splitlines()
+        if line.startswith("data: ") and "chat_session_id" in line
+    )
+
+    retried = backend_client.post("/api/chat/runs", json={
+        "message": "explain vectors",
+        "chat_session_id": session_id,
+        "retry_failed": True,
+    })
+    assert "event: run_completed" in retried.text
+    assert calls[1] == [], "重试开始前应移除上一轮失败的用户/工具尾部"
+
+    detail = backend_client.get(f"/api/chat/sessions/{session_id}").json()
+    users = [message for message in detail["messages"] if message["role"] == "user"]
+    assert [message["content"] for message in users] == ["explain vectors"]
+
+
 def test_chat_persists_web_consent_artifact_without_network_access(backend_client, monkeypatch):
     runtime = SimpleNamespace(
         workspace=str(backend_client.workspace), skills_prompt=None, memory_prompt=None,
@@ -2049,11 +2179,12 @@ def test_review_queue_contract(backend_client, monkeypatch):
 def test_library_import_strips_internal_paths(backend_client, monkeypatch):
     monkeypatch.setattr(
         "web.backend.routers.kb.KBService.import_files",
-        lambda self, files, config: {
+        lambda self, files, config, duplicate_strategy="keep_existing": {
             "ok": True,
             "imported": [files[0][0]],
             "rejected": [],
-            "sync": {
+            # 导入结果里全库同步叫 library_sync（2026-09-28 审查 F09：它不能冒充批次计数）。
+            "library_sync": {
                 "scanned_files": 1,
                 "updated_files": 1,
                 "chunk_count": 2,
@@ -2131,7 +2262,7 @@ def test_personal_knowledge_api_is_library_scoped(backend_client, tmp_path):
     assert updated.json()["item"]["content"] == "先检索，再核实原文"
 
 
-def test_disabling_memory_blocks_knowledge_writes_but_keeps_learning_events(backend_client, tmp_path):
+def test_disabling_memory_allows_manual_notes_but_blocks_automatic_consolidation(backend_client, tmp_path):
     library, _ = create_test_library(backend_client, tmp_path, "DisabledMemory")
     headers = {"X-Bobodan-Library-ID": library["library_id"]}
     preferences = backend_client.get("/api/settings").json()["preferences"]
@@ -2141,10 +2272,13 @@ def test_disabling_memory_blocks_knowledge_writes_but_keeps_learning_events(back
     })
     assert disabled.status_code == 200
 
-    blocked = backend_client.post("/api/memory/knowledge", headers=headers, json={
-        "scope": "library", "kind": "course_insight", "title": "不应保存",
-        "content": "记忆关闭后不能写入长期知识",
+    created = backend_client.post("/api/memory/knowledge", headers=headers, json={
+        "scope": "library", "kind": "course_insight", "title": "手写笔记",
+        "content": "关闭自动记忆后仍可主动保存",
     })
+    assert created.status_code == 200
+
+    blocked = backend_client.post("/api/memory/consolidate", headers=headers, json={})
     assert blocked.status_code == 409
     assert blocked.json()["error"]["code"] == "memory_disabled"
 

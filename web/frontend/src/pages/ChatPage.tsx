@@ -176,11 +176,15 @@ export function ChatPage() {
   const showKnowledgeContextRef = useRef(showKnowledgeContext);
   const receiveKnowledgeContextRef = useRef(receiveKnowledgeContext);
   const clearKnowledgeContextRef = useRef(clearKnowledgeContext);
+  const settingsRef = useRef(settings);
   useEffect(() => {
     showKnowledgeContextRef.current = showKnowledgeContext;
     receiveKnowledgeContextRef.current = receiveKnowledgeContext;
     clearKnowledgeContextRef.current = clearKnowledgeContext;
   }, [showKnowledgeContext, receiveKnowledgeContext, clearKnowledgeContext]);
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
   const {
     messages,
     setMessages,
@@ -211,9 +215,9 @@ export function ChatPage() {
     if (!ref) return "";
     const [provider, model] = ref.split("::");
     if (model) return ref;
-    const found = settings?.providers.find((item) => item.name === provider);
+    const found = settingsRef.current?.providers.find((item) => item.name === provider);
     return found?.model ? `${provider}::${found.model}` : ref;
-  }, [settings?.providers]);
+  }, []);
 
   function sessionRef(session: { provider_name?: string | null; model_name?: string | null }): string {
     if (!session.provider_name) return "";
@@ -238,6 +242,7 @@ export function ChatPage() {
 
   useEffect(() => {
     let cancelled = false;
+    const defaultProvider = settingsRef.current?.default_provider || "";
     setDraft(initialDraft(sessionId));
     setError("");
     useUiStore.getState().setSourceContext(null);
@@ -245,7 +250,7 @@ export function ChatPage() {
       setMessages([]);
       setReferences([]);
       clearKnowledgeContextRef.current();
-      setSelectedProvider(resolveModelRef(useUiStore.getState().newSessionProvider || settings?.default_provider || ""));
+      setSelectedProvider(resolveModelRef(useUiStore.getState().newSessionProvider || defaultProvider));
       setLoading(false);
       return;
     }
@@ -255,7 +260,7 @@ export function ChatPage() {
         if (cancelled) return;
         setMessages(session.messages);
         setReferences([]);
-        setSelectedProvider(resolveModelRef(sessionRef(session) || settings?.default_provider || ""));
+        setSelectedProvider(resolveModelRef(sessionRef(session) || defaultProvider));
         const latestKnowledgeContext = session.messages
           .flatMap((message) => message.artifacts || [])
           .filter((artifact): artifact is KnowledgeContextArtifact => artifact.type === "knowledge_context")
@@ -266,11 +271,12 @@ export function ChatPage() {
       .catch((reason: Error) => { if (!cancelled) setInlineError(reason.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [sessionId, settings?.default_provider, setMessages, resolveModelRef]);
+  }, [sessionId, setMessages, resolveModelRef]);
 
   useEffect(() => {
-    if (!selectedProvider && settings?.default_provider) setSelectedProvider(resolveModelRef(settings.default_provider));
-  }, [selectedProvider, settings?.default_provider, resolveModelRef]);
+    const resolved = resolveModelRef(selectedProvider || settings?.default_provider || "");
+    if (resolved && resolved !== selectedProvider) setSelectedProvider(resolved);
+  }, [selectedProvider, settings, resolveModelRef]);
 
   useEffect(() => {
     if (!activeLibrary) {
@@ -318,7 +324,12 @@ export function ChatPage() {
     return () => { cancelled = true; window.clearInterval(timer); };
   }, [planningRunKey, setMessages]);
 
-  async function send(event?: FormEvent, overrideMessage?: string, webResearchId?: string) {
+  async function send(
+    event?: FormEvent,
+    overrideMessage?: string,
+    webResearchId?: string,
+    retryFailed = false,
+  ) {
     event?.preventDefault();
     const message = (overrideMessage ?? draft).trim();
     if (!message || sending) return;
@@ -392,13 +403,17 @@ export function ChatPage() {
     const outgoingReferences = [...references];
     setReferences([]);
     setMessages((current) => [...current, { role: "user", content: message, references: outgoingReferences }, { role: "assistant", content: "", pending: true }]);
-    let nextSessionId = sessionId;
+    // F05（2026-09-28 审查）：上一轮失败时，服务端其实**已经分配了会话**（run_started 里回过
+    // chat_session_id），只是路由还没跳过去。重试必须沿用它 —— 否则又开一个新会话，
+    // 用户刚才那一轮的历史就再也接不上了。
+    const targetSessionId = sessionId || sessionIdRef.current || undefined;
+    let nextSessionId = targetSessionId;
     const controller = new AbortController();
     abortRef.current = controller;
     try {
       const profile = useUiStore.getState().learningProfile;
       const [sendProvider, sendModel] = (selectedProvider || settings?.default_provider || "").split("::");
-      await streamChat(message, sessionId, selectedDocumentIds, {
+      await streamChat(message, targetSessionId, selectedDocumentIds, {
         ...profile,
         memoryEnabled: settings?.preferences.memory.enabled ?? true,
         provider: sendProvider || undefined,
@@ -406,6 +421,7 @@ export function ChatPage() {
         references: outgoingReferences,
         webResearchId,
         strictDocumentScope,
+        retryFailed,
         onStreamId: (id) => { streamIdRef.current = id; },
       }, (streamEvent) => handleStreamEvent(streamEvent, {
         onRunStarted: (chatSessionId) => {
@@ -707,9 +723,11 @@ export function ChatPage() {
     }
   }
 
-  function retryMessage(index: number) {
+  function retryMessage(index: number, retryFailed = false) {
     const previous = messages[index - 1];
-    if (previous?.role === "user") void send(undefined, previous.content);
+    // 只有**失败**的那一轮才声明 retry_failed（后端据此清掉失败尾部，避免同一句 user turn
+    // 存两遍）。「回答已停止」的那一轮没有失败标记，声明了只会让后端多做一次无用的查找。
+    if (previous?.role === "user") void send(undefined, previous.content, undefined, retryFailed);
   }
 
   async function changeProvider(modelRef: string) {
@@ -1088,7 +1106,7 @@ export function ChatPage() {
                 <AttributionBadges attribution={message.attribution} onOpenSources={showSourceContext} />
                 <PersonalizationChip references={message.personalization} />
                 {!message.pending && !message.failed && message.content && !message.artifacts?.some((artifact) => artifact.type === "practice_ready") && <div className="answer-actions"><button className="quiet-button" onClick={() => preparePractice(index)}><BookOpen size={15} />生成 5 道练习</button></div>}
-                {message.failed && <div className="answer-failure"><span>{error || "AI 连接暂时不可用，请稍后重试。"}</span><button className="quiet-button" disabled={sending} onClick={() => retryMessage(index)}><RotateCcw size={15} />重新发送本轮</button></div>}
+                {message.failed && <div className="answer-failure"><span>{error || "AI 连接暂时不可用，请稍后重试。"}</span><button className="quiet-button" disabled={sending} onClick={() => retryMessage(index, true)}><RotateCcw size={15} />重新发送本轮</button></div>}
                 {message.stopped && <div className="answer-failure"><span>回答已停止，只生成了部分内容。</span><button className="quiet-button" disabled={sending} onClick={() => retryMessage(index)}><RotateCcw size={15} />重新发送本轮</button></div>}
               </article>
             ))}
