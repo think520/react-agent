@@ -133,10 +133,13 @@ class Session:
             message = self.messages[index]
             if message.get("role") != "assistant" or not message.get("failed"):
                 continue
-            retry_input = message.get("retry_input")
-            if retry_input is None or str(retry_input) == target:
-                failed_index = index
-                break
+            # 独立审查（2026-09-30）：必须是**显式**匹配。原来 `retry_input is None`
+            # 会匹配任意失败标记，再向后找"内容相同"的 user 消息删掉中间整段 —— 任何
+            # 漏传 retry_input 的调用者都会顺手删掉不相干的一轮。记不上就什么都不动。
+            if str(message.get("retry_input") or "") != target:
+                continue
+            failed_index = index
+            break
         if failed_index is None:
             return False
 

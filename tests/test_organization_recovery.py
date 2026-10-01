@@ -260,3 +260,24 @@ def test_undo_without_batch_id_uses_the_latest_actionable_batch(library, monkeyp
     assert undone["ok"], undone
     assert undone["restored"] == ["first.md"], undone
     assert service.organization_state()["pending_undo"] is None
+
+def test_a_zero_success_apply_does_not_leave_its_own_folder_behind(library, monkeypatch):
+    """独立审查（2026-09-30）：一份都没搬成时，这一步**自己建的**文件夹要收回去、台账要忘掉。
+
+    原来 `if not moved and not failed:` 永远为假（调用点传入的 failed 至少已含当前这一项），
+    所以"零成功就回收"从未生效：目标文件夹留在磁盘上，台账里还挂着一条空批次。
+    """
+    service = KBService(str(library))
+
+    def fail_move(source, target):
+        raise OSError("review injected: nothing can move")
+
+    monkeypatch.setattr("service.kb_service.shutil.move", fail_move)
+
+    result = service.apply_organization(["first.md"], "Blocked")
+
+    assert result["ok"] is False and result["moved"] == [], result
+    assert result["batch_id"] == "", "零成功的批次不该留下'可撤销'入口"
+    assert not (library / "Blocked").is_dir(), "这一步自己建的文件夹要收回去"
+    assert service.organization_state()["pending_undo"] is None
+    assert (library / "first.md").is_file(), "没搬成的那份必须原样留在原地"

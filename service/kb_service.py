@@ -2093,8 +2093,14 @@ class KBService:
             self._write_organization_batch(batch)
 
         def failure_payload(result: dict[str, Any], moved: list[dict[str, Any]], failed: list[dict[str, Any]]) -> dict[str, Any]:
-            """部分失败也要把"搬走了哪些、哪些没成、台账 id"如实交出去（审查 F07）。"""
-            if not moved and not failed:
+            """部分失败也要把"搬走了哪些、哪些没成、台账 id"如实交出去（审查 F07）。
+
+            判定只看 `moved`：一份都没搬成时没有任何东西可撤销，这一步自己建的文件夹要收回去、
+            台账也不该留着。原来的 `not moved and not failed` 永远为假（调用点传入的 failed
+            至少已含当前这一项），所以"零成功就回收"从来没生效过 —— 独立审查实测：
+            零成功之后目标文件夹照样留在磁盘上、台账里还挂着一条空批次。
+            """
+            if not moved:
                 for folder in reversed(created_folders):
                     try:
                         os.rmdir(os.path.join(self.workspace, folder))

@@ -200,3 +200,52 @@ def test_library_root_scans_all_formats(portable_library, monkeypatch):
     assert "course/subdir/deep.docx" in sources, "nested material must be indexed"
     assert "course/inbox/raw-file.pdf" in sources, "raw file keeps legacy source"
     assert not any(s.startswith("course/raw") for s in sources), "raw/ prefix must not leak"
+
+def test_a_permanently_broken_file_is_not_reparsed_on_every_sync(portable_library, monkeypatch):
+    """2026-09-30 独立审查：永久失败的解析结果不能变成"每次同步都重解析"的循环。
+
+    一个永远解析不出文本的文件（这里的 broken.pdf）原来每次增量同步都被强制重解析，
+    代价随文件大小线性增长，还会一直虚报"本次更新了 N 个文件"。现在允许**有界重试**：
+    失败后再自动试最多 MAX_REINDEX_ATTEMPTS 次，之后就只认字节变化。
+    """
+    import obsidian.sync as sync_module
+
+    monkeypatch.setattr("rag.qdrant_store.QdrantStore", pytest.importorskip("unittest.mock").MagicMock())
+    monkeypatch.setattr("rag.embedding_service.EmbeddingService", lambda *a, **k: type(
+        "Embedding", (), {"is_available": lambda self: False}
+    )())
+    broken = portable_library / "raw" / "inbox" / "broken.pdf"
+    broken.write_bytes(b"this is not a PDF")
+
+    parsed: list = []
+    original = sync_module.parse_document
+
+    def counting_parse(path, workspace):
+        parsed.append(os.path.basename(str(path)))
+        return original(path, workspace)
+
+    monkeypatch.setattr(sync_module, "parse_document", counting_parse)
+
+    def run_sync():
+        return sync_sources(
+            workspace=str(portable_library),
+            vault_path=str(portable_library),
+            course_dir=str(portable_library / "raw"),
+            mode="incremental",
+        )
+
+    first = run_sync()
+    assert first.extraction_counts.get("error", 0) == 1
+    assert parsed.count("broken.pdf") == 1
+
+    for _ in range(4):
+        run_sync()
+
+    budget = 1 + sync_module.MAX_REINDEX_ATTEMPTS
+    assert parsed.count("broken.pdf") <= budget, (
+        f"永久失败的文件被反复重解析：{parsed.count('broken.pdf')} 次 > 上限 {budget}"
+    )
+
+    settled = run_sync()
+    assert settled.updated_files == 0, "重试预算用完之后，同步不该再把它算成'更新了'"
+    assert parsed.count("broken.pdf") <= budget

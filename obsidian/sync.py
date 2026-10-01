@@ -113,40 +113,61 @@ def _load_state(workspace: str) -> dict:
         return json.load(f)
 
 
-def _save_state(workspace: str, files: dict, missing: dict | None = None) -> None:
+def _save_state(
+    workspace: str,
+    files: dict,
+    missing: dict | None = None,
+    retries: dict | None = None,
+) -> None:
     state = {"version": 1, "files": files}
     if missing:
         # P0-12: remember how often a source has been missing so a single
         # failed scan cannot trigger deletion.
         state["missing"] = missing
+    if retries:
+        # 2026-09-30 独立审查：重试次数也要记住，否则失败文件会被无限重解析。
+        state["retries"] = retries
     atomic_write_json(_state_path(workspace), state)
 
 
-def _sources_needing_reindex(workspace: str) -> set[str]:
-    """Return visible documents whose searchable chunks were never built.
+# 2026-09-30 独立审查：解析失败后的**自动**重试必须有上限。
+# 一个永久坏掉的文件（例如截断的 PDF）每次同步都会被重解析，代价随文件大小线性增长，
+# 还会一直虚报"本次更新了 N 个文件"。字节一变计数就重新开始，所以用户换掉文件照样会重试。
+MAX_REINDEX_ATTEMPTS = 2
+
+
+def _reindex_attempt_key(source: str, content_hash: str) -> str:
+    return f"{source}|{content_hash}"
+
+
+def _reindex_candidates(workspace: str, retries: dict) -> list[tuple[str, str, int]]:
+    """可见、零 chunk、又不是"本来就没有文本"的文档：(source, hash, 已试次数)。
 
     Incremental sync normally uses the content hash as its change detector. A
     failed or interrupted parse can leave the same hash in the state file while
     the document row has no chunks, so that detector would permanently skip the
-    retry. Empty extraction results are intentional and must not be reparsed on
-    every sync.
+    retry. Empty extraction results are intentional and must not be reparsed.
     """
     from rag.sqlite_store import KBSQLiteStore
 
     db_path = os.path.join(_knowledge_dir(workspace), "knowledge.db")
     if not os.path.exists(db_path):
-        return set()
+        return []
     store = KBSQLiteStore(workspace)
     store.init_db()
     try:
-        return {
-            str(row["source"])
+        rows = [
+            (str(row["source"]), str(row.get("content_hash") or ""))
             for row in store.list_documents()
             if not int(row.get("chunk_count") or 0)
             and str(row.get("extraction_status") or "") != "empty"
-        }
+        ]
     finally:
         store.close()
+    return [
+        (source, digest, int(retries.get(_reindex_attempt_key(source, digest), 0) or 0))
+        for source, digest in rows
+    ]
 
 
 # P0-12: consecutive scans that must miss a source before it is deleted.
@@ -431,7 +452,18 @@ def sync_sources(
     # ── Step 2: Determine which files changed ───────────────────────────
     changed_sources: list[tuple[str, str, str, str]] = []  # (source, abs_path, content_hash, kind)
     deleted_sources: list[str] = []
-    retry_sources = _sources_needing_reindex(workspace)
+    retries = dict(state.get("retries") or {})
+    reindex_candidates = _reindex_candidates(workspace, retries)
+    retry_sources = {
+        source
+        for source, _digest, attempts in reindex_candidates
+        if attempts < MAX_REINDEX_ATTEMPTS
+    }
+    if reindex_candidates and not retry_sources:
+        logger.info(
+            "sync: %d 个零 chunk 文件已用完自动重试预算（%d 次），等字节变化再试",
+            len(reindex_candidates), MAX_REINDEX_ATTEMPTS,
+        )
 
     for scanned in notes:
         source = f"obsidian/{scanned.rel_path}"
@@ -759,7 +791,23 @@ def sync_sources(
     graph_store_path = None
 
     # ── Step 7: Save state ──────────────────────────────────────────────
-    _save_state(workspace, new_state, pending_missing)
+    # 重试记账：还坏着的 +1，修好的丢掉；只保留当前仍是候选的键
+    # （文件被换掉 -> hash 变 -> 键变 -> 计数自动从 0 开始）。
+    live_keys = {_reindex_attempt_key(source, digest) for source, digest, _attempts in reindex_candidates}
+    retries = {key: value for key, value in retries.items() if key in live_keys}
+    retried_this_run = {source for source, _abs, _digest, _kind in changed_sources} & retry_sources
+    if retried_this_run:
+        chunk_counts = {str(row["source"]): int(row.get("chunk_count") or 0) for row in sqlite.list_documents()}
+        for source, _abs, digest, _kind in changed_sources:
+            if source not in retried_this_run:
+                continue
+            key = _reindex_attempt_key(source, digest)
+            if chunk_counts.get(source, 0) > 0:
+                retries.pop(key, None)
+            else:
+                retries[key] = int(retries.get(key, 0) or 0) + 1
+
+    _save_state(workspace, new_state, pending_missing, retries)
 
     updated_files = len(changed_sources) + len(deleted_sources)
     if mode == "full":
