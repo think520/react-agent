@@ -1408,6 +1408,50 @@ def test_failed_chat_run_keeps_a_failed_turn_in_the_history(backend_client, monk
     ), f"失败的一轮没有留在历史里: {messages}"
 
 
+def test_retry_failed_chat_run_does_not_duplicate_the_user_turn(backend_client, monkeypatch):
+    runtime = SimpleNamespace(
+        workspace=str(backend_client.workspace),
+        skills_prompt=None,
+        memory_prompt=None,
+        create_provider=lambda _name, model=None: object(),
+        refresh_memory=lambda: None,
+        create_trace=lambda _session_id: object(),
+    )
+    calls = []
+
+    def fake_run_stream(**kwargs):
+        calls.append([dict(message) for message in kwargs["session"].messages])
+        if len(calls) == 1:
+            kwargs["session"].add_message("user", kwargs["user_input"])
+            raise RuntimeError("review simulated provider exception")
+        kwargs["session"].add_message("user", kwargs["user_input"])
+        kwargs["session"].add_message("assistant", "retry succeeded")
+        yield {"type": "assistant_done", "content": "retry succeeded", "termination_reason": "final_answer"}
+
+    monkeypatch.setattr("web.backend.routers.chat.get_runtime_context", lambda: runtime)
+    monkeypatch.setattr("web.backend.routers.chat.AgentService.run_stream", fake_run_stream)
+
+    failed = backend_client.post("/api/chat/runs", json={"message": "explain vectors"})
+    assert "event: run_failed" in failed.text
+    session_id = next(
+        json.loads(line[len("data: "):])["chat_session_id"]
+        for line in failed.text.splitlines()
+        if line.startswith("data: ") and "chat_session_id" in line
+    )
+
+    retried = backend_client.post("/api/chat/runs", json={
+        "message": "explain vectors",
+        "chat_session_id": session_id,
+        "retry_failed": True,
+    })
+    assert "event: run_completed" in retried.text
+    assert calls[1] == [], "重试开始前应移除上一轮失败的用户/工具尾部"
+
+    detail = backend_client.get(f"/api/chat/sessions/{session_id}").json()
+    users = [message for message in detail["messages"] if message["role"] == "user"]
+    assert [message["content"] for message in users] == ["explain vectors"]
+
+
 def test_chat_persists_web_consent_artifact_without_network_access(backend_client, monkeypatch):
     runtime = SimpleNamespace(
         workspace=str(backend_client.workspace), skills_prompt=None, memory_prompt=None,

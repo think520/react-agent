@@ -1476,6 +1476,9 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
         if not resume_record.get("tool_call_id"):
             raise APIError(409, "interaction_not_resumable", "这次交互没有可续跑的工具调用。")
     else:
+        if body.retry_failed:
+            if not body.chat_session_id or not session.remove_failed_turn_for_retry(body.message):
+                raise APIError(409, "retry_not_available", "没有可重试的失败回合。")
         _close_open_interactions(session, workspace)
     provider_name, preference_model = parse_provider_ref(
         body.provider
@@ -1725,7 +1728,13 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
             # F06：失败也要写进会话（下面 finally 会保存）—— 否则刷新之后这一轮凭空消失，
             # 用户只看见自己那句提问，也不知道刚才到底发生了什么。
             try:
-                session.add_failed_message("assistant", failure["message"], failure["message"], failure["code"])
+                session.add_failed_message(
+                    "assistant",
+                    failure["message"],
+                    failure["message"],
+                    failure["code"],
+                    retry_input=body.message,
+                )
             except Exception:  # 记不上失败也不能影响 run_failed 事件本身
                 logger.warning("Could not record the failed turn in the session", exc_info=True)
             yield emitter.emit("run_failed", {

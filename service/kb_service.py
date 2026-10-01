@@ -1301,11 +1301,19 @@ class KBService:
             )
         allowed = {".md", ".txt", ".pdf", ".docx", ".pptx"}
         os.makedirs(self.managed_sources_dir, exist_ok=True)
+        upload_hashes = {
+            hashlib.sha256(content).hexdigest()
+            for _filename, content in files
+        }
 
         # 去重有**两个**来源，职责不同（审查 F08 修的就是第一个只扫 inbox 的问题）：
         #   1. 索引里的内容哈希 —— 资料被移动/改名后依然认得出来；
         #   2. inbox 里"盘上有、索引里没有"的文件 —— 上次同步失败留下的那一份（审查 F04）。
-        indexed_hashes = self._indexed_content_hashes() if duplicate_strategy == "keep_existing" else {}
+        indexed_hashes = (
+            self._indexed_content_hashes(upload_hashes)
+            if duplicate_strategy == "keep_existing"
+            else {}
+        )
         inbox_hashes: dict[str, str] = {}
         if duplicate_strategy == "keep_existing":
             for root, _dirs, names in os.walk(self.managed_sources_dir):
@@ -1357,13 +1365,19 @@ class KBService:
                 if on_disk is not None or known is not None:
                     # 字节已经在库里，但**索引没建完**（上次同步失败 / 只切了行没有片段）：
                     # 不再写一份副本，直接把这份重新送进同步（审查 F04）。
+                    existing_relative = on_disk or str(known.get("path") or "")
+                    existing_absolute = (
+                        os.path.join(self.managed_sources_dir, on_disk)
+                        if on_disk is not None
+                        else os.path.join(self.workspace, existing_relative)
+                    )
                     pending.append({
                         "filename": filename,
-                        "existing": on_disk or str(known.get("path") or ""),
+                        "existing": existing_relative,
                         "reason": "awaiting_index",
                     })
-                    record(filename, "pending", os.path.join(self.managed_sources_dir, on_disk or safe_name),
-                           existing=on_disk or "", reason="awaiting_index")
+                    record(filename, "pending", existing_absolute,
+                           existing=existing_relative, reason="awaiting_index")
                     continue
             target = os.path.join(self.managed_sources_dir, safe_name)
             stem, extension = os.path.splitext(safe_name)
@@ -1384,16 +1398,33 @@ class KBService:
             return _err("No supported files were provided")
 
         # 逐文件结果要**绑定到本次批次**：这一批里哪些能检索、哪些还在等索引（审查 F09）。
-        def results_for_batch(documents: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+        def results_for_batch(
+            documents: dict[str, dict[str, Any]],
+            sync_summary: Any = None,
+        ) -> list[dict[str, Any]]:
             described: list[dict[str, Any]] = []
+            sync_errors = [
+                str(item.get("source") or "")
+                for item in (getattr(sync_summary, "errors", None) or [])
+                if isinstance(item, dict)
+            ]
             for outcome in outcomes:
                 document = documents.get(os.path.abspath(os.path.join(self.workspace, outcome["path"]))) if outcome["path"] else None
                 chunks = int((document or {}).get("chunk_count") or 0)
+                status = outcome["status"]
+                if status == "pending" and chunks > 0:
+                    status = "indexed"
+                extraction = (document or {}).get("extraction_status") or None
+                if extraction is None and outcome["path"]:
+                    basename = os.path.basename(outcome["path"])
+                    if any(source.endswith(basename) for source in sync_errors):
+                        extraction = "error"
                 described.append({
                     **outcome,
+                    "status": status,
                     "searchable": chunks > 0,
                     "chunks": chunks,
-                    "extraction": (document or {}).get("extraction_status") or None,
+                    "extraction": extraction,
                 })
             return described
 
@@ -1417,7 +1448,7 @@ class KBService:
             duplicates=duplicates,
             rejected=rejected,
             pending=pending,
-            results=results_for_batch(self._documents_by_path()),
+            results=results_for_batch(self._documents_by_path(), summary),
             # 全库增量同步单独一个字段：它可以比这批大（资料库里别的文件也变了），
             # 但**不能**拿来当本次上传的计数（审查 F09）。
             library_sync=summary.to_dict() if summary else {"extraction_counts": {}, "error_files": 0},
@@ -1942,12 +1973,13 @@ class KBService:
     def _document_by_path(self, absolute: str) -> dict[str, Any] | None:
         return self._documents_by_path().get(os.path.abspath(absolute))
 
-    def _indexed_content_hashes(self) -> dict[str, dict[str, Any]]:
+    def _indexed_content_hashes(self, candidate_hashes: set[str] | None = None) -> dict[str, dict[str, Any]]:
         """内容哈希 → {path, indexed}（F08：去重以**索引**为准，资料被移动/改名也认得出来）。
 
         `documents.content_hash` 存的就是文件字节的 sha256（`obsidian/sync.py:220/294`），
         与上传时算的 `sha256(content)` 同一算法 —— 所以不必每次上传把全库文件读一遍。
         老数据可能没有 content_hash：那种行会被跳过（见 CHANGELOG 的已知边界）。
+        `candidate_hashes` 让磁盘校验只发生在本次上传实际可能命中的候选上。
         """
         from rag.sqlite_store import KBSQLiteStore
 
@@ -1963,8 +1995,19 @@ class KBService:
                 stored = str(document.get("path") or "")
                 if not digest or not stored:
                     continue
+                if candidate_hashes is not None and digest not in candidate_hashes:
+                    continue
                 candidate = stored if os.path.isabs(stored) else os.path.join(self.workspace, stored)
                 if not self._is_within_workspace(candidate, self.workspace) or self._is_internal_path(candidate):
+                    continue
+                try:
+                    with open(candidate, "rb") as handle:
+                        if hashlib.sha256(handle.read()).hexdigest() != digest:
+                            # The database row is stale: the file was edited or
+                            # removed after it was indexed. Do not discard a
+                            # new upload merely because its old hash remains.
+                            continue
+                except OSError:
                     continue
                 index.setdefault(digest, {
                     "path": self._relative_to_workspace(candidate),

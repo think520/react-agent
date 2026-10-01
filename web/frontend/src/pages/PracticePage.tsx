@@ -69,10 +69,17 @@ const TUTOR_SESSION_PREFIX = "bobodan:practice-tutor:";
 会话，上一轮追问的上下文接不上。题目 id 跟着练习走，练习结束（关标签页）就该清掉，
 所以用 sessionStorage 而不是 localStorage。
 */
-function readTutorSessions(practiceSessionId: number | null): Record<number, string> {
+function tutorStorageKey(libraryId: string | undefined, practiceSessionId: number): string {
+  return `${TUTOR_SESSION_PREFIX}${libraryId || "default"}:${practiceSessionId}`;
+}
+
+function readTutorSessions(
+  libraryId: string | undefined,
+  practiceSessionId: number | null,
+): Record<number, string> {
   if (!practiceSessionId) return {};
   try {
-    const raw = window.sessionStorage.getItem(TUTOR_SESSION_PREFIX + practiceSessionId);
+    const raw = window.sessionStorage.getItem(tutorStorageKey(libraryId, practiceSessionId));
     if (!raw) return {};
     const parsed = JSON.parse(raw) as Record<string, string>;
     return Object.fromEntries(
@@ -83,13 +90,17 @@ function readTutorSessions(practiceSessionId: number | null): Record<number, str
   }
 }
 
-function writeTutorSessions(practiceSessionId: number | null, sessions: Record<number, string>): void {
+function writeTutorSessions(
+  libraryId: string | undefined,
+  practiceSessionId: number | null,
+  sessions: Record<number, string>,
+): void {
   if (!practiceSessionId) return;
   try {
     if (Object.keys(sessions).length) {
-      window.sessionStorage.setItem(TUTOR_SESSION_PREFIX + practiceSessionId, JSON.stringify(sessions));
+      window.sessionStorage.setItem(tutorStorageKey(libraryId, practiceSessionId), JSON.stringify(sessions));
     } else {
-      window.sessionStorage.removeItem(TUTOR_SESSION_PREFIX + practiceSessionId);
+      window.sessionStorage.removeItem(tutorStorageKey(libraryId, practiceSessionId));
     }
   } catch {
     // 隐私模式等写不了 sessionStorage：记不住关联不影响提问本身。
@@ -99,7 +110,7 @@ function writeTutorSessions(practiceSessionId: number | null, sessions: Record<n
 export function PracticePage() {
   const { practiceSessionId } = useParams();
   const navigate = useNavigate();
-  const { refreshSessions, selectedDocumentIds, selectedDocuments } = useOutletContext<AppOutletContext>();
+  const { activeLibrary, refreshSessions, selectedDocumentIds, selectedDocuments } = useOutletContext<AppOutletContext>();
   const id = practiceSessionId ? Number(practiceSessionId) : null;
   const [session, setSession] = useState<PracticeSession | null>(null);
   const [active, setActive] = useState<Array<{ practice_session_id: number; updated_at: string; question_count: number }>>([]);
@@ -119,7 +130,9 @@ export function PracticePage() {
   const [aiOpen, setAiOpen] = useState(false);
   const [aiQuestion, setAiQuestion] = useState("给我一个不直接揭示答案的提示。");
   const [aiAnswer, setAiAnswer] = useState("");
-  const aiSessionByQuestionRef = useRef<Record<number, string>>(readTutorSessions(id));
+  const aiSessionByQuestionRef = useRef<Record<number, string>>(
+    readTutorSessions(activeLibrary?.library_id, id),
+  );
   // 问 AI answers stream through the same 30fps typewriter buffer as Chat so
   // SSE bursts don't appear as raw block dumps.
   const aiBufferRef = useRef<StreamBuffer | null>(null);
@@ -155,7 +168,7 @@ export function PracticePage() {
     setAiOpen(false);
     setAiAnswer("");
     setAiError("");
-    aiSessionByQuestionRef.current = readTutorSessions(id);
+    aiSessionByQuestionRef.current = readTutorSessions(activeLibrary?.library_id, id);
     setWebConsent(null);
     if (id) {
       try { setResolution(JSON.parse(sessionStorage.getItem(`bobodan:practice-resolution:${id}`) || "null")); }
@@ -165,7 +178,7 @@ export function PracticePage() {
     }
     if (id) void loadSession(id);
     else void api.activePractice().then((value) => setActive(value.sessions)).catch(() => setActive([]));
-  }, [id, loadSession]);
+  }, [activeLibrary?.library_id, id, loadSession]);
 
   const currentQuestion = useMemo(() => {
     if (!session) return null;
@@ -269,7 +282,7 @@ export function PracticePage() {
         if (streamEvent.event === "run_started") {
           nextSessionId = streamEvent.data.chat_session_id;
           aiSessionByQuestionRef.current[currentQuestion.id] = nextSessionId;
-          writeTutorSessions(id, aiSessionByQuestionRef.current);
+          writeTutorSessions(activeLibrary?.library_id, id, aiSessionByQuestionRef.current);
         }
         if (streamEvent.event === "status") setAiStatus(streamEvent.data.message);
         if (streamEvent.event === "message_delta") {

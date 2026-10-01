@@ -95,7 +95,14 @@ class Session:
         self.last_active = datetime.now().isoformat()
         self._trim_messages()
 
-    def add_failed_message(self, role: str, content: str, error: str, code: str = "run_failed") -> None:
+    def add_failed_message(
+        self,
+        role: str,
+        content: str,
+        error: str,
+        code: str = "run_failed",
+        retry_input: str | None = None,
+    ) -> None:
         """记下"这一轮失败了"。
 
         2026-09-28 审查 F06：失败如果只发进 SSE 流、不写进会话，刷新或重开会话后这一轮
@@ -107,9 +114,49 @@ class Session:
             "failed": True,
             "error": error,
             "error_code": code,
+            "retry_input": retry_input,
         })
         self.last_active = datetime.now().isoformat()
         self._trim_messages()
+
+    def remove_failed_turn_for_retry(self, user_input: str) -> bool:
+        """Remove the persisted failed turn before replaying its user input.
+
+        A failed run may have left tool-call messages between the user's
+        message and the failure marker. Removing the whole tail keeps the
+        provider context valid and prevents a retry from appending the same
+        user message twice.
+        """
+        target = str(user_input)
+        failed_index = None
+        for index in range(len(self.messages) - 1, -1, -1):
+            message = self.messages[index]
+            if message.get("role") != "assistant" or not message.get("failed"):
+                continue
+            retry_input = message.get("retry_input")
+            if retry_input is None or str(retry_input) == target:
+                failed_index = index
+                break
+        if failed_index is None:
+            return False
+
+        user_index = None
+        for index in range(failed_index - 1, -1, -1):
+            message = self.messages[index]
+            if message.get("role") == "user" and message.get("content") == target:
+                user_index = index
+                break
+        if user_index is None:
+            # A provider can fail before AgentLoop appends the user message.
+            # There is still a retryable failure marker, but no duplicate user
+            # turn to remove.
+            del self.messages[failed_index]
+            self.last_active = datetime.now().isoformat()
+            return True
+
+        del self.messages[user_index:failed_index + 1]
+        self.last_active = datetime.now().isoformat()
+        return True
 
     def add_message_with_tool_calls(self, role: str, content: str, tool_calls: list) -> None:
         msg = {"role": role, "content": content, "tool_calls": tool_calls}

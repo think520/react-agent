@@ -1059,6 +1059,8 @@ export async function streamChat(
     strictDocumentScope?: boolean;
     /** E4: continue a paused ask_user turn instead of sending a new message. */
     resumeInteractionId?: string;
+    /** F05: replay the persisted failed turn without duplicating its user message. */
+    retryFailed?: boolean;
     /** P0-1: called with the stream id as soon as a frame names it. */
     onStreamId?: (streamId: string) => void;
   },
@@ -1069,6 +1071,7 @@ export async function streamChat(
     ...json({
       message,
       resume_interaction_id: preferences.resumeInteractionId || null,
+      retry_failed: preferences.retryFailed ?? false,
       chat_session_id: chatSessionId || null,
       document_ids: preferences.strictDocumentScope ? documentIds : [],
       preferred_document_ids: preferences.strictDocumentScope ? [] : documentIds,

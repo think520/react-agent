@@ -122,6 +122,33 @@ def _save_state(workspace: str, files: dict, missing: dict | None = None) -> Non
     atomic_write_json(_state_path(workspace), state)
 
 
+def _sources_needing_reindex(workspace: str) -> set[str]:
+    """Return visible documents whose searchable chunks were never built.
+
+    Incremental sync normally uses the content hash as its change detector. A
+    failed or interrupted parse can leave the same hash in the state file while
+    the document row has no chunks, so that detector would permanently skip the
+    retry. Empty extraction results are intentional and must not be reparsed on
+    every sync.
+    """
+    from rag.sqlite_store import KBSQLiteStore
+
+    db_path = os.path.join(_knowledge_dir(workspace), "knowledge.db")
+    if not os.path.exists(db_path):
+        return set()
+    store = KBSQLiteStore(workspace)
+    store.init_db()
+    try:
+        return {
+            str(row["source"])
+            for row in store.list_documents()
+            if not int(row.get("chunk_count") or 0)
+            and str(row.get("extraction_status") or "") != "empty"
+        }
+    finally:
+        store.close()
+
+
 # P0-12: consecutive scans that must miss a source before it is deleted.
 DELETION_CONFIRMATIONS = 2
 
@@ -404,11 +431,12 @@ def sync_sources(
     # ── Step 2: Determine which files changed ───────────────────────────
     changed_sources: list[tuple[str, str, str, str]] = []  # (source, abs_path, content_hash, kind)
     deleted_sources: list[str] = []
+    retry_sources = _sources_needing_reindex(workspace)
 
     for scanned in notes:
         source = f"obsidian/{scanned.rel_path}"
         new_state[source] = scanned.content_hash
-        if mode == "full" or old_state.get(source) != scanned.content_hash:
+        if mode == "full" or old_state.get(source) != scanned.content_hash or source in retry_sources:
             changed_sources.append((source, scanned.abs_path, scanned.content_hash, "obsidian_note"))
 
     course_roots: list[tuple[str, str]] = []
@@ -441,7 +469,7 @@ def sync_sources(
         ):
             source = f"{prefix}/{relative_source}"
             new_state[source] = content_hash
-            if mode == "full" or old_state.get(source) != content_hash:
+            if mode == "full" or old_state.get(source) != content_hash or source in retry_sources:
                 changed_sources.append((source, path, content_hash, "course_document"))
         skipped_sources.extend(f"{prefix}/{relative}" for relative in skipped_here)
 
@@ -517,6 +545,7 @@ def sync_sources(
     total_chunks = 0
     doc_records: list[DocumentRecord] = []
     extraction_counts: dict[str, int] = {"complete": 0, "partial": 0, "empty": 0, "error": 0}
+    failed_processing_sources: dict[str, str] = {}
 
     for source, abs_path, content_hash, kind in changed_sources:
         try:
@@ -668,6 +697,11 @@ def sync_sources(
         except Exception as e:
             logger.warning("Failed to process %s: %s", source, e)
             errors.append({"source": source, "error": str(e)})
+            # Do not persist a failed content hash: the next incremental scan
+            # must schedule this visible file again. It is still visible on
+            # disk, so it must not count as a deletion in this run either.
+            failed_processing_sources[source] = content_hash
+            new_state.pop(source, None)
             doc_records.append(DocumentRecord(
                 source=source,
                 kind=kind,
@@ -676,6 +710,18 @@ def sync_sources(
                 error=str(e),
                 content_hash=content_hash,
             ))
+
+    # Parsing failures are different from missing files. Treat failed sources
+    # as visible for deletion confirmation while keeping them out of the saved
+    # hash state so the next incremental run retries them.
+    deletion_state = dict(new_state)
+    deletion_state.update(failed_processing_sources)
+    deleted_sources, pending_missing = _resolve_deletions(
+        old_state,
+        deletion_state,
+        previous_missing,
+        scan_failed=bool(scan_errors) or bool(incomplete_reasons),
+    )
 
     # ── Step 5: Delete removed documents ────────────────────────────────
     for source in deleted_sources:

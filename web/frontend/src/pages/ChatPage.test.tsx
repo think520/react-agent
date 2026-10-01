@@ -94,4 +94,5 @@ it("R01: retry after run_failed preserves the allocated chat session", async () 
   await waitFor(() => expect(streamChat).toHaveBeenCalledTimes(2), { timeout: 700 });
 
   expect(vi.mocked(streamChat).mock.calls[1][1]).toBe("allocated-session");
+  expect(vi.mocked(streamChat).mock.calls[1][3]).toEqual(expect.objectContaining({ retryFailed: true }));
 });

@@ -21,6 +21,7 @@ import pytest
 
 from service.kb_service import KBService
 from service.library_service import LibraryService
+from rag.sqlite_store import KBSQLiteStore
 from tests.test_organization_apply import _sync
 
 
@@ -99,3 +100,68 @@ def test_import_results_belong_to_this_batch_only(library, monkeypatch):
     # 全库增量同步是另一个字段：它可以比这批大（资料库里别的文件也变了），但绝不能冒充批次计数。
     assert "library_sync" in result, result.keys()
     assert result["library_sync"]["extraction_counts"].get("complete", 0) >= 1, result["library_sync"]
+
+
+def test_retry_reparses_a_file_that_failed_inside_the_real_sync(library, monkeypatch):
+    _sync(library, monkeypatch)
+    import obsidian.sync as sync
+
+    service = KBService(str(library))
+    parse_document = sync.parse_document
+    parsed = []
+
+    def fail_once(path, workspace):
+        if Path(path).name == "retry.md":
+            parsed.append(path)
+            if len(parsed) == 1:
+                raise RuntimeError("transient parser failure")
+        return parse_document(path, workspace)
+
+    monkeypatch.setattr(sync, "parse_document", fail_once)
+    files = [("retry.md", b"A lesson with enough text for indexing. " * 20)]
+    first = service.import_files(files)
+    second = service.import_files(files)
+
+    assert len(parsed) == 2, "Calling incremental sync again must actually retry parsing"
+    assert first["results"][0]["extraction"] == "error", first
+    assert second["results"][0]["searchable"] is True, second
+    assert second["results"][0]["status"] == "indexed", second
+    assert [path.name for path in Path(service.managed_sources_dir).iterdir()] == ["retry.md"]
+
+
+@pytest.mark.parametrize("change", ["deleted", "edited"])
+def test_stale_index_hash_cannot_discard_an_uploaded_file(library, monkeypatch, change):
+    _sync(library, monkeypatch)
+    service = KBService(str(library))
+    content = (library / "first.md").read_bytes()
+    if change == "deleted":
+        (library / "first.md").unlink()
+    else:
+        (library / "first.md").write_text("A different version kept by the user", encoding="utf-8")
+
+    result = service.import_files([("restored.md", content)])
+
+    assert result["duplicates"] == [], "The indexed bytes are no longer on disk"
+    assert result["imported"] == ["restored.md"], result
+    assert (Path(service.managed_sources_dir) / "restored.md").read_bytes() == content
+    assert result["results"][0]["searchable"] is True, result
+
+
+def test_retry_of_an_unindexed_document_outside_inbox_uses_its_real_path(library, monkeypatch):
+    _sync(library, monkeypatch)
+    service = KBService(str(library))
+    store = KBSQLiteStore(str(library))
+    store.init_db()
+    try:
+        document = next(row for row in store.list_documents() if Path(row["path"]).name == "first.md")
+        store.delete_chunks_by_document(document["id"])
+    finally:
+        store.close()
+
+    result = service.import_files([("copy.md", (library / "first.md").read_bytes())])
+
+    assert result["imported"] == []
+    assert result["results"][0]["path"] == "first.md", result
+    assert result["results"][0]["searchable"] is True, result
+    assert result["results"][0]["status"] == "indexed", result
+    assert not (Path(service.managed_sources_dir) / "copy.md").exists()

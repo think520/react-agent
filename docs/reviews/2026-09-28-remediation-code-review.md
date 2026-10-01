@@ -2,14 +2,16 @@
 
 - 日期：2026-09-28；后续复审更新：2026-09-30。
 - 分支：`codex/audit-remediation-2026-09-25`。
-- 审查 HEAD：`4159f41`；后续修复基线：`9d8c00c`；本次复核覆盖当前工作区新增的 R09 批次选择修复；功能提交：`ceb9cc2`；基线：`f6c3562`。
+- 审查基线：`06e2c3f`；本次复核在该提交上继续进行，当前修复仍在工作区、尚未提交或推送。
 - 范围：3 个提交、61 个变更文件（含原审查报告、图片与日志），并追踪本次变更直接关联的 API、存储和界面调用方。
 - 方法：差异阅读、验收条目对照、全套现有测试、隔离资料库故障注入、组件交互与重新挂载测试。未调用真实付费模型，未修改日常资料库。
-- 初始交付是报告与复现材料；后续修复与复验记录见 §1.1、§4.1。本报告仍不把未完成的 F04/F05/F06/F08/F09/F10 标成已验收。
+- 初始交付是报告与复现材料；历次修复与复验记录见 §1.1、§4。本次复核重点检查已声称完成的 F04/F05/F08/F10 是否存在遗漏。
 
 ## 1. 结论
 
-**不能认定 R01–R13 已全部验收完成；当前不建议按“整改完成、可以合并/发布”的口径推送。**
+**不能认定 R01–R13 已全部验收完成；F01–F10 的本次修复与回归已通过，但当前工作区尚未提交，且本轮没有重跑真实 provider / 真实资料库 live 验收。可以整理成 PR 供审查，不建议直接合并 main 或发布。**
+
+下方“初始审查”段落保留历史复现事实；当前状态以 §1.1 的追加修复和 §4.2 的工作区门禁为准。
 
 现有测试大部分覆盖了这轮改动的主路径，但没有覆盖多笔记草稿恢复、已索引文件移动异常、撤销冲突、失败导入重试、失败会话的重试/历史恢复、练习刷新等关键边界。本次补充的 15 个验收断言均失败，它们对应下文 10 组问题，并不代表 15 个独立缺陷。
 
@@ -43,8 +45,8 @@
 
 | 条目 | 状态 | 修复与证据 |
 |---|---|---|
-| F04 重试被当成重复、永不补索引 | **已修** | 命中相同字节时区分"**已建索引**"（跳过，报 duplicate）与"**盘上有、索引没建完**"（不写副本，重新送进同步并报 `pending`）。同步失败不再抛 500，而是返回结构化错误（`import_sync_failed`，带 imported/pending/results）。回归：`tests/test_import_retry_and_counts.py` 第 1 条；`test_kb_service.py` 那条旧契约测试已按新语义改写（旧断言"duplicate-only 不许同步"正是 bug 本身） |
-| F08 去重只扫 inbox | **已修** | 去重改为**以索引为准**（`documents.content_hash` 就是文件字节的 sha256，与上传时同算法），资料被移动/改名后依然认得出来；inbox 扫描只保留来兜"盘上有、索引里没有"。回归：同文件第 2 条 |
+| F04 重试被当成重复、永不补索引 | **已修** | 命中相同字节时区分"**已建索引**"（跳过，报 duplicate）与"**盘上有、索引没建完**"（不写副本，重新送进同步并报 `pending`）。同步失败不再抛 500，而是返回结构化错误（`import_sync_failed`，带 imported/pending/results）；本次复审又修掉了解析异常后的 state hash 短路和已有文档零 chunk 不重试。回归：`tests/test_import_retry_and_counts.py` 7 条；`test_kb_service.py` 旧契约已按新语义改写 |
+| F08 去重只扫 inbox | **已修** | 去重改为**以索引为准**（`documents.content_hash` 统一为文件字节的 sha256），资料被移动/改名后依然认得出来；inbox 扫描只保留来兜"盘上有、索引里没有"；本次复审补上过期索引的磁盘校验，且只校验 hash 命中的候选。回归：跨目录去重 + stale hash 两组 |
 | F09 计数拿全库同步冒充本批 | **已修** | 返回**逐文件批次结果** `results[]`（含 searchable/chunks/extraction），全库增量同步改名 `library_sync` 单独展示；界面文案只按批次计数，有增量时单列"资料库里其它 N 份资料"。回归：后端第 3 条 + `importSummary.test.ts` 5 条（含"不许出现 2 份可用于检索"） |
 
 **契约变更（有意，已同步调用方）**：导入结果的 `sync` → `library_sync`（`web/backend/routers/kb.py`、`api.ts`、`importSummary.ts`）；"盘上同字节但没索引"从 duplicate 改成 pending。
@@ -55,11 +57,24 @@
 
 | 条目 | 状态 | 修复与证据 |
 |---|---|---|
-| F05 失败重试丢掉已分配的会话 | **已修** | 重试改为 `sessionId \|\| sessionIdRef.current`：`run_started` 里回来的 `chat_session_id` 已经存在 ref 上，重试沿用它而不是再开一个新会话（路由参数在失败时还没更新）。回归：`ChatPage.test.tsx`（**修前红**：`expected undefined to be 'allocated-session'`） |
+| F05 失败重试丢掉已分配的会话 | **已修** | 重试改为 `sessionId \|\| sessionIdRef.current`，并通过 `retry_failed` 让后端删除上一轮失败尾部，避免同一 user turn 被再次保存；回归：`ChatPage.test.tsx`、`test_retry_failed_chat_run_does_not_duplicate_the_user_turn`、`tests/test_session_retry.py` |
 | F06 失败一轮不进历史 | **已修** | 后端在 run 异常时用 `Session.add_failed_message` 把这一轮写进会话（带 `failed`/`error`），并让 `_session_detail` 的投影**不再把这些标记丢掉**（此前它只输出 role/content，标记被静默吞掉）。回归：`tests/test_web_backend.py::test_failed_chat_run_keeps_a_failed_turn_in_the_history` |
-| F10 练习辅导关联刷新即失效 | **已修** | 辅导会话按"练习题 + 题目"记进 `sessionStorage`（`bobodan:practice-tutor:<练习 id>`），挂载时恢复；练习结束关标签页即清。回归：`PracticePage.test.tsx`（**红/绿都验过**：把两处恢复都关掉时 `expected undefined to be 'tutor-session-1'`） |
+| F10 练习辅导关联刷新即失效 | **已修** | 辅导会话按"资料库 + 练习题 + 题目"记进 `sessionStorage`（`bobodan:practice-tutor:<library id>:<练习 id>`），挂载时恢复；相同练习/题目 ID 的不同资料库隔离；练习结束关标签页即清。回归：`PracticePage.test.tsx` 含跨库串线用例 |
 
 **验证口径（如实说明）**：F05/F10 是组件级回归，F06 是走 FastAPI TestClient 的 HTTP 级回归（真后端 + 临时工作区）。这三条**没有**做真实资料库上的端到端验收 —— 那需要一次真实 provider 失败或一次真实练习会话，会污染用户资料库/消耗额度；报告本身也要求"事件模拟不能冒充真实实验"，所以这里不声称真机验收。
+
+### 本次复审追加修复（2026-09-30，工作区未提交）
+
+本次复审没有推翻已修主路径，而是补上了四个遗漏边界：
+
+| 条目 | 发现与处理 | 证据 |
+|---|---|---|
+| F04 增量重试仍会被状态 hash 短路 | 解析异常后不再保存该 source 的 hash；有文档行但没有 searchable chunks 的可见文件会在增量同步中补做索引；失败结果下一次重新解析 | `tests/test_import_retry_and_counts.py::test_retry_reparses_a_file_that_failed_inside_the_real_sync`、`test_retry_of_an_unindexed_document_outside_inbox_uses_its_real_path` |
+| F08 hash 口径与过期索引 | Markdown 扫描改用原始字节 SHA-256，与上传一致；只有本次上传 hash 命中的索引候选才读取磁盘校验，文件被删除或编辑后不再误报 duplicate | `test_reimport_after_organizing_is_recognised_as_duplicate`、`test_stale_index_hash_cannot_discard_an_uploaded_file` |
+| F05 重试重复 user turn | 新增 `retry_failed` 契约；重试前移除上一轮失败回合及残留工具调用，再由新运行写入一次 user turn | `tests/test_web_backend.py::test_retry_failed_chat_run_does_not_duplicate_the_user_turn`、`tests/test_session_retry.py` |
+| F10 跨资料库串线 | `sessionStorage` key 加入 `activeLibrary.library_id`，相同练习/题目 ID 在不同资料库不再共享 tutor session | `web/frontend/src/pages/PracticePage.test.tsx` 跨库回归 |
+
+本轮定向回归 **92 passed**；最终全量门禁为后端 **1659 passed**、前端 **24 files / 137 passed**，tsc、eslint、生产构建均通过。真实 provider 失败、真实练习会话和 Playwright live 本轮未重跑。
 
 **到此，审查的 F01–F10 全部有修复与回归。** 仍未做的是报告里**不属于 F 系列**的边界项：R05 的"取消进行中的导入"、R03 的抽屉焦点/Escape 专项、R04 的截断 PDF 专项、R06 的 300 文件性能实验复跑、R07 的完整连接验收、R10 的真实模型教学质量。
 
@@ -205,7 +220,17 @@
 | ESLint / TypeScript / Vite build | 通过 | 本轮未引入前端回归 |
 | `git diff --check` | 通过 | 工作区文本差异无空白错误 |
 
-### 4.2 终局门禁与真机场景（2026-09-28 后续，F01–F10 全部修完后）
+### 4.2 本次工作区复审门禁（2026-09-30）
+
+| 检查 | 结果 | 解读 |
+|---|---|---|
+| 后端全套 pytest | **1659 passed，9 warnings，210.09s** | 包含导入重试、过期 hash、失败回合重试和跨层 HTTP 回归；warning 为既有 Windows 编码线程、未等待协程、信号与依赖提示 |
+| 前端 Vitest | **24 files / 137 passed** | 包含跨资料库 tutor session 隔离和 Chat 重试契约 |
+| TypeScript / ESLint / Vite build | **全部通过（0 错误）** | 生产构建完成 |
+| `git diff --check` | **通过** | 当前工作区无空白错误 |
+| Playwright live / 真实 provider | **本轮未重跑** | 不消耗额度、不写入日常资料库；沿用历史 live 证据但不把它当成本轮证据 |
+
+### 4.3 历史终局门禁与真机场景（2026-09-28 后续，F01–F10 全部修完后）
 
 | 检查 | 结果 |
 |---|---|
@@ -221,12 +246,11 @@
 
 ## 5. 推送与分支风险
 
-1. 初始审查开始时工作区干净，HEAD 为 4159f41；后续整改已加入业务代码、回归测试和文档，本次复核没有发现额外未授权范围。
-2. 当前本地分支 `codex/audit-remediation-2026-09-25` 已跟踪 `origin/codex/audit-remediation-2026-09-25`；**本轮全部提交都已推送**（远端 = 本地）。分支拓扑：`codex/…` = `feat/in-page-original-view` + 后续整改提交，是它的**超集**（`feat` 独有 0 个提交）。本轮没有执行 push，因此尚未验证账号的写入权限。
+1. 初始审查开始时工作区干净；当前基线为 `06e2c3f`。本次复核新增业务代码、回归测试和文档，均在当前工作区，未发现超出授权范围的改动。
+2. 当前本地分支 `codex/audit-remediation-2026-09-25` 仍跟踪 `origin/codex/audit-remediation-2026-09-25`；基线提交远端与本地一致，但**本轮修复尚未提交，也没有执行 push**。提交前应先审阅本报告 §4.2 的门禁和未覆盖项。
 3. **PR 基线（终局）**：相对 `feat/in-page-original-view` 是**十几个提交**（审查基线 + 整改 + 四批修复），相对当前 `origin/main` 则是**上百个提交**。建议 PR 目标分支选 `feat/in-page-original-view`（只有审查整改这批需要审），合并回 main 另开一次；直接面向 main 的改动范围远大于本轮审查，不能把这份结论当成那上百个提交的完整审批。
 4. 对 52 个变更文本文件做了常见私钥头和长 token 特征扫描，未命中；不是完整密钥审计，也未 OCR 检查所有截图中的内容。
-5. ~~若是备份/Draft PR，可推独立分支并标为 WIP；若是可合并交付，先完成剩余 P1 的 F04/F05，再关闭 F06/F08/F09/F10 或明确调整尚未获验收的范围，并更正文档状态。~~
-   **✅ 已完成（2026-09-28 后续）**：F01–F10 全部修完并转正为回归；文档状态已按实际验收结果更正（R05 只保留"取消导入"未做，其余不属于 F 系列的边界项在 §1.1 末尾单列）。数据覆盖与失败恢复问题按 P1 处理，没有延期。
+5. **合并建议**：当前工作区改动可以作为独立 PR 提交到 `feat/in-page-original-view` 供审查；不要直接合并 `main`，也不要把本轮未重跑的真实 provider / live 验收写成已通过。R05 的取消进行中导入、R03/R04/R06/R07/R10 的限定项仍按 §1.1 保留。
 
 ## 6. 最小修复与复验顺序
 
@@ -235,8 +259,8 @@
 2. ~~修草稿：按笔记隔离、对应恢复、清空/丢弃、页面关闭保护；四个 F01 断言转绿，再做真实浏览器快速刷新验证。~~
    **✅ 已完成（2026-09-28 后续）**：4 条组件回归与 1 条真实浏览器立即刷新均通过；最近前端门禁为 24 文件 / 132 passed。
 3. ~~修导入：区分字节去重与处理完成，覆盖移出 inbox 后的同内容匹配，返回当前批次计数；F04/F08/F09 转绿。~~
-   **✅ 已完成（2026-09-28 后续）**：3 条后端回归（修前全红）+ 5 条前端文案回归 + 真机零写入去重验证；全库同步字段改名 `library_sync` 并同步调用方。
+   **✅ 已完成并在 2026-09-30 复审补齐**：导入 7 条回归覆盖失败后重试、零 chunk 补索引、跨目录去重、过期 hash 与批次计数；全库同步字段改名 `library_sync` 并同步调用方。
 4. ~~修会话恢复：失败重试绑定原 session、失败历史持久化、练习关联可恢复；F05/F06/F10 转绿。~~
-   **✅ 已完成（2026-09-28 后续）**：F05/F10 组件回归（都验过"先红后绿"）、F06 HTTP 回归；后端 `Session.add_failed_message` + 会话详情投影修正。
+   **✅ 已完成并在 2026-09-30 复审补齐**：F05 增加 `retry_failed` 去重契约和 HTTP 回归；F06 保留失败历史；F10 增加跨资料库隔离回归。
 5. ~~将剩余有效探针正式纳入回归测试，再跑全套门禁及真实后端关键 E2E；更新 ROADMAP/报告，仅将真正满足验收的条目标为已验证。~~
-   **✅ 已完成（2026-09-28 后续）**：15 条探针全部转正（整理恢复 9 / 导入 3 / 草稿 4 / 失败重试 1 / 辅导恢复 1 中按文件分布）；终局门禁见 §4.2；ROADMAP §0.1 与本文档状态表已按实际验收结果更正。
+   **✅ 已完成并在 2026-09-30 复审补齐**：新增回归已纳入工作区；当前门禁见 §4.2，历史真机场景见 §4.3；真实 provider / live 本轮仍明确未重跑。

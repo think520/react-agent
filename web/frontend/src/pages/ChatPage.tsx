@@ -324,7 +324,12 @@ export function ChatPage() {
     return () => { cancelled = true; window.clearInterval(timer); };
   }, [planningRunKey, setMessages]);
 
-  async function send(event?: FormEvent, overrideMessage?: string, webResearchId?: string) {
+  async function send(
+    event?: FormEvent,
+    overrideMessage?: string,
+    webResearchId?: string,
+    retryFailed = false,
+  ) {
     event?.preventDefault();
     const message = (overrideMessage ?? draft).trim();
     if (!message || sending) return;
@@ -416,6 +421,7 @@ export function ChatPage() {
         references: outgoingReferences,
         webResearchId,
         strictDocumentScope,
+        retryFailed,
         onStreamId: (id) => { streamIdRef.current = id; },
       }, (streamEvent) => handleStreamEvent(streamEvent, {
         onRunStarted: (chatSessionId) => {
@@ -719,7 +725,7 @@ export function ChatPage() {
 
   function retryMessage(index: number) {
     const previous = messages[index - 1];
-    if (previous?.role === "user") void send(undefined, previous.content);
+    if (previous?.role === "user") void send(undefined, previous.content, undefined, true);
   }
 
   async function changeProvider(modelRef: string) {

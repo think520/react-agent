@@ -54,6 +54,7 @@ const session: PracticeSession = {
 
 beforeEach(() => {
   hoisted.ctx = {
+    activeLibrary: { library_id: "library-a" },
     refreshSessions: vi.fn().mockResolvedValue(undefined),
     selectedDocumentIds: ["doc-1"],
     selectedDocuments: [],
@@ -108,4 +109,30 @@ it("R11: reuses tutor session after remounting the same practice", async () => {
   await waitFor(() => expect(streamChat).toHaveBeenCalledTimes(2));
 
   expect(vi.mocked(streamChat).mock.calls[1][1]).toBe("tutor-session-1");
+});
+
+it("isolates tutor sessions for identical practice and question IDs in different libraries", async () => {
+  const view = render(<PracticePage />);
+  await screen.findByText("什么是 RAG？");
+  fireEvent.click(screen.getByRole("button", { name: "问 AI" }));
+  fireEvent.click(screen.getByRole("button", { name: "发送" }));
+  await waitFor(() => expect(streamChat).toHaveBeenCalledTimes(1));
+  view.unmount();
+
+  hoisted.ctx.activeLibrary = { library_id: "library-b" };
+  const other = render(<PracticePage />);
+  await screen.findByText("什么是 RAG？");
+  fireEvent.click(screen.getByRole("button", { name: "问 AI" }));
+  fireEvent.click(screen.getByRole("button", { name: "发送" }));
+  await waitFor(() => expect(streamChat).toHaveBeenCalledTimes(2));
+  expect(vi.mocked(streamChat).mock.calls[1][1]).toBeUndefined();
+  other.unmount();
+
+  hoisted.ctx.activeLibrary = { library_id: "library-a" };
+  render(<PracticePage />);
+  await screen.findByText("什么是 RAG？");
+  fireEvent.click(screen.getByRole("button", { name: "问 AI" }));
+  fireEvent.click(screen.getByRole("button", { name: "发送" }));
+  await waitFor(() => expect(streamChat).toHaveBeenCalledTimes(3));
+  expect(vi.mocked(streamChat).mock.calls[2][1]).toBe("tutor-session-1");
 });
