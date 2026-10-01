@@ -260,7 +260,7 @@
 
 1. 初始审查开始时工作区干净；当前基线为 `06e2c3f`。本次复核新增业务代码、回归测试和文档，均在当前工作区，未发现超出授权范围的改动。
 2. 当前本地分支 `codex/audit-remediation-2026-09-25` 仍跟踪 `origin/codex/audit-remediation-2026-09-25`；基线提交远端与本地一致，但**本轮修复尚未提交，也没有执行 push**。提交前应先审阅本报告 §4.2 的门禁和未覆盖项。
-3. **PR 基线（终局）**：相对 `feat/in-page-original-view` 是**十几个提交**（审查基线 + 整改 + 四批修复），相对当前 `origin/main` 则是**上百个提交**。建议 PR 目标分支选 `feat/in-page-original-view`（只有审查整改这批需要审），合并回 main 另开一次；直接面向 main 的改动范围远大于本轮审查，不能把这份结论当成那上百个提交的完整审批。 **PR 已开：#5（base `feat/in-page-original-view`，head `codex/audit-remediation-2026-09-25`，17 个提交 / 80 个文件）—— https://github.com/think520/react-agent/pull/5**。
+3. **PR 基线（终局）**：相对 `feat/in-page-original-view` 是**十几个提交**（审查基线 + 整改 + 四批修复），相对当前 `origin/main` 则是**上百个提交**；**被审版本已冻结为 tag `audit-remediation-2026-09-30`**（PR 页面会跟着分支更新，tag 不会）。建议 PR 目标分支选 `feat/in-page-original-view`（只有审查整改这批需要审），合并回 main 另开一次；直接面向 main 的改动范围远大于本轮审查，不能把这份结论当成那上百个提交的完整审批。 **PR 已开：#5（base `feat/in-page-original-view`，head `codex/audit-remediation-2026-09-25`，17 个提交 / 80 个文件）—— https://github.com/think520/react-agent/pull/5**。
 4. 对 52 个变更文本文件做了常见私钥头和长 token 特征扫描，未命中；不是完整密钥审计，也未 OCR 检查所有截图中的内容。
 5. **合并建议**：当前工作区改动可以作为独立 PR 提交到 `feat/in-page-original-view` 供审查；不要直接合并 `main`，也不要把本轮未重跑的真实 provider / live 验收写成已通过。R05 的取消进行中导入、R03/R04/R06/R07/R10 的限定项仍按 §1.1 保留。
 

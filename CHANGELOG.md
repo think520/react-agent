@@ -7,7 +7,7 @@
 ## [未发布]
 
 ### 变更
-- **审查整改已开 PR（2026-09-30）**：这批 17 个提交（审查基线 + 四批整改 + 复审批次 + 收尾）开成 **PR #5**，base 特意选 `feat/in-page-original-view` 让 diff 只包含本轮整改；**不要直接合 main**（相对 main 是上百个提交）。https://github.com/think520/react-agent/pull/5
+- **审查整改已开 PR（2026-09-30）**：这批 17 个提交（审查基线 + 四批整改 + 复审批次 + 收尾）开成 **PR #5**，base 特意选 `feat/in-page-original-view` 让 diff 只包含本轮整改；**不要直接合 main**（相对 main 是上百个提交）。https://github.com/think520/react-agent/pull/5 —— 被审那一版同时冻结为 tag `audit-remediation-2026-09-30`，避免 PR 跟着后续提交漂移。
 - **2026-09-30 复审批次收下 + 主审收尾（导入/重试/去重三处边界）**：GPT 的复审补齐了三个真实漏洞，主审逐条复核、跑通门禁后收下（提交 `209934a`），并修掉复审本身引入的一处回退。
   - **收下的三处（比我的实现更到位）**：① `obsidian/vault.py` 的 vault hash 从"文本 hash"改成**字节 sha256** —— 我之前断言"content_hash 就是字节 sha256"对 obsidian 笔记并不成立，F08 对 vault 笔记一直是漏的；② `obsidian/sync.py` 解析失败后**不再把 hash 写进 state**，且零 chunk 的可见文件会在增量同步里补做索引 —— 这才是 F04 的**根因层**修复（我只修了导入层），并用 `deletion_state` 防止"解析失败"被误判成"文件被删"；③ `service/kb_service.py` 对命中 hash 的候选项做**磁盘复核** —— 我原来的实现会在用户删/改文件后拿过期索引把新上传静默判成 duplicate 吞掉。
   - **主审修掉的回退**：前端「失败」与「停止」两个按钮共用一个 handler，都会带 `retry_failed`，而被停止的那一轮没有失败标记 → 后端直接 409，用户点了「重新发送本轮」什么都发不出去（**修前红**：`assert 409 == 200`）。现在后端**优雅降级**（清不到失败尾部就按普通一轮跑），前端只在 `message.failed` 时声明该标志。
