@@ -723,9 +723,11 @@ export function ChatPage() {
     }
   }
 
-  function retryMessage(index: number) {
+  function retryMessage(index: number, retryFailed = false) {
     const previous = messages[index - 1];
-    if (previous?.role === "user") void send(undefined, previous.content, undefined, true);
+    // 只有**失败**的那一轮才声明 retry_failed（后端据此清掉失败尾部，避免同一句 user turn
+    // 存两遍）。「回答已停止」的那一轮没有失败标记，声明了只会让后端多做一次无用的查找。
+    if (previous?.role === "user") void send(undefined, previous.content, undefined, retryFailed);
   }
 
   async function changeProvider(modelRef: string) {
@@ -1104,7 +1106,7 @@ export function ChatPage() {
                 <AttributionBadges attribution={message.attribution} onOpenSources={showSourceContext} />
                 <PersonalizationChip references={message.personalization} />
                 {!message.pending && !message.failed && message.content && !message.artifacts?.some((artifact) => artifact.type === "practice_ready") && <div className="answer-actions"><button className="quiet-button" onClick={() => preparePractice(index)}><BookOpen size={15} />生成 5 道练习</button></div>}
-                {message.failed && <div className="answer-failure"><span>{error || "AI 连接暂时不可用，请稍后重试。"}</span><button className="quiet-button" disabled={sending} onClick={() => retryMessage(index)}><RotateCcw size={15} />重新发送本轮</button></div>}
+                {message.failed && <div className="answer-failure"><span>{error || "AI 连接暂时不可用，请稍后重试。"}</span><button className="quiet-button" disabled={sending} onClick={() => retryMessage(index, true)}><RotateCcw size={15} />重新发送本轮</button></div>}
                 {message.stopped && <div className="answer-failure"><span>回答已停止，只生成了部分内容。</span><button className="quiet-button" disabled={sending} onClick={() => retryMessage(index)}><RotateCcw size={15} />重新发送本轮</button></div>}
               </article>
             ))}

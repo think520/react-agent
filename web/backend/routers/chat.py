@@ -1477,8 +1477,12 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
             raise APIError(409, "interaction_not_resumable", "这次交互没有可续跑的工具调用。")
     else:
         if body.retry_failed:
-            if not body.chat_session_id or not session.remove_failed_turn_for_retry(body.message):
-                raise APIError(409, "retry_not_available", "没有可重试的失败回合。")
+            # 复审修正（F05）：这个标志的意思是"顺手把上一轮的失败尾部清掉"，不是前置条件。
+            # 清不到（用户重试的是**被停止**的那一轮、或历史里本来就没有失败标记）就按普通
+            # 一轮继续跑 —— 否则界面上的「重新发送本轮」会直接报错，点了什么都发不出去。
+            removed = bool(body.chat_session_id) and session.remove_failed_turn_for_retry(body.message)
+            if not removed:
+                logger.info("retry_failed requested without a matching failed turn; running normally")
         _close_open_interactions(session, workspace)
     provider_name, preference_model = parse_provider_ref(
         body.provider

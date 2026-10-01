@@ -1416,8 +1416,15 @@ class KBService:
                     status = "indexed"
                 extraction = (document or {}).get("extraction_status") or None
                 if extraction is None and outcome["path"]:
-                    basename = os.path.basename(outcome["path"])
-                    if any(source.endswith(basename) for source in sync_errors):
+                    # 同步报错的 source 用同步自己的命名（vault 是 obsidian/…，inbox/课程是
+                    # course/…），与资料库相对路径（raw/inbox/…）不是同一个名字；而且**解析
+                    # 失败时压根没有文档行**可查。所以按"最后两段路径"匹配：既容得下前缀差异，
+                    # 又不会像裸 basename 那样让不同目录的同名文件互相串错误归因。
+                    tail = outcome["path"].replace(os.sep, "/").strip("/").split("/")[-2:]
+                    if any(
+                        source.replace(os.sep, "/").strip("/").split("/")[-2:] == tail
+                        for source in sync_errors
+                    ):
                         extraction = "error"
                 described.append({
                     **outcome,

@@ -1408,6 +1408,49 @@ def test_failed_chat_run_keeps_a_failed_turn_in_the_history(backend_client, monk
     ), f"失败的一轮没有留在历史里: {messages}"
 
 
+def test_retry_flag_without_a_failed_turn_still_runs(backend_client, monkeypatch):
+    """F05 复审：`retry_failed` 不能变成"没有失败回合就发不出去"。
+
+    「重新发送本轮」同时服务两种消息：失败的和**被停止**的（ChatPage 里两个按钮共用一个
+    handler，前端只在 failed 时声明这个标志，但服务端不能把"清理失败"当成前置条件）。
+    被停止的那一轮没有 failed 标记 —— 若后端这时回 409，用户点了按钮却什么都发不出去。
+    """
+    runtime = SimpleNamespace(
+        workspace=str(backend_client.workspace),
+        skills_prompt=None,
+        memory_prompt=None,
+        create_provider=lambda _name, model=None: object(),
+        refresh_memory=lambda: None,
+        create_trace=lambda _session_id: object(),
+    )
+
+    def ok_run(**kwargs):
+        kwargs["session"].add_message("user", kwargs["user_input"])
+        kwargs["session"].add_message("assistant", "everything is fine")
+        yield {"type": "assistant_done", "content": "everything is fine", "termination_reason": "final_answer"}
+
+    monkeypatch.setattr("web.backend.routers.chat.get_runtime_context", lambda: runtime)
+    monkeypatch.setattr("web.backend.routers.chat.AgentService.run_stream", ok_run)
+
+    # 先正常跑一轮：会话里只有正常消息、没有任何 failed 标记（等价于"被停止"的那种历史）。
+    first = backend_client.post("/api/chat/runs", json={"message": "explain vectors"})
+    assert "event: run_completed" in first.text
+    session_id = next(
+        json.loads(line[len("data: "):])["chat_session_id"]
+        for line in first.text.splitlines()
+        if line.startswith("data: ") and "chat_session_id" in line
+    )
+
+    response = backend_client.post("/api/chat/runs", json={
+        "message": "explain vectors",
+        "chat_session_id": session_id,
+        "retry_failed": True,
+    })
+
+    assert response.status_code == 200, response.text
+    assert "event: run_completed" in response.text, response.text
+
+
 def test_retry_failed_chat_run_does_not_duplicate_the_user_turn(backend_client, monkeypatch):
     runtime = SimpleNamespace(
         workspace=str(backend_client.workspace),

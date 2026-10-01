@@ -496,13 +496,9 @@ def sync_sources(
         for source in orphans:
             previous_missing.setdefault(source, 0)
 
-    # P0-12: confirm deletions across scans and never delete on a failed scan.
-    deleted_sources, pending_missing = _resolve_deletions(
-        old_state,
-        new_state,
-        previous_missing,
-        scan_failed=bool(scan_errors) or bool(incomplete_reasons),
-    )
+    # P0-12 的"删不删"判定挪到 Step 4 之后（见下面的 _resolve_deletions 调用）：只有到那一步
+    # 才知道哪些 source 是**解析失败**而不是从磁盘上消失了。这里只登记扫描不完整的原因，
+    # 不再把判定重复算一遍（算了也会被后面覆盖）。
     for scan_error in scan_errors[:5]:
         errors.append({"source": "", "error": f"扫描不完整：{scan_error}"})
     incomplete_reasons.extend(f"扫描不完整：{item}" for item in scan_errors[:5])

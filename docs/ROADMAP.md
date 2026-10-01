@@ -60,7 +60,7 @@ R12 的覆盖式“导入为新版本”仍是独立产品能力，不能用当�
 
 **2026-09-28 历史整改终局门禁（F01–F10 全部修完）**：后端全量 **`1651 passed`**；前端 24 个测试文件 / **`136 passed`**，tsc / eslint / production build **0 错误**；Playwright live（真实后端 + 真实资料库）**`7 passed`**。真机场景：整理中断可恢复、撤销冲突不覆盖（scratch 资料库实测）、导入重复零写入（真库 inbox 1→1、文档 47→47）。
 
-**2026-09-30 本地复审门禁（未提交）**：新增 F04/F05/F08/F10 边界回归后，后端全量 **`1659 passed`**、前端 **24 files / `137 passed`**，tsc / eslint / production build **0 错误**；本轮未重跑 Playwright live 或真实 provider。详见 `docs/reviews/2026-09-28-remediation-code-review.md` §4.2。
+**2026-09-30 复审门禁（提交 `209934a` + 收尾）**：后端全量 **`1659 passed`**（收尾新增 1 条后为最终值）、前端 **24 files / 137 passed**，tsc / eslint / production build **0 错误**；`App.test.tsx` 在前后端并行时有一条 5s 超时（原审查已记录的已知 flaky，定向单跑 4/4 通过、1.4s，**未调大超时掩盖**）。真机复验：真实资料库增量同步一次只更新 1 个文件、3.3s，文档 47→47、chunk 1694→1694。详见 `docs/reviews/2026-09-28-remediation-code-review.md`。
 
 ### 状态口径
 
