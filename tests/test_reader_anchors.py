@@ -132,3 +132,69 @@ def test_delete_reports_a_missing_anchor(tmp_path):
     result = AnchorService(str(tmp_path)).delete("nope")
 
     assert result["ok"] is False and result["code"] == "anchor_not_found", result
+
+
+def _kb_with_two_chunks(workspace: str) -> None:
+    from rag.sqlite_store import KBSQLiteStore, make_chunk_row
+
+    kb = KBSQLiteStore(workspace)
+    kb.init_db()
+    kb.upsert_document("doc-1", "lesson.md", "hash", title="算法课")
+    kb.insert_chunks([
+        make_chunk_row("c1", "doc-1", "lesson.md", 0, "第一段：介绍最短路问题。", title="算法课"),
+        make_chunk_row("c2", "doc-1", "lesson.md", 1, "第二段：Dijkstra 属于贪心策略。", title="算法课"),
+    ])
+    kb.close()
+
+
+def test_a_quote_that_moved_to_another_chunk_is_found_there(tmp_path):
+    """W1 E7：分段重切之后引文可能落到**别的 chunk** —— 在同资料范围内找回来，
+    并如实说明落在哪一段（«resolution.chunk_id»）。"""
+    from service.anchor_service import AnchorService
+
+    workspace = str(tmp_path)
+    _kb_with_two_chunks(workspace)
+    service = AnchorService(workspace)
+    # 锚点原属 c1，但引文其实在 c2。
+    created = service.create(document_id="doc-1", chunk_id="c1", quote="贪心策略")
+
+    listed = service.list_for_document("doc-1")
+    resolution = listed["anchors"][0]["resolution"]
+
+    assert resolution["status"] == "relocated", resolution
+    assert resolution["chunk_id"] == "c2", resolution
+    assert created["anchor"]["anchor_id"], created
+
+
+def test_cross_chunk_search_does_not_cross_documents(tmp_path):
+    """只在**同一份资料**里找：跨资料找回等于替用户改引用，不做。"""
+    from rag.sqlite_store import KBSQLiteStore, make_chunk_row
+    from service.anchor_service import AnchorService
+
+    workspace = str(tmp_path)
+    _kb_with_two_chunks(workspace)
+    kb = KBSQLiteStore(workspace)
+    kb.init_db()
+    kb.upsert_document("doc-2", "other.md", "hash", title="别的资料")
+    kb.insert_chunks([make_chunk_row("d1", "doc-2", "other.md", 0, "这里也有贪心策略。", title="别的资料")])
+    kb.close()
+    service = AnchorService(workspace)
+    service.create(document_id="doc-1", chunk_id="c1", quote="这句话在本文档里没有")
+
+    resolution = service.list_for_document("doc-1")["anchors"][0]["resolution"]
+
+    assert resolution["status"] == "stale", resolution
+    assert resolution.get("chunk_id") in (None, ""), resolution
+
+
+def test_a_quote_that_is_gone_everywhere_stays_stale(tmp_path):
+    from service.anchor_service import AnchorService
+
+    workspace = str(tmp_path)
+    _kb_with_two_chunks(workspace)
+    service = AnchorService(workspace)
+    service.create(document_id="doc-1", chunk_id="c1", quote="这句在整份资料里都没有")
+
+    resolution = service.list_for_document("doc-1")["anchors"][0]["resolution"]
+
+    assert resolution["status"] == "stale", resolution

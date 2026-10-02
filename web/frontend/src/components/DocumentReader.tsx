@@ -19,7 +19,7 @@ import { api, documentAssetUrl, documentRawEmbedUrl, downloadDocumentRaw, fetchD
 import { HIGHLIGHT_CLASS, highlightQuote, unwrapHighlight } from "../lib/domHighlight";
 import { anchorDraftFromRange } from "../lib/readerAnchors";
 import { READER_VIEW_KEY, resolveReaderView, type ReaderView } from "../lib/readerView";
-import { ReaderAnchorsPanel, type ReaderAnchor } from "./ReaderAnchorsPanel";
+import { ReaderAnchorsPanel, anchorLocateChunkId, type ReaderAnchor } from "./ReaderAnchorsPanel";
 import { useHandoffStore } from "../stores/handoffStore";
 import { useReaderTabsStore } from "../stores/readerTabsStore";
 import type { DocumentSection, DocumentSummary, PersonalKnowledgeItem } from "../types";
@@ -483,7 +483,7 @@ export function DocumentReader({
         {/* W1 E7：我的划线（带"还能不能指到"的现状），点一下回到那一段。 */}
         <ReaderAnchorsPanel
           anchors={readerAnchors}
-          onLocate={(anchor) => jumpToChunk(anchor.chunk_id)}
+          onLocate={(anchor) => jumpToChunk(anchorLocateChunkId(anchor))}
           onDelete={(anchor) => void removeAnchor(anchor)}
         />
         {anchorError && <p className="error-hint">{anchorError}</p>}

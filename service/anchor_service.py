@@ -38,8 +38,41 @@ class AnchorService:
             store.close()
         return {str(cid): str(row.get("text") or "") for cid, row in (rows or {}).items()}
 
+    def _document_chunks(self, document_id: str) -> list[dict]:
+        """同一份资料的所有分段（跨分段找回引文用，绝不跨资料）。"""
+        from rag.sqlite_store import KBSQLiteStore
+
+        store = KBSQLiteStore(self.workspace)
+        try:
+            store.init_db()
+            return store.get_chunks_by_document(document_id) or []
+        except Exception as exc:  # pragma: no cover - 依索引实现而定
+            logger.warning("Could not load document chunks for anchors: %s", exc)
+            return []
+        finally:
+            store.close()
+
+    def _relocate_across_chunks(self, anchor: dict, chunks: list[dict]) -> dict:
+        """引文跑到**别的分段**时按引文找回来，并如实说明落在哪一段。
+
+        只在同一份资料里找：跨资料找回等于替用户改引用，不做。
+        """
+        quote = str(anchor.get("quote") or "")
+        origin = str(anchor.get("chunk_id") or "")
+        if not quote:
+            return {"status": "stale", "char_start": None, "char_end": None, "chunk_id": None}
+        for chunk in chunks:
+            chunk_id = str(chunk.get("id") or chunk.get("chunk_id") or "")
+            if not chunk_id or chunk_id == origin:
+                continue
+            found = resolve_anchor({"quote": quote}, str(chunk.get("text") or ""))
+            if found["status"] != "stale":
+                return {**found, "chunk_id": chunk_id}
+        return {"status": "stale", "char_start": None, "char_end": None, "chunk_id": None}
+
     def _with_resolution(self, anchors: list[dict]) -> list[dict]:
         texts = self._chunk_texts([str(item.get("chunk_id") or "") for item in anchors])
+        chunks_by_document: dict[str, list[dict]] = {}
         resolved: list[dict] = []
         for anchor in anchors:
             chunk_id = str(anchor.get("chunk_id") or "")
@@ -48,10 +81,13 @@ class AnchorService:
                     "status": "stale", "char_start": None, "char_end": None,
                 }})
                 continue
-            resolved.append({
-                **anchor,
-                "resolution": resolve_anchor(anchor, texts.get(chunk_id, "")),
-            })
+            resolution = resolve_anchor(anchor, texts.get(chunk_id, ""))
+            if resolution["status"] == "stale":
+                document_id = str(anchor.get("document_id") or "")
+                if document_id and document_id not in chunks_by_document:
+                    chunks_by_document[document_id] = self._document_chunks(document_id)
+                resolution = self._relocate_across_chunks(anchor, chunks_by_document.get(document_id, []))
+            resolved.append({**anchor, "resolution": resolution})
         return resolved
 
     def create(

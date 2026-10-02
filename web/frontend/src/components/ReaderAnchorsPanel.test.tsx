@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 
-import { ReaderAnchorsPanel, anchorStatusLabel } from "./ReaderAnchorsPanel";
+import { ReaderAnchorsPanel, anchorLocateChunkId, anchorStatusLabel } from "./ReaderAnchorsPanel";
 
 /**
  * W1 E7：划线列表要说清"还指不指得到"，并且能定位、能删。
@@ -51,4 +51,21 @@ it("没有划线时不占地方", () => {
 it("未知状态如实显示原值，不编中文", () => {
   expect(anchorStatusLabel("some_new_status")).toBe("some_new_status");
   expect(anchorStatusLabel(undefined)).toBe("");
+});
+
+// W1 E7：引文跑到别的分段时，定位要跳到**找回来的那一段**，而不是旧位置。
+it("定位优先用重锚定后的分段", () => {
+  const moved = {
+    anchor_id: "a3", chunk_id: "c1", quote: "贪心策略",
+    resolution: { status: "relocated", char_start: 3, char_end: 7, chunk_id: "c2" },
+  };
+  const onLocate = vi.fn();
+  render(<ReaderAnchorsPanel anchors={[moved]} onLocate={onLocate} onDelete={() => {}} />);
+
+  fireEvent.click(screen.getByLabelText("定位到这段"));
+
+  expect(onLocate).toHaveBeenCalledWith(moved);
+  expect(anchorLocateChunkId(moved)).toBe("c2");
+  // 没有 resolution.chunk_id 时退回锚点自己的分段。
+  expect(anchorLocateChunkId({ anchor_id: "a4", chunk_id: "c1", quote: "x" })).toBe("c1");
 });
