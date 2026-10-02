@@ -68,6 +68,22 @@ describe("AskUserCard", () => {
     expect(onAnswer).toHaveBeenCalledWith(artifact, [{ id: "q1", answer: "导数" }]);
   });
 
+  // W1 E4：先不答也要有个明确的出口（后端会关闭交互并唤醒暂停的那一轮）。
+  it("offers a skip action when the caller supports it", () => {
+    const onSkip = vi.fn();
+    render(<AskUserCard artifact={artifact} busy={false} onAnswer={() => {}} onSkip={onSkip} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "先不答，跳过" }));
+
+    expect(onSkip).toHaveBeenCalledWith(artifact);
+  });
+
+  it("shows no skip button when the caller does not handle it", () => {
+    render(<AskUserCard artifact={artifact} busy={false} onAnswer={() => {}} />);
+
+    expect(screen.queryByRole("button", { name: "先不答，跳过" })).toBeNull();
+  });
+
   it("shows the answers in place once resolved", () => {
     render(<AskUserCard artifact={{ ...artifact, status: "graded", answers: [{ id: "q1", answer: "导数" }] }} busy={false} onAnswer={() => {}} />);
     expect(screen.getByText("已回答")).toBeInTheDocument();

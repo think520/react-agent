@@ -460,6 +460,12 @@ export const api = {
   libraryRootPreview: (name: string, parent: string) => request<{
     name: string; parent_path: string; root_path: string;
   }>(`/api/libraries/root-preview?name=${encodeURIComponent(name)}&parent=${encodeURIComponent(parent)}`),
+  /** W1 E4：跳过这个 ask_user 卡片（关闭交互，由调用方随即恢复暂停的 run）。 */
+  skipInteraction: (interactionId: string, chatSessionId: string) =>
+    request<{ chat_session_id: string; artifact: ChatArtifact }>(
+      "/api/chat/interactions/" + encodeURIComponent(interactionId) + "/skip",
+      json({ chat_session_id: chatSessionId, answers: [] }),
+    ),
   /** W1 E5：三阶段逐题生成（SSE，边出边收）。 */
   streamQuestionPipeline,
   /** W1 E7：某份资料上的划线（每条都带 resolution：exact / relocated / stale）。 */

@@ -815,6 +815,18 @@ export function ChatPage() {
     }
   }
 
+  async function skipInteraction(artifact: AskUserArtifact) {
+    if (!sessionId) return;
+    try {
+      await api.skipInteraction(artifact.artifact_id, sessionId);
+    } catch (reason) {
+      setError(toErrorMessage(reason, "跳过没有成功。"));
+      return;
+    }
+    // W1 E4：跳过同样要**唤醒暂停的那一轮** —— 否则用户被晾在这里。
+    await sendResume(artifact.artifact_id);
+  }
+
   async function resolveInteraction(artifact: AskUserArtifact, answers: Array<{ id: string; answer: string }>) {
     if (!sessionId) return;
     try {
@@ -952,7 +964,13 @@ export function ChatPage() {
       case "web_evidence":
         return <WebEvidenceCard key={artifact.artifact_id} artifact={artifact} />;
       case "ask_user":
-        return <AskUserCard key={artifact.artifact_id} artifact={artifact} busy={sending} onAnswer={(item, answers) => void resolveInteraction(item, answers)} />;
+        return <AskUserCard
+          key={artifact.artifact_id}
+          artifact={artifact}
+          busy={sending}
+          onAnswer={(item, answers) => void resolveInteraction(item, answers)}
+          onSkip={(item) => void skipInteraction(item)}
+        />;
       case "practice_ready":
         return <PracticeReadyCard key={artifact.artifact_id} artifact={artifact} starting={practiceStarting === artifact.artifact_id} onStart={(item) => void startPreparedPractice(item)} />;
       case "wiki_focus":

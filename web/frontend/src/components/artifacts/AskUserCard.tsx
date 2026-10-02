@@ -7,10 +7,12 @@ import type { AskUserArtifact } from "../../types";
  * E4: renders an ask_user interaction. The card is projected from the persisted
  * lifecycle, so a reload shows the answers in place instead of asking again.
  */
-export function AskUserCard({ artifact, busy, onAnswer }: {
+export function AskUserCard({ artifact, busy, onAnswer, onSkip }: {
   artifact: AskUserArtifact;
   busy: boolean;
   onAnswer: (artifact: AskUserArtifact, answers: Array<{ id: string; answer: string }>) => void;
+  /** W1 E4：先不答 —— 关闭这张卡片并让暂停的那一轮继续（不是把用户晾在这儿）。 */
+  onSkip?: (artifact: AskUserArtifact) => void;
 }) {
   const [draft, setDraft] = useState<Record<string, string>>({});
   // W1 E4：multi_select 的答案是**一组**，必须与单选分开存 —— 旧实现只有一份字符串草稿，
@@ -86,6 +88,11 @@ export function AskUserCard({ artifact, busy, onAnswer }: {
       ))}
     </div>
     <footer>
+      {onSkip && (
+        <button className="quiet-button" type="button" disabled={busy} onClick={() => onSkip(artifact)}>
+          先不答，跳过
+        </button>
+      )}
       <button
         className="primary-button"
         disabled={busy || !complete}

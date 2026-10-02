@@ -189,6 +189,20 @@ def _resume_content(record: dict[str, Any]) -> str:
         str(question.get("id") or ""): str(question.get("prompt") or "").strip()
         for question in record.get("questions") or []
     }
+    # W1 E4：用户**跳过**了这个选择 —— 工具结果要如实说跳过，不能编一个答案，
+    # 也不能让模型以为"用户什么都没说"而在那里干等。
+    if str(record.get("closure") or "") == "skipped":
+        asked = [str(q.get("prompt") or "").strip() for q in record.get("questions") or []]
+        lines = ["[用户跳过了这个选择]"]
+        if asked:
+            lines.append("- 没有回答的问题是：" + "；".join(item for item in asked if item))
+        lines.append("")
+        lines.append(
+            "不要再等这个回答：要么用现有信息继续用户原来的请求，"
+            "要么说明还需要什么才能继续。"
+        )
+        return "\n".join(lines)
+
     lines = ["[用户回答]"]
     for answer in record.get("answers") or []:
         question_id = str(answer.get("id") or "")
@@ -1064,6 +1078,30 @@ def answer_interaction(
         interaction_id,
         [item.model_dump() for item in body.answers],
     )
+    if not record:
+        raise APIError(404, "interaction_not_found", "这个交互已经不存在了，请重新提问。")
+    return {
+        "chat_session_id": body.chat_session_id,
+        "artifact": _public_interaction(record),
+    }
+
+
+@router.post("/interactions/{interaction_id}/skip")
+def skip_interaction(
+    interaction_id: str,
+    body: InteractionAnswerRequest,
+    request: Request,
+) -> dict:
+    """W1 E4：用户选择**跳过**这个 ask_user 卡片。
+
+    跳过 = 关闭交互（closure=skipped）。客户端随即用同一条 resume_interaction_id
+    调 /runs —— 暂停的那一轮会带着「用户跳过了」这个工具结果继续，而不是永远停在那里。
+    """
+    workspace = get_request_workspace(request)
+    service = InteractionService(workspace)
+    if service.get(interaction_id) is None:
+        raise APIError(404, "interaction_not_found", "这个交互已经不存在了，请重新提问。")
+    record = service.close(interaction_id, closure="skipped")
     if not record:
         raise APIError(404, "interaction_not_found", "这个交互已经不存在了，请重新提问。")
     return {
