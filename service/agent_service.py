@@ -211,6 +211,7 @@ class AgentService:
         cancel_token=None,
         resume_tool_call_id: str | None = None,
         resume_tool_content: str = "",
+        kb_seed: str | None = None,
     ) -> Iterator[dict]:
         """Create an AgentLoop and return its event stream iterator.
 
@@ -229,6 +230,8 @@ class AgentService:
             skills_prompt=skills_prompt,
             mcp_prompt=mcp_prompt,
             request_prompt=request_prompt,
+            # W1 E12：预检索块（拼到末尾 user 消息，不替代工具检索）。
+            kb_seed=kb_seed,
             trace_writer=trace_writer,
             tools_schema=tools_schema,
             allowed_tool_names=allowed_tool_names,

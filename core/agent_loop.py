@@ -8,6 +8,7 @@ import time
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 
+from core.prompt_blocks import attach_kb_seed
 from core.skills import SKILLS_PROMPT_MARKER
 from core.hooks import (
     AFTER_TOOL,
@@ -142,7 +143,7 @@ class AgentLoop:
                  max_iterations: int | None = None,
                  trace_writer=None, allowed_tool_names=None, response_guard=None,
                  memory_injector=None, context_window: int | None = None, checkpoint=None,
-                 cancel_token=None):
+                 cancel_token=None, kb_seed: str | None = None):
         self.llm = llm_provider
         self.session = session
         self.tools_schema = tools_schema if tools_schema is not None else get_tools_schema()
@@ -150,6 +151,8 @@ class AgentLoop:
         self.skills_prompt = skills_prompt
         self.mcp_prompt = mcp_prompt
         self.request_prompt = request_prompt
+        # W1 E12：进循环前的预检索块，拼到**末尾 user 消息**上（不替代工具检索）。
+        self.kb_seed = kb_seed
         self.trace_writer = trace_writer
         self.allowed_tool_names = (
             frozenset(allowed_tool_names) if allowed_tool_names is not None else None
@@ -279,7 +282,8 @@ class AgentLoop:
                     message = {"role": "system", "content": injection}
                     self.session.messages.append(message)
                     turn_injections.append(message)
-                self.session.add_message("user", user_input)
+                # W1 E12：预检索块追加到末尾 user 消息（attach_kb_seed 自己保证幂等）。
+                self.session.add_message("user", attach_kb_seed(user_input, self.kb_seed or ""))
             else:
                 # Prompts and injections are already persisted from the paused
                 # turn; re-running them would duplicate the dynamic tail.

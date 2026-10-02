@@ -7,6 +7,12 @@
 ## [未发布]
 
 ### 变更
+- **W1 · E12 具名块字节稳定 + KB seed 预检索（2026-09-30，本地未推送）**：设计照参考项目（`docs/Bobodan参考项目调研报告.md` 的 D5/D13，对应 DeepTutor `agents/chat/prompt_blocks.py` 与 `agentic_pipeline.py` L1282-1320）—— 进循环前先检索一次拼进**末尾 user 消息**，明示可继续检索；system 侧具名块字节稳定。
+  - **新增 `core/prompt_blocks.py`**：`KB_CONTEXT_HEADER = [Knowledge Base Context]`、`build_kb_seed_block()`（按 `(document_id, chunk_id)` 固定排序 → **同一批命中不管检索顺序如何都逐字节相同**；单条超长按剩余预算**截断**；超预算的条目计数并说明；末尾固定写出「可能不完整，继续用 rag_search/library_search 检索」）、`attach_kb_seed()`（按 header **幂等**，重试或多轮再注入不会越拼越长）。
+  - **AgentLoop**：新增 `kb_seed` 参数，把块拼到末尾 user 消息上（走真实 run 路径验证）。
+  - **Web 接线**：新增 `_wants_kb_seed()`（出题轮不塞证据 —— 练习走服务端绑定的卡片；知识型提问/选了资料/像在问知识的轮次才预检索）与 `_kb_seed_for()`（**失败即当作没有**：检索异常只记日志，绝不拖垮这一轮），在 `/runs` 里一次检索 top-4 并透传给 AgentService/AgentLoop。
+  - **回归**：12 条（块字节稳定 / 明示不替代工具 / 无命中不注入 / attach 幂等 / 预算截断；loop 真实路径把块拼到 user 消息且无 seed 时不动它；触发面真值表含出题轮不预检索；检索失败被吞；命中被用上；**system 具名块两次组装逐字节相同**）。
+  - **如实标注**：预检索是**优化**，不改变证据门禁 —— 它把片段放进上下文，但「引用必须来自检索」这条规则不变；另外本轮没有为预检索加流式事件（用户看不到它正在发生）。
 - **W1 · E10 Socratic persona 载体 + 优先级裁决（2026-09-30，本地未推送）**：核对结论是产品里**没有 persona 系统**（`assistant.display_name` 只是名字），所以这一步先定**载体**再谈人格。
   - **载体沿用既有 skills 通道**（不新造机制）：`skills/socratic-persona/SKILL.md`（frontmatter name/description + 正文）→ `core/skills.py` 发现并作为目录注入 system prompt，模型按需读 SKILL.md → 偏好 `skills.enabled_names` 决定启用 → Web 设置里再由 `WEB_SKILL_NAMES` 白名单决定可见性（**不加白名单，Web 上完全看不见**，这正是核对点出来的坑）。
   - **人格内容**：改写自参考项目 DeepTutor `deeptutor/services/persona/presets/peer/PERSONA.md` @ `6e6e56a`，按 Bobodan 的规则重写（先问后讲、一次一个问题、用用户自己的话、允许说『我不知道』、该讲就讲）。

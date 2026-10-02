@@ -531,6 +531,49 @@ def _requests_practice(message: str) -> bool:
     return any(phrase in normalized for phrase in practice_phrases)
 
 
+def _wants_kb_seed(message: str, *, has_document_scope: bool) -> bool:
+    """W1 E12：哪些轮次值得"进循环前先检索一次"（冷启动）。
+
+    出题轮不塞（练习走服务端绑定的卡片）；其余"像在问知识"的轮次才预检索。
+    """
+    if _requests_practice(message):
+        return False
+    if _requires_local_evidence(message, has_document_scope=has_document_scope):
+        return True
+    text = (message or "").strip()
+    if len(text) < 4:
+        return False
+    if "?" in text or "？" in text:
+        return True
+    return any(
+        word in text
+        for word in ("什么", "为什么", "怎么", "如何", "解释", "区别", "讲讲", "对比", "原理")
+    )
+
+
+def _kb_seed_for(
+    message: str,
+    *,
+    workspace: str,
+    config: dict,
+    has_document_scope: bool,
+    top_k: int = 4,
+) -> str:
+    """W1 E12 / D13：进循环前的预检索。**失败就当作没有**（绝不拖垮这一轮）。"""
+    from core.prompt_blocks import build_kb_seed_block
+
+    if not _wants_kb_seed(message, has_document_scope=has_document_scope):
+        return ""
+    try:
+        from rag.retriever import search_index
+
+        hits = search_index(workspace, message, top_k=top_k, config=config)
+    except Exception as exc:  # pragma: no cover - 具体异常类型依检索实现而定
+        logger.warning("KB seed retrieval failed: %s", exc)
+        return ""
+    return build_kb_seed_block(hits or [])
+
+
 def _build_response_policies(message: str, *, has_document_scope: bool) -> list:
     """组装这一轮要挂的响应策略（W1 E13）。
 
@@ -1641,9 +1684,17 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
     # run that is still producing: the log is that run's transport now.
     stream_store.prune(exempt=live_stream_ids())
     emitter = StreamEmitter(stream_store, stream_id)
+    has_document_scope = bool(document_ids or preferred_document_ids)
     response_policies = _build_response_policies(
         body.message,
-        has_document_scope=bool(document_ids or preferred_document_ids),
+        has_document_scope=has_document_scope,
+    )
+    # W1 E12 / D13：先检索一次再进循环（拼到末尾 user 消息，明示"不完整、可继续检索"）。
+    kb_seed = _kb_seed_for(
+        body.message,
+        workspace=workspace,
+        config=config,
+        has_document_scope=has_document_scope,
     )
     response_guard = CombinedResponsePolicy(*response_policies) if response_policies else None
 
@@ -1703,6 +1754,7 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
                 tools_schema=_web_tools_schema(allowed_tool_names),
                 allowed_tool_names=allowed_tool_names,
                 request_prompt=request_prompt,
+                kb_seed=kb_seed,
                 response_guard=response_guard,
                 memory_injector=memory_injector,
                 context_window=resolve_context_window(config),
