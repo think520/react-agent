@@ -16,6 +16,7 @@ import { useNavigate, useOutletContext } from "react-router-dom";
 import type { AppOutletContext } from "./AppShell";
 import { EmptyState, LoadingState } from "./common";
 import { api, documentAssetUrl, documentRawEmbedUrl, downloadDocumentRaw, fetchDocumentRawText, splitFrontmatter } from "../lib/api";
+import { HIGHLIGHT_CLASS, highlightQuote, unwrapHighlight } from "../lib/domHighlight";
 import { anchorDraftFromRange } from "../lib/readerAnchors";
 import { READER_VIEW_KEY, resolveReaderView, type ReaderView } from "../lib/readerView";
 import { ReaderAnchorsPanel, type ReaderAnchor } from "./ReaderAnchorsPanel";
@@ -343,6 +344,32 @@ export function DocumentReader({
     }
     navigate("/chat");
   }
+
+  // W1 E7：把划线画进正文（按引文定位）。React 重渲染会重建这段 DOM，所以每次渲染后
+  // 都对齐一次：不再需要的撤掉、缺的补上 —— 幂等且不写 state，不会引发循环。
+  useEffect(() => {
+    const sectionElements = Array.from(document.querySelectorAll<HTMLElement>("[data-chunk-id]"));
+    if (!sectionElements.length) return;
+    const wanted = new Map<string, Set<string>>();
+    readerAnchors.forEach((anchor) => {
+      if (!anchor.chunk_id || !anchor.quote) return;
+      const quotes = wanted.get(anchor.chunk_id) || new Set<string>();
+      quotes.add(anchor.quote);
+      wanted.set(anchor.chunk_id, quotes);
+    });
+    sectionElements.forEach((element) => {
+      const quotes = wanted.get(element.dataset.chunkId || "") || new Set<string>();
+      const marks = Array.from(element.querySelectorAll<HTMLElement>(`mark.${HIGHLIGHT_CLASS}`));
+      marks.forEach((mark) => {
+        if (!quotes.has(mark.dataset.quote || "")) unwrapHighlight(mark);
+      });
+      quotes.forEach((quote) => {
+        // 同段多条划线是常态：只跳过"这一条已经画过"的，其余照画。
+        if (marks.some((mark) => mark.isConnected && mark.dataset.quote === quote)) return;
+        highlightQuote(element, quote);
+      });
+    });
+  });
 
   // W1 E7：把选区存成划线锚点（四元组 + 引文；原文里找不到偏移就如实存 null）。
   async function saveAnchorFromSelection() {

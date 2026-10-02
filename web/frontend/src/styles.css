@@ -2154,4 +2154,12 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
   font-size: 13px;
 }
 
+/* W1 E7：正文里的划线上色（DOM 装饰，引文定位）。 */
+mark.reader-anchor-mark {
+  background: color-mix(in srgb, var(--blue) 18%, transparent);
+  border-bottom: 1px solid var(--blue);
+  color: inherit;
+  padding: 0 1px;
+}
+
 
