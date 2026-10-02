@@ -7,6 +7,11 @@
 ## [未发布]
 
 ### 变更
+- **W1 · E4 补回页面级测试 —— 它抓到两个真 bug（2026-09-30，本地未推送）**：上一轮我撤掉的那条『跳过→恢复 run』用例，本轮用探针查清了：**不是测试挂住，是我写的代码有洞**。
+  - **根因**：ask_user 卡片在**流中途**就渲染出来了，而 ChatPage 那时只把会话 id 写进 `sessionIdRef`，**state 还是空的**；`skipInteraction / resolveInteraction / sendResume` 三处都以 `if (!sessionId) return` 开头 —— 于是用户在卡片刚出现时点「跳过」或「回答」，**会静默什么都不发生**（既不关卡片，也不恢复那一轮）。
+  - **修法**：三处统一取 `sessionId || sessionIdRef.current`，`sendResume` 内部一律用这个 id（含 `getSessionId` 与 `refreshChatSession`）。
+  - **回归**：页面级 1 条（点「先不答，跳过」→ 调 `api.skipInteraction(i1, s1)` → **第二次 streamChat 带 `resumeInteractionId: i1`**）。
+  - **教训（写下来）**：上一轮我把『测试挂住』当成测试自身的问题撤掉了它 —— 实际上那是**产品缺陷的信号**。以后同类情况先探针看 DOM/状态，再决定删测试还是改代码。
 - **W1 · E4 放弃语义（2026-09-30，本地未推送）**：核对的缺口是「卡片只有回答一条路」—— 用户不想答时，那一轮**永远停在那里**（只有 7 天数据卫生窗口，或者发下一条消息时才被记为 skipped）。
   - **后端**：新增 `POST /api/chat/interactions/{id}/skip`（关闭交互 `closure=skipped`，不存在则 404）；`_resume_content` 对跳过的记录**如实**渲染工具结果 —— 「[用户跳过了这个选择]」+ 没答的问题 + 「不要再等这个回答：要么用现有信息继续，要么说明还需要什么」，**不编答案、也不写未填写**。
   - **前端**：`api.skipInteraction` + 卡片新增「先不答，跳过」（没接 `onSkip` 时不显示，不给假按钮）；聊天页在跳过之后**立刻用同一条 `resume_interaction_id` 恢复暂停的 run** —— 这才是『不把用户晾着』。

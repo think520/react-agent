@@ -775,7 +775,9 @@ export function ChatPage() {
   }
 
   async function sendResume(interactionId: string) {
-    if (!sessionId) return;
+    // 同 skipInteraction：卡片可能在会话 state 落定前就被操作。
+    const activeSessionId = sessionId || sessionIdRef.current || "";
+    if (!activeSessionId) return;
     const controller = new AbortController();
     abortRef.current = controller;
     streamIdRef.current = null;
@@ -785,7 +787,7 @@ export function ChatPage() {
     try {
       const profile = useUiStore.getState().learningProfile;
       const [sendProvider, sendModel] = (selectedProvider || settings?.default_provider || "").split("::");
-      await streamChat("", sessionId, selectedDocumentIds, {
+      await streamChat("", activeSessionId, selectedDocumentIds, {
         ...profile,
         memoryEnabled: settings?.preferences.memory.enabled ?? true,
         provider: sendProvider || undefined,
@@ -795,11 +797,11 @@ export function ChatPage() {
         resumeInteractionId: interactionId,
         onStreamId: (id) => { streamIdRef.current = id; },
       }, (streamEvent) => handleStreamEvent(streamEvent, {
-        getSessionId: () => sessionId,
+        getSessionId: () => activeSessionId,
       }), controller.signal);
       settleLastMessage();
       setStatus("");
-      await refreshChatSession(sessionId);
+      await refreshChatSession(activeSessionId);
     } catch (reason) {
       if (reason instanceof DOMException && reason.name === "AbortError") {
         setStatus("");
@@ -816,9 +818,12 @@ export function ChatPage() {
   }
 
   async function skipInteraction(artifact: AskUserArtifact) {
-    if (!sessionId) return;
+    // 卡片在流中途就会渲染，那时 sessionId 的 **state** 还没落定（只有 ref）——
+    // 这里必须兜底，否则点「跳过」会静默什么都不做。
+    const activeSessionId = sessionId || sessionIdRef.current || "";
+    if (!activeSessionId) return;
     try {
-      await api.skipInteraction(artifact.artifact_id, sessionId);
+      await api.skipInteraction(artifact.artifact_id, activeSessionId);
     } catch (reason) {
       setError(toErrorMessage(reason, "跳过没有成功。"));
       return;
@@ -828,9 +833,11 @@ export function ChatPage() {
   }
 
   async function resolveInteraction(artifact: AskUserArtifact, answers: Array<{ id: string; answer: string }>) {
-    if (!sessionId) return;
+    // 同上：回答也可能发生在会话 state 落定之前。
+    const activeSessionId = sessionId || sessionIdRef.current || "";
+    if (!activeSessionId) return;
     try {
-      await api.answerInteraction(artifact.artifact_id, sessionId, answers);
+      await api.answerInteraction(artifact.artifact_id, activeSessionId, answers);
     } catch (reason) {
       setError(toErrorMessage(reason, "回答没有保存成功。"));
       return;

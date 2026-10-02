@@ -5,7 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useHandoffStore } from "../stores/handoffStore";
 import { ChatPage } from "./ChatPage";
 
-const hoisted = vi.hoisted(() => ({ ctx: {} as Record<string, unknown> }));
+const hoisted = vi.hoisted(() => ({
+  ctx: {} as Record<string, unknown>,
+  skipInteraction: vi.fn(),
+}));
 
 vi.mock("react-router-dom", async (importOriginal) => {
   const actual = await importOriginal<typeof import("react-router-dom")>();
@@ -73,7 +76,14 @@ describe("ChatPage initialization", () => {
 });
 
 import { streamChat } from "../lib/api";
-vi.mock("../lib/api", async (original) => ({ ...await original<typeof import("../lib/api")>(), streamChat: vi.fn() }));
+vi.mock("../lib/api", async (original) => {
+  const actual = await original<typeof import("../lib/api")>();
+  return {
+    ...actual,
+    streamChat: vi.fn(),
+    api: { ...actual.api, skipInteraction: hoisted.skipInteraction },
+  };
+});
 
 // R01/F05（2026-09-28 审查）：run_failed 之前服务端已经分配了会话，重试必须**沿用它**。
 // 修之前：重试走的是路由参数（此时还是空的），于是又开了一个新会话，上一轮的历史找不回来。
@@ -136,3 +146,31 @@ it("续写进行中不打断用户（不提示）", async () => {
   await waitFor(() => expect(streamChat).toHaveBeenCalledTimes(1));
   expect(screen.queryByText(/被输出长度上限截断了，没有写完/)).toBeNull();
 });
+
+// W1 E4：跳过 ask_user 卡片 → 关闭交互 **并且**唤醒暂停的那一轮（补回上一轮撤掉的用例）。
+it("跳过选择会恢复暂停的那一轮", async () => {
+  hoisted.ctx.activeLibrary = { library_id: "audit-library" };
+  hoisted.skipInteraction.mockResolvedValue({ chat_session_id: "s1", artifact: {} });
+  vi.mocked(streamChat).mockImplementation(async (...args) => {
+    args[4]({ event: "run_started", data: { run_id: "r", chat_session_id: "s1" } });
+    args[4]({ event: "chat_artifact", data: { artifact: {
+      type: "ask_user", artifact_id: "i1", status: "awaiting_input",
+      questions: [{ id: "q1", prompt: "先学哪个？", options: ["甲", "乙"] }],
+    } } });
+  });
+  render(<MemoryRouter initialEntries={["/chat"]}><ChatPage /></MemoryRouter>);
+
+  const composer = screen.getByRole("textbox", { name: "消息" });
+  fireEvent.change(composer, { target: { value: "帮我安排一下" } });
+  fireEvent.submit(composer.closest("form")!);
+
+  const skip = await screen.findByRole("button", { name: "先不答，跳过" }, { timeout: 2000 });
+  await waitFor(() => expect(skip).toBeEnabled(), { timeout: 2000 });
+  fireEvent.click(skip);
+
+  await waitFor(() => expect(hoisted.skipInteraction).toHaveBeenCalledWith("i1", "s1"), { timeout: 2000 });
+  await waitFor(() => expect(streamChat).toHaveBeenCalledTimes(2), { timeout: 2000 });
+  expect(vi.mocked(streamChat).mock.calls[1][3]).toEqual(
+    expect.objectContaining({ resumeInteractionId: "i1" }),
+  );
+}, 15000);
