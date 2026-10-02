@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import os
 import json
+import threading
+import time
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -12,6 +15,7 @@ import pytest
 fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 
+from core.cancellation import RunCancelled
 from core.session import Session
 from service.memory_service import MemoryService
 from web.backend.app import create_app
@@ -1363,6 +1367,62 @@ def test_chat_stream_finalizer_retries_failed_session_save(backend_client, monke
 
     assert "event: run_failed" in response.text
     assert len(save_calls) == 2
+
+
+def test_import_runs_are_observable_and_cancellable(backend_client, monkeypatch):
+    """E8：导入是**可观察、可取消**的运行，不再是黑盒 POST。
+
+    服务层的取消与进度在 effa242 / ead1f36 已就位，但核对发现 HTTP 层没接
+    （不传 token/progress、无 run id、无取消端点）→ 从 Web 不可达。这条钉住 HTTP 契约：
+    起导入 → 读到**中间**进度 → 取消 → 状态与结果都如实说 cancelled，已收下的文件仍在。
+    """
+    from web.backend.routers import kb as kb_router
+
+    kb_router._import_registry_for_tests().clear()
+    started = threading.Event()
+
+    def slow_sync(self, mode, config, cancel_token=None, progress=None):
+        started.set()
+        for index in range(200):
+            if cancel_token is not None and cancel_token.is_cancelled():
+                raise RunCancelled("cancelled by test")
+            if progress is not None:
+                progress({"phase": "indexing", "done": index + 1, "total": 200, "source": "course/a.md"})
+            time.sleep(0.02)
+        return SimpleNamespace(to_dict=lambda: {"extraction_counts": {}, "error_files": 0})
+
+    monkeypatch.setattr("service.kb_service.KBService._sync_registered_sources", slow_sync)
+
+    response = backend_client.post(
+        "/api/kb/imports",
+        files=[("files", ("a.md", b"# a", "text/markdown"))],
+    )
+    assert response.status_code == 202, response.text
+    import_id = response.json()["import_id"]
+
+    assert started.wait(5.0), "导入没有真的开始"
+    mid = backend_client.get(f"/api/kb/imports/{import_id}").json()
+    assert mid["status"] == "running", mid
+    assert mid["phase"] in {"receiving", "indexing"}, mid
+    assert mid["files_done"] == 1, mid
+    assert mid["sources_done"] >= 1, f"至少要能读到一次中间进度: {mid}"
+
+    assert backend_client.post(f"/api/kb/imports/{import_id}/cancel").status_code == 200
+
+    detail = mid
+    for _ in range(200):
+        detail = backend_client.get(f"/api/kb/imports/{import_id}").json()
+        if detail["status"] != "running":
+            break
+        time.sleep(0.05)
+
+    assert detail["status"] == "cancelled", detail
+    assert detail["result"]["cancelled"] is True, detail
+    result = detail["result"]
+    # 已经收下的那份要留着（取消不是回滚），并且逐文件结果如实标成 imported。
+    assert result["cancelled"] is True, detail
+    assert result["imported"] == ["a.md"], detail
+    assert [item["status"] for item in result["results"]] == ["imported"], detail
 
 
 def test_failed_chat_run_keeps_a_failed_turn_in_the_history(backend_client, monkeypatch):

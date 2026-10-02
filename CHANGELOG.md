@@ -7,6 +7,29 @@
 ## [未发布]
 
 ### 变更
+- **W1 · E8 导入流程（第 3 步）：HTTP 层接上（2026-09-30，本地未推送）**：核对指出"服务层的取消与进度**从 Web 不可达**（无 run id、无端点）"，等于死代码。现在补上：
+  - `web/backend/import_runs.py`：按 import_id 寻址的运行注册表（令牌 + 粗粒度进度 + 终态结果），线程安全；用普通 `threading.Thread` 而不是线程池（这是"可轮询、可取消"的 fire-and-forget 工作）。
+  - 三个端点：`POST /api/kb/imports`（202 + import_id，后台跑）→ `GET /api/kb/imports/{id}`（进度快照 + 终态结果，同步摘要按 F09 口径脱敏）→ `POST /api/kb/imports/{id}/cancel`（协作式取消）。旧的 `POST /api/kb/import` 原样保留（一次性模式）。
+  - **后台线程的异常必须落进 run 状态**（不能静默消失）；服务对象在启动线程前取好（请求上下文不能跨线程用）。
+  - 回归：`tests/test_web_backend.py::test_import_runs_are_observable_and_cancellable` —— 起导入 → 读到**中间**进度（sources_done ≥ 1）→ 取消 → 状态 `cancelled`、结果 `cancelled=true`、已收下的文件仍算 imported。后端套件 **84 passed**。
+- **W1 现状核对（三份只读审计，2026-09-30）与路线图更正汇总**：路线图规定"实施前必须核对现状"，三份核对（E1–E5 / E6–E10 / E11–E16）的结论如下，**六处与路线图描述不符**已直接改进 ROADMAP：
+  | 条目 | 核对结论 | 真实缺口 |
+  |---|---|---|
+  | E1 | **主体已交付**（全局错误位 + 30+ 处转发 + 5 条 store 测试） | 错误码从未渲染、通知不自动消失、换资料库不清空（跨库串提示）、其余页面仍页内提示 |
+  | E2 | **比 A0 说的更完整**（预填 + 目的解释 2026-08-01 就有） | 预填的是**父目录**却写着"保存到这个目录"；前后端**两套默认值**；重名直接英文 409 |
+  | E3 | **主体已交付**（三级回退 + 前端上屏 + 3 条回归） | **provider 未配置时回退链断头**（错题这轮进不了复习）；变式生成失败被静默归因成"证据失效" |
+  | E4 | **核心闭环已交付**（10 条回归 + e2e） | `answered` **从不落库**（直接 graded）；`multi_select` 是空承诺（UI 单选）；无超时/放弃语义 |
+  | E5 | **唯一真正未开工的大项** | Explore→Plan→逐题 + 每题就绪即渲染；**"explanation 随题入库"半句已由 E18 完成**，别重复算工 |
+  | E6 | 无 engine，且**逐次作答未持久化** | 先补数据，再谈"近 5 次加权 + 置信帽 + next_objective" |
+  | E7 | references **早有 chunk_id 字段**、E17 ③ 也有迁移，但**无人写过** | 缺 offset 暴露 + 选区产物 + 重锚定 + 托管区块 + flash |
+  | E9 | 状态中文化 / 下一次到期**都已做** | 到期仍是**原题重放**；**薄弱原因是假的**（后端不产 reason + SQL 无 WHERE，全对的概念也进"薄弱点"） |
+  | E10 | 产品里**没有 persona 系统** | 先定 persona 载体；Web skills 是白名单，不加则完全不可见 |
+  | E11 | **做了一半**（无工具轮=finish 已有） | 无探索预算/结算期；provider 层**没有 finish_reason**，截断续写为零 |
+  | E12 | 只有半套缓存边界 | 无具名块、无 KB seed；seed 与证据门禁的边界要先定 |
+  | E13 | **三道防线都在** | 防线②只在 `_requests_practice` 命中时启用（表外语义可绕过）；≥2 标签判定会误伤讲解 |
+  | E14 | **复用已完成**（含 F10 跨挂载） | **"不污染会话列表"没做**：辅导会话仍是普通会话、进侧栏、自动生成标题；无 kind/parent |
+  | E15 | **基本交付**（三态链路完整） | 小结说"错题已入队"，而错题谓词**排除 partial** → 文案与事实相反；`quiz_answered` 无 verdict |
+  | E16 | 未做（原点堆积已由前端缓解） | confirm 不回坐标、前端丢弃响应、无定时高亮、种子坐标不落盘 |
 - **W1 · E8 导入流程（第 2 步）：进度事件 + "取消不是失败"（2026-09-30，本地未推送）**：先写会失败的测试（`unexpected keyword argument 'progress'` + 取消被误报成 `import_sync_failed`），再实现。
   - **进度**：`import_files(..., progress=callable)` 每个文件恰好报一次（`receiving`，带 done/total/filename/status），`sync_sources` 每个来源报一次（`indexing`）并在收尾发**终态事件**（UI 靠它收起进度条）；监听方抛错不影响导入本身。
   - **取消不是失败**（`docs/CANCELLATION_DESIGN.md` §2）：同步里抛 `RunCancelled` 时 import_files 现在返回 `ok=True + cancelled=True`，不再落到 `import_sync_failed`。

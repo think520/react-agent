@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from typing import Literal
 
 from fastapi import APIRouter, File, Form, Request, UploadFile
@@ -19,10 +20,19 @@ from web.backend.deps import (
     get_runtime_context, get_workspace,
 )
 from web.backend.errors import APIError, unwrap_service_result
+from web.backend.import_runs import ImportRegistry
 
 router = APIRouter()
 
 _MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+
+# E8：导入是一个可观察、可取消的运行（注册表在进程内，按 import_id 寻址）。
+_import_registry = ImportRegistry()
+
+
+def _import_registry_for_tests() -> ImportRegistry:
+    """测试用：拿到同一个注册表，好在用例之间清空它。"""
+    return _import_registry
 
 
 class KBSyncRequest(BaseModel):
@@ -195,6 +205,79 @@ async def import_files(
     # 但**不能**拿来当本次上传的计数（审查 F09）。
     result["library_sync"] = _public_sync(result["library_sync"])
     return result
+
+
+async def _read_import_uploads(files: list[UploadFile]) -> list[tuple[str, bytes]]:
+    """E8 的共用上传读取（与旧 /import 同一套 25MB 限制）。"""
+    payload: list[tuple[str, bytes]] = []
+    for upload in files:
+        content = await upload.read(_MAX_UPLOAD_BYTES + 1)
+        if len(content) > _MAX_UPLOAD_BYTES:
+            raise APIError(
+                413,
+                "file_too_large",
+                f"File exceeds 25 MB limit: {upload.filename or '(unnamed)'}",
+            )
+        payload.append((upload.filename or "", content))
+    return payload
+
+
+@router.post("/imports", status_code=202)
+async def start_import(
+    request: Request,
+    files: list[UploadFile] = File(...),
+    duplicate_strategy: str = Form("keep_existing"),
+) -> dict:
+    """开始一次导入，立刻返回 import_id（E8：进度与取消都靠它寻址）。
+
+    取消是**协作式**的：它在文件边界生效，已经收下的文件保持收下
+    （docs/CANCELLATION_DESIGN.md：Python 杀不了线程，我们不假装能）。
+    """
+    payload = await _read_import_uploads(files)
+    if not payload:
+        raise APIError(400, "no_files", "没有收到文件。")
+    # 请求上下文不能在后台线程里再用，服务对象在这里先取好。
+    service = _service(request)
+    config = get_config()
+    run = _import_registry.start(len(payload))
+
+    def work() -> None:
+        try:
+            result = service.import_files(
+                payload,
+                config=config,
+                duplicate_strategy=duplicate_strategy,
+                cancel_token=run.token,
+                progress=lambda event: _import_registry.record_progress(run.import_id, event),
+            )
+        except Exception as exc:  # 后台线程的异常必须落进 run 状态，不能静默消失
+            _import_registry.finish(run.import_id, error=str(exc))
+            return
+        _import_registry.finish(run.import_id, result=result)
+
+    threading.Thread(target=work, name=f"import-{run.import_id}", daemon=True).start()
+    return {"ok": True, "import_id": run.import_id}
+
+
+@router.get("/imports/{import_id}")
+def import_status(import_id: str) -> dict:
+    run = _import_registry.get(import_id)
+    if run is None:
+        raise APIError(404, "import_not_found", "这次导入已经不存在了。")
+    snapshot = run.snapshot()
+    if snapshot.get("result") is not None:
+        snapshot["result"] = {
+            **snapshot["result"],
+            "library_sync": _public_sync(snapshot["result"].get("library_sync") or {}),
+        }
+    return snapshot
+
+
+@router.post("/imports/{import_id}/cancel")
+def cancel_import(import_id: str) -> dict:
+    if not _import_registry.cancel(import_id):
+        raise APIError(404, "import_not_found", "这次导入已经不存在了。")
+    return {"ok": True, "import_id": import_id, "cancelled": True}
 
 
 @router.get("/tree")
