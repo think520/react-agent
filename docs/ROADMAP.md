@@ -97,11 +97,11 @@ R12 的覆盖式“导入为新版本”仍是独立产品能力，不能用当�
 | E3 | 错题变式死路回退链：无 chunk → 按概念重出 → 原题重练 + 失败原因上屏（A0：后端三级回退已存在，只做前端上屏） | quiz_service | 体验审查 P0-3 |
 | E4 | **ask_user 交互卡 + 交互生命周期持久化**（registered→awaiting→answered→graded，断线可恢复）——**已交付（A1 + 2026-09-10 补齐轮）**；剩余 UI 细化见 F11/F12 | SSE 事件 + interactions 表 + 前端卡 | D6；报告 P0-1 |
 | E5 | **出题三阶段流式管线**：Explore→Plan→逐题生成，每题就绪即渲染；explanation 随题入库（**口径**：这里的"入库"就是题库 D1 的入库，见 `QUESTION_BANK_DESIGN.md`） | quiz_service | D8/D9；报告 P0-2 |
-| E6 | **掌握度引擎纯函数化**：近 5 次加权 + 置信帽 {1:0.5,2:0.8} + 知识四分类 + next_objective 优先级（挂起问题>到期复习>第一个未掌握点）；agent 每轮先读引擎 | learning/ 新增 engine.py | D1/D2/D3；报告 P0-3；体验审查 P1-5 余项 |
-| E7 | **划线最小闭环**：chunk 级划线（四元组锚）+ 托管区块同步到笔记 + ↩ 反链 flash 定位 | Reader + notes 服务 | Q1/Q2/Q3；报告 P0-4 |
+| E6 | **掌握度引擎纯函数化**：近 5 次加权 + 置信帽 {1:0.5,2:0.8} + 知识四分类 + next_objective 优先级（挂起问题>到期复习>第一个未掌握点）；agent 每轮先读引擎 —— **2026-09-30 核对**：无 `learning/engine.py`；现在是在 `learning/scheduler.py:19-67` 里**增量累加**（对 +0.1/+0.2、错 −0.2），**不是从历史推导**，而且**逐次对错没持久化**（`Mastery` 只存计数/连对/分数）→ 先补数据再谈引擎；「知识四分类」指的是 memory/procedure/concept/design，与现有 unseen/learning/mastered/needs_review **不是一回事** | learning/ 新增 engine.py + 逐次作答持久化 | D1/D2/D3；报告 P | 
+| E7 | **划线最小闭环**：chunk 级划线（四元组锚）+ 托管区块同步到笔记 + ↩ 反链 flash 定位 —— **2026-09-30 核对**：references **早就有 `chunk_id` 字段**（types.ts:343-352）且 E17 ③ 已有 `remap_reference_chunk_ids` 迁移，但**没有任何代码写过它**；缺的是 ① `_public_section` 把 char_start/char_end 丢掉了（kb_service.py:2760-2768）② 选区产物 ③ 重锚定 ④ 笔记里的托管区块语法（三家参考项目都没有等价机制，要自定） | Reader + notes 服务 | Q1/Q2/Q3；报告 P0-4 | 
 | E8 | 导入**流程**：进度 + 失败清单 + 取消 + 拖拽热区（边界见 E17，勿与其重复）——**进行中（2026-09-30 起）**：① 服务层**协作式取消**已交付（复用 `CancelToken`，文件边界检查；取消不删任何东西、未解析来源保留旧 hash、下次同步照常处理）；② 进度、③ 失败清单 UI、④ 拖拽热区 待做 | kb import 前后端 | 体验审查 P1-8 |
-| E9 | 到期复习变式化 + 状态中文化 + 下一次到期与薄弱原因（**变式复用 E3 已交付的通道**，不要新建生成器） | learning_service + ReviewPage | 体验审查 P1-6/P2；R12 已补下一次复习解释 |
-| E10 | Socratic persona 技能（翻译 PERSONA.md + 优先级裁决：persona 管风格流程、不碰证据门禁） | skills/ 新增 | D10 |
+| E9 | 到期复习变式化 + 状态中文化 + 下一次到期与薄弱原因（**变式复用 E3 已交付的通道**，不要新建生成器）—— **2026-09-30 核对**：① 状态中文化**已做**（ReviewPage.tsx:55-60）② 下一次到期**已做**（R12 属实）③ 到期仍是**原题重放**（ReviewPage.tsx:79-81）④ **薄弱原因是假的**：后端 `quiz/store.py:1011-1036` 不产 reason，且那条 SQL **没有 WHERE** —— 全答对的概念也会出现在「当前薄弱点」里 | learning_service + ReviewPage | 体验审查 P1-6/P2；R12 已补下一次复习解释 | 
+| E10 | Socratic persona 技能（翻译 PERSONA.md + 优先级裁决：persona 管风格流程、不碰证据门禁）—— **2026-09-30 核对**：产品里**没有 persona 系统**（`assistant.display_name` 只是名字），所以要先定 persona 的载体；Web 侧 skills 是**白名单**（`web/backend/capabilities.py:3`），不加白名单在 Web 完全不可见 | skills/ 新增 + 白名单 + 裁决文档 | D10 | 
 | E11 | AgentLoop 单循环契约：无工具轮=finish、探索预算 + 3 轮结算期、截断续写 | core/agent_loop.py | D4 |
 | E12 | prompt 具名块字节稳定 + KB seed 预检索进末尾 user 消息 | core/agent_loop.py | D5/D13 |
 | E13 | 出题卡防绕过三道防线：服务端注入参数 / 纯文本收尾重定向 / 卡片数据从持久化重绑定（A0：重绑定已存在，缺前两道） | Practice artifacts | D7 |

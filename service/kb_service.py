@@ -15,6 +15,7 @@ import re
 import unicodedata
 from typing import Any
 
+from core.cancellation import RunCancelled
 from knowledge.paths import knowledge_dir, knowledge_path
 from service._result import err as _err, ok as _ok
 
@@ -1272,7 +1273,7 @@ class KBService:
             missing.append(str(vault))
         return missing
 
-    def _sync_registered_sources(self, mode: str, config: dict, cancel_token=None):
+    def _sync_registered_sources(self, mode: str, config: dict, cancel_token=None, progress=None):
         from obsidian.sync import sync_sources
 
         vault_path, course_dirs = self._registered_roots()
@@ -1287,6 +1288,7 @@ class KBService:
             mode=mode,
             config=config,
             cancel_token=cancel_token,
+            progress=progress,
         )
 
     def import_files(
@@ -1295,6 +1297,7 @@ class KBService:
         config: dict | None = None,
         duplicate_strategy: str = "keep_existing",
         cancel_token=None,
+        progress=None,
     ) -> dict[str, Any]:
         """收文件 + 建索引。`cancel_token`（E8）在**文件边界**协作式检查：
 
@@ -1348,6 +1351,23 @@ class KBService:
                 "path": self._relative_to_workspace(absolute) if absolute else "",
                 **extra,
             })
+            # E8：每个文件恰好在这里报一次进度（done 以"已处理数"为准，UI 才能画进度条）。
+            report({
+                "phase": "receiving",
+                "done": len(outcomes),
+                "total": len(files),
+                "filename": filename,
+                "status": status,
+            })
+
+        def report(event: dict[str, Any]) -> None:
+            """E8：进度事件只在有人听的时候发，发送失败绝不影响导入本身。"""
+            if progress is None:
+                return
+            try:
+                progress(event)
+            except Exception:  # 监听方的问题不该让导入失败
+                logger.warning("import progress listener failed", exc_info=True)
 
         cancelled = False
         for filename, content in files:
@@ -1452,7 +1472,20 @@ class KBService:
         if imported or pending:
             try:
                 summary = self._sync_registered_sources(
-                    mode="incremental", config=config or {}, cancel_token=cancel_token,
+                    mode="incremental", config=config or {},
+                    cancel_token=cancel_token, progress=progress,
+                )
+            except RunCancelled:
+                # 取消**不是失败**（docs/CANCELLATION_DESIGN.md §2）：已经收下的保持收下，
+                # 如实标成 cancelled，绝不能落到 import_sync_failed 上。
+                return _ok(
+                    imported=imported,
+                    duplicates=duplicates,
+                    rejected=rejected,
+                    pending=pending,
+                    cancelled=True,
+                    results=results_for_batch(self._documents_by_path()),
+                    library_sync={"extraction_counts": {}, "error_files": 0},
                 )
             except Exception as exc:  # 同步失败要**如实结构化返回**，而不是把 500 抛给界面（审查 F04）
                 return _err(

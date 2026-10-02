@@ -429,6 +429,7 @@ def sync_sources(
     mode: str = "incremental",
     config: dict | None = None,
     cancel_token=None,
+    progress=None,
 ) -> SyncSummary:
     """Parse source files, rebuild RAG index (SQLite + Qdrant), and sync graph.
 
@@ -588,8 +589,19 @@ def sync_sources(
     extraction_counts: dict[str, int] = {"complete": 0, "partial": 0, "empty": 0, "error": 0}
     failed_processing_sources: dict[str, str] = {}
 
+    def report(event: dict) -> None:
+        """E8：进度事件，监听方出错不影响同步。"""
+        if progress is None:
+            return
+        try:
+            progress(event)
+        except Exception:
+            logger.warning("sync progress listener failed", exc_info=True)
+
+    total_changed = len(changed_sources)
     cancelled_sources: list[str] = []
     for index, (source, abs_path, content_hash, kind) in enumerate(changed_sources):
+        report({"phase": "indexing", "done": index, "total": total_changed, "source": source})
         if cancel_token is not None and cancel_token.is_cancelled():
             # E8：从这里开始的来源**没有**被解析。绝不能把新 hash 记进 state ——
             # 那会让下一次增量同步以为它们"没变过"，于是永久跳过、静默不索引。
@@ -896,6 +908,16 @@ def sync_sources(
     ))
 
     sqlite.close()
+
+    # E8：终态事件 —— UI 靠它把进度条收起（取消时也要发，并带上 cancelled）。
+    report({
+        "phase": "indexing",
+        "done": total_changed - len(cancelled_sources),
+        "total": total_changed,
+        "source": "",
+        "cancelled": bool(cancelled_sources),
+        "finished": True,
+    })
 
     index_path = os.path.join(knowledge_dir, "knowledge.db")
     return SyncSummary(

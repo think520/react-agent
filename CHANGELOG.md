@@ -7,6 +7,17 @@
 ## [未发布]
 
 ### 变更
+- **W1 · E8 导入流程（第 2 步）：进度事件 + "取消不是失败"（2026-09-30，本地未推送）**：先写会失败的测试（`unexpected keyword argument 'progress'` + 取消被误报成 `import_sync_failed`），再实现。
+  - **进度**：`import_files(..., progress=callable)` 每个文件恰好报一次（`receiving`，带 done/total/filename/status），`sync_sources` 每个来源报一次（`indexing`）并在收尾发**终态事件**（UI 靠它收起进度条）；监听方抛错不影响导入本身。
+  - **取消不是失败**（`docs/CANCELLATION_DESIGN.md` §2）：同步里抛 `RunCancelled` 时 import_files 现在返回 `ok=True + cancelled=True`，不再落到 `import_sync_failed`。
+  - **回归**：4 条（预取消 / 中途取消 / 逐文件与逐来源进度 / 取消非失败）；受影响套件 **67 passed**。
+  - **E8 现状（核对结论）**：服务层的取消与进度已就绪，但 **HTTP 层仍是黑盒** —— `web/backend/routers/kb.py:169-197` 不传 token/progress、没有 run id、没有取消端点 → 从 Web **不可达**；失败清单只有一句汇总（不列文件名/原因/不能重试）；`api.ts` 类型没有 `cancelled`；前端**完全没有拖拽处理**。剩余三步：接 HTTP（run + 取消端点）→ 失败清单 UI → 拖拽热区。
+- **W1 现状核对（E6–E10，只读审计）与路线图更正（2026-09-30）**：路线图自己规定"实施前必须核对现状"，核对结果有五处与路线图描述不符，已直接改进 ROADMAP 的 W1 表格：
+  - **E8**：路线图只写四项功能，没写"服务层有了但 HTTP 不可达" → 补齐。
+  - **E9**：「状态中文化」与「下一次到期」**都已做**（路线图没标）；而「薄弱原因」是**假的**：后端不产 `reason`，且那条 SQL **没有 WHERE**，**全答对的概念也会被列进"当前薄弱点"** → 这是真 bug，已记入待办。
+  - **E6**：不仅没有 `learning/engine.py`，**"近 5 次"所需的逐次作答历史根本没持久化** → 不是"重构一个函数"，要先补数据。
+  - **E7**：references **早就有 `chunk_id` 字段**、E17 ③ 也有迁移函数，但**没有任何代码写过它**；缺的是 offset 暴露与选区产物，不是从零建锚点模型。
+  - **E10**：产品里**根本没有 persona 系统**（display_name 只是名字），Web 的 skills 还是白名单 → 要先定 persona 载体，再谈裁决。
 - **W1 · E8 导入流程（第 1 步）：协作式取消（2026-09-30，本地未推送）**：按 W1 的 E8 拆成四步走（取消 → 进度 → 失败清单 UI → 拖拽热区），这是第一步，**先写会失败的测试**（`tests/test_import_cancellation.py`，修前红：`unexpected keyword argument 'cancel_token'`）。
   - **复用已有原语**：A4 批次三交付的 `core/cancellation.py::CancelToken`（设计见 `docs/CANCELLATION_DESIGN.md`）+ 文件边界检查 —— 不新造机制，也不假装能杀线程。
   - **语义如实**：取消在**文件边界**生效；已经收进来/已经解析的保持原样，剩下的报成 `cancelled`；**不再写新文件**；被取消的一轮**不做任何删除判定**、也不推进"待确认移除"计数。

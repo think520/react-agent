@@ -71,3 +71,39 @@ def test_cancelling_midway_keeps_what_was_accepted_and_reports_the_rest(library,
     assert [item["status"] for item in result["results"]] == ["imported", "cancelled", "cancelled"], result["results"]
     assert (Path(service.managed_sources_dir) / "lesson-0.md").is_file()
     assert not (Path(service.managed_sources_dir) / "lesson-1.md").exists()
+
+def test_import_reports_progress_for_each_file_and_source(library, monkeypatch):
+    """E8 第二步：导入要有**进度**可言 —— 逐文件（收下）与逐来源（建索引）都要报。"""
+    _sync(library, monkeypatch)
+    service = KBService(str(library))
+    events: list = []
+
+    result = service.import_files(_files(3), progress=events.append)
+
+    assert result["ok"], result
+    receiving = [event for event in events if event["phase"] == "receiving"]
+    assert [event["done"] for event in receiving] == [1, 2, 3], receiving
+    assert receiving[0]["total"] == 3 and receiving[0]["filename"] == "lesson-0.md", receiving[0]
+    indexing = [event for event in events if event["phase"] == "indexing"]
+    assert indexing, "建索引阶段也要有进度事件"
+    # 最后一个建索引事件必须是"做完了"，UI 才能确定地收起进度条。
+    assert indexing[-1]["done"] == indexing[-1]["total"] >= 1, indexing[-1]
+
+
+def test_a_cancelled_sync_is_not_reported_as_a_failure(library, monkeypatch):
+    """取消**不是失败**（设计文档 §2）：不能落到 import_sync_failed 上去。"""
+    from core.cancellation import RunCancelled
+
+    service = KBService(str(library))
+
+    def cancel_during_sync(*args, **kwargs):
+        raise RunCancelled("user cancelled")
+
+    monkeypatch.setattr(service, "_sync_registered_sources", cancel_during_sync)
+
+    result = service.import_files(_files(1), cancel_token=CancelToken())
+
+    assert result["ok"] is True, result
+    assert result["cancelled"] is True, result
+    assert result.get("code") != "import_sync_failed", result
+    assert result["imported"] == ["lesson-0.md"], result["imported"]
