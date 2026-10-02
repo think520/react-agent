@@ -72,3 +72,23 @@ it("改名之后预览重新问后端（规则不在前端复制一份）", asyn
     expect(api.libraryRootPreview).toHaveBeenCalledWith("线性代数", "C:/Users/x/Documents"));
   expect(await screen.findByText("C:/Users/x/Documents/线性代数")).toBeTruthy();
 });
+
+it("有错误码时补一句下一步（不只是后端那句话）", async () => {
+  const rejection = Object.assign(new Error("目标文件夹已存在且不是空的资料库。"), {
+    code: "library_unavailable",
+  });
+  render(<LibrarySetupDialog
+    onClose={() => {}}
+    onComplete={() => {}}
+    onCreate={async () => { throw rejection; }}
+    onOpen={async () => {}}
+    onPreviewMigration={async () => ({}) as never}
+    onMigrate={async () => {}}
+  />);
+
+  fireEvent.click(await screen.findByRole("button", { name: "新建资料库" }));
+
+  expect(await screen.findByText("目标文件夹已存在且不是空的资料库。")).toBeTruthy();
+  // W1 E1：结构化 code 要上屏成"下一步"，而不是让用户盯着后端那句话猜。
+  expect(await screen.findByText(/重新接入/)).toBeTruthy();
+});

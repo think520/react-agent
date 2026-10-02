@@ -2018,4 +2018,11 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
   color: var(--muted);
 }
 
+/* W1 E1：错误码带来的"下一步"（可重试 / 去设置 / 重新接入资料库）。 */
+.error-hint {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
 

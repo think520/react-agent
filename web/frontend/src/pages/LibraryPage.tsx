@@ -69,6 +69,7 @@ export function LibraryPage() {
     documentImporting,
     documentImportNotice,
     documentImportError,
+    documentImportErrorCode,
     documentImportDuplicateCount,
     importDuplicatesAsCopies,
     documentImportVersion,
@@ -1179,7 +1180,7 @@ export function LibraryPage() {
         </Modal>}
         {confirmElement}
         {(documentImportNotice || notice) && <div className="success-notice"><CheckCircle2 size={17} /><span>{documentImportNotice || notice}</span>{documentImportDuplicateCount > 0 && <button className="text-link" type="button" onClick={importDuplicatesAsCopies}>重复文件仍要另存副本</button>}</div>}
-        {documentImportError && <ErrorNotice message={documentImportError} />}
+        {documentImportError && <ErrorNotice message={documentImportError} code={documentImportErrorCode} />}
         {/* E8：导入是**运行态** —— 运行中显示进度，并且当场能取消（协作式：文件边界生效）。 */}
         {documentImportProgress && (
           <div className="import-progress" role="status">

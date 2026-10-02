@@ -22,6 +22,9 @@ import { NavLink, Outlet, useLocation, useNavigate, useParams, useSearchParams }
 
 import { api, setActiveLibraryId } from "../lib/api";
 import type { ImportBatchResult } from "../lib/api";
+import { clearImportReport, emptyDocumentImport } from "../lib/importState";
+import type { DocumentImportState } from "../lib/importState";
+import { errorCodeOf } from "../lib/errorHints";
 import { useImportRun } from "../hooks/useImportRun";
 import type { ImportRunProgress } from "../hooks/useImportRun";
 import { toErrorMessage } from "../lib/errors";
@@ -76,6 +79,8 @@ export interface AppOutletContext {
   documentImportVersion: number;
   /** E8：本次导入的**逐文件**结果（失败清单 UI 用），null 表示还没有结果。 */
   documentImportResults: ImportBatchResult[] | null;
+  /** W1 E1：这次导入失败的结构化错误码（界面据此给"下一步"）。 */
+  documentImportErrorCode: string;
   /** E8：运行中的进度（null = 没有正在跑的导入）。 */
   documentImportProgress: ImportRunProgress | null;
   /** E8：取消正在跑的导入（协作式：文件边界生效，已收下的保持收下）。 */
@@ -215,10 +220,7 @@ export function AppShell() {
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
   const previewTimer = useRef<number | null>(null);
   const importRun = useImportRun();
-  const [documentImport, setDocumentImport] = useState({
-    importing: false, notice: "", error: "", duplicateCount: 0, version: 0,
-    results: null as ImportBatchResult[] | null,
-  });
+  const [documentImport, setDocumentImport] = useState<DocumentImportState>(emptyDocumentImport);
   const [loadingSessions, setLoadingSessions] = useState(true);
   const [libraries, setLibraries] = useState<LibrarySummary[]>([]);
   const [activeLibrary, setActiveLibrary] = useState<LibrarySummary | null>(null);
@@ -337,7 +339,12 @@ export function AppShell() {
       }));
       await loadScopedData();
     } catch (reason) {
-      setDocumentImport((current) => ({ ...current, error: toErrorMessage(reason, "资料导入失败。") }));
+      setDocumentImport((current) => ({
+        ...current,
+        error: toErrorMessage(reason, "资料导入失败。"),
+        // W1 E1：把 code 一起留下，界面才能说"下一步"（换格式 / 去设置 / 稍后重试）。
+        errorCode: errorCodeOf(reason),
+      }));
     } finally {
       setDocumentImport((current) => ({ ...current, importing: false }));
       navigate("/library");
@@ -561,7 +568,10 @@ export function AppShell() {
 
   async function switchLibrary(libraryId: string) {
     if (libraryId === activeLibrary?.library_id) return;
-    setDocumentImport((current) => ({ ...current, notice: "", error: "" }));
+    // W1 E1：导入报告、通知与"可重试文件"都属于**上一个**资料库 —— 不清就会串库
+    // （上一库的失败清单还挂着，点「重试这 N 份」会导进新库）。
+    setDocumentImport(clearImportReport);
+    pendingRetryFiles.current = [];
     setConceptDetailId(null);
     setKnowledgeContext(null);
     setSourceContext(null);
@@ -726,6 +736,7 @@ export function AppShell() {
           startDocumentImport,
           documentImporting: documentImport.importing || importRun.running,
     documentImportProgress: importRun.progress,
+    documentImportErrorCode: documentImport.errorCode,
     cancelDocumentImport: () => void importRun.cancel(),
           documentImportNotice: documentImport.notice,
           documentImportError: documentImport.error,

@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { FolderOpen, Library, X } from "lucide-react";
 
 import { api } from "../lib/api";
+import { errorCodeOf } from "../lib/errorHints";
 import { ErrorNotice, IconButton } from "./common";
 import type { LibraryMigrationPreview } from "../types";
 import { Modal } from "../ui/Modal";
@@ -35,6 +36,8 @@ export function LibrarySetupDialog({
   const [path, setPath] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // W1 E1：错误码要一起留着 —— 界面才能说出"下一步"（换名称 / 重新接入 / 稍后重试）。
+  const [errorCode, setErrorCode] = useState("");
   const [preview, setPreview] = useState<LibraryMigrationPreview | null>(null);
 
   const [rootPreview, setRootPreview] = useState("");
@@ -78,6 +81,7 @@ export function LibrarySetupDialog({
     setMode(next);
     setPreview(null);
     setError("");
+    setErrorCode("");
   }
 
   async function submit(event: FormEvent) {
@@ -101,6 +105,7 @@ export function LibrarySetupDialog({
       onComplete();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "资料库操作失败。");
+      setErrorCode(errorCodeOf(reason));
     } finally {
       setBusy(false);
     }
@@ -129,7 +134,7 @@ export function LibrarySetupDialog({
         <div><span><strong>{preview.material_count}</strong> 份可索引资料</span><span><strong>{(preview.size_bytes / 1024 / 1024).toFixed(1)} MB</strong> 文件夹体积</span><span><strong>{preview.wiki_pages}</strong> 个现有 Wiki 页面</span><span><strong>{preview.legacy_source_count}</strong> 个旧资料子目录</span></div>
         <p>确认后只会增加 Bobodan 描述文件和本地索引，不移动或删除原文件。</p>
       </section>}
-      {error && <ErrorNotice message={error} />}
+      {error && <ErrorNotice message={error} code={errorCode} />}
       <footer><button type="button" className="quiet-button" onClick={onClose}>取消</button><button className="primary-button" disabled={busy || !path.trim()}>{busy ? (mode === "migrate" && preview ? (preview.already_initialized ? "正在打开资料库" : "正在接入并同步") : "正在处理") : mode === "create" ? (importCount ? "创建并继续导入" : "新建资料库") : mode === "open" ? (importCount ? "打开并继续导入" : "打开资料库") : preview ? (preview.already_initialized ? (importCount ? "打开并继续导入" : "打开这个资料库") : importCount ? "接入并继续导入" : "确认原地接入") : "扫描文件夹"}</button></footer>
     </form>
   </Modal>;

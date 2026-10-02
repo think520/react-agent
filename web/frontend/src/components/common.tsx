@@ -4,6 +4,7 @@ import { ExternalLink, FileText, LoaderCircle, SearchX } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { api } from "../lib/api";
+import { errorHint } from "../lib/errorHints";
 import type { Attribution, SourceRef } from "../types";
 
 export function IconButton({ label, className = "", ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string }) {
@@ -36,11 +37,17 @@ export function BrandIllustration({ state, size = 72, alt = "" }: { state: Brand
   return <img className="brand-illustration" src={`/assets/brand/states/bobodan-state-${state}.webp`} width={size} height={size} alt={alt} />;
 }
 
-export function ErrorNotice({ message, action }: { message: string; action?: ReactNode }) {
+export function ErrorNotice({ message, code, action }: { message: string; code?: string; action?: ReactNode }) {
+  // W1 E1：有结构化 code 时补一句**下一步**（可重试 / 去设置 / 重新接入资料库）。
+  const hint = errorHint(code);
   return (
     <div className="error-notice" role="alert">
       <img className="brand-expression" src="/assets/brand/expressions/bobodan-expression-curious.webp" width="38" height="38" alt="" />
-      <div><strong>没有顺利完成</strong><p>{message}</p></div>
+      <div>
+        <strong>没有顺利完成</strong>
+        <p>{message}</p>
+        {hint && <p className="error-hint">{hint}</p>}
+      </div>
       {action}
     </div>
   );

@@ -62,6 +62,7 @@ function buildContext() {
     documentImporting: false,
     documentImportNotice: "",
     documentImportError: "",
+    documentImportErrorCode: "",
     documentImportVersion: 0,
     documentImportDuplicateCount: 0,
     importDuplicatesAsCopies: vi.fn(),
