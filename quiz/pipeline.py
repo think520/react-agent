@@ -220,11 +220,14 @@ def run_question_pipeline(
             "total": total,
             "question_id": question.id,
             "topic": item.topic,
+            # W1 E5：实时卡片要用的字段一次给全（只发题干的话界面只能列一行字）。
             "question": {
                 "id": question.id,
                 "type": question.type,
                 "question": question.question,
                 "options": list(question.options or []),
+                "difficulty": getattr(question, "difficulty", "") or "",
+                "concepts": list(getattr(question, "concepts", None) or []),
             },
         })
 

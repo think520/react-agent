@@ -390,3 +390,36 @@ def test_personalization_never_becomes_a_source(monkeypatch, tmp_path):
     sources = [str(item) for item in (question.sources or [])]
     assert sources, question
     assert all("考研" not in source for source in sources), sources
+
+
+# --- W1 E5 细节：实时卡片需要更多字段（只发题干，界面只能列一行字） ---
+
+
+def test_the_emitted_question_carries_what_a_card_needs(monkeypatch, tmp_path):
+    from quiz import pipeline as pipeline_module
+
+    chunks = [{"chunk_id": "c1", "title": "高数", "text": "极限……"}]
+    monkeypatch.setattr(pipeline_module, "_explore", lambda **kwargs: chunks)
+    monkeypatch.setattr("quiz.generator.search_index", lambda *args, **kwargs: chunks)
+
+    from quiz.schema import Question
+
+    def fake_generate(self, query, count=1, document_ids=None, **kwargs):
+        return [Question(
+            type="single_choice", question=f"{query}?", answer="B",
+            options=["A. 甲", "B. 乙"], explanation="因为。", concepts=[query],
+            difficulty="hard",
+        )]
+
+    monkeypatch.setattr("quiz.generator.QuestionGenerator.generate_from_query", fake_generate)
+
+    seen: list[dict] = []
+    run_question_pipeline(
+        workspace=str(tmp_path), topic="极限", count=1, llm=StubLLM(plan=PLAN_JSON),
+        on_event=lambda event: seen.append(event) if event["event"] == "quiz_question_emitted" else None,
+    )
+
+    payload = seen[0]["question"]
+    assert payload["options"] == ["A. 甲", "B. 乙"], payload
+    assert payload["type"] == "single_choice", payload
+    assert payload["difficulty"] == "hard", payload

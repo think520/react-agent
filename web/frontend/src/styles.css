@@ -2169,4 +2169,40 @@ mark.reader-anchor-mark {
   color: var(--muted);
 }
 
+/* W1 E5：逐题生成时每道题的实时卡片。 */
+.practice-stepwise-questions {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.practice-stepwise-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  background: var(--paper);
+}
+
+.practice-stepwise-card header {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.practice-card-question {
+  margin: 0;
+  font-size: 13px;
+}
+
+.practice-card-options {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
 

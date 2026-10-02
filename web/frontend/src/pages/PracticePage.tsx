@@ -6,6 +6,10 @@ import type { AppOutletContext } from "../components/AppShell";
 import { AttributionBadges, BrandIllustration, ErrorNotice, LoadingState, formatRelativeDate } from "../components/common";
 import { api, streamChat } from "../lib/api";
 import { useQuestionPipeline } from "../hooks/useQuestionPipeline";
+import {
+  difficultyLabel as sharedDifficultyLabel,
+  questionTypeLabel as sharedQuestionTypeLabel,
+} from "../lib/practiceCards";
 import { practiceSummaryLine } from "../lib/practiceSummary";
 import { prefersReducedMotion } from "../lib/motion";
 import { StreamBuffer } from "../lib/streamBuffer";
@@ -49,18 +53,19 @@ interface WebPracticeConsent {
   suggestedQuery?: string;
 }
 
+// W1 E5：标签逻辑收敛到 lib/practiceCards（有单测），页面只保留自己的兜底口径。
 function questionTypeLabel(type: string, fallback: string) {
-  if (type === "true_false") return "判断题";
-  if (type === "single_choice") return "单选题";
-  if (type === "short_answer") return "简答题";
-  return fallback;
+  return sharedQuestionTypeLabel(type) || fallback;
 }
 
+// 页面历史文案带"难度"二字（简单难度 / 中等难度 / 较难难度），保持原样；
+// 不认识的取值仍然**如实显示原值**，不硬拼成"xxx难度"。
+const KNOWN_DIFFICULTIES = new Set(["easy", "medium", "hard"]);
+
 function difficultyLabel(value?: string) {
-  if (value === "easy") return "简单难度";
-  if (value === "hard") return "较难难度";
-  if (value === "medium") return "中等难度";
-  return value || "自适应难度";
+  if (!value) return "自适应难度";
+  if (!KNOWN_DIFFICULTIES.has(value)) return value;
+  return `${sharedDifficultyLabel(value)}难度`;
 }
 
 const TUTOR_SESSION_PREFIX = "bobodan:practice-tutor:";
@@ -376,7 +381,26 @@ export function PracticePage() {
                   <button type="button" className="quiet-button" onClick={pipeline.cancel}>停止</button>
                 )}
               </header>
-              <ol>{pipeline.questions.map((item) => <li key={item.id}>{item.question}</li>)}</ol>
+              {/* W1 E5：每道就绪的题直接渲染成**可读卡片**（题型/难度/选项），
+                  而不是只列一行题干 —— 用户要能看出这道题长什么样。 */}
+              <ol className="practice-stepwise-questions">
+                {pipeline.questions.map((item) => (
+                  <li key={item.id} className="practice-stepwise-card">
+                    <header>
+                      <span className="practice-card-type">{questionTypeLabel(item.type || "", item.type || "")}</span>
+                      {item.difficulty && (
+                        <span className="practice-card-difficulty">{difficultyLabel(item.difficulty)}</span>
+                      )}
+                    </header>
+                    <p className="practice-card-question">{item.question}</p>
+                    {item.options.length > 0 && (
+                      <ul className="practice-card-options">
+                        {item.options.map((option) => <li key={option}>{option}</li>)}
+                      </ul>
+                    )}
+                  </li>
+                ))}
+              </ol>
               {pipeline.error && <p className="error-hint">{pipeline.error}</p>}
             </section>
           )}

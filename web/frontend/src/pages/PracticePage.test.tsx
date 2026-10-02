@@ -209,10 +209,18 @@ it("逐题生成：边出边显示，出完再开练习", async () => {
   expect(payload.topic).toBe("极限");
 
   await act(async () => {
-    emit?.({ event: "quiz_question_emitted", index: 0, total: 2, question_id: 11, question: { id: 11, question: "第一题" } });
+    emit?.({
+      event: "quiz_question_emitted", index: 0, total: 2, question_id: 11,
+      question: { id: 11, question: "第一题", type: "single_choice", options: ["A. 甲", "B. 乙"], difficulty: "hard" },
+    });
   });
   expect(await screen.findByText("第一题")).toBeTruthy();
   expect(screen.getByText(/已就绪 1 道/)).toBeTruthy();
+  // W1 E5：实时列表是**可读卡片**（题型 + 难度 + 选项），不是只列一行题干。
+  expect(screen.getByText("单选题")).toBeTruthy();
+  expect(screen.getByText("较难难度")).toBeTruthy();
+  expect(screen.getByText("A. 甲")).toBeTruthy();
+  expect(screen.getByText("B. 乙")).toBeTruthy();
 
   await act(async () => {
     emit?.({ event: "pipeline_done", question_ids: [11, 12], total: 2 });

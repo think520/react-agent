@@ -7,6 +7,9 @@ export interface PipelineQuestion {
   id: number;
   question: string;
   type?: string;
+  /** W1 E5：实时卡片要显示的东西 —— 只发题干的话界面只能列一行字。 */
+  options: string[];
+  difficulty?: string;
 }
 
 type Status = "idle" | "running" | "done" | "failed" | "cancelled";
@@ -36,7 +39,13 @@ export function useQuestionPipeline() {
       const payload = event.question;
       setQuestions((current) => [
         ...current,
-        { id: payload?.id ?? event.question_id, question: payload?.question || "", type: payload?.type },
+        {
+          id: payload?.id ?? event.question_id,
+          question: payload?.question || "",
+          type: payload?.type,
+          options: payload?.options || [],
+          difficulty: payload?.difficulty,
+        },
       ]);
       setQuestionIds((current) => [...current, event.question_id]);
       return;

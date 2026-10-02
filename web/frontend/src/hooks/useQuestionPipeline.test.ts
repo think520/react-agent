@@ -51,9 +51,18 @@ it("逐题累积：每收到一帧就多一道题，不等整批结束", async (
   expect(result.current.status).toBe("running");
 
   await act(async () => {
-    emit?.({ event: "quiz_question_emitted", index: 1, total: 3, question_id: 12, question: { id: 12, question: "第二题" } } as never);
+    emit?.({
+      event: "quiz_question_emitted", index: 1, total: 3, question_id: 12,
+      question: { id: 12, question: "第二题", type: "single_choice", options: ["A. 甲", "B. 乙"], difficulty: "hard" },
+    } as never);
   });
   expect(result.current.questions.map((item) => item.question)).toEqual(["第一题", "第二题"]);
+  // W1 E5：卡片要用的字段都要留下来（否则界面只能列一行题干）。
+  expect(result.current.questions[1].options).toEqual(["A. 甲", "B. 乙"]);
+  expect(result.current.questions[1].difficulty).toBe("hard");
+  expect(result.current.questions[1].type).toBe("single_choice");
+  // 没给选项的题保持空数组，不是 undefined。
+  expect(result.current.questions[0].options).toEqual([]);
 
   await act(async () => { emit?.({ event: "pipeline_done", question_ids: [11, 12], total: 3 } as never); });
   await act(async () => { finish?.(); });

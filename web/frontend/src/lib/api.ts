@@ -1136,7 +1136,11 @@ export type QuestionPipelineEvent =
   | { event: "pipeline_started"; topic: string; count: number }
   | { event: "explore_done"; chunks: number }
   | { event: "quiz_plan"; source: string; plan: Array<{ topic: string; question_type?: string; difficulty?: string }> }
-  | { event: "quiz_question_emitted"; index: number; total: number; question_id: number; topic?: string; question?: { id: number; question: string; type?: string; options?: string[] } }
+  | { event: "quiz_question_emitted"; index: number; total: number; question_id: number; topic?: string; question?: {
+      id: number; question: string; type?: string; options?: string[];
+      /** W1 E5：实时卡片要显示的字段。 */
+      difficulty?: string; concepts?: string[];
+    } }
   | { event: "quiz_question_failed"; index: number; total: number; topic?: string }
   | { event: "pipeline_done"; question_ids: number[]; total: number }
   | { event: "pipeline_cancelled"; emitted: number; total: number }
