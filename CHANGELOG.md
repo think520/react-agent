@@ -7,6 +7,12 @@
 ## [未发布]
 
 ### 变更
+- **W1 · E8 导入流程（第 4 步）：失败清单 UI（2026-09-30，本地未推送）**：核对结论是"只有一句汇总（N 份解析失败），不列文件名/原因、不能重试"。现在：
+  - `describeImportOutcome()` 把**单个文件**的结果说成人话并给可行动原因（格式不支持列可用扩展名；解析失败、空文本、重复、补索引、已取消各有专句；未知结果就说"结果未知"，不装作知道）。
+  - `ImportReportPanel` 逐条列出文件名 + 原因，**需要处理的排最前**，带「重试这 N 份」与关闭按钮；**没有需要处理的项时不摆重试按钮**（不给假按钮），拿不到原文件对象时也不摆（`canRetry`）。
+  - 接线：`AppShell` 记住这次"需要处理"的 `File` 对象并暴露 `documentImportResults / documentImportCanRetry / retryFailedImports / dismissImportReport`；`LibraryPage` 渲染面板。`api.ts` 的导入返回类型补上 `cancelled` 并导出 `ImportBatchResult`。
+  - **文案与取消口径**：`describeDocumentImport` 现在会先说「导入已取消：已收下 N 份，其余未处理」（取消不是整批失败）。
+  - 回归：前端新增 8 条文案断言 + 4 条面板断言 + 1 条资料库页集成断言（面板真的出现、失败项排第一、点重试触发回调）；token 棘轮 13 条通过。
 - **W1 · E8 导入流程（第 3 步）：HTTP 层接上（2026-09-30，本地未推送）**：核对指出"服务层的取消与进度**从 Web 不可达**（无 run id、无端点）"，等于死代码。现在补上：
   - `web/backend/import_runs.py`：按 import_id 寻址的运行注册表（令牌 + 粗粒度进度 + 终态结果），线程安全；用普通 `threading.Thread` 而不是线程池（这是"可轮询、可取消"的 fire-and-forget 工作）。
   - 三个端点：`POST /api/kb/imports`（202 + import_id，后台跑）→ `GET /api/kb/imports/{id}`（进度快照 + 终态结果，同步摘要按 F09 口径脱敏）→ `POST /api/kb/imports/{id}/cancel`（协作式取消）。旧的 `POST /api/kb/import` 原样保留（一次性模式）。

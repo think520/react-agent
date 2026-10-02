@@ -21,6 +21,7 @@ import {
 import { NavLink, Outlet, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { api, setActiveLibraryId } from "../lib/api";
+import type { ImportBatchResult } from "../lib/api";
 import { toErrorMessage } from "../lib/errors";
 import { describeDocumentImport } from "../lib/importSummary";
 import { notifyError } from "../stores/noticeStore";
@@ -71,6 +72,12 @@ export interface AppOutletContext {
   documentImportDuplicateCount: number;
   importDuplicatesAsCopies: () => void;
   documentImportVersion: number;
+  /** E8：本次导入的**逐文件**结果（失败清单 UI 用），null 表示还没有结果。 */
+  documentImportResults: ImportBatchResult[] | null;
+  /** 还留着原文件对象时才为 true —— 不给假的"重试"按钮。 */
+  documentImportCanRetry: boolean;
+  retryFailedImports: () => void;
+  dismissImportReport: () => void;
   libraryReady: boolean;
 }
 
@@ -199,13 +206,18 @@ export function AppShell() {
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
   const previewTimer = useRef<number | null>(null);
+  const [documentImport, setDocumentImport] = useState({
+    importing: false, notice: "", error: "", duplicateCount: 0, version: 0,
+    results: null as ImportBatchResult[] | null,
+  });
   const [loadingSessions, setLoadingSessions] = useState(true);
   const [libraries, setLibraries] = useState<LibrarySummary[]>([]);
   const [activeLibrary, setActiveLibrary] = useState<LibrarySummary | null>(null);
   const documentImportInput = useRef<HTMLInputElement>(null);
   const pendingDocumentFiles = useRef<File[]>([]);
   const pendingDuplicateFiles = useRef<File[]>([]);
-  const [documentImport, setDocumentImport] = useState({ importing: false, notice: "", error: "", duplicateCount: 0, version: 0 });
+  // E8：留下这次"需要处理"的文件对象，才能提供真正的重试（而不是假按钮）。
+  const pendingRetryFiles = useRef<File[]>([]);
   const [backendState, setBackendState] = useState<"connected" | "disconnected" | "reconnecting">("connected");
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
@@ -296,10 +308,20 @@ export function AppShell() {
       } else {
         pendingDuplicateFiles.current = [];
       }
+      const batch = result.results || [];
+      // E8：留下"需要处理"的那几份文件对象，重试按钮才有真东西可重发。
+      const problematic = new Set(
+        batch
+          .filter((item) => item.status === "rejected" || item.status === "cancelled"
+            || (item.status === "imported" && !item.searchable))
+          .map((item) => item.filename),
+      );
+      pendingRetryFiles.current = files.filter((file) => problematic.has(file.name));
       setDocumentImport((current) => ({
         ...current,
         notice: describeDocumentImport(result),
         duplicateCount: duplicates.length,
+        results: batch,
         version: current.version + 1,
       }));
       await loadScopedData();
@@ -310,6 +332,18 @@ export function AppShell() {
       navigate("/library");
     }
   }, [loadScopedData, navigate]);
+
+  /** E8：重试这次"需要处理"的那几份（复用导入通道：字节已在库里的会走补索引路径）。 */
+  const retryFailedImports = useCallback(() => {
+    const files = pendingRetryFiles.current;
+    pendingRetryFiles.current = [];
+    if (files.length) void uploadDocuments(files);
+  }, [uploadDocuments]);
+
+  const dismissImportReport = useCallback(() => {
+    pendingRetryFiles.current = [];
+    setDocumentImport((current) => ({ ...current, results: null }));
+  }, []);
 
   const importDuplicatesAsCopies = useCallback(() => {
     const files = pendingDuplicateFiles.current;
@@ -675,6 +709,10 @@ export function AppShell() {
           documentImportDuplicateCount: documentImport.duplicateCount,
           importDuplicatesAsCopies,
           documentImportVersion: documentImport.version,
+          documentImportResults: documentImport.results,
+          documentImportCanRetry: pendingRetryFiles.current.length > 0,
+          retryFailedImports,
+          dismissImportReport,
           libraryReady: initialDataLoaded,
         } satisfies AppOutletContext} />
       </main>

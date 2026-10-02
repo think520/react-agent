@@ -1792,6 +1792,69 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 /* A question is a light sheet: real border, tinted state rail, no shadow. */
 .bank-list { display: grid; gap: 10px; }
 .bank-row { display: grid; gap: 8px; border: 1px solid var(--border); border-left: 3px solid var(--border); border-radius: 8px; padding: 14px 18px; background: var(--paper-soft); }
+
+/* E8：导入结果的**逐文件**清单（需要处理的排最前，带可行动原因与重试）。 */
+.import-report {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--paper);
+}
+
+.import-report-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.import-report-head > div:first-child {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.import-report-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.import-report-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.import-report-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.import-report-name {
+  min-width: 0;
+  max-width: 42%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+}
+
+.import-report-icon { flex: 0 0 auto; }
+.import-report-icon.is-ok { color: var(--blue); }
+.import-report-icon.is-warning { color: var(--blue); opacity: 0.85; }
+
 .bank-row.state-incorrect { border-left-color: var(--clay); }
 .bank-row.state-partial, .bank-row.state-correct { border-left-color: var(--sage); }
 .bank-row-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }

@@ -5,6 +5,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useNavigate, useOutletContext, useSearchParams } from "react-router-dom";
 import { DropdownSelect } from "../components/DropdownSelect";
+import { ImportReportPanel } from "../components/ImportReportPanel";
 import { DocumentEditor } from "../components/DocumentEditor";
 
 import type { AppOutletContext } from "../components/AppShell";
@@ -61,6 +62,10 @@ export function LibraryPage() {
     documentImportDuplicateCount,
     importDuplicatesAsCopies,
     documentImportVersion,
+    documentImportResults,
+    documentImportCanRetry,
+    retryFailedImports,
+    dismissImportReport,
     selectedDocumentIds,
     setDocumentScope,
   } = useOutletContext<AppOutletContext>();
@@ -1162,6 +1167,15 @@ export function LibraryPage() {
         {confirmElement}
         {(documentImportNotice || notice) && <div className="success-notice"><CheckCircle2 size={17} /><span>{documentImportNotice || notice}</span>{documentImportDuplicateCount > 0 && <button className="text-link" type="button" onClick={importDuplicatesAsCopies}>重复文件仍要另存副本</button>}</div>}
         {documentImportError && <ErrorNotice message={documentImportError} />}
+        {/* E8：逐文件说清楚这次导入（文件名 + 可行动原因 + 重试），不再只有一句汇总。 */}
+        {documentImportResults && (
+          <ImportReportPanel
+            results={documentImportResults}
+            canRetry={documentImportCanRetry}
+            onRetryFailed={retryFailedImports}
+            onDismiss={dismissImportReport}
+          />
+        )}
         {error && <ErrorNotice message={error} action={<button className="quiet-button" onClick={() => void loadDocuments()}>重试</button>} />}
         {loading ? <div className="illustrated-loading"><BrandIllustration state="reading" size={76} /><LoadingState label={collection === "wiki" ? "正在整理 Wiki…" : "正在读取本地资料…"} /></div> : documents.length ? (
           <div

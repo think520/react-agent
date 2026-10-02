@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { describeDocumentImport } from "./importSummary";
+import { describeDocumentImport, describeImportOutcome } from "./importSummary";
 
 /**
  * 导入结果文案。
@@ -63,5 +63,41 @@ describe("describeDocumentImport", () => {
     });
     expect(text).toContain("1 份在等待建立索引");
     expect(text).toContain("1 份可用于检索");
+  });
+});
+describe("describeImportOutcome（E8：逐文件失败清单的文案）", () => {
+  it("把每种结果说成人话，并给出可行动的原因", () => {
+    expect(describeImportOutcome({ filename: "a.md", status: "imported", searchable: true }))
+      .toBe("已入库，可用于检索");
+    expect(describeImportOutcome({ filename: "b.pdf", status: "imported", searchable: false, extraction: "empty" }))
+      .toBe("已入库，但这份文件没有可提取的文本");
+    expect(describeImportOutcome({ filename: "c.pdf", status: "imported", searchable: false, extraction: "error" }))
+      .toBe("解析失败：没能从这份文件里提取出文本");
+    expect(describeImportOutcome({ filename: "d.md", status: "pending", reason: "awaiting_index" }))
+      .toBe("库里已有相同内容，正在补建索引");
+    expect(describeImportOutcome({ filename: "e.md", status: "indexed" }))
+      .toBe("已补齐索引，可用于检索");
+    expect(describeImportOutcome({ filename: "f.md", status: "duplicate", existing: "Lessons/f.md" }))
+      .toBe("与库里的「Lessons/f.md」内容完全相同，已保留已有版本");
+    expect(describeImportOutcome({ filename: "g.exe", status: "rejected", reason: "unsupported_file_type" }))
+      .toBe("格式不支持（可用 .md / .txt / .pdf / .docx / .pptx）");
+    expect(describeImportOutcome({ filename: "h.md", status: "cancelled" }))
+      .toBe("已取消，没有导入");
+  });
+
+  it("未知结果不装作知道", () => {
+    expect(describeImportOutcome({ filename: "x.md", status: "mystery" })).toBe("结果未知");
+  });
+});
+
+describe("describeDocumentImport 的取消口径", () => {
+  it("取消时说清楚'已收下几份、其余未处理'", () => {
+    const text = describeDocumentImport({
+      imported: ["a.md"], duplicates: [], rejected: [], cancelled: true,
+      results: [{ filename: "a.md", status: "imported", searchable: true }],
+      library_sync: { extraction_counts: { complete: 1 }, error_files: 0 },
+    });
+    expect(text).toContain("导入已取消");
+    expect(text).toContain("已收下 1 份");
   });
 });

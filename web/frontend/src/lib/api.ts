@@ -147,6 +147,18 @@ export interface OrganizationBatch {
   status?: string;
 }
 
+/** E8：一次导入里**单个文件**的结果（失败清单 UI 按它逐条说明）。 */
+export interface ImportBatchResult {
+  filename: string;
+  status: string;
+  path?: string;
+  searchable?: boolean;
+  chunks?: number;
+  extraction?: string | null;
+  reason?: string;
+  existing?: string;
+}
+
 interface ErrorEnvelope {
   error?: { code?: string; message?: string; details?: unknown };
 }
@@ -394,11 +406,10 @@ export const api = {
       /** 字节已经在库里、这次是**补做索引**的那些（F04）。 */
       pending?: Array<{ filename: string; existing: string; reason: string }>;
       rejected: unknown[];
+      /** E8：用户中途取消了这次导入（已收下的保持收下）。 */
+      cancelled?: boolean;
       /** 本次上传的逐文件结果（F09：批次计数只认它）。 */
-      results?: Array<{
-        filename: string; status: string; path?: string;
-        searchable?: boolean; chunks?: number; extraction?: string | null;
-      }>;
+      results?: ImportBatchResult[];
       /** 全库增量同步：单独展示，不当批次计数用。 */
       library_sync: KnowledgeSyncSummary;
     }>(

@@ -63,6 +63,12 @@ function buildContext() {
     documentImportNotice: "",
     documentImportError: "",
     documentImportVersion: 0,
+    documentImportDuplicateCount: 0,
+    importDuplicatesAsCopies: vi.fn(),
+    documentImportResults: null,
+    documentImportCanRetry: false,
+    retryFailedImports: vi.fn(),
+    dismissImportReport: vi.fn(),
     libraryReady: true,
   };
 }
@@ -492,5 +498,36 @@ describe("资料库文件夹同步", () => {
     expect(screen.getByText(/file is locked/)).toBeTruthy();
     expect(await screen.findByText(/上一次整理未完成/)).toBeTruthy();
     expect(screen.getByText("撤销这一步整理")).toBeTruthy();
+  });
+
+  // E8：导入结果的**逐文件**清单要真的出现在资料库页（不是只有一句汇总），
+  // 并且"需要处理"的那些能重试。
+  it("导入之后逐文件列清楚，需要处理的能重试", async () => {
+    vi.mocked(api.knowledgeTree).mockResolvedValue(treeWith([]) as never);
+    vi.mocked(api.documents).mockResolvedValue([] as never);
+    const retryFailedImports = vi.fn();
+    hoisted.ctx = {
+      ...buildContext(),
+      documentImportResults: [
+        { filename: "broken.pdf", status: "imported", searchable: false, extraction: "error" },
+        { filename: "good.md", status: "imported", searchable: true },
+      ],
+      documentImportCanRetry: true,
+      retryFailedImports,
+    };
+
+    render(
+      <MemoryRouter initialEntries={["/library"]}>
+        <LibraryPage />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("broken.pdf")).toBeTruthy();
+    expect(screen.getByText("解析失败：没能从这份文件里提取出文本")).toBeTruthy();
+    const rows = screen.getAllByTestId("import-report-row");
+    expect(rows[0].textContent).toContain("broken.pdf");
+
+    fireEvent.click(screen.getByRole("button", { name: /重试这 1 份/ }));
+    expect(retryFailedImports).toHaveBeenCalledTimes(1);
   });
 });
