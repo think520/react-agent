@@ -81,7 +81,7 @@ export function ReviewPage() {
       // 变式针对的是当初那个误区，而不是把原题重放一遍（没有作答历史的新概念才按概念出题）。
       if (item.attemptId) {
         const variant = await api.generateWrongAnswerVariant(item.attemptId);
-        const fallbackReason = wrongAnswerFallbackNotice(variant.mode);
+        const fallbackReason = wrongAnswerFallbackNotice(variant.mode, variant.reason);
         if (fallbackReason) notifyInfo(fallbackReason);
         ids = [variant.question_id];
       } else {

@@ -778,7 +778,13 @@ export const api = {
     review_count?: number;
     next_review?: string | null;
   }>(`/api/learning/progress?concept=${encodeURIComponent(concept)}`),
-  generateWrongAnswerVariant: (attemptId: number) => request<{ question_id: number; question: Question; mode?: string }>(
+  generateWrongAnswerVariant: (attemptId: number) => request<{
+    question_id: number;
+    question: Question;
+    mode?: string;
+    /** W1 E3：更精确的归因（evidence_used / evidence_missing / variant_failed / no_provider / generation_failed）。 */
+    reason?: string;
+  }>(
     "/api/quiz/wrong/variant",
     json({ attempt_id: attemptId }),
   ),

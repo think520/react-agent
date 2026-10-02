@@ -94,7 +94,7 @@ R12 的覆盖式“导入为新版本”仍是独立产品能力，不能用当�
 |---|---|---|---|
 | E1 | 会话内操作失败静默 → 全局错误位 + 可见反馈 | web/backend + ChatPage | 体验审查 P0-1 |
 | E2 | 新建资料库路径体验：默认路径预填 + 目的解释 | LibrarySetupDialog | 体验审查 P0-2 |
-| E3 | 错题变式死路回退链：无 chunk → 按概念重出 → 原题重练 + 失败原因上屏（A0：后端三级回退已存在，只做前端上屏） | quiz_service | 体验审查 P0-3 |
+| E3 | **已完成（2026-09-30）** 错题变式死路回退链：① 三级回退与前端上屏**此前已交付**（无 chunk → 按概念重出 → 原题重练）② 本轮修掉两处不一致：**未配置模型时不再死路**（旧代码在回退链之前就 return，注释里的「避免错题永远进不了复习」不成立）③ **归因不再撒谎**：每次返回都带精确 `reason`（`evidence_used`/`evidence_missing`/`variant_failed`/`no_provider`/`generation_failed`），界面区分「证据缺失 / 生成失败 / 未配置模型」三件事。回归：后端 2 新 + 3 补断言，前端 3 条 | quiz_service + wrongAnswerMode | 体验审查 P0-3 |
 | E4 | **ask_user 交互卡 + 交互生命周期持久化**（registered→awaiting→answered→graded，断线可恢复）——**已交付（A1 + 2026-09-10 补齐轮）**；剩余 UI 细化见 F11/F12 | SSE 事件 + interactions 表 + 前端卡 | D6；报告 P0-1 |
 | E5 | **出题三阶段流式管线**：Explore→Plan→逐题生成，每题就绪即渲染；explanation 随题入库（**口径**：这里的"入库"就是题库 D1 的入库，见 `QUESTION_BANK_DESIGN.md`） | quiz_service | D8/D9；报告 P0-2 |
 | E6 | **掌握度引擎纯函数化**：近 5 次加权 + 置信帽 {1:0.5,2:0.8} + 知识四分类 + next_objective 优先级（挂起问题>到期复习>第一个未掌握点）；agent 每轮先读引擎 —— **2026-09-30 核对**：无 `learning/engine.py`；现在是在 `learning/scheduler.py:19-67` 里**增量累加**（对 +0.1/+0.2、错 −0.2），**不是从历史推导**，而且**逐次对错没持久化**（`Mastery` 只存计数/连对/分数）→ 先补数据再谈引擎；「知识四分类」指的是 memory/procedure/concept/design，与现有 unseen/learning/mastered/needs_review **不是一回事** | learning/ 新增 engine.py + 逐次作答持久化 | D1/D2/D3；报告 P | 

@@ -7,6 +7,11 @@
 ## [未发布]
 
 ### 变更
+- **W1 · E3 错题变式的回退链与归因（2026-09-30，本地未推送）**：核对发现两件事与注释/文案不符。
+  - **没有模型 = 死路**：旧代码在进入三级回退**之前**就 `return provider_unconfigured`，于是「仍失败则原题重练，避免错题永远无法进入复习」这句注释在未配置模型时不成立 —— 用户点「生成变式题」只得到一句错误，这一轮复习断头。现在**没有 provider 不是死路**：直接走最后一级（原题重练，不需要模型），并带 `reason=no_provider`。
+  - **归因撒谎**：变式生成抛异常/输出不可用时被静默吞掉、降级到 concept_fallback，界面于是说「原题证据已失效，已按同一概念重新出题」—— 真实原因是生成失败。现在每次返回都带精确 `reason`：`evidence_used` / `evidence_missing`（没有 chunk 证据）/ `variant_failed`（有证据但生成失败）/ `no_provider` / `generation_failed` / `no_evidence`。
+  - **前端**：`wrongAnswerFallbackNotice(mode, reason)` 优先按 reason 说人话（未配置模型就直说未配置、不甩锅给证据），老后端只给 mode 时保持兼容；`ReviewPage` 把 reason 一起传进去。
+  - **回归**：后端 2 条新用例（无模型仍重练原题 / 生成失败不得报成证据失效）+ 既有 3 条补上归因断言（evidence_used / evidence_missing）；前端 3 条（区分证据缺失与生成失败 / 未配置模型不甩锅 / 老后端兼容）。
 - **W1 · E15 三态口径统一（2026-09-30，本地未推送）**：核对发现「小结文案与事实相反」—— 错题谓词**排除 partial**（`_WRONG_VERDICT_SQL`），所以「只有 partial」的一轮根本没新增错题，而小结一律说「错题和薄弱点已经加入复习队列」。
   - **后端三处**：① `get_session_state` 的 progress 三态分开数（`correct` / `partial` / `wrong`；partial 既不算答对也不算错）② `quiz_answered` 事件补 `verdict`（学习轨迹不能只有 is_correct）③ **无 LLM 的兜底判分**改回三态约定（「基本正确」⇒ `verdict=partial, is_correct=False`）—— 旧代码在同一个函数里对同一句话给出与 LLM 路径相反的状态。
   - **前端**：新增纯函数 `practiceSummaryLine()`，按三态分三种说法：全对 → 「全部答对，复习队列没有新增错题」；只有 partial → 「这几题已计入薄弱点，但没有进错题本」；真有错题 → 才说「错题和薄弱点已经加入复习队列」。老数据缺少三态计数时**不猜**（只报答对 X/Y），不用一句可能错的话补空。

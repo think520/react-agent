@@ -543,12 +543,21 @@ class QuizService:
         try:
             llm = _get_llm_provider(self.config)
         except Exception as exc:
+            # W1 E3：**没有模型不是死路**。回退链的最后一级（原题重练）不需要模型，
+            # 必须先走到它 —— 旧代码在这里直接 return，错题这一轮就再也进不了复习。
+            # 归因也如实：mode=replay + reason=no_provider（界面据此说"未配置模型"）。
             logger.warning("No LLM provider for wrong-answer variant: %s", exc)
-            return _err("AI 模型未配置，无法生成变式题，请在设置中完成配置。", code="provider_unconfigured")
+            return _ok(
+                question_id=entry["question_id"],
+                question=self._question_for_practice(original),
+                mode="replay",
+                reason="no_provider",
+            )
 
         # 回退链：优先用原文 chunk 生成变式；证据缺失（联网题、旧题、重同步后
         # chunk 失效）时按原题概念重新出题；仍失败则原题重练，避免错题永远
-        # 无法进入复习。
+        # 无法进入复习。每级的「为什么走了这条路」用 reason 如实带出去 ——
+        # 旧实现把异常吞掉后静默降级，界面一律说"原题证据已失效"，与事实不符。
         if chunks:
             try:
                 variant = QuestionGenerator(self.workspace, llm).generate_wrong_answer_variant(
@@ -558,7 +567,12 @@ class QuizService:
                 )
                 if variant:
                     variant.id = store.add_question(variant)
-                    return _ok(question_id=variant.id, question=self._question_for_practice(variant), mode="variant")
+                    return _ok(
+                        question_id=variant.id,
+                        question=self._question_for_practice(variant),
+                        mode="variant",
+                        reason="evidence_used",
+                    )
             except Exception as exc:
                 logger.warning("Could not generate wrong-answer variant: %s", exc)
 
@@ -572,12 +586,23 @@ class QuizService:
                 if fallback:
                     question = fallback[0]
                     question.id = store.add_question(question)
-                    return _ok(question_id=question.id, question=self._question_for_practice(question), mode="concept_fallback")
+                    return _ok(
+                        question_id=question.id,
+                        question=self._question_for_practice(question),
+                        mode="concept_fallback",
+                        # 有证据却降级 = 生成失败；没证据 = 证据缺失。两种归因不能混。
+                        reason="variant_failed" if chunks else "evidence_missing",
+                    )
             except Exception as exc:
                 logger.warning("Could not generate concept fallback question: %s", exc)
 
         # 最后回退：原题重练（前端可据此标注"复习原题"）。
-        return _ok(question_id=entry["question_id"], question=self._question_for_practice(original), mode="replay")
+        return _ok(
+            question_id=entry["question_id"],
+            question=self._question_for_practice(original),
+            mode="replay",
+            reason="generation_failed" if (chunks or concepts) else "no_evidence",
+        )
 
     def get_weakness_analysis(self) -> dict[str, Any]:
         from quiz.review import QuizReviewer
