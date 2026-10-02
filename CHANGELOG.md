@@ -7,6 +7,11 @@
 ## [未发布]
 
 ### 变更
+- **W1 · E5 出题三阶段管线（第一批：管线核心 + 服务/工具接线，2026-09-30，本地未推送）**：核对确认 `quiz_service` 只有单发 `generate_questions`、没有 plan/逐题阶段。设计照参考项目 DeepTutor `deeptutor/agents/question/pipeline.py`（报告 D8/D9）。
+  - **新增 `quiz/pipeline.py`**：**Explore**（先检索确认资料里确实能出题；拿不到证据就**明确失败**，不安静地出 0 道题）→ **Plan**（一次模型调用给逐题模板：主题/题型/难度；模型不可用或输出不可解析时用**确定性兜底**，来源如实标注 `llm` / `fallback`）→ **Quiz**（逐题生成，**每生成一道先落库再回调** `quiz_question_emitted` —— 这是『每题就绪即渲染』的数据前提；单题失败只跳过它）。事件序列：`pipeline_started → explore_done → quiz_plan → (quiz_question_emitted | quiz_question_failed)×N → pipeline_done | pipeline_cancelled`，并复用既有 `CancelToken` 在题与题之间协作式停止（取消不删已就绪的题）。
+  - **接线**：`QuizService.generate_questions(..., pipeline=False)` 与工具 `question_generate(..., pipeline=False)`（schema 里也说明了『逐题/边出边看』的场景与代价）。**默认仍是单发**：逐题是每道题一次模型调用，等逐题流式界面做好再谈默认开启。服务侧只收拢管线已入库的结果，**不重复入库**。
+  - **回归**：7 条（确定性兜底计划 / 模型计划可用且来源标注 / 无效输出回退兜底 / 三阶段顺序 + **事件发生那一刻题库里已有该题**（1→2）/ explanation 随题入库 / 题间取消保留已就绪题 / 无证据明确失败 / 服务开关且不重复入库 / 工具透传开关）。
+  - **未做（如实记账）**：**SSE 传输与界面**还没做 —— 事件目前只在服务层产生，用户还看不到『出一道显示一道』；管线也不吃 `course` 与个性化上下文（单发路径才有）。
 - **W1 · E12 具名块字节稳定 + KB seed 预检索（2026-09-30，本地未推送）**：设计照参考项目（`docs/Bobodan参考项目调研报告.md` 的 D5/D13，对应 DeepTutor `agents/chat/prompt_blocks.py` 与 `agentic_pipeline.py` L1282-1320）—— 进循环前先检索一次拼进**末尾 user 消息**，明示可继续检索；system 侧具名块字节稳定。
   - **新增 `core/prompt_blocks.py`**：`KB_CONTEXT_HEADER = [Knowledge Base Context]`、`build_kb_seed_block()`（按 `(document_id, chunk_id)` 固定排序 → **同一批命中不管检索顺序如何都逐字节相同**；单条超长按剩余预算**截断**；超预算的条目计数并说明；末尾固定写出「可能不完整，继续用 rag_search/library_search 检索」）、`attach_kb_seed()`（按 header **幂等**，重试或多轮再注入不会越拼越长）。
   - **AgentLoop**：新增 `kb_seed` 参数，把块拼到末尾 user 消息上（走真实 run 路径验证）。

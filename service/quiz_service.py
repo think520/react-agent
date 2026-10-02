@@ -75,6 +75,7 @@ class QuizService:
         jina_fallback: bool = True,
         memory_enabled: bool = True,
         mode: str = "generate",
+        pipeline: bool = False,
     ) -> dict[str, Any]:
         """``mode="generate"`` authors new questions; ``mode="search"`` extracts the
         questions a page already contains (S6 / D9). Search has no local branch —
@@ -103,9 +104,38 @@ class QuizService:
                 )
             return generator.generate_from_web_evidence(evidence_content, sources, count=count)
 
+        pipeline_used = False
+        if pipeline and not searching and not web_research_id:
+            # W1 E5：三阶段管线（Explore → Plan → 逐题生成），逐题就绪即入库。
+            # 默认关闭：它每道题一次模型调用，等逐题流式界面做好再谈默认开启。
+            from quiz.pipeline import run_question_pipeline
+
+            outcome = run_question_pipeline(
+                workspace=self.workspace,
+                topic=query,
+                count=count,
+                llm=llm,
+                config=self.config,
+                document_ids=document_ids,
+            )
+            if not outcome.get("ok"):
+                return _err(
+                    outcome.get("error") or "没有找到可用于出题的资料。",
+                    code=outcome.get("code") or "no_evidence",
+                )
+            questions = [
+                question
+                for question in (store.get_question(qid) for qid in outcome["question_ids"])
+                if question is not None
+            ]
+            pipeline_used = True
+
         web_attempted = False
         active_web_research_id = web_research_id
-        if active_web_research_id:
+        if pipeline_used:
+            # 管线已经逐题生成并入库 —— 别再走单发分支把它覆盖掉。
+            pass
+        elif active_web_research_id:
             from service.research_service import ResearchService
             try:
                 evidence = ResearchService(self.workspace).evidence(active_web_research_id)
@@ -173,6 +203,11 @@ class QuizService:
 
         saved_ids = []
         for q in questions:
+            if pipeline_used and q.id:
+                # 三阶段管线**逐题就绪即入库**；这里只是把它已经落库的结果收拢，
+                # 不能重复入库（否则同一道题会出现两次）。
+                saved_ids.append(q.id)
+                continue
             qid = store.add_question(q)
             q.id = qid
             saved_ids.append(qid)
