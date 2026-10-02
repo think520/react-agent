@@ -28,6 +28,8 @@ interface Props {
   onReturnToSource?: () => void;
   /** When present the panel starts in extraction mode, polling until candidates arrive. */
   extractionSource?: ExtractionSource;
+  /** W1 E16：确认成功后把生成的 concept_id 交出去（界面据此高亮新节点几秒）。 */
+  onConceptsConfirmed?: (conceptIds: string[]) => void;
 }
 
 const BATCH = 8;
@@ -44,7 +46,7 @@ interface RelationEdit {
 
 type Phase = "extracting" | "ready" | "failed";
 
-export function CandidateReviewPanel({ onClose, onCandidatesChanged, onReturnToSource, extractionSource }: Props) {
+export function CandidateReviewPanel({ onClose, onCandidatesChanged, onReturnToSource, extractionSource, onConceptsConfirmed }: Props) {
   const [candidates, setCandidates] = useState<ConceptCandidate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -195,7 +197,13 @@ export function CandidateReviewPanel({ onClose, onCandidatesChanged, onReturnToS
     setActing(candidateId);
     setError(null);
     try {
-      await api.graphCandidateAction(candidateId, action, 14, action === "confirm" ? relationEdits[candidateId] || [] : []);
+      const response = await api.graphCandidateAction(
+        candidateId, action, 14, action === "confirm" ? relationEdits[candidateId] || [] : [],
+      );
+      // W1 E16：把新概念交出去，界面才能把它高亮几秒。
+      if (action === "confirm" && response?.concept?.concept_id) {
+        onConceptsConfirmed?.([response.concept.concept_id]);
+      }
       setHasReviewed(true);
       setCandidates((prev) => prev.filter((c) => c.candidate_id !== candidateId));
       onCandidatesChanged();
@@ -213,10 +221,14 @@ export function CandidateReviewPanel({ onClose, onCandidatesChanged, onReturnToS
     setActing("batch");
     setError(null);
     try {
-      await api.graphConfirmCandidates(
+      const response = await api.graphConfirmCandidates(
         highConf.map((candidate) => candidate.candidate_id),
         highConf.flatMap((candidate) => relationEdits[candidate.candidate_id] || []),
       );
+      const confirmedIds = (response?.concepts || [])
+        .map((concept) => concept.concept_id)
+        .filter(Boolean);
+      if (confirmedIds.length) onConceptsConfirmed?.(confirmedIds);
       setHasReviewed(true);
       setCandidates((current) => current.filter((candidate) => candidate.confidence !== "high"));
       onCandidatesChanged();

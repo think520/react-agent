@@ -45,6 +45,8 @@ const C = {
   detailNode: "#94a1aa",
   selectedNode: "#c7664f",
   hoverNode: "#d98a68",
+  // W1 E16：刚确认的概念 —— 比"选中"更醒目，几秒后自己回到常态。
+  newConcept: "#b45309",
 } as const;
 
 function nodeColor(level: string): string {
@@ -94,6 +96,8 @@ export interface GraphCanvasProps {
   onPositionsChanged?: (positions: Array<{ concept_id: string; x: number; y: number }>) => void;
   actionsRef?: MutableRefObject<GraphCanvasActions | null>;
   className?: string;
+  /** W1 E16：刚确认的概念，短暂强调（颜色 + 尺寸），由调用方定时清空。 */
+  emphasizedIds?: string[];
 }
 
 export function GraphCanvas({
@@ -108,6 +112,7 @@ export function GraphCanvas({
   onPositionsChanged,
   actionsRef,
   className = "",
+  emphasizedIds,
 }: GraphCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sigmaRef = useRef<Sigma | null>(null);
@@ -122,6 +127,9 @@ export function GraphCanvas({
   const hoverTargetRef = useRef(0);
   const hoverRafRef = useRef<number | null>(null);
   const searchQueryRef = useRef(searchQuery);
+  // W1 E16：刚确认的概念 —— 用 ref 给渲染器读，变化时刷一次即可。
+  const emphasizedRef = useRef<Set<string>>(new Set());
+  const emphasisKey = (emphasizedIds || []).filter(Boolean).join("|");
   const focusDegreeRef = useRef(focusDegree);
   // Edge identity for incremental syncs: composite key -> sigma edge key.
   const edgeKeysRef = useRef(new Map<string, string>());
@@ -161,25 +169,31 @@ export function GraphCanvas({
         const isFocused = !selected || focused.has(node);
         const level = graph.getNodeAttribute(node, "level") as string;
         const hideDetail = level === "detail" && !showAllRef.current && !showDetailsRef.current && !focused.has(node);
+        // W1 E16：刚确认的概念优先于其它配色，且看得见（哪怕当前有别的选中）。
+        const emphasized = emphasizedRef.current.has(node);
         return {
           ...data,
-          size: (data.size as number) * (node === hoveredNodeRef.current ? 1 + 0.12 * hoverTweenRef.current : 1),
+          size: (data.size as number) * (
+            emphasized ? 1.35 : node === hoveredNodeRef.current ? 1 + 0.12 * hoverTweenRef.current : 1
+          ),
           hidden: hideDetail,
-          color: !matchesSearch
-            ? C.faintNode
-            : !isFocused
+          color: emphasized
+            ? C.newConcept
+            : !matchesSearch
               ? C.faintNode
-              : node === selected
-                ? C.selectedNode
-                : hoveredNodeRef.current === node
-                  ? C.hoverNode
-                  : selected && focused.has(node)
-                    ? C.sageSoft
-                    : nodeColor(level),
-          label: matchesSearch && (isFocused || !selected) ? data.label : "",
+              : !isFocused
+                ? C.faintNode
+                : node === selected
+                  ? C.selectedNode
+                  : hoveredNodeRef.current === node
+                    ? C.hoverNode
+                    : selected && focused.has(node)
+                      ? C.sageSoft
+                      : nodeColor(level),
+          label: emphasized || (matchesSearch && (isFocused || !selected)) ? data.label : "",
           labelColor: C.inkBlue,
-          highlighted: matchesSearch && (node === selected || node === hoveredNodeRef.current || Boolean(query)),
-          zIndex: node === selected || node === hoveredNodeRef.current ? 2 : 1,
+          highlighted: emphasized || (matchesSearch && (node === selected || node === hoveredNodeRef.current || Boolean(query))),
+          zIndex: emphasized ? 3 : node === selected || node === hoveredNodeRef.current ? 2 : 1,
         };
       },
       edgeReducer: (edge, data) => {
@@ -498,6 +512,13 @@ export function GraphCanvas({
     focusDegreeRef.current = focusDegree;
     sigmaRef.current?.refresh();
   }, [showAll, searchQuery, focusDegree]);
+
+  // W1 E16：高亮出现/消失时先更新 ref 再刷一次
+  //（渲染期间写 ref 会被 react-hooks/refs 拦下；用拼接 key 避免数组每次新建都重绘）。
+  useEffect(() => {
+    emphasizedRef.current = new Set(emphasisKey ? emphasisKey.split("|") : []);
+    sigmaRef.current?.refresh();
+  }, [emphasisKey]);
 
   return (
     <div

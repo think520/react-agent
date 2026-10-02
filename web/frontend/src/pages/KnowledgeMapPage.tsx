@@ -23,6 +23,7 @@ import type {
 } from "../types";
 import { GraphCanvas, type ForceParams } from "../components/GraphCanvas";
 import { CandidateReviewPanel } from "../components/CandidateReviewPanel";
+import { useTemporaryHighlight } from "../hooks/useTemporaryHighlight";
 import { DropdownSelect } from "../components/DropdownSelect";
 import { LoadingState } from "../components/common";
 import { Modal } from "../ui/Modal";
@@ -64,6 +65,8 @@ export function KnowledgeMapPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedConceptId, setSelectedConceptId] = useState<string | null>(null);
+  // W1 E16：刚确认的概念高亮几秒再自己消失。
+  const { highlighted, highlight } = useTemporaryHighlight(4000);
   const [selectedTopicId, setSelectedTopicId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [showAllNodes, setShowAllNodes] = useState(false);
@@ -290,6 +293,7 @@ export function KnowledgeMapPage() {
               <div className="km-loading" aria-live="polite"><LoadingState label="正在加载图谱…" state="reading" /></div>
             ) : (
               <GraphCanvas
+                emphasizedIds={highlighted}
                 concepts={graphState?.concepts ?? []}
                 relationships={graphState?.relationships ?? []}
                 selectedConceptId={selectedConceptId}
@@ -351,6 +355,11 @@ export function KnowledgeMapPage() {
               setExtractionSource(null);
             }}
             onCandidatesChanged={handleCandidatesChanged}
+            // W1 E16：确认后把新概念高亮几秒（并选中它），用户才知道它落在哪。
+            onConceptsConfirmed={(ids) => {
+              highlight(ids);
+              if (ids.length === 1) setSelectedConceptId(ids[0]);
+            }}
           />
         </Modal>
       )}

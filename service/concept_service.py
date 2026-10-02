@@ -534,6 +534,9 @@ class ConceptService:
             self._store.update_candidate_suggested_rels(cand["candidate_id"], suggestions)
             cand["suggested_rels"] = suggestions
 
+        # W1 E16：确认之后要能知道**新概念落在哪**（界面据此把用户带过去并高亮几秒）。
+        # 没有布局坐标的概念如实返回 placed=False，而不是编一个 (0, 0) 让人以为它在那儿。
+        positions = self._store.get_positions()
         concepts = []
         for cand in candidates:
             concept = self._store.get_concept_by_name(cand["name"])
@@ -543,7 +546,7 @@ class ConceptService:
                     level=cand["level"],
                     definition=cand["definition"],
                 )
-            concepts.append(concept)
+            concepts.append(self._with_position(concept, positions))
         document_ids = {cand.get("source_doc_id", "") for cand in candidates}
         for cand in candidates:
             self._store.update_candidate_status(cand["candidate_id"], "confirmed")
@@ -551,6 +554,21 @@ class ConceptService:
         for document_id in document_ids:
             created_rels.extend(self._materialize_confirmed_candidate_relationships(document_id))
         return _ok(concepts=concepts, relationships=created_rels)
+
+    @staticmethod
+    def _with_position(
+        concept: dict[str, Any],
+        positions: dict[str, dict[str, float]],
+    ) -> dict[str, Any]:
+        """带上概念在地图上的位置（W1 E16）。没有坐标时 «position=None, placed=False»。"""
+        position = positions.get(str(concept.get("concept_id") or ""))
+        return {
+            **concept,
+            "position": (
+                {"x": float(position["x"]), "y": float(position["y"])} if position else None
+            ),
+            "placed": position is not None,
+        }
 
     def _materialize_confirmed_candidate_relationships(self, document_id: str) -> list[dict[str, Any]]:
         candidates = self._store.list_candidates(status="confirmed", source_doc_id=document_id)

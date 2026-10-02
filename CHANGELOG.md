@@ -7,6 +7,11 @@
 ## [未发布]
 
 ### 变更
+- **W1 · E16 确认返回坐标 + 定时高亮（2026-09-30，本地未推送）**：核对确认「确认之后界面不知道新概念落在哪」——`confirm_candidates` 只返回 concepts/relationships，**不带坐标**，前端确认完也不会指出新节点。
+  - **后端**：确认（单条与批量）返回的每个概念新增 `position` 与 `placed`：有布局坐标就给 `{x, y}`，**没有就如实 null/false** —— 不编一个 (0,0) 让人以为它在那儿（新概念通常还没有坐标）。
+  - **前端**：`CandidateReviewPanel` 确认成功后把新概念 id 交给 `onConceptsConfirmed`（批量给整批；拒绝不触发）；`KnowledgeMapPage` 用新 hook `useTemporaryHighlight(4000)` **高亮 4 秒**并在单条确认时选中该节点；`GraphCanvas` 新增 `emphasizedIds`，在节点渲染器里给新概念更醒目的颜色/尺寸/层级，并在高亮出现或消失时刷新一次（用拼接 key 避免数组每次新建都重绘）。
+  - **回归**：后端 3 条（新概念 → position=null/placed=false / 已保存坐标的概念 → 取回 {x,y} 且 placed=true / 批量确认同样带 placed）+ 既有 139 passed；前端 8 条（计时 hook 5 条：到点自清 / 再次高亮重新计时 / 去重忽略空 id / 空列表清空 / 卸载安全；面板 3 条：单条交出 id / 批量交出整批 / 拒绝不触发）。
+  - **如实标注**：画布上的**上色**本身（Sigma/WebGL）无法在 jsdom 里断言 —— 它由渲染器与 tsc 覆盖，没有单元测试；可测的两端（计时、id 交接）都有测试。
 - **W1 · E6 接线（2026-09-30，本地未推送）**：上一轮交付了逐次历史与纯函数引擎，但**没人用**；这一步把它接到真实路径上。
   - **队列带推导掌握度**：`get_review_queue` 的每条到期/薄弱点条目新增 `mastery` / `evidence` / `mastery_source`：有逐次历史就用引擎算（近 5 次加权 + 置信缩放），**老数据没有历史则退回存量 score 并标注 `stored`** —— 不把存量冒充推导结果。
   - **今天下一件该做的事**：新增 `LearningService.get_next_objective()`（挂起问题 > 到期复习 > 第一个未掌握点，用引擎的纯函数），并随复习队列一起返回；为取「跨会话挂起问题」新增 `InteractionService.list_pending()`（`list_open` 只能按会话取）。
