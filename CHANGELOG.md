@@ -7,6 +7,12 @@
 ## [未发布]
 
 ### 变更
+- **W1 · E7 第二批：阅读器里的划线闭环（2026-09-30，本地未推送）**：核对发现选区工具条**早就有**「带到对话 / 基于此出题」，缺的是把选区**存成锚点**、列出划线、以及从划线回到原处。
+  - **纯函数 `lib/readerAnchors.ts`**：`resolveQuoteOffsets()` 在**原文**里找引文（渲染后的 DOM 文字丢了 markdown 记号，找不到就返回 null，**不编偏移**）；`anchorDraftFromRange()` 从 DOM 选区取 `chunk_id`（最近的 `[data-chunk-id]` 分段）+ 引文 + 偏移。
+  - **阅读器**：选区工具条新增「**划线**」→ POST 锚点 → 重新拉取列表并清掉选区；文章顶部渲染 `ReaderAnchorsPanel`（引文 + **现状**：位置未变 / 位置已更新 / 已失效需重新指认 + 「定位到这段」+ 删除）；定位复用既有的 `jumpToChunk`（原文视图下会先切到分段视图再滚动高亮）—— 这就是 ↩ 反链定位。
+  - **API**：`api.documentAnchors / createDocumentAnchor / deleteDocumentAnchor`。
+  - **回归**：前端 13 条（纯函数 8 条：偏移命中 / 原文找不到返回 null / 空白差异**不编偏移** / 长度一致时才用压缩位置 / DOM 选区取 chunk 与引文 / 原文不同则偏移为 null / 选区不在分段里返回 null；面板 5 条：显示引文与现状 / 点引文或定位按钮都回跳 / 删除带对锚点 / 空列表不占地方 / 未知状态如实显示原值）。
+  - **未做（如实记账）**：**笔记里的托管区块同步**（三家参考项目无等价机制，要自定语法）、**正文内的划线上色**（现在只在面板里列出来 + 能定位，正文里没有把那几个字标出来的渲染）、**跨分段找回引文**。
 - **W1 · E7 划线最小闭环（第一批：数据层 + 服务 + API，2026-09-30，本地未推送）**：核对指出四件事缺三件 —— references 早有 `chunk_id` 字段且 E17③ 有重映射迁移，但**没有任何代码写过它**；`_public_section` 还把 `char_start/char_end` 丢掉了。
   - **① 分段偏移不再丢**：`KBService._public_section` 现在带 `char_start/char_end`（缺就 None）—— 划线锚点才有偏移可用，重锚定不必只靠引文。
   - **② 锚点存储**：`personal_store` 新增表 `document_anchors`（四元组 `document_id/chunk_id/char_start/char_end` + `quote` + note），放在**资料库作用域**（它是用户自己的标注，不是索引真相源），并配 `add/list/get/delete` 四个方法。

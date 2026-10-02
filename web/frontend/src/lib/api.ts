@@ -462,6 +462,24 @@ export const api = {
   }>(`/api/libraries/root-preview?name=${encodeURIComponent(name)}&parent=${encodeURIComponent(parent)}`),
   /** W1 E5：三阶段逐题生成（SSE，边出边收）。 */
   streamQuestionPipeline,
+  /** W1 E7：某份资料上的划线（每条都带 resolution：exact / relocated / stale）。 */
+  documentAnchors: (documentId: string) => request<{
+    anchors: Array<{
+      anchor_id: string; document_id: string; chunk_id: string; quote: string;
+      char_start: number | null; char_end: number | null; note: string; created_at: string;
+      resolution: { status: string; char_start: number | null; char_end: number | null };
+    }>;
+    count: number;
+  }>(`/api/kb/documents/${encodeURIComponent(documentId)}/anchors`),
+  createDocumentAnchor: (
+    documentId: string,
+    body: { chunk_id?: string; quote: string; char_start?: number | null; char_end?: number | null; note?: string },
+  ) => request<{ anchor: { anchor_id: string } }>(
+    `/api/kb/documents/${encodeURIComponent(documentId)}/anchors`, json(body),
+  ),
+  deleteDocumentAnchor: (anchorId: string) => request<{ anchor_id: string }>(
+    `/api/kb/anchors/${encodeURIComponent(anchorId)}`, { method: "DELETE" },
+  ),
   wikiHealth: () => request<WikiHealth>("/api/kb/wiki/maintenance"),
   wikiCoverage: () => request<{ documents: WikiDocumentCoverage[]; counts: Record<string, number> }>("/api/kb/wiki/coverage"),
   maintainWiki: () => request<{ archived_count: number; canonical_count: number; health: WikiHealth; plan_id: string; repair_plan: WikiRepairPlan }>(

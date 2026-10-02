@@ -2080,4 +2080,63 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
   color: var(--ink);
 }
 
+/* W1 E7：我的划线（引文 + 现状 + 定位/删除）。 */
+.reader-anchors {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--paper);
+}
+
+.reader-anchors header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.reader-anchors ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.reader-anchor {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.reader-anchor.stale .reader-anchor-quote {
+  color: var(--faint);
+  text-decoration: line-through;
+}
+
+.reader-anchor-quote {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: left;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.reader-anchor-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--faint);
+}
+
 

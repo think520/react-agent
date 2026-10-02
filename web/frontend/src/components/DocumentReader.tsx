@@ -16,7 +16,9 @@ import { useNavigate, useOutletContext } from "react-router-dom";
 import type { AppOutletContext } from "./AppShell";
 import { EmptyState, LoadingState } from "./common";
 import { api, documentAssetUrl, documentRawEmbedUrl, downloadDocumentRaw, fetchDocumentRawText, splitFrontmatter } from "../lib/api";
+import { anchorDraftFromRange } from "../lib/readerAnchors";
 import { READER_VIEW_KEY, resolveReaderView, type ReaderView } from "../lib/readerView";
+import { ReaderAnchorsPanel, type ReaderAnchor } from "./ReaderAnchorsPanel";
 import { useHandoffStore } from "../stores/handoffStore";
 import { useReaderTabsStore } from "../stores/readerTabsStore";
 import type { DocumentSection, DocumentSummary, PersonalKnowledgeItem } from "../types";
@@ -58,6 +60,9 @@ export function DocumentReader({
   const [detailLoading, setDetailLoading] = useState(false);
   const [highlightedChunk, setHighlightedChunk] = useState<string | null>(null);
   const [selectionQuote, setSelectionQuote] = useState("");
+  // W1 E7：这份资料上的划线（每条带 resolution：还能不能指到）。
+  const [readerAnchors, setReaderAnchors] = useState<ReaderAnchor[]>([]);
+  const [anchorError, setAnchorError] = useState("");
   const [view, setView] = useState<ReaderView>(() => {
     try {
       return window.localStorage.getItem(READER_VIEW_KEY) === "sections" ? "sections" : "original";
@@ -170,6 +175,11 @@ export function DocumentReader({
       })
       .catch((reason: Error) => { if (!cancelled) onError?.(reason.message); })
       .finally(() => { if (!cancelled) setDetailLoading(false); });
+    if (collection === "material") {
+      void api.documentAnchors(selectedId)
+        .then((result) => { if (!cancelled) setReaderAnchors(result.anchors || []); })
+        .catch(() => { if (!cancelled) setReaderAnchors([]); });
+    }
     if (collection === "material") {
       void api.knowledgeByDocument(selectedId)
         .then((result) => { if (!cancelled) setRelatedNotes(result.items); })
@@ -334,6 +344,46 @@ export function DocumentReader({
     navigate("/chat");
   }
 
+  // W1 E7：把选区存成划线锚点（四元组 + 引文；原文里找不到偏移就如实存 null）。
+  async function saveAnchorFromSelection() {
+    if (!selected) return;
+    const range = selectionRangeRef.current;
+    const draft = anchorDraftFromRange(
+      range,
+      sections.map((section) => ({ chunk_id: section.chunk_id, text: section.text })),
+    );
+    if (!draft) {
+      setAnchorError("这段选区不在任何小节里，暂时无法划线。");
+      return;
+    }
+    setAnchorError("");
+    try {
+      await api.createDocumentAnchor(selected.document_id, {
+        chunk_id: draft.chunk_id,
+        quote: draft.quote,
+        char_start: draft.char_start,
+        char_end: draft.char_end,
+      });
+      const result = await api.documentAnchors(selected.document_id);
+      setReaderAnchors(result.anchors || []);
+      setSelectionQuote("");
+      selectionRangeRef.current = null;
+      setSelectionAnchor(null);
+      window.getSelection()?.removeAllRanges();
+    } catch (reason) {
+      setAnchorError(reason instanceof Error ? reason.message : "划线没能保存。");
+    }
+  }
+
+  async function removeAnchor(anchor: ReaderAnchor) {
+    try {
+      await api.deleteDocumentAnchor(anchor.anchor_id);
+      setReaderAnchors((current) => current.filter((item) => item.anchor_id !== anchor.anchor_id));
+    } catch (reason) {
+      setAnchorError(reason instanceof Error ? reason.message : "划线没能删除。");
+    }
+  }
+
   // TASKS_LIBRARY_REWORK task 2: selection -> practice.
   function createPracticeFromSelection() {
     if (!selectionQuote || !selected) return;
@@ -403,6 +453,13 @@ export function DocumentReader({
             )}
           </div>
         )}
+        {/* W1 E7：我的划线（带"还能不能指到"的现状），点一下回到那一段。 */}
+        <ReaderAnchorsPanel
+          anchors={readerAnchors}
+          onLocate={(anchor) => jumpToChunk(anchor.chunk_id)}
+          onDelete={(anchor) => void removeAnchor(anchor)}
+        />
+        {anchorError && <p className="error-hint">{anchorError}</p>}
         {arrivedViaCitation && (
           <div className="reader-citation-bar" role="status">
             <span>{citationBarText}</span>
@@ -411,7 +468,7 @@ export function DocumentReader({
             </button>
           </div>
         )}
-        {selectionQuote && createPortal(<div className={selectionAnchor ? "selection-toolbar floating" : "selection-toolbar"} style={selectionToolbarStyle}><Quote size={15} /><span>已选择 {selectionQuote.length} 个字符</span><button className="quiet-button" onClick={askAboutSelection}>带到对话</button><button className="quiet-button" onClick={createPracticeFromSelection}>基于此出题</button><button className="quiet-button" onClick={() => setSelectionQuote("")}>取消</button></div>, document.body)}
+        {selectionQuote && createPortal(<div className={selectionAnchor ? "selection-toolbar floating" : "selection-toolbar"} style={selectionToolbarStyle}><Quote size={15} /><span>已选择 {selectionQuote.length} 个字符</span><button className="quiet-button" onClick={askAboutSelection}>带到对话</button><button className="quiet-button" onClick={createPracticeFromSelection}>基于此出题</button><button className="quiet-button" onClick={() => void saveAnchorFromSelection()}>划线</button><button className="quiet-button" onClick={() => setSelectionQuote("")}>取消</button></div>, document.body)}
         {detailLoading && !sections.length ? <LoadingState label="正在打开资料…" state="reading" /> : showOriginal ? (
           inlineOriginal === "pdf" ? (
             <div className="reader-pdf">
