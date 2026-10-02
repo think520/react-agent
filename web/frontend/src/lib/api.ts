@@ -460,6 +460,8 @@ export const api = {
   libraryRootPreview: (name: string, parent: string) => request<{
     name: string; parent_path: string; root_path: string;
   }>(`/api/libraries/root-preview?name=${encodeURIComponent(name)}&parent=${encodeURIComponent(parent)}`),
+  /** W1 E5：三阶段逐题生成（SSE，边出边收）。 */
+  streamQuestionPipeline,
   wikiHealth: () => request<WikiHealth>("/api/kb/wiki/maintenance"),
   wikiCoverage: () => request<{ documents: WikiDocumentCoverage[]; counts: Record<string, number> }>("/api/kb/wiki/coverage"),
   maintainWiki: () => request<{ archived_count: number; canonical_count: number; health: WikiHealth; plan_id: string; repair_plan: WikiRepairPlan }>(
@@ -1101,6 +1103,66 @@ export function parseFrame(frame: string): ChatStreamEvent | null {
     // A malformed frame must not break the rest of the stream.
     console.warn("[bobodan] 跳过无法解析的 SSE 帧", { event, frame });
     return null;
+  }
+}
+
+/** W1 E5：三阶段管线的 SSE 事件。 */
+export type QuestionPipelineEvent =
+  | { event: "pipeline_started"; topic: string; count: number }
+  | { event: "explore_done"; chunks: number }
+  | { event: "quiz_plan"; source: string; plan: Array<{ topic: string; question_type?: string; difficulty?: string }> }
+  | { event: "quiz_question_emitted"; index: number; total: number; question_id: number; topic?: string; question?: { id: number; question: string; type?: string; options?: string[] } }
+  | { event: "quiz_question_failed"; index: number; total: number; topic?: string }
+  | { event: "pipeline_done"; question_ids: number[]; total: number }
+  | { event: "pipeline_cancelled"; emitted: number; total: number }
+  | { event: "pipeline_failed"; code?: string; error?: string }
+  | { event: "pipeline_result"; ok?: boolean; question_ids?: number[]; plan_source?: string };
+
+/** W1 E5：逐题生成并**边出边收**（每题一帧，不等整批）。 */
+export async function streamQuestionPipeline(
+  body: { topic: string; count?: number; document_ids?: string[] },
+  onEvent: (event: QuestionPipelineEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const response = await fetch("/api/quiz/pipeline/stream", {
+    ...json({ topic: body.topic, count: body.count ?? 5, document_ids: body.document_ids ?? [] }),
+    signal,
+  });
+  if (!response.ok || !response.body) {
+    let error: ErrorEnvelope = {};
+    try {
+      error = (await response.json()) as ErrorEnvelope;
+    } catch {
+      // Non-JSON error bodies keep the generic message below.
+    }
+    throw new ApiError(
+      error.error?.message || `无法开始逐题生成 (${response.status})`,
+      error.error?.code || "pipeline_unavailable",
+      response.status,
+      error.error?.details,
+    );
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    // SSE frames are separated by a blank line; a partial tail stays in the buffer.
+    const frames = buffer.split("\n\n");
+    buffer = frames.pop() ?? "";
+    for (const frame of frames) {
+      for (const line of frame.split("\n")) {
+        if (!line.startsWith("data: ")) continue;
+        try {
+          onEvent(JSON.parse(line.slice("data: ".length)) as QuestionPipelineEvent);
+        } catch {
+          // A malformed frame must not kill the stream.
+        }
+      }
+    }
   }
 }
 

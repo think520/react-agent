@@ -5,6 +5,7 @@ import { useNavigate, useOutletContext, useParams } from "react-router-dom";
 import type { AppOutletContext } from "../components/AppShell";
 import { AttributionBadges, BrandIllustration, ErrorNotice, LoadingState, formatRelativeDate } from "../components/common";
 import { api, streamChat } from "../lib/api";
+import { useQuestionPipeline } from "../hooks/useQuestionPipeline";
 import { practiceSummaryLine } from "../lib/practiceSummary";
 import { prefersReducedMotion } from "../lib/motion";
 import { StreamBuffer } from "../lib/streamBuffer";
@@ -127,6 +128,9 @@ export function PracticePage() {
   // S6 / D9: 出题 vs 搜现成的题 are two different promises; the mode travels with
   // every generate call so the server never has to guess.
   const [mode, setMode] = useState<"generate" | "search">("generate");
+  // W1 E5：逐题生成（边出边看）。默认关闭 —— 每道题一次模型调用，用户显式选择才走。
+  const [stepwise, setStepwise] = useState(false);
+  const pipeline = useQuestionPipeline();
   const [resolution, setResolution] = useState<{ original: string; resolved: string } | null>(null);
   const [aiOpen, setAiOpen] = useState(false);
   const [aiQuestion, setAiQuestion] = useState("给我一个不直接揭示答案的提示。");
@@ -162,6 +166,24 @@ export function PracticePage() {
     }
   }, []);
 
+  // W1 E5：逐题生成跑完（且用户选了这条路）才开练习 —— 用 ref 守卫，避免导航后重复开局。
+  const pipelineStartedRef = useRef(false);
+  useEffect(() => {
+    if (!stepwise || pipeline.status !== "done" || !pipeline.questionIds.length) return;
+    if (pipelineStartedRef.current) return;
+    pipelineStartedRef.current = true;
+    void (async () => {
+      try {
+        const created = await api.startPractice(undefined, pipeline.questionIds, "practice");
+        navigate(`/practice/${created.practice_session_id}`);
+      } catch (reason) {
+        setError(toErrorMessage(reason, "暂时无法创建练习。请先导入相关资料。"));
+      } finally {
+        setWorking(false);
+      }
+    })();
+  }, [stepwise, pipeline.status, pipeline.questionIds, navigate]);
+
   useEffect(() => {
     useHandoffStore.getState().clearPracticeHandoff();
     setAnswer("");
@@ -196,6 +218,12 @@ export function PracticePage() {
       const query = topic.trim() || scopeTopic;
       if (mode === "search" && !query) {
         setError("搜现成的题需要先写明主题，或者先选一份资料作为范围。");
+        return;
+      }
+      if (stepwise && query && mode === "generate") {
+        // W1 E5：逐题生成 —— 每就绪一道就显示一道，出完再开练习。
+        pipelineStartedRef.current = false;
+        await pipeline.start(query, 5, selectedDocumentIds);
         return;
       }
       const generated = query
@@ -323,6 +351,35 @@ export function PracticePage() {
             <button type="button" role="tab" aria-selected={mode === "generate"} className={mode === "generate" ? "active" : ""} onClick={() => { setMode("generate"); setWebConsent(null); }}>让 Bobodan 出题</button>
             <button type="button" role="tab" aria-selected={mode === "search"} className={mode === "search" ? "active" : ""} onClick={() => { setMode("search"); setWebConsent(null); }}>搜现成的题</button>
           </div>
+          {mode === "generate" && (
+            <label className="practice-stepwise">
+              <input
+                type="checkbox"
+                checked={stepwise}
+                disabled={working}
+                onChange={(event) => setStepwise(event.target.checked)}
+              />
+              <span>逐题生成（每出一道立刻显示，不等整批）</span>
+            </label>
+          )}
+          {stepwise && pipeline.status !== "idle" && (
+            <section className="practice-stepwise-live" aria-live="polite">
+              <header>
+                <strong>
+                  {pipeline.status === "running"
+                    ? `正在逐题生成… 已就绪 ${pipeline.questions.length} 道`
+                    : pipeline.status === "cancelled"
+                      ? `已停止，保留已就绪的 ${pipeline.questions.length} 道`
+                      : `已就绪 ${pipeline.questions.length} 道，正在开始练习…`}
+                </strong>
+                {pipeline.status === "running" && (
+                  <button type="button" className="quiet-button" onClick={pipeline.cancel}>停止</button>
+                )}
+              </header>
+              <ol>{pipeline.questions.map((item) => <li key={item.id}>{item.question}</li>)}</ol>
+              {pipeline.error && <p className="error-hint">{pipeline.error}</p>}
+            </section>
+          )}
           <label htmlFor="practice-topic">想练习什么？</label>
           {working && <BrandIllustration state="writing" size={64} />}
           <div><input id="practice-topic" value={topic} onChange={(event) => { setTopic(event.target.value); setWebConsent(null); }} placeholder="例如：Dijkstra 的贪心证明" /><button className="primary-button" disabled={working}><Play size={16} />{working ? "正在准备" : mode === "search" ? "联网搜题" : "生成 5 题"}</button></div>

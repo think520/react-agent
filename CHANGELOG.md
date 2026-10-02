@@ -7,6 +7,11 @@
 ## [未发布]
 
 ### 变更
+- **W1 · E5 第二批：逐题流式到界面（2026-09-30，本地未推送）** —— 「每题就绪即渲染」真正打通。
+  - **后端 SSE**：`POST /api/quiz/pipeline/stream` 在工作线程里跑管线（它要调模型），事件经队列逐帧发出：`pipeline_started / explore_done / quiz_plan / quiz_question_emitted / quiz_question_failed / pipeline_done | pipeline_cancelled`，末帧是 `pipeline_result`；**客户端断开即取消**（已落库的题保留）。
+  - **前端**：`api.streamQuestionPipeline()`（POST + 逐帧 SSE 解析，坏帧不会打断整条流）＋ hook `useQuestionPipeline`（事件到了就累积，**不等整批**；失败/取消都保留已就绪的题）；练习页新增「**逐题生成（每出一道立刻显示）**」开关与实时列表（「正在逐题生成… 已就绪 N 道」+ 题目 + 可停止），出完自动开练习。**默认仍关闭**（每道题一次模型调用，用户显式选择才走）。
+  - **回归**：后端 1 条（SSE 按序逐帧、每题一帧、末帧 pipeline_result）+ 前端 4 条（hook：逐题累积 / 无证据如实失败 / 取消保留已就绪题；练习页：勾选后走管线、边出边显示「已就绪 1 道」、出完以收集到的 id 开练习）。另修了测试夹具：`useParams` 过去固定返回练习 id，导致创建视图根本渲染不出来（新用例改成可控）。
+  - **仍未做（如实记账）**：默认不开启逐题（成本取舍留给用户/后续）；管线不吃 `course` 与个性化上下文（单发路径才有）；实时列表只列题干，不是完整的练习卡。
 - **W1 · E5 出题三阶段管线（第一批：管线核心 + 服务/工具接线，2026-09-30，本地未推送）**：核对确认 `quiz_service` 只有单发 `generate_questions`、没有 plan/逐题阶段。设计照参考项目 DeepTutor `deeptutor/agents/question/pipeline.py`（报告 D8/D9）。
   - **新增 `quiz/pipeline.py`**：**Explore**（先检索确认资料里确实能出题；拿不到证据就**明确失败**，不安静地出 0 道题）→ **Plan**（一次模型调用给逐题模板：主题/题型/难度；模型不可用或输出不可解析时用**确定性兜底**，来源如实标注 `llm` / `fallback`）→ **Quiz**（逐题生成，**每生成一道先落库再回调** `quiz_question_emitted` —— 这是『每题就绪即渲染』的数据前提；单题失败只跳过它）。事件序列：`pipeline_started → explore_done → quiz_plan → (quiz_question_emitted | quiz_question_failed)×N → pipeline_done | pipeline_cancelled`，并复用既有 `CancelToken` 在题与题之间协作式停止（取消不删已就绪的题）。
   - **接线**：`QuizService.generate_questions(..., pipeline=False)` 与工具 `question_generate(..., pipeline=False)`（schema 里也说明了『逐题/边出边看』的场景与代价）。**默认仍是单发**：逐题是每道题一次模型调用，等逐题流式界面做好再谈默认开启。服务侧只收拢管线已入库的结果，**不重复入库**。

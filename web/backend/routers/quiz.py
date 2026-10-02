@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import json
+import queue
+import threading
+
 from fastapi import APIRouter, Query, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from service.quiz_service import QuizService
@@ -41,6 +46,66 @@ class SubmitAnswerRequest(BaseModel):
 
 class WrongAnswerVariantRequest(BaseModel):
     attempt_id: int = Field(..., ge=1)
+
+
+class QuestionPipelineRequest(BaseModel):
+    """W1 E5：三阶段逐题生成。"""
+
+    topic: str = Field(..., min_length=1, max_length=500)
+    count: int = Field(default=5, ge=1, le=15)
+    document_ids: list[str] = Field(default_factory=list, max_length=50)
+
+
+@router.post("/pipeline/stream")
+def stream_question_pipeline(body: QuestionPipelineRequest, request: Request) -> StreamingResponse:
+    """逐题生成并**边出边发**：每题就绪即一个 SSE 帧（"每题就绪即渲染"的传输层）。
+
+    管线在工作线程里跑（它要调模型），事件经队列回到这个生成器。客户端断开时
+    取消令牌置位 —— 已经落库的题保留（取消不删东西）。
+    """
+    from core.cancellation import CancelToken
+    from quiz.pipeline import run_question_pipeline
+
+    workspace = get_request_workspace(request)
+    config = get_config()
+    token = CancelToken()
+    events: queue.Queue = queue.Queue()
+    done = threading.Event()
+
+    def worker() -> None:
+        try:
+            result = run_question_pipeline(
+                workspace=workspace,
+                topic=body.topic,
+                count=body.count,
+                config=config,
+                document_ids=body.document_ids or None,
+                on_event=events.put,
+                cancel_token=token,
+            )
+            events.put({"event": "pipeline_result", **{
+                key: value for key, value in result.items() if key != "error"
+            }})
+        except Exception as exc:  # pragma: no cover - 兜底，具体异常依生成实现而定
+            events.put({"event": "pipeline_failed", "code": "internal_error", "error": str(exc)})
+        finally:
+            done.set()
+            events.put(None)
+
+    threading.Thread(target=worker, name="question-pipeline", daemon=True).start()
+
+    def frames():
+        try:
+            while True:
+                event = events.get()
+                if event is None:
+                    break
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+        finally:
+            # 客户端断开（或正常结束）都置位：线程自己会在下一题边界停下。
+            token.cancel()
+
+    return StreamingResponse(frames(), media_type="text/event-stream")
 
 
 def _service(request: Request) -> QuizService:

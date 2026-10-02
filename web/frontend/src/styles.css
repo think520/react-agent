@@ -2042,4 +2042,42 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
   color: var(--faint);
 }
 
+/* W1 E5：逐题生成的开关与实时列表（每出一道立刻显示）。 */
+.practice-stepwise {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.practice-stepwise-live {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--paper);
+}
+
+.practice-stepwise-live header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.practice-stepwise-live ol {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--ink);
+}
+
 

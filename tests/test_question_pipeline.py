@@ -11,6 +11,8 @@ docs/Bobodan参考项目调研报告.md 的 D8/D9）：
 
 from __future__ import annotations
 
+import json
+
 from quiz.pipeline import (
     PlanItem,
     build_plan,
@@ -235,3 +237,43 @@ def test_the_tool_passes_the_pipeline_flag_through(monkeypatch, tmp_path):
     quiz_tools.question_generate(query="极限", workspace=str(tmp_path), pipeline=True)
 
     assert seen.get("pipeline") is True, seen
+
+
+def test_the_stream_endpoint_emits_each_event_in_order(monkeypatch):
+    """W1 E5 第二批：SSE 端点把管线事件**逐帧**发出去（每题一帧）。"""
+    import quiz.pipeline as pipeline
+    from fastapi.testclient import TestClient
+
+    from web.backend.app import create_app
+
+    def fake_pipeline(*, on_event, **kwargs):
+        on_event({"event": "pipeline_started", "topic": "极限", "count": 2})
+        on_event({"event": "quiz_plan", "source": "fallback", "plan": []})
+        on_event({"event": "quiz_question_emitted", "index": 0, "total": 2, "question_id": 11})
+        on_event({"event": "quiz_question_emitted", "index": 1, "total": 2, "question_id": 12})
+        on_event({"event": "pipeline_done", "question_ids": [11, 12], "total": 2})
+        return {"ok": True, "question_ids": [11, 12], "plan_source": "fallback"}
+
+    monkeypatch.setattr(pipeline, "run_question_pipeline", fake_pipeline)
+
+    client = TestClient(create_app())
+    with client.stream(
+        "POST", "/api/quiz/pipeline/stream",
+        json={"topic": "极限", "count": 2},
+    ) as response:
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/event-stream")
+        body = "".join(chunk for chunk in response.iter_text())
+
+    events = [
+        json.loads(line[len("data: "):])
+        for line in body.splitlines()
+        if line.startswith("data: ")
+    ]
+    names = [event["event"] for event in events]
+    # 事件按顺序到达，并且每题一帧。
+    assert names[:4] == [
+        "pipeline_started", "quiz_plan", "quiz_question_emitted", "quiz_question_emitted",
+    ], names
+    assert names[-1] == "pipeline_result", names
+    assert events[-1]["question_ids"] == [11, 12]

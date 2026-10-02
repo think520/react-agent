@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api, streamChat } from "../lib/api";
@@ -9,6 +9,8 @@ const hoisted = vi.hoisted(() => ({
   ctx: {} as Record<string, unknown>,
   navigate: vi.fn(),
   streamChat: vi.fn(),
+  /** W1 E5 用例需要"没有练习 id"的创建视图，其余用例固定 7。 */
+  practiceId: "7",
 }));
 
 vi.mock("react-router-dom", async (importOriginal) => {
@@ -17,7 +19,7 @@ vi.mock("react-router-dom", async (importOriginal) => {
     ...actual,
     useNavigate: () => hoisted.navigate,
     useOutletContext: () => hoisted.ctx,
-    useParams: () => ({ practiceSessionId: "7" }),
+    useParams: () => ({ practiceSessionId: hoisted.practiceId }),
   };
 });
 
@@ -32,6 +34,8 @@ vi.mock("../lib/api", async (importOriginal) => {
       ...actual.api,
       practice: vi.fn(),
       generateSessionTitle: vi.fn(),
+      startPractice: vi.fn(),
+      streamQuestionPipeline: vi.fn(),
     },
   };
 });
@@ -92,6 +96,7 @@ describe("PracticePage AI tutor", () => {
 // R11/F10（2026-09-28 审查）：辅导会话关联原来只存在组件 ref 里，重新挂载就没了。
 beforeEach(() => {
   window.sessionStorage.clear();
+  hoisted.practiceId = "7";
 });
 
 it("R11: reuses tutor session after remounting the same practice", async () => {
@@ -182,4 +187,35 @@ it("辅导对话声明 sessionKind=practice", async () => {
 
   const prefs = vi.mocked(streamChat).mock.calls[0][3] as { sessionKind?: string };
   expect(prefs.sessionKind).toBe("practice");
+});
+
+// W1 E5 第二批：勾选逐题生成后走 SSE 管线，**边出边显示**；出完才开练习。
+it("逐题生成：边出边显示，出完再开练习", async () => {
+  hoisted.practiceId = "";  // 没有练习 id → 渲染"开始一轮练习"创建视图
+  let emit: ((event: unknown) => void) | null = null;
+  vi.mocked(api.streamQuestionPipeline).mockImplementation(((_body: unknown, onEvent: (event: unknown) => void) => {
+    emit = onEvent;
+    return new Promise<void>(() => {});
+  }) as never);
+  vi.mocked(api.startPractice).mockResolvedValue({ practice_session_id: 12 } as never);
+
+  render(<PracticePage />);
+  fireEvent.change(await screen.findByLabelText(/想练习什么/), { target: { value: "极限" } });
+  fireEvent.click(screen.getByLabelText(/逐题生成/));
+  fireEvent.submit(document.querySelector("form.practice-create")!);
+
+  await waitFor(() => expect(api.streamQuestionPipeline).toHaveBeenCalled());
+  const [payload] = vi.mocked(api.streamQuestionPipeline).mock.calls[0] as unknown as [{ topic: string }];
+  expect(payload.topic).toBe("极限");
+
+  await act(async () => {
+    emit?.({ event: "quiz_question_emitted", index: 0, total: 2, question_id: 11, question: { id: 11, question: "第一题" } });
+  });
+  expect(await screen.findByText("第一题")).toBeTruthy();
+  expect(screen.getByText(/已就绪 1 道/)).toBeTruthy();
+
+  await act(async () => {
+    emit?.({ event: "pipeline_done", question_ids: [11, 12], total: 2 });
+  });
+  await waitFor(() => expect(api.startPractice).toHaveBeenCalledWith(undefined, [11, 12], "practice"));
 });
