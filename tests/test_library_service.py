@@ -196,3 +196,53 @@ def test_default_library_path_appends_number_when_exists(tmp_path, monkeypatch):
     os.makedirs(first)
     second = LibraryService().default_library_path()
     assert second.endswith("Bobodan 资料库 2")
+
+
+def test_defaults_tell_the_frontend_exactly_what_create_will_make(tmp_path, monkeypatch):
+    """W1 E2：默认值只能有**一个**来源。
+
+    旧实现前端硬编码 «~/Documents/Bobodan»，后端是 «~/Documents/Bobodan 资料库» ——
+    用户看到的预填路径与真正创建的根目录不是同一个地方。
+    """
+    service = LibraryService(str(tmp_path / "home"))
+    monkeypatch.setattr(
+        service, "default_library_path",
+        lambda: str(tmp_path / "Documents" / "Bobodan 资料库"),
+    )
+
+    defaults = service.default_library_defaults()
+
+    assert defaults["name"] == "Bobodan 资料库", defaults
+    assert Path(defaults["parent_path"]) == tmp_path / "Documents", defaults
+    assert Path(defaults["root_path"]) == tmp_path / "Documents" / "Bobodan 资料库", defaults
+
+    # 预填所见即所得：按这份默认值创建，真正落地的根目录必须就是 root_path。
+    created = service.create(defaults["name"], defaults["parent_path"])
+    registered = service.resolve(created["library_id"])
+    assert Path(registered["path"]) == Path(defaults["root_path"]), (registered, defaults)
+
+
+def test_root_preview_uses_the_same_rule_as_create(tmp_path):
+    """预览与创建必须走**同一个** helper，否则两套规则迟早再分叉。"""
+    service = LibraryService(str(tmp_path / "home"))
+
+    preview = service.preview_root("我的 资料库/带斜杠", str(tmp_path / "parent"))
+    created = service.create("我的 资料库/带斜杠", str(tmp_path / "parent"))
+    registered = service.resolve(created["library_id"])
+
+    assert preview == registered["path"], (preview, registered)
+
+
+def test_create_on_a_non_empty_folder_explains_itself_in_chinese(tmp_path):
+    """W1 E2：这条 409 的文案曾经是英文的，界面上会直接显示英文句子。"""
+    service = LibraryService(str(tmp_path / "home"))
+    target = tmp_path / "parent" / "占用了"
+    target.mkdir(parents=True)
+    (target / "已有文件.md").write_text("x", encoding="utf-8")
+
+    with pytest.raises(ValueError) as excinfo:
+        service.create("占用了", str(tmp_path / "parent"))
+
+    message = str(excinfo.value)
+    assert "已存在" in message and "不是空" in message, message
+    assert "already exists" not in message, message

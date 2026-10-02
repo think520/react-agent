@@ -452,7 +452,15 @@ export const api = {
   cancelImport: (importId: string) => request<{ ok: boolean; cancelled: boolean }>(
     `/api/kb/imports/${encodeURIComponent(importId)}/cancel`,
     { method: "POST" },
-  ),  wikiHealth: () => request<WikiHealth>("/api/kb/wiki/maintenance"),
+  ),  /** W1 E2：新建资料库的默认值 —— 由后端给，前端不再自己拼路径。 */
+  libraryDefaults: () => request<{ name: string; parent_path: string; root_path: string }>(
+    "/api/libraries/defaults",
+  ),
+  /** W1 E2：把「父目录 + 名称」翻译成将来真正创建的根目录（与创建走同一套规则）。 */
+  libraryRootPreview: (name: string, parent: string) => request<{
+    name: string; parent_path: string; root_path: string;
+  }>(`/api/libraries/root-preview?name=${encodeURIComponent(name)}&parent=${encodeURIComponent(parent)}`),
+  wikiHealth: () => request<WikiHealth>("/api/kb/wiki/maintenance"),
   wikiCoverage: () => request<{ documents: WikiDocumentCoverage[]; counts: Record<string, number> }>("/api/kb/wiki/coverage"),
   maintainWiki: () => request<{ archived_count: number; canonical_count: number; health: WikiHealth; plan_id: string; repair_plan: WikiRepairPlan }>(
     "/api/kb/wiki/maintenance",

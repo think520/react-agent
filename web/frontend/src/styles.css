@@ -2005,4 +2005,17 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
   transition: width var(--dur-base) var(--ease-out);
 }
 
+/* W1 E2：「保存到这个目录」填的是父目录，这里把**最终**会创建的目录说清楚。 */
+.library-root-preview {
+  margin: 0;
+  font-size: 12px;
+  color: var(--faint);
+  word-break: break-all;
+}
+
+.library-root-preview code {
+  font-size: 12px;
+  color: var(--muted);
+}
+
 

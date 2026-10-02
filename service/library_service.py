@@ -335,10 +335,35 @@ class LibraryService:
             raise
         return {"library": library, "preview": preview, "sync": sync}
 
+    @staticmethod
+    def resolve_root(name: str, parent_path: str) -> Path:
+        """「父目录 + 名称」→ 根目录的**唯一**算法（创建与预览共用，W1 E2）。
+
+        以前前端自己拼默认路径、后端另有一套，用户看到的预填位置和真正创建的位置不是一处。
+        把规则收在这里，界面只能问后端"将来会建在哪"。
+        """
+        return Path(parent_path).expanduser().resolve() / _safe_folder_name(name)
+
+    def preview_root(self, name: str, parent_path: str) -> str:
+        """将来会创建在哪（不创建任何东西）。"""
+        return str(self.resolve_root(name, parent_path))
+
+    def default_library_defaults(self) -> dict[str, str]:
+        """新建资料库时的默认「名称 / 父目录 / 根目录」三件套 —— **唯一来源**（W1 E2）。"""
+        root = Path(self.default_library_path())
+        return {
+            "name": root.name,
+            "parent_path": str(root.parent),
+            "root_path": str(root),
+        }
+
     def create(self, name: str, parent_path: str) -> dict[str, Any]:
-        root = Path(parent_path).expanduser().resolve() / _safe_folder_name(name)
+        root = self.resolve_root(name, parent_path)
         if root.exists() and any(root.iterdir()) and not (root / LIBRARY_DESCRIPTOR).exists():
-            raise ValueError("The target folder already exists and is not empty")
+            # W1 E2：这条会直接显示在界面上，必须是中文并给出下一步（旧文案是英文的）。
+            raise ValueError(
+                "目标文件夹已存在且不是空的资料库。换个名称或目录，或改用「接入已有资料库」。"
+            )
         return self.initialize(str(root), name=name)
 
     def register(self, root: str, activate: bool = True) -> dict[str, Any]:

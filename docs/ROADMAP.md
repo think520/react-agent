@@ -93,7 +93,7 @@ R12 的覆盖式“导入为新版本”仍是独立产品能力，不能用当�
 | # | 事项 | 动哪里 | 来源 |
 |---|---|---|---|
 | E1 | 会话内操作失败静默 → 全局错误位 + 可见反馈 | web/backend + ChatPage | 体验审查 P0-1 |
-| E2 | 新建资料库路径体验：默认路径预填 + 目的解释 | LibrarySetupDialog | 体验审查 P0-2 |
+| E2 | **已完成（2026-09-30）** 新建资料库路径体验：① 默认值**单一来源** —— 前端不再硬编码（旧：前端 `~/Documents/Bobodan` vs 后端 `…/Bobodan 资料库`），改为 `GET /api/libraries/defaults` ② 「保存到这个目录」是**父目录**，界面现在显示「将创建：<最终根目录>」（由 `GET /api/libraries/root-preview` 用与创建同一个 helper 算，防抖 250ms）③ 目标文件夹非空的 409 文案从英文改为中文并给出下一步。回归：后端 3 条 + 前端 2 条 | library_service + LibrarySetupDialog | 体验审查 P0-2 |
 | E3 | **已完成（2026-09-30）** 错题变式死路回退链：① 三级回退与前端上屏**此前已交付**（无 chunk → 按概念重出 → 原题重练）② 本轮修掉两处不一致：**未配置模型时不再死路**（旧代码在回退链之前就 return，注释里的「避免错题永远进不了复习」不成立）③ **归因不再撒谎**：每次返回都带精确 `reason`（`evidence_used`/`evidence_missing`/`variant_failed`/`no_provider`/`generation_failed`），界面区分「证据缺失 / 生成失败 / 未配置模型」三件事。回归：后端 2 新 + 3 补断言，前端 3 条 | quiz_service + wrongAnswerMode | 体验审查 P0-3 |
 | E4 | **部分完成（2026-09-30）** ask_user 交互卡 + 生命周期持久化（registered→awaiting→answered→graded，断线可恢复）：卡片与四态表**此前已交付**；本轮修掉两处名不副实 —— ① 旧实现把 answered/graded 压成一次写入，**`answered` 永远观察不到**（现在分两次写，先算后写、各留时间戳）② **multi_select 是空承诺**（点第二个顶掉第一个）→ 现在真多选 + 后端按集合判分（顺序无关、也吃数组）。**仍未做**：超时/放弃语义（缺卡片上的「跳过」且要同时唤醒暂停的 run；也缺超时策略）。回归：后端 5 条 + 前端 2 条 | interaction_service + AskUserCard | 体验审查 P1-4 |
 | E5 | **出题三阶段流式管线**：Explore→Plan→逐题生成，每题就绪即渲染；explanation 随题入库（**口径**：这里的"入库"就是题库 D1 的入库，见 `QUESTION_BANK_DESIGN.md`） | quiz_service | D8/D9；报告 P0-2 |
