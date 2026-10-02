@@ -24,6 +24,20 @@ CREATE TABLE IF NOT EXISTS mastery (
     updated_at TEXT NOT NULL
 );
 
+-- W1 E6 第一步：逐次作答历史。掌握度引擎要「从历史推导」（近 N 次加权、置信帽），
+-- 而聚合表只存计数与分数，推导不出来。每条自动作答在这里留一行（手动标记不写）。
+CREATE TABLE IF NOT EXISTS mastery_attempts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    concept TEXT NOT NULL,
+    is_correct INTEGER NOT NULL DEFAULT 0,
+    verdict TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT 'quiz',
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_mastery_attempts_concept
+    ON mastery_attempts(concept, id DESC);
+
 CREATE TABLE IF NOT EXISTS learning_plans (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     title TEXT NOT NULL,
@@ -100,6 +114,43 @@ class LearningStore:
             source=row["source"],
             updated_at=row["updated_at"],
         )
+
+    def record_mastery_attempt(
+        self,
+        concept: str,
+        is_correct: bool,
+        verdict: str = "",
+        source: str = "quiz",
+    ) -> None:
+        """记下**这一次**作答（W1 E6 第一步）。
+
+        聚合表只存计数与分数，引擎要「近 N 次加权」就必须有逐次历史；
+        手动标记掌握度不走这里（那不是一次作答）。
+        """
+        if not concept:
+            return
+        with self._conn() as conn:
+            conn.execute(
+                """INSERT INTO mastery_attempts
+                   (concept, is_correct, verdict, source, created_at)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (concept, 1 if is_correct else 0, verdict or "", source or "quiz", _now_iso()),
+            )
+
+    def recent_mastery_attempts(self, concept: str, limit: int = 5) -> list[dict]:
+        """这个概念最近的作答（新 → 旧）。没有历史就返回空列表。"""
+        if not concept:
+            return []
+        with self._conn() as conn:
+            rows = conn.execute(
+                """SELECT concept, is_correct, verdict, source, created_at
+                   FROM mastery_attempts
+                   WHERE concept = ?
+                   ORDER BY id DESC
+                   LIMIT ?""",
+                (concept, max(1, int(limit))),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def upsert_mastery(self, m: Mastery) -> None:
         m.updated_at = _now_iso()

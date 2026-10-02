@@ -63,6 +63,8 @@ class ReviewScheduler:
             m.next_review = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
             m.score = max(0.0, m.score - 0.2)
 
+        # W1 E6：自动作答在**唯一漏斗**里留一行历史（手动标记不走这里）。
+        self.store.record_mastery_attempt(concept, correct, verdict or "")
         self.store.upsert_mastery(m)
         return m
 

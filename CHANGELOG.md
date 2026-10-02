@@ -7,6 +7,12 @@
 ## [未发布]
 
 ### 变更
+- **W1 · E6 掌握度引擎（第一步 + 第二步，2026-09-30，本地未推送）**：核对确认两件事：没有 `learning/engine.py`；掌握度是在 `scheduler.py` 里**增量累加**（对 +0.1/+0.2、错 −0.2），**不是从历史推导**，而「逐次对错」根本没落库（`Mastery` 只存计数/连对/分数）。
+  - **第一步：逐次作答落库**。新增表 `mastery_attempts(concept, is_correct, verdict, source, created_at)` + 索引；`LearningStore.record_mastery_attempt()/recent_mastery_attempts()`；写入点放在**唯一漏斗** `ReviewScheduler.record_review()`（所有自动作答都经过它；手动标记掌握度不是一次作答，不写）。
+  - **第二步：纯函数引擎** `learning/engine.py`：`weighted_mastery(attempts)` = 近 5 次加权（0.4/0.25/0.15/0.12/0.08，新→旧）+ **置信缩放**（1 次 ×0.5、2 次 ×0.8、3 次起 ×1.0）+ partial 记半分；`next_objective()` 按路线优先级（挂起问题 > 到期复习 > 第一个未掌握点）。
+  - **设计上有意改动**：置信那一步用**按比例打折**而不是取上界 —— 取上界会让「单次答对」和「单次基本正确」撞到同一个 0.5，把差别抹掉（这是写测试时发现的）。
+  - **回归**：历史 4 条（逐次落库且 verdict/is_correct 都在 / 截断与新→旧顺序 / 概念互不串 / 聚合调度行为不变）；引擎 10 条（无历史 0 / 一次对 0.5 / 两次 0.8 / 三次 1.0 / 越近权重越大 / partial 半分 / 只看最近 5 次；next_objective 四种优先级）。
+  - **未做（如实记账）**：**引擎尚未接线** —— 目前只有测试引用它：agent 每轮「先读引擎」、以及把推导分数接到薄弱点/复习界面都还没做。掌握度调度**仍然是**原来的 SM-2 增量逻辑（本轮没有改变它的行为）。
 - **W1 · E14 会话类别（2026-09-30，本地未推送）**：练习辅导走的是**同一条 chat 流式通道**，会话 id 形如 `practice-tutor-3` —— 它和真正的聊天一起出现在主会话列表里，用户看到一堆自己没开过的会话。
   - **后端**：`Session` 新增 `kind`（默认 `chat`；老文件没有这个字段一律算 chat）；`list_session_summaries(save_dir, kind="chat")` 默认**只回主列表**，需要全部时显式传 `kind="all"`；`GET /api/chat/sessions?kind=`（白名单 chat/practice/review/all，非法值 422）；`POST /api/chat/runs` 的请求体新增 `kind`，**只在新建会话时落库** —— 已存在的会话保留自己的类别（否则同一会话被另一个入口碰一下就换了类别）。
   - **前端**：`streamChat` 的偏好里新增 `sessionKind`；练习页按练习记录的 `origin` 声明 `practice` / `review`（不用猜）。
