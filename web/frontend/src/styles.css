@@ -2139,4 +2139,19 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
   color: var(--faint);
 }
 
+/* W1 E11：回答被输出上限截断时的提示与"接着写"。 */
+.answer-truncated {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 8px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--blue);
+  border-radius: var(--radius-sm);
+  background: var(--paper);
+  font-size: 13px;
+}
+
 

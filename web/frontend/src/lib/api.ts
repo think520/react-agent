@@ -973,6 +973,7 @@ export type ChatStreamEvent =
   | { event: "chat_artifact"; data: { artifact: ChatArtifact } & StreamFrameMeta }
   | { event: "personalization"; data: { references: PersonalizationRef[] } & StreamFrameMeta }
   | { event: "practice" | "learning_update"; data: Record<string, unknown> & StreamFrameMeta }
+  | { event: "answer_truncated"; data: { continuing: boolean; continues: number } & StreamFrameMeta }
   | { event: "run_completed"; data: { chat_session_id: string; termination_reason: string } & StreamFrameMeta }
   | { event: "run_failed"; data: { error: { code: string; message: string } } & StreamFrameMeta };
 

@@ -96,3 +96,43 @@ it("R01: retry after run_failed preserves the allocated chat session", async () 
   expect(vi.mocked(streamChat).mock.calls[1][1]).toBe("allocated-session");
   expect(vi.mocked(streamChat).mock.calls[1][3]).toEqual(expect.objectContaining({ retryFailed: true }));
 });
+
+// W1 E11：回答被输出上限截断 → 说清楚，并给出"接着写"。
+it("被截断的回答会提示，并且能接着写", async () => {
+  hoisted.ctx.activeLibrary = { library_id: "audit-library" };
+  vi.mocked(streamChat).mockImplementation(async (...args) => {
+    args[4]({ event: "run_started", data: { run_id: "r", chat_session_id: "s1" } });
+    args[4]({ event: "answer_truncated", data: { continuing: false, continues: 2 } });
+    args[4]({ event: "run_completed", data: { chat_session_id: "s1", termination_reason: "final_answer" } });
+  });
+  render(<MemoryRouter initialEntries={["/chat"]}><ChatPage /></MemoryRouter>);
+
+  const composer = screen.getByRole("textbox", { name: "消息" });
+  fireEvent.change(composer, { target: { value: "写一篇很长的回答" } });
+  fireEvent.submit(composer.closest("form")!);
+
+  expect(await screen.findByText(/被输出长度上限截断了/)).toBeTruthy();
+  // 「接着写」在流收尾前是禁用的（sending 还没清）—— 等它可点再点。
+  const continueButton = screen.getByRole("button", { name: "接着写" });
+  await waitFor(() => expect(continueButton).toBeEnabled());
+  fireEvent.click(continueButton);
+
+  await waitFor(() => expect(streamChat).toHaveBeenCalledTimes(2));
+  expect(vi.mocked(streamChat).mock.calls[1][0]).toContain("继续写");
+});
+
+it("续写进行中不打断用户（不提示）", async () => {
+  hoisted.ctx.activeLibrary = { library_id: "audit-library" };
+  vi.mocked(streamChat).mockImplementation(async (...args) => {
+    args[4]({ event: "run_started", data: { run_id: "r", chat_session_id: "s2" } });
+    args[4]({ event: "answer_truncated", data: { continuing: true, continues: 1 } });
+  });
+  render(<MemoryRouter initialEntries={["/chat"]}><ChatPage /></MemoryRouter>);
+
+  const composer = screen.getByRole("textbox", { name: "消息" });
+  fireEvent.change(composer, { target: { value: "继续写" } });
+  fireEvent.submit(composer.closest("form")!);
+
+  await waitFor(() => expect(streamChat).toHaveBeenCalledTimes(1));
+  expect(screen.queryByText(/被输出长度上限截断了，没有写完/)).toBeNull();
+});

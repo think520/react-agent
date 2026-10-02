@@ -98,4 +98,19 @@ def to_web_events(event: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
     if event_type == SPECIALIST_EVENT:
         return []
 
+    # W1 E11：被输出上限截断 / 续写中 —— 界面要能说清楚"这次没写完"，
+    # 并在续写用尽后给一个"接着写"的入口。
+    if event_type == "assistant_truncated":
+        return [("answer_truncated", {
+            "continuing": bool(event.get("continuing")),
+            "continues": int(event.get("continues") or 0),
+        })]
+
+    # W1 E11 / D4：探索预算用尽、进入收尾 —— 复用既有 status 通道。
+    if event_type == "settlement_started":
+        return [("status", {
+            "phase": "running",
+            "message": "探索预算已用完，正在收尾（不再开新的检索）",
+        })]
+
     return []

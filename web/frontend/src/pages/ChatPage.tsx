@@ -194,6 +194,8 @@ export function ChatPage() {
     setBrandState,
     handleStreamEvent,
     settleLastMessage,
+    truncated,
+    clearTruncated,
   } = useChatStream();
   const [draft, setDraft] = useState(() => initialDraft(sessionId, true));
   const [loading, setLoading] = useState(Boolean(sessionId));
@@ -1110,6 +1112,19 @@ export function ChatPage() {
                 {message.stopped && <div className="answer-failure"><span>回答已停止，只生成了部分内容。</span><button className="quiet-button" disabled={sending} onClick={() => retryMessage(index)}><RotateCcw size={15} />重新发送本轮</button></div>}
               </article>
             ))}
+            {/* W1 E11：续写用尽仍被截断 —— 说清楚，并给一个接着写的入口。 */}
+            {truncated && !truncated.continuing && (
+              <div className="answer-truncated" role="status">
+                <span>这次回答被输出长度上限截断了，没有写完。</span>
+                <button
+                  className="quiet-button"
+                  disabled={sending}
+                  onClick={() => { clearTruncated(); void send(undefined, "请从中断处继续写，不要重复已经写过的内容。"); }}
+                >
+                  接着写
+                </button>
+              </div>
+            )}
             {status && !messages.at(-1)?.pending && <BobodanProcess state={brandState} detail={status} />}
           </div>
         ) : (
