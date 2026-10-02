@@ -1,4 +1,5 @@
 from core.agent_loop import (
+    MAX_TRUNCATION_CONTINUES,
     AgentLoop,
     BASE_SYSTEM_PROMPT,
     BASE_SYSTEM_PROMPT_MARKER,
@@ -6,6 +7,8 @@ from core.agent_loop import (
 )
 from core.session import Session
 from providers.types import LLMResponse, LLMStreamChunk, ToolCall, ToolCallDelta
+ 
+# (W1 E11：结算期与截断续写用到的类型)
 from service.evidence_policy import CombinedResponsePolicy, ConceptMapPolicy, LocalEvidencePolicy
 from tools.base import TOOL_REGISTRY, TOOL_SCHEMAS, ToolResult, register_tool
 
@@ -866,3 +869,138 @@ def test_summarize_trace_error(tmp_path):
     assert s["tool_count"] == 1
     assert s["tools_fail"] == 1
     assert s["tool_details"][0]["tool_name"] == "(error)"
+
+# --- W1 E11：截断续写 ----------------------------------------------------------
+
+
+def _stream_provider(chunks_per_call):
+    from providers.types import LLMStreamChunk
+
+    class _Provider:
+        name = "streaming"
+        model = "m"
+
+        def __init__(self):
+            self.calls = 0
+
+        def complete_stream(self, messages, tools=None, **kwargs):
+            group = chunks_per_call[min(self.calls, len(chunks_per_call) - 1)]
+            self.calls += 1
+            yield from group
+
+        def complete(self, messages, tools=None, **kwargs):  # pragma: no cover
+            raise AssertionError("streaming provider should use complete_stream")
+
+        def get_name(self):
+            return "streaming"
+
+    return _Provider()
+
+
+def test_a_truncated_answer_is_continued_and_stored_as_one_message():
+    """W1 E11：被输出上限截断 → 保留可见前缀继续写，最后合成**一条**回答。"""
+    from providers.types import LLMStreamChunk
+
+    provider = _stream_provider([
+        [LLMStreamChunk(content_delta="前半段"), LLMStreamChunk(finish_reason="length")],
+        [LLMStreamChunk(content_delta="后半段"), LLMStreamChunk(finish_reason="stop")],
+    ])
+    session = Session.new("/test")
+    agent = AgentLoop(provider, session)
+
+    result = agent.run("写一篇长回答")
+
+    assert result == "前半段后半段", result
+    assistant_messages = [m for m in session.messages if m["role"] == "assistant"]
+    assert [m["content"] for m in assistant_messages] == ["前半段后半段"], assistant_messages
+    # 续写用的系统提示不能留在会话里。
+    assert not any("bobodan:continuation" in (m.get("content") or "") for m in session.messages)
+
+
+def test_without_a_stop_reason_nothing_changes():
+    """provider 没给停止原因时不猜：一次调用就结束。"""
+    from providers.types import LLMStreamChunk
+
+    provider = _stream_provider([[LLMStreamChunk(content_delta="一次写完")]])
+    session = Session.new("/test")
+
+    result = AgentLoop(provider, session).run("问题")
+
+    assert result == "一次写完"
+    assert provider.calls == 1
+
+
+def test_continuation_is_bounded_and_flagged_when_it_runs_out():
+    """一直截断也不会无限续写；用尽后如实标注 truncated。"""
+    from providers.types import LLMStreamChunk
+
+    provider = _stream_provider([[LLMStreamChunk(content_delta="段"), LLMStreamChunk(finish_reason="length")]])
+    session = Session.new("/test")
+    agent = AgentLoop(provider, session)
+
+    events = list(agent.run_stream("写"))
+    done = [event for event in events if event.get("type") == "assistant_done"][-1]
+
+    assert provider.calls == 1 + MAX_TRUNCATION_CONTINUES, provider.calls
+    assert done["truncated"] is True, done
+    assert done["content"] == "段" * (1 + MAX_TRUNCATION_CONTINUES), done["content"]
+
+
+def test_settlement_rounds_stop_new_exploration_after_the_budget():
+    """W1 E11 / D4：探索预算用尽 → 注入一次收尾指令，且只注入一次。"""
+    from providers.types import LLMStreamChunk
+
+    class _ToolProvider:
+        name = "streaming"
+        model = "m"
+
+        def __init__(self):
+            self.calls = 0
+
+        def complete_stream(self, messages, tools=None, **kwargs):
+            self.calls += 1
+            self.seen = [m.get("content") or "" for m in messages if m.get("role") == "system"]
+            yield LLMStreamChunk(
+                content_delta="",
+                tool_call_deltas=[ToolCallDelta(index=0, id=f"call{self.calls}", name="rag_search", arguments='{"query": "x"}')],
+            )
+            yield LLMStreamChunk(finish_reason="tool_calls")
+
+        def complete(self, messages, tools=None, **kwargs):  # pragma: no cover
+            raise AssertionError("streaming provider should use complete_stream")
+
+        def get_name(self):
+            return "streaming"
+
+    session = Session.new("/test")
+    agent = AgentLoop(_ToolProvider(), session, tools_schema=[], max_iterations=5)
+    assert agent.exploration_budget == 2, agent.exploration_budget
+
+    events = list(agent.run_stream("查一下"))
+
+    assert [event for event in events if event.get("type") == "settlement_started"], events
+    settlement_messages = [
+        m for m in session.messages
+        if "bobodan:settlement" in (m.get("content") or "")
+    ]
+    # 收尾指令在回合结束时被清掉（不留进历史）。
+    assert settlement_messages == [], settlement_messages
+
+
+def test_a_custom_budget_is_respected():
+    from providers.types import LLMResponse
+
+    class _Plain:
+        name = "plain"
+        model = "m"
+
+        def complete(self, messages, tools=None, **kwargs):
+            return LLMResponse(content="好")
+
+        def get_name(self):
+            return "plain"
+
+    agent = AgentLoop(_Plain(), Session.new("/test"), max_iterations=8, exploration_budget=1)
+
+    assert agent.exploration_budget == 1
+

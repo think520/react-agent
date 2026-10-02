@@ -7,6 +7,12 @@
 ## [未发布]
 
 ### 变更
+- **W1 · E11 单循环契约：停止原因 + 截断续写 + 探索预算/结算期（2026-09-30，本地未推送）—— W1 最后一条**：核对确认「无工具轮=finish 已有」，但**全仓库没有 `finish_reason`**（截断续写为零）、也没有探索预算/结算期。
+  - **provider 层如实带回停止原因**：`LLMResponse` 与 `LLMStreamChunk` 新增 `finish_reason`；OpenAI 兼容系（deepseek / minimax 继承）解析 `choices[0].finish_reason`；新增 `providers/stop_reason.py::was_truncated()` —— **保守判定**（只认 length / max_tokens / max_output_tokens，不认识的原因当普通结束：宁可漏一次续写，也不要把正常结束变成重写）。
+  - **截断续写**：循环把流式最后一个非空停止原因带进响应；被截断且这一轮没有工具调用时，**保留可见前缀**继续写（注入一条带标记的收尾/续写系统提示，回合结束即清理），最多续写 `MAX_TRUNCATION_CONTINUES = 2` 次；续写完成后把前缀与续写**合成一条** assistant 消息（与用户看到的正文一致，不出现两个气泡）；用尽仍被截断则在 `assistant_done` 上标 `truncated=true` —— **不假装写完**。
+  - **探索预算 + 结算期**（D4）：`exploration_budget` 默认 `max_iterations − 3`（至少 1 轮）；预算用尽后注入**一次**收尾指令（「不要开新的检索或探索，把手上证据收尾并给出最终回答」）并发出 `settlement_started` 事件；提示同样在回合结束时清理，不留在历史里。
+  - **回归**：11 条（停止原因进响应/进流式帧/缺失留空 / `was_truncated` 真值表含未知原因不猜 / 类型默认空；截断后续写并把两段合成一条 + 续写提示不留在会话 / 没有停止原因时行为不变（只调一次）/ 一直截断时有界且标 `truncated` 且内容不重复；结算期在预算后注入一次并清理 / 自定义预算生效）。
+  - **未做（如实记账）**：D4 里「流式文本用 `call_role` 元数据区分 narration/finish」没做；界面还没消费 `assistant_truncated` / `settlement_started` 事件（目前只是把 `truncated` 标在 done 事件上）；预算大小没有配置项（先按 max_iterations−3 推导）。
 - **W1 · E7 第二批：阅读器里的划线闭环（2026-09-30，本地未推送）**：核对发现选区工具条**早就有**「带到对话 / 基于此出题」，缺的是把选区**存成锚点**、列出划线、以及从划线回到原处。
   - **纯函数 `lib/readerAnchors.ts`**：`resolveQuoteOffsets()` 在**原文**里找引文（渲染后的 DOM 文字丢了 markdown 记号，找不到就返回 null，**不编偏移**）；`anchorDraftFromRange()` 从 DOM 选区取 `chunk_id`（最近的 `[data-chunk-id]` 分段）+ 引文 + 偏移。
   - **阅读器**：选区工具条新增「**划线**」→ POST 锚点 → 重新拉取列表并清掉选区；文章顶部渲染 `ReaderAnchorsPanel`（引文 + **现状**：位置未变 / 位置已更新 / 已失效需重新指认 + 「定位到这段」+ 删除）；定位复用既有的 `jumpToChunk`（原文视图下会先切到分段视图再滚动高亮）—— 这就是 ↩ 反链定位。

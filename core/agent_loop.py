@@ -28,6 +28,7 @@ from tools.timeouts import run_with_timeout as run_with_tool_timeout, tool_timeo
 from core.session_compactor import project_context, repair_tool_pairing, should_compact
 from tools import get_tools_schema, execute_tool
 from tools.base import ToolResult
+from providers.stop_reason import was_truncated
 from providers.types import LLMResponse, ToolCall
 
 logger = logging.getLogger(__name__)
@@ -132,6 +133,32 @@ Do not call yourself Claude or any other assistant name."""
 
 MCP_PROMPT_MARKER = "<!-- bobodan:mcp-prompt -->"
 
+# W1 E11：被输出上限截断时最多续写几次（保留可见前缀继续写，不重来）。
+MAX_TRUNCATION_CONTINUES = 2
+
+# W1 E11 / D4：探索预算用尽后进入**结算期** —— 不再开新的检索/探索，只把手上已有的收尾。
+SETTLEMENT_ROUNDS = 3
+
+SETTLEMENT_PROMPT_MARKER = "<!-- bobodan:settlement -->"
+
+SETTLEMENT_PROMPT = (
+    f"{SETTLEMENT_PROMPT_MARKER}\n"
+    "探索预算已经用完，进入收尾阶段：\n"
+    "- 不要再开始新的检索或探索；\n"
+    "- 把已经拿到的证据收尾，直接给出最终回答；\n"
+    "- 如果确实还缺关键信息，说明缺什么，而不是继续找。"
+)
+
+CONTINUATION_PROMPT_MARKER = "<!-- bobodan:continuation -->"
+
+CONTINUATION_PROMPT = (
+    f"{CONTINUATION_PROMPT_MARKER}\n"
+    "你上一条回答因为输出长度上限被**截断**了，没有写完。\n"
+    "请从中断处继续写，不要重复已经写过的内容，也不要重新开头。\n"
+    "已经写出的最后一段是：\n"
+    "…{tail}"
+)
+
 
 class AgentLoop:
     """ReAct agent loop implementation."""
@@ -143,7 +170,8 @@ class AgentLoop:
                  max_iterations: int | None = None,
                  trace_writer=None, allowed_tool_names=None, response_guard=None,
                  memory_injector=None, context_window: int | None = None, checkpoint=None,
-                 cancel_token=None, kb_seed: str | None = None):
+                 cancel_token=None, kb_seed: str | None = None,
+                 exploration_budget: int | None = None):
         self.llm = llm_provider
         self.session = session
         self.tools_schema = tools_schema if tools_schema is not None else get_tools_schema()
@@ -153,6 +181,9 @@ class AgentLoop:
         self.request_prompt = request_prompt
         # W1 E12：进循环前的预检索块，拼到**末尾 user 消息**上（不替代工具检索）。
         self.kb_seed = kb_seed
+        # W1 E11 / D4：探索预算（默认给结算期留 3 轮），至少 1 轮。
+        default_budget = max(1, self.max_iterations - SETTLEMENT_ROUNDS)
+        self.exploration_budget = max(1, int(exploration_budget)) if exploration_budget else default_budget
         self.trace_writer = trace_writer
         self.allowed_tool_names = (
             frozenset(allowed_tool_names) if allowed_tool_names is not None else None
@@ -260,6 +291,10 @@ class AgentLoop:
         tool_history: list[dict] = []
         guard_retry_count = 0
         usage_records: list[dict] = []
+        # W1 E11：截断续写状态（前缀 + 已续写次数 + 是否最终仍被截断）。
+        truncated_prefix: list[str] = []
+        truncation_continues = 0
+        truncated = False
         try:
             if resume_tool_call_id is None:
                 self._remove_legacy_base_prompt()
@@ -289,7 +324,15 @@ class AgentLoop:
                 # turn; re-running them would duplicate the dynamic tail.
                 self.session.add_tool_message(resume_tool_call_id, resume_tool_content)
 
+            settlement_injected = False
             for iteration in range(self.max_iterations):
+                # W1 E11 / D4：探索预算用尽 → 注入一次收尾指令（不再开新检索）。
+                if not settlement_injected and iteration >= self.exploration_budget:
+                    settlement_message = {"role": "system", "content": SETTLEMENT_PROMPT}
+                    self.session.messages.append(settlement_message)
+                    turn_injections.append(settlement_message)
+                    settlement_injected = True
+                    yield {"type": "settlement_started", "budget": self.exploration_budget}
                 # A4 batch 3 (P0-1): the user pressed stop, or the client
                 # disconnected and the grace period expired. End the turn here
                 # instead of after the next (paid) request.
@@ -368,11 +411,37 @@ class AgentLoop:
                     if not decision.allow:
                         response.content = decision.fallback_content
 
+                # W1 E11：被输出上限截断 → 保留可见前缀，接着写（不重来）。
+                if was_truncated(response.finish_reason):
+                    if truncation_continues < MAX_TRUNCATION_CONTINUES and response.content:
+                        truncation_continues += 1
+                        truncated_prefix.append(response.content)
+                        continuation_message = {
+                            "role": "system",
+                            "content": CONTINUATION_PROMPT.format(tail=response.content[-400:]),
+                        }
+                        self.session.messages.append(continuation_message)
+                        turn_injections.append(continuation_message)
+                        yield {
+                            "type": "assistant_truncated",
+                            "continuing": True,
+                            "continues": truncation_continues,
+                        }
+                        continue
+                    # 到上限了：如实说明这次是被截断结束的，不假装写完了。
+                    # （当前这段由下面的合并逻辑拼接，这里不能再加一次前缀，否则会重复。）
+                    yield {"type": "assistant_truncated", "continuing": False}
+                    truncated = True
+
                 if response.content:
                     safe_deltas = response_deltas if response.content == original_content else [response.content]
                     for content_delta in safe_deltas:
                         if content_delta:
                             yield {"type": "assistant_delta", "content": content_delta}
+                # 续写过就把前缀与续写合成**一条**回答（与用户看到的一致）。
+                if truncated_prefix:
+                    response.content = "".join(truncated_prefix) + response.content
+                    truncated_prefix = []
                 if response.content:
                     self.session.add_message("assistant", response.content)
 
@@ -382,6 +451,8 @@ class AgentLoop:
                     "content": response.content,
                     "termination_reason": "final_answer",
                     "usage_records": usage_records,
+                    # W1 E11：续写用尽仍被截断 → 如实标注，界面可以据此提供"接着写"。
+                    "truncated": truncated,
                 }
                 yield done_event
                 if self.trace_writer:
@@ -745,6 +816,7 @@ class AgentLoop:
         tool_buffers: dict[int, dict[str, object]] = {}
         stream_usage = None
         request_id = ""
+        stream_finish_reason = ""
 
         for chunk in complete_stream(
             self._build_context(),
@@ -755,6 +827,8 @@ class AgentLoop:
                 stream_usage = chunk.usage
             if chunk.request_id:
                 request_id = chunk.request_id
+            if getattr(chunk, "finish_reason", ""):
+                stream_finish_reason = str(chunk.finish_reason)
             if chunk.content_delta:
                 content_parts.append(chunk.content_delta)
                 if emit_content:
@@ -790,6 +864,8 @@ class AgentLoop:
             model=str(getattr(self.llm, "model", "") or ""),
             request_id=request_id,
             usage=stream_usage,
+            # W1 E11：把 provider 的停止原因带上来（最后一个非空的）。
+            finish_reason=stream_finish_reason,
         )
         return response, content_parts
 

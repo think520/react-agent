@@ -147,6 +147,7 @@ class OpenAICompatibleProvider:
         return LLMResponse(
             content=content,
             tool_calls=tool_calls,
+            finish_reason=str(choice.get("finish_reason") or ""),
             provider=self.name,
             model=self.model,
             request_id=str(data.get("id") or ""),
@@ -191,6 +192,7 @@ class OpenAICompatibleProvider:
         return LLMStreamChunk(
             content_delta=content_delta,
             tool_call_deltas=tool_call_deltas,
+            finish_reason=str(choice.get("finish_reason") or ""),
             usage=OpenAICompatibleProvider._normalize_usage(data),
             request_id=str(data.get("id") or ""),
         )
