@@ -501,18 +501,52 @@ def _requests_practice(message: str) -> bool:
         "道题",
         "出几道",
         "练几道",
-        "练习",
+        "来点题",
+        "来几道",
+        "给点题",
         "做题",
+        "刷题",
+        "刷几道",
+        "练习",
+        "练一练",
+        "练练",
         "测验",
         "小测",
+        "自测",
         "考考我",
+        "考我",
         "测测我",
+        "测一测",
+        "检验一下",
+        "检查一下我",
         "quiz",
         "practice",
+        "exercise",
+        "drill me",
         "test me",
+        "test my",
         "generate questions",
+        "some questions",
     )
     return any(phrase in normalized for phrase in practice_phrases)
+
+
+def _build_response_policies(message: str, *, has_document_scope: bool) -> list:
+    """组装这一轮要挂的响应策略（W1 E13）。
+
+    - 本地证据 / 概念地图策略仍按语义触发（它们问的是"这一轮该不该用资料或图谱"）。
+    - **出题卡防绕过（防线②）无条件挂载**：它检测的是**模型输出**（纯文本 A/B/C 收尾），
+      而旧实现把挂载挂在用户措辞上 —— 措辞表漏了就能绕过。现在措辞只决定**灵敏度**：
+      明确要题时用宽松判定，否则用严格判定（成组短选项在结尾且上下文在提问）。
+    """
+    policies: list = []
+    if _requires_local_evidence(message, has_document_scope=has_document_scope):
+        policies.append(LocalEvidencePolicy())
+    policies.append(InlineQuestionPolicy(strict=not _requests_practice(message)))
+    operation = _required_concept_map_operation(message)
+    if operation:
+        policies.append(ConceptMapPolicy(operation))
+    return policies
 
 
 def _required_concept_map_operation(message: str) -> str | None:
@@ -1607,17 +1641,10 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
     # run that is still producing: the log is that run's transport now.
     stream_store.prune(exempt=live_stream_ids())
     emitter = StreamEmitter(stream_store, stream_id)
-    response_policies = []
-    if _requires_local_evidence(
+    response_policies = _build_response_policies(
         body.message,
         has_document_scope=bool(document_ids or preferred_document_ids),
-    ):
-        response_policies.append(LocalEvidencePolicy())
-    if _requests_practice(body.message):
-        response_policies.append(InlineQuestionPolicy())
-    required_graph_operation = _required_concept_map_operation(body.message)
-    if required_graph_operation:
-        response_policies.append(ConceptMapPolicy(required_graph_operation))
+    )
     response_guard = CombinedResponsePolicy(*response_policies) if response_policies else None
 
     def event_stream():
