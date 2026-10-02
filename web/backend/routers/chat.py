@@ -184,17 +184,32 @@ CONTINUE_DIRECTIVE = (
 )
 
 
+def _interaction_service(workspace: str, config: dict | None = None) -> "InteractionService":
+    """W1 E4：交互服务统一构造入口 —— 等待时限可由 «agent.interaction_timeout_hours» 覆盖。"""
+    from service.interaction_service import InteractionService, resolve_interaction_timeout_hours
+
+    return InteractionService(
+        workspace, timeout_hours=resolve_interaction_timeout_hours(config or get_config()),
+    )
+
+
 def _resume_content(record: dict[str, Any]) -> str:
     """Render the user's answers as the ask_user tool result (E4)."""
     prompts = {
         str(question.get("id") or ""): str(question.get("prompt") or "").strip()
         for question in record.get("questions") or []
     }
-    # W1 E4：用户**跳过**了这个选择 —— 工具结果要如实说跳过，不能编一个答案，
-    # 也不能让模型以为"用户什么都没说"而在那里干等。
-    if str(record.get("closure") or "") == "skipped":
+    # W1 E4：用户**没有回答**就结束了这次选择（跳过 / 超时 / 过期）—— 工具结果必须
+    # 如实说清楚是哪种，不能编一个答案，也不能让模型以为"用户什么都没说"而干等。
+    no_answer = {
+        "skipped": "[用户跳过了这个选择]",
+        "timeout": "[用户没有在时限内回答]",
+        "expired": "[这个问题已经过期（太久没有回答）]",
+    }
+    closure = str(record.get("closure") or "")
+    if closure in no_answer:
         asked = [str(q.get("prompt") or "").strip() for q in record.get("questions") or []]
-        lines = ["[用户跳过了这个选择]"]
+        lines = [no_answer[closure]]
         if asked:
             lines.append("- 没有回答的问题是：" + "；".join(item for item in asked if item))
         lines.append("")
@@ -223,7 +238,7 @@ def _close_open_interactions(session: Session, workspace: str) -> list[str]:
     message must fill that call in, otherwise the next provider request carries
     an assistant(tool_calls) with no matching tool message and is rejected.
     """
-    service = InteractionService(workspace)
+    service = _interaction_service(workspace)
     closed: list[str] = []
     for record in service.list_open(session.session_id):
         tool_call_id = str(record.get("tool_call_id") or "")
@@ -285,7 +300,7 @@ def _session_detail(session: Session, workspace: str | None = None) -> dict[str,
     if workspace:
         # E4 recovery: overlay the persisted lifecycle onto the cards already in
         # the transcript, so a reload shows answered/graded state in place.
-        interactions = InteractionService(workspace)
+        interactions = _interaction_service(workspace)
         for message in messages:
             for artifact in message.get("artifacts") or []:
                 if artifact.get("type") == "ask_user":
@@ -1075,7 +1090,7 @@ def answer_interaction(
 ) -> dict:
     """Record the user's answers to an ask_user card and complete its lifecycle."""
     workspace = get_request_workspace(request)
-    record = InteractionService(workspace).answer(
+    record = _interaction_service(workspace).answer(
         interaction_id,
         [item.model_dump() for item in body.answers],
     )
@@ -1099,7 +1114,7 @@ def skip_interaction(
     调 /runs —— 暂停的那一轮会带着「用户跳过了」这个工具结果继续，而不是永远停在那里。
     """
     workspace = get_request_workspace(request)
-    service = InteractionService(workspace)
+    service = _interaction_service(workspace)
     if service.get(interaction_id) is None:
         raise APIError(404, "interaction_not_found", "这个交互已经不存在了，请重新提问。")
     record = service.close(interaction_id, closure="skipped")
@@ -1609,7 +1624,7 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
     # close any pending question so the provider never sees a dangling tool_call.
     resume_record: dict[str, Any] | None = None
     if body.resume_interaction_id:
-        resume_record = InteractionService(workspace).get(body.resume_interaction_id)
+        resume_record = _interaction_service(workspace).get(body.resume_interaction_id)
         if not resume_record or resume_record.get("chat_session_id") != session.session_id:
             raise APIError(404, "interaction_not_found", "这个交互已经不存在了，请重新提问。")
         if not resume_record.get("tool_call_id"):
@@ -1821,7 +1836,7 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
                     pause = event.get("pause") or {}
                     if pause.get("interaction_id") and pause.get("tool_call_id"):
                         # E4: bind the paused call so the answer can resume it.
-                        InteractionService(workspace).attach_tool_call(
+                        _interaction_service(workspace).attach_tool_call(
                             str(pause["interaction_id"]), str(pause["tool_call_id"])
                         )
                     for usage_record in event.get("usage_records") or []:

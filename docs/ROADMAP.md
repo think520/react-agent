@@ -95,7 +95,7 @@ R12 的覆盖式“导入为新版本”仍是独立产品能力，不能用当�
 | E1 | **已完成（2026-09-30）** 导入/错误体验：① **错误码上屏** —— 新增 `lib/errorHints.ts`（只对用户有下一步的 code 给提示，未知 code 不编）＋ `ErrorNotice(code)`，已接对话框与导入两个入口；练习页/Chat 未接（后者 code 不随 SSE 保留）② **切库串提示** —— 新增 `clearImportReport()`，切库时清掉导入报告/通知/错误码并清空可重试文件（旧代码只清 notice/error，会把上一库的失败清单留在页面上、点重试导进新库）。回归：前端 11 条。**未覆盖**：`pendingRetryFiles` 清空一行无 UI 级测试 | AppShell + common + errorHints | 体验审查 P1-1/P1-2 |
 | E2 | **已完成（2026-09-30）** 新建资料库路径体验：① 默认值**单一来源** —— 前端不再硬编码（旧：前端 `~/Documents/Bobodan` vs 后端 `…/Bobodan 资料库`），改为 `GET /api/libraries/defaults` ② 「保存到这个目录」是**父目录**，界面现在显示「将创建：<最终根目录>」（由 `GET /api/libraries/root-preview` 用与创建同一个 helper 算，防抖 250ms）③ 目标文件夹非空的 409 文案从英文改为中文并给出下一步。回归：后端 3 条 + 前端 2 条 | library_service + LibrarySetupDialog | 体验审查 P0-2 |
 | E3 | **已完成（2026-09-30）** 错题变式死路回退链：① 三级回退与前端上屏**此前已交付**（无 chunk → 按概念重出 → 原题重练）② 本轮修掉两处不一致：**未配置模型时不再死路**（旧代码在回退链之前就 return，注释里的「避免错题永远进不了复习」不成立）③ **归因不再撒谎**：每次返回都带精确 `reason`（`evidence_used`/`evidence_missing`/`variant_failed`/`no_provider`/`generation_failed`），界面区分「证据缺失 / 生成失败 / 未配置模型」三件事。回归：后端 2 新 + 3 补断言，前端 3 条 | quiz_service + wrongAnswerMode | 体验审查 P0-3 |
-| E4 | **大部分完成（2026-09-30）** ask_user 交互卡 + 生命周期持久化：① 卡片与四态表**此前已交付** ② `answered` 状态真的落库（先算后写、两次更新）③ **multi_select 真多选**（卡片多选 + 后端按集合判分，顺序无关）④ **放弃语义**：新增 `POST /interactions/{id}/skip` + 卡片「先不答，跳过」+ 跳过即恢复暂停的 run，恢复载荷如实说『用户跳过了』⑤ **卡片在会话 state 落定前被操作会静默失效** —— 页面级测试抓到的真 bug：`skipInteraction / resolveInteraction / sendResume` 三处都用 `if (!sessionId) return`，而卡片在流中途就渲染（那时 state 还是空的），已统一改用 `sessionId || sessionIdRef.current` ⑥ **未做**：超时策略（只有 7 天数据卫生窗口）。回归：后端 4 + 4，前端 2 + 3（含页面级「跳过→恢复 run」） | interaction_service + AskUserCard + chat 路由 | 体验审查 P1-4 |
+| E4 | **已完成（2026-09-30）** ask_user 交互卡 + 生命周期持久化：① 卡片与四态表**此前已交付** ② `answered` 状态真的落库（先算后写、两次更新）③ **multi_select 真多选**（卡片多选 + 后端按集合判分，顺序无关）④ **放弃语义**：新增 `POST /interactions/{id}/skip` + 卡片「先不答，跳过」+ 跳过即恢复暂停的 run，恢复载荷如实说『用户跳过了』⑤ **卡片在会话 state 落定前被操作会静默失效** —— 页面级测试抓到的真 bug：`skipInteraction / resolveInteraction / sendResume` 三处都用 `if (!sessionId) return`，而卡片在流中途就渲染（那时 state 还是空的），已统一改用 `sessionId || sessionIdRef.current` ⑥ **超时策略**：`sweep_timeouts()`（`closure=timeout`，默认 48 小时，可由 `agent.interaction_timeout_hours` 覆盖）+ **迟到的回答仍然算数**（旧实现把 graded 一律当已作答 → 迟到答案被静默丢弃，真 bug）+ 恢复载荷按 closure 如实区分（跳过/超时/过期）。回归：后端 4 + 4 + 7，前端 2 + 3（含页面级「跳过→恢复 run」） | interaction_service + AskUserCard + chat 路由 | 体验审查 P1-4 |
 | E5 | **已完成（2026-09-30，两批）** 出题三阶段流式管线：① 核对确认只有单发 ② **管线核心** `quiz/pipeline.py`：Explore（无证据明确失败）→ Plan（模型计划 + 确定性兜底，来源标注）/ 逐题生成（**先落库再发事件**、单题失败只跳过、题间可取消）③ **SSE 传输** `POST /api/quiz/pipeline/stream`（工作线程 + 队列逐帧；断开即取消）④ **界面**：`useQuestionPipeline` + 练习页「逐题生成（每出一道立刻显示）」开关与实时列表，出完自动开练习 ⑤ 服务与工具 `pipeline=` 开关（默认关闭：逐题每道一次模型调用）⑥ **范围与课程**：`_explore` 改走 `KBService.search` —— 以前直接调 `search_index`，**document_ids 与 course 全被忽略**（用户选的资料范围无效，可能拿到范围外证据）；现在两者都生效，`QuestionPipelineRequest.course` 也补齐 ⑦ **个性化上下文**：`run_question_pipeline(personalization=…)` 设到每道题的生成器上（与单发路径同机制），并有用例钉住「个性化永不成为题目来源」⑧ **实时卡片**：`quiz_question_emitted` 补 `options/difficulty/concepts`，练习页把每道就绪的题渲染成卡片（题型/难度/题干/选项），标签逻辑收敛到 `lib/practiceCards.ts`（未知取值如实显示）⑨ **未做**：练习页没有课程选择器 | quiz/pipeline.py + SSE + PracticePage | D8/D9；报告 P0-2 |
 | E6 | **已完成（2026-09-30）** 掌握度引擎：① 核对确认「不是从历史推导 + 逐次对错没持久化」② **数据层**：`mastery_attempts` + 唯一漏斗 `ReviewScheduler.record_review` ③ **纯函数引擎** `learning/engine.py`（近 5 次加权 + 置信缩放 1 次 ×0.5 / 2 次 ×0.8 / 3 次起 1.0 + partial 半分；`next_objective` 优先级）④ **接线**：复习队列带 `mastery/evidence/mastery_source` + 队列带 `next_objective`，复习页显示「下一步」与来源文案 ⑤ **agent 读引擎**：新增只读工具 `learning_status` 并加进 Web 白名单，`study-loop` 技能指向它。**仍未做**：掌握度**调度**仍是原 SM-2 增量逻辑（本轮未改其行为）。回归：历史 4 + 引擎 10 + 接线 7 + 前端 8 + 工具 4 | learning/engine.py + learning_service + 工具 | D1/D2/D3 |
 | E7 | **已完成（2026-09-30，五批）** 划线最小闭环：① `_public_section` 不再丢 `char_start/char_end` ② `document_anchors` 表 + CRUD ③ 纯函数重锚定（exact / relocated / stale 不猜）④ 跨分段找回（同资料内，**不跨资料**）⑤ API 三端点 ⑥ 前端闭环（选区→划线→面板→定位，定位优先用重锚定分段）⑦ 正文内上色（按引文包 `<mark>`，跨内联标签可画）⑧ **笔记托管区块**（自定语法 `<!-- bobodan:managed:highlights:doc-… start/end -->`，只重写标记之间、幂等、未闭合不吃内容；编辑器「插入划线汇总」）。**未做**：跨笔记的选择器（现在同步进正在编辑的这篇）。回归：后端 11 + 前端 14 + 6 + 1 + 9 + 2 | Reader + notes 服务 | Q1/Q2/Q3；报告 P0-4 |
@@ -113,15 +113,16 @@ R12 的覆盖式“导入为新版本”仍是独立产品能力，不能用当�
 
 #### W1 收口结论（2026-09-30）
 
-E1–E16 逐条核对并交付后：**12 条已完成、4 条大部分完成**（E4/E6/E7/E11；E17/E18 属于既有工作流，状态见各自行）。剩余项逐条写明，不粉饰：
+E1–E16 逐条核对并交付后（截至 2026-09-30）：**16 条全部交付**。仍然缺的**只有明确列出的细节**，不粉饰：
 
 | # | 状态 | 仍缺什么（如实） |
 |---|---|---|
-| E1 E2 E3 E5 E8 E9 E10 E12 E13 E14 E15 E16 | 已完成 | E5 有两处细节：管线不吃 `course` 与个性化上下文；逐题实时列表只列题干（不是完整卡片） |
-| E4 | 大部分完成 | **超时/放弃语义**：卡片上的「跳过」要同时唤醒暂停的 run；以及超时策略（现在只有 7 天数据卫生窗口 + 发下一条消息时记为 skipped） |
-| E6 | 大部分完成 | **agent 每轮先读引擎**（D1 的形式是调 `learning_status` 工具 —— 本轮补上）；掌握度调度仍是原 SM-2 增量逻辑，未改其行为 |
-| E7 | 大部分完成 | **笔记里的托管区块同步**（三家参考项目无等价机制，要自定语法）、**正文内划线上色**（现在只在面板列出 + 能定位）、**跨分段找回引文** |
-| E11 | 大部分完成 | D4 的 `call_role`（区分 narration/finish）、**界面消费** `assistant_truncated`/`settlement_started`、探索预算的配置项 |
+| E1 E2 E3 E8 E9 E10 E12 E13 E14 E15 E16 | 已完成 | — |
+| E4 | 已完成 | —（超时 48 小时可配 + 迟到回答仍算数） |
+| E5 | 已完成 | **练习页没有课程选择器**（管线已支持 course，界面只发资料范围） |
+| E6 | 已完成 | 掌握度**调度**仍是原 SM-2 增量逻辑（本轮只补了『能读引擎』，没改它的行为） |
+| E7 | 已完成 | **跨笔记的选择器**（现在同步进正在编辑的这篇；对源资料仍然只读） |
+| E11 | 已完成 | — |
 
 核对纪律（这一轮的教训）：**路线描述不能当现状** —— E3/E5/E9/E10/E11/E13/E15/E16 这 8 条的路线原文与代码不符（有的「已存在但没人用」，有的「描述存在、实则没有」）。所以每条都先做「现状核对 → 会失败的复现测试 → 实现」，并把核对数字写进 CHANGELOG。
 
