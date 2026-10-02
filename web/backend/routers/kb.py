@@ -722,6 +722,40 @@ def move_document(document_id: str, body: dict, request: Request) -> dict:
     return result
 
 
+@router.post("/documents/{document_id}/anchors")
+def create_document_anchor(document_id: str, body: dict, request: Request) -> dict:
+    """W1 E7：chunk 级划线锚点（四元组 + 引文）。"""
+    from service.anchor_service import AnchorService
+
+    result = AnchorService(get_request_workspace(request)).create(
+        document_id=document_id,
+        chunk_id=str(body.get("chunk_id") or ""),
+        quote=str(body.get("quote") or ""),
+        char_start=body.get("char_start"),
+        char_end=body.get("char_end"),
+        note=str(body.get("note") or ""),
+    )
+    return unwrap_service_result(result, code="anchor_create_failed")
+
+
+@router.get("/documents/{document_id}/anchors")
+def list_document_anchors(document_id: str, request: Request) -> dict:
+    """列出该资料的划线，并**逐条报告还能不能指到**（exact / relocated / stale）。"""
+    from service.anchor_service import AnchorService
+
+    return AnchorService(get_request_workspace(request)).list_for_document(document_id)
+
+
+@router.delete("/anchors/{anchor_id}")
+def delete_document_anchor(anchor_id: str, request: Request) -> dict:
+    from service.anchor_service import AnchorService
+
+    return unwrap_service_result(
+        AnchorService(get_request_workspace(request)).delete(anchor_id),
+        code="anchor_not_found",
+    )
+
+
 @router.get("/archive")
 def list_archive(request: Request) -> dict:
     """已归档的资料（E17 ③）：归档只是移走，永远可以恢复。"""

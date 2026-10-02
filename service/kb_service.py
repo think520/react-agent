@@ -2798,6 +2798,10 @@ class KBService:
             "page_start": chunk.get("page_start"),
             "slide_start": chunk.get("slide_start"),
             "text": chunk.get("text", ""),
+            # W1 E7：分段内的字符偏移 —— 划线锚点要用它（以前这里把它丢掉了，
+            # 阅读器只剩 quote 可存，重锚定会弱很多）。
+            "char_start": chunk.get("char_start"),
+            "char_end": chunk.get("char_end"),
         }
 
     def _public_document(self, document: dict[str, Any]) -> dict[str, Any]:

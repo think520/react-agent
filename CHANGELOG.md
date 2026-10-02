@@ -7,6 +7,13 @@
 ## [未发布]
 
 ### 变更
+- **W1 · E7 划线最小闭环（第一批：数据层 + 服务 + API，2026-09-30，本地未推送）**：核对指出四件事缺三件 —— references 早有 `chunk_id` 字段且 E17③ 有重映射迁移，但**没有任何代码写过它**；`_public_section` 还把 `char_start/char_end` 丢掉了。
+  - **① 分段偏移不再丢**：`KBService._public_section` 现在带 `char_start/char_end`（缺就 None）—— 划线锚点才有偏移可用，重锚定不必只靠引文。
+  - **② 锚点存储**：`personal_store` 新增表 `document_anchors`（四元组 `document_id/chunk_id/char_start/char_end` + `quote` + note），放在**资料库作用域**（它是用户自己的标注，不是索引真相源），并配 `add/list/get/delete` 四个方法。
+  - **③ 重锚定（纯函数 `memory/anchors.py`）**：偏移仍对得上引文 → `exact`；对不上就在当前分段里按引文找回 → `relocated`（并给出新偏移）；找不到 → `stale`（**不猜**）。`service/anchor_service.py` 用当前索引里的分段文本逐条核对，列表里每条都带 `resolution`。
+  - **④ API**：`POST/GET /api/kb/documents/{id}/anchors`、`DELETE /api/kb/anchors/{id}`；空引文直接拒收（没有引文以后无法重新定位）。
+  - **回归**：8 条（分段带偏移 / 缺偏移不炸 / exact / relocated / stale 不猜 / 存储往返与按文档隔离 / 服务逐条给现状 / 空引文拒收 / 删除不存在如实报错）。
+  - **未做（如实记账）**：**前端选区与反向定位**（阅读器里选中 → 划线 → 点回原处闪一下）与**笔记里的托管区块同步**都还没做 —— 后者三家参考项目都没有等价机制，要自定语法；另外跨分段找回引文（引文跑到别的 chunk）也没做。
 - **W1 · E5 第二批：逐题流式到界面（2026-09-30，本地未推送）** —— 「每题就绪即渲染」真正打通。
   - **后端 SSE**：`POST /api/quiz/pipeline/stream` 在工作线程里跑管线（它要调模型），事件经队列逐帧发出：`pipeline_started / explore_done / quiz_plan / quiz_question_emitted / quiz_question_failed / pipeline_done | pipeline_cancelled`，末帧是 `pipeline_result`；**客户端断开即取消**（已落库的题保留）。
   - **前端**：`api.streamQuestionPipeline()`（POST + 逐帧 SSE 解析，坏帧不会打断整条流）＋ hook `useQuestionPipeline`（事件到了就累积，**不等整批**；失败/取消都保留已就绪的题）；练习页新增「**逐题生成（每出一道立刻显示）**」开关与实时列表（「正在逐题生成… 已就绪 N 道」+ 题目 + 可停止），出完自动开练习。**默认仍关闭**（每道题一次模型调用，用户显式选择才走）。

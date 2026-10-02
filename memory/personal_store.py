@@ -128,6 +128,22 @@ CREATE TABLE IF NOT EXISTS reading_progress (
     updated_at TEXT NOT NULL
 );
 
+-- W1 E7：划线锚点（chunk 级四元组 + 引文）。放在个人数据里，
+-- 因为它是用户自己的标注，不是索引的真相源。
+CREATE TABLE IF NOT EXISTS document_anchors (
+    anchor_id TEXT PRIMARY KEY,
+    document_id TEXT NOT NULL,
+    chunk_id TEXT NOT NULL DEFAULT '',
+    quote TEXT NOT NULL,
+    char_start INTEGER,
+    char_end INTEGER,
+    note TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_anchors_document ON document_anchors(document_id, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS memory_jobs (
     id TEXT PRIMARY KEY,
     source_type TEXT NOT NULL,
@@ -515,6 +531,70 @@ class PersonalKnowledgeStore:
             "source_id": row["source_id"], "concept": row["concept"],
             "payload": _loads(row["payload"], {}), "occurred_at": row["occurred_at"],
         } for row in rows]
+
+    # --- W1 E7：划线锚点 ---
+
+    def add_document_anchor(
+        self,
+        *,
+        document_id: str,
+        quote: str,
+        chunk_id: str = "",
+        char_start: int | None = None,
+        char_end: int | None = None,
+        note: str = "",
+    ) -> dict:
+        import uuid
+
+        now = _now()
+        anchor = {
+            "anchor_id": uuid.uuid4().hex,
+            "document_id": str(document_id),
+            "chunk_id": str(chunk_id or ""),
+            "quote": str(quote or ""),
+            "char_start": char_start,
+            "char_end": char_end,
+            "note": str(note or ""),
+            "created_at": now,
+            "updated_at": now,
+        }
+        with self._conn("library") as conn:
+            conn.execute(
+                """INSERT INTO document_anchors
+                   (anchor_id, document_id, chunk_id, quote, char_start, char_end, note, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    anchor["anchor_id"], anchor["document_id"], anchor["chunk_id"],
+                    anchor["quote"], anchor["char_start"], anchor["char_end"],
+                    anchor["note"], anchor["created_at"], anchor["updated_at"],
+                ),
+            )
+        return anchor
+
+    def list_document_anchors(self, document_id: str, limit: int = 200) -> list[dict]:
+        with self._conn("library") as conn:
+            rows = conn.execute(
+                """SELECT * FROM document_anchors
+                   WHERE document_id = ?
+                   ORDER BY created_at DESC, anchor_id
+                   LIMIT ?""",
+                (str(document_id), max(1, int(limit))),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_document_anchor(self, anchor_id: str) -> dict | None:
+        with self._conn("library") as conn:
+            row = conn.execute(
+                "SELECT * FROM document_anchors WHERE anchor_id = ?", (str(anchor_id),),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def delete_document_anchor(self, anchor_id: str) -> bool:
+        with self._conn("library") as conn:
+            cursor = conn.execute(
+                "DELETE FROM document_anchors WHERE anchor_id = ?", (str(anchor_id),),
+            )
+            return cursor.rowcount > 0
 
     def update_reading_progress(self, document_id: str, progress: int, opened: bool = False) -> dict:
         progress = max(0, min(int(progress), 100))
