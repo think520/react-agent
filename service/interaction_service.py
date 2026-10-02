@@ -57,7 +57,13 @@ def _now_iso() -> str:
 
 
 def _normalize(value: Any) -> str:
-    return " ".join(str(value or "").split()).casefold()
+    # W1 E4：multi_select 的答案是**集合**，顺序不该影响判定；
+    # 也要能吃下数组载荷（前端直接送 ["甲","丙"] 时不该成为陷阱）。
+    if isinstance(value, (list, tuple, set)):
+        parts = [_normalize(item) for item in value]
+        return ",".join(sorted(part for part in parts if part))
+    parts = [part.strip() for part in str(value or "").split(",")]
+    return ",".join(sorted(" ".join(part.split()).casefold() for part in parts if part))
 
 
 def grade_answers(questions: list[dict], answers: list[dict]) -> dict:
@@ -197,15 +203,24 @@ class InteractionService:
         if record["status"] in (STATUS_ANSWERED, STATUS_GRADED):
             return record
         now = _now_iso()
+        # 先算好批改结果，再分**两次**落库：answered → graded。
+        # W1 E4：路线里的四态要真的能被观察到；旧实现把两次压成一次，
+        # «answered» 永远不会出现（按路线实现的消费者等不到它）。
+        # 先算后写，保证两次更新之间不会抛异常、不会把记录卡在「已作答未批改」。
         outcome = grade_answers(record["questions"], answers or [])
+        payload = json.dumps(answers or [], ensure_ascii=False)
+        self._update(
+            interaction_id,
+            status=STATUS_ANSWERED,
+            answers=payload,
+            answered_at=now,
+        )
         self._update(
             interaction_id,
             status=STATUS_GRADED,
             closure="answered",
-            answers=json.dumps(answers or [], ensure_ascii=False),
             outcome=json.dumps(outcome, ensure_ascii=False),
-            answered_at=now,
-            graded_at=now,
+            graded_at=_now_iso(),
         )
         return self.get(interaction_id)
 
