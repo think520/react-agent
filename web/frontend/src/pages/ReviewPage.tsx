@@ -33,6 +33,12 @@ function nextReviewText(queue: ReviewQueue | null): string {
   return "下一次复习：" + when + " · " + next.concept;
 }
 
+/** W1 E9：队列带回来的"最近一次答错是哪次"（没有作答历史就是 undefined）。 */
+function lastAttemptId(record: Record<string, unknown>): number | undefined {
+  const value = record.last_attempt_id;
+  return typeof value === "number" && value > 0 ? value : undefined;
+}
+
 export function ReviewPage() {
   const navigate = useNavigate();
   const [queue, setQueue] = useState<ReviewQueue | null>(null);
@@ -59,9 +65,9 @@ export function ReviewPage() {
       return "按照学习计划到期";
     };
     return [
-      ...queue.due_concepts.map((record, index) => ({ id: `due-${index}`, kind: "到期" as const, title: textValue(record, ["concept", "title", "name"], "待复习知识点"), meta: dueMeta(textValue(record, ["status"], "按照学习计划到期")), questionIds: questionIds(record) })),
+      ...queue.due_concepts.map((record, index) => ({ id: `due-${index}`, kind: "到期" as const, title: textValue(record, ["concept", "title", "name"], "待复习知识点"), meta: dueMeta(textValue(record, ["status"], "按照学习计划到期")), questionIds: questionIds(record), attemptId: lastAttemptId(record) })),
       ...queue.wrong_answers.map((record, index) => ({ id: `wrong-${index}`, kind: "错题" as const, title: textValue(record, ["question", "concept", "title"], "需要回看的错题"), meta: textValue(record, ["feedback", "course"], "将生成考察同一误区的变式题"), questionIds: questionIds(record), attemptId: typeof record.attempt_id === "number" ? record.attempt_id : undefined })),
-      ...queue.weaknesses.map((record, index) => ({ id: `weak-${index}`, kind: "薄弱点" as const, title: textValue(record, ["concept", "name", "title"], "尚未掌握的知识点"), meta: textValue(record, ["reason", "status"], "建议进行针对性练习"), questionIds: questionIds(record) })),
+      ...queue.weaknesses.map((record, index) => ({ id: `weak-${index}`, kind: "薄弱点" as const, title: textValue(record, ["concept", "name", "title"], "尚未掌握的知识点"), meta: textValue(record, ["reason", "status"], "建议进行针对性练习"), questionIds: questionIds(record), attemptId: lastAttemptId(record) })),
     ];
   }, [queue]);
   const nextReview = nextReviewText(queue);
@@ -71,7 +77,9 @@ export function ReviewPage() {
     setError("");
     try {
       let ids: number[];
-      if (item.kind === "错题" && item.attemptId) {
+      // W1 E9：只要这条记录带着"最近一次答错"，到期与薄弱点也走**变式通道** ——
+      // 变式针对的是当初那个误区，而不是把原题重放一遍（没有作答历史的新概念才按概念出题）。
+      if (item.attemptId) {
         const variant = await api.generateWrongAnswerVariant(item.attemptId);
         const fallbackReason = wrongAnswerFallbackNotice(variant.mode);
         if (fallbackReason) notifyInfo(fallbackReason);

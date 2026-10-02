@@ -89,6 +89,15 @@ _WRONG_VERDICT_SQL = (
 )
 
 
+def _weakness_reason(total_attempts: int, wrong_count: int) -> str:
+    """一句人话说明它为什么算薄弱（W1 E9：由代码算，界面不再用兜底句冒充后端结论）。"""
+    if wrong_count >= 3:
+        return f"近 {total_attempts} 次作答里错了 {wrong_count} 次"
+    if wrong_count == 2:
+        return f"近 {total_attempts} 次作答里错了 2 次"
+    return f"近 {total_attempts} 次作答里错了 1 次"
+
+
 def _bank_state(row: sqlite3.Row) -> str:
     """Derive the bank state from the latest attempt; never materialized.
 
@@ -340,6 +349,32 @@ class QuizStore:
                 (concept, max(1, limit)),
             ).fetchall()
             return [int(row["id"]) for row in rows]
+        finally:
+            conn.close()
+
+    def last_wrong_attempt_id_for_concept(self, concept: str) -> int | None:
+        """这个概念**最近一次答错**是哪次作答（没有就 None）。
+
+        W1 E9：到期复习要复用 E3 已经交付的变式通道（«generate_wrong_answer_variant(attempt_id)»），
+        而不是把原题重放一遍。变式通道只认 attempt_id，所以队列得把这条证据带出去 ——
+        没有作答历史的新概念仍然可以按概念出题（那条路径不变）。
+        """
+        if not concept:
+            return None
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                f"""SELECT qa.id
+                    FROM quiz_attempts qa
+                    JOIN questions q ON qa.question_id = q.id,
+                         json_each(q.concepts) concept_item
+                    WHERE concept_item.value = ?
+                      AND {_WRONG_VERDICT_SQL}
+                    ORDER BY qa.id DESC
+                    LIMIT 1""",
+                (concept,),
+            ).fetchone()
+            return int(row["id"]) if row else None
         finally:
             conn.close()
 
@@ -1008,7 +1043,15 @@ class QuizStore:
         finally:
             conn.close()
 
-    def get_weakness_analysis(self) -> list[dict]:
+    def get_weakness_analysis(self, limit: int = 20) -> list[dict]:
+        """只返回**真的错过**的概念，并且给出原因（W1 E9）。
+
+        两处修正（2026-09-30 核对实测）：
+        - 旧 SQL **没有 WHERE/HAVING**，于是每个被作答过的概念都会出现 —— 包括从来没答错过的，
+          前端再配一句固定兜底说明，"当前薄弱点"因此名不副实、顶部统计也跟着虚高。
+        - 旧实现**不产出 reason**，而界面读的正是这个字段 —— 所以那句说明永远是兜底句，
+          不是后端结论。现在原因由代码算（«_weakness_reason»），界面只负责显示。
+        """
         conn = self._connect()
         try:
             rows = conn.execute(
@@ -1019,7 +1062,10 @@ class QuizStore:
                     JOIN questions q ON qa.question_id = q.id,
                          json_each(q.concepts) je
                     GROUP BY je.value
-                    ORDER BY wrong_count DESC"""
+                    HAVING SUM(CASE WHEN {_WRONG_VERDICT_SQL} THEN 1 ELSE 0 END) > 0
+                    ORDER BY wrong_count DESC, total_attempts DESC
+                    LIMIT ?""",
+                (max(1, int(limit)),),
             ).fetchall()
             return [
                 {
@@ -1029,6 +1075,7 @@ class QuizStore:
                     "error_rate": round(r["wrong_count"] / r["total_attempts"], 2)
                     if r["total_attempts"] > 0
                     else 0,
+                    "reason": _weakness_reason(int(r["total_attempts"]), int(r["wrong_count"])),
                 }
                 for r in rows
             ]

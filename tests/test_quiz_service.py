@@ -488,6 +488,49 @@ def test_get_weakness_analysis_with_data(store, svc):
     assert len(result["analysis"]) >= 1
 
 
+
+def test_weakness_analysis_excludes_concepts_answered_correctly_every_time(store, svc):
+    """W1 E9：**全答对**的概念不该出现在「当前薄弱点」里。
+
+    核对实测：旧 SQL **没有 WHERE**，于是每个被作答过的概念都被列出来，前端再配一句固定的
+    兜底说明 —— "薄弱点"里混着从来没答错过的概念。它同时让顶部统计跟着虚高。
+    """
+    good = _make_question(store, qtype="single_choice", concepts=["全对的概念"])
+    session = store.create_session([good.id])
+    for _ in range(3):
+        store.record_attempt(QuizAttempt(
+            session_id=session.id, question_id=good.id,
+            user_answer="A", is_correct=True, verdict="correct", feedback="ok",
+        ))
+
+    result = svc.get_weakness_analysis()
+
+    assert result["ok"], result
+    assert [item["concept"] for item in result["analysis"]] == [], result["analysis"]
+
+
+def test_weakness_analysis_gives_a_real_reason_from_the_backend(store, svc):
+    """薄弱原因必须**由后端算出来** —— 以前 UI 读的字段根本不存在，只能永远显示兜底句。"""
+    weak = _make_question(store, qtype="single_choice", concepts=["真的薄弱"])
+    session = store.create_session([weak.id])
+    for _ in range(3):
+        store.record_attempt(QuizAttempt(
+            session_id=session.id, question_id=weak.id,
+            user_answer="B", is_correct=False, verdict="incorrect", feedback="wrong",
+        ))
+    for _ in range(2):
+        store.record_attempt(QuizAttempt(
+            session_id=session.id, question_id=weak.id,
+            user_answer="A", is_correct=True, verdict="correct", feedback="ok",
+        ))
+
+    analysis = svc.get_weakness_analysis()["analysis"]
+    item = next(entry for entry in analysis if entry["concept"] == "真的薄弱")
+
+    assert item["total_attempts"] == 5, item
+    assert item["wrong_count"] == 3, item
+    assert item["error_rate"] == 0.6, item
+    assert "5 次" in item["reason"] and "3 次" in item["reason"], item
 # --- get_stats ---
 
 def test_get_stats_empty(svc):

@@ -124,10 +124,13 @@ class LearningService:
         wrong_result = quiz_service.get_wrong_answer_book(limit=bounded_wrong)
         wrong_total = quiz_service.count_bank(state="incorrect").get("total", 0)
         weakness_result = quiz_service.get_weakness_analysis()
+        # W1 E9：带上"最近一次答错是哪次"，让界面能走 E3 已交付的**变式**通道，
+        # 而不是把原题重放一遍（变式通道只认 attempt_id）。
         due_concepts = [
             {
                 **record,
                 "question_ids": quiz_store.find_question_ids_by_concept(record["concept"]),
+                "last_attempt_id": quiz_store.last_wrong_attempt_id_for_concept(record["concept"]),
             }
             for record in due_result.get("concepts", [])
         ]
@@ -135,6 +138,7 @@ class LearningService:
             {
                 **record,
                 "question_ids": quiz_store.find_question_ids_by_concept(record["concept"]),
+                "last_attempt_id": quiz_store.last_wrong_attempt_id_for_concept(record["concept"]),
             }
             for record in weakness_result.get("analysis", [])
         ]
