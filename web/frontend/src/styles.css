@@ -2162,4 +2162,11 @@ mark.reader-anchor-mark {
   padding: 0 1px;
 }
 
+/* W1 E7：划线汇总写入后的提示。 */
+.document-editor-notice {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
 

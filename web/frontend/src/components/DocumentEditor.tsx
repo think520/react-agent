@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { Columns2, History, Save, X } from "lucide-react";
+import { Columns2, History, Quote, Save, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { ApiError, api } from "../lib/api";
+import { renderHighlightsBlock, upsertManagedBlock } from "../lib/managedBlocks";
 import { Modal } from "../ui/Modal";
 
 interface DocumentEditorProps {
@@ -29,6 +30,8 @@ interface Version {
 export function DocumentEditor({ documentId, title, onClose, onSaved }: DocumentEditorProps) {
   const [content, setContent] = useState("");
   const [expectedHash, setExpectedHash] = useState("");
+  const [syncing, setSyncing] = useState(false);
+  const [syncNotice, setSyncNotice] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -109,6 +112,27 @@ export function DocumentEditor({ documentId, title, onClose, onSaved }: Document
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
+  }
+
+  /** W1 E7：把这份资料的划线汇总写进托管区块（只动标记之间，其他内容一个字不改）。 */
+  async function syncHighlights() {
+    setSyncing(true);
+    setSyncNotice("");
+    setError("");
+    try {
+      const result = await api.documentAnchors(documentId);
+      const anchors = result.anchors || [];
+      const body = renderHighlightsBlock(anchors);
+      const next = upsertManagedBlock(content, `highlights:${documentId}`, body);
+      setContent(next.text);
+      setSyncNotice(next.changed
+        ? `已写入 ${anchors.length} 条划线的汇总（保存后生效）。`
+        : "划线汇总没有变化，正文未改动。");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "汇总划线失败。");
+    } finally {
+      setSyncing(false);
+    }
   }
 
   async function save(action: "overwrite" | "abandon" | "save_as_new" = "overwrite") {
@@ -228,7 +252,18 @@ export function DocumentEditor({ documentId, title, onClose, onSaved }: Document
 
         {error && <p className="document-editor-error">{error}</p>}
 
+        {syncNotice && <p className="document-editor-notice">{syncNotice}</p>}
+
         <footer>
+          {/* W1 E7：把这篇资料上的划线写进正文的**托管区块**（只重写标记之间）。 */}
+          <button
+            className="quiet-button"
+            type="button"
+            disabled={saving || loading || syncing}
+            onClick={() => void syncHighlights()}
+          >
+            <Quote size={14} />{syncing ? "正在汇总划线…" : "插入划线汇总"}
+          </button>
           <button className="quiet-button" type="button" onClick={() => void loadVersions()}><History size={14} />历史版本</button>
           <div>
             <button className="quiet-button" type="button" disabled={saving || loading} onClick={onClose}>取消</button>
