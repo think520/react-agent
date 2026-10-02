@@ -277,3 +277,64 @@ def test_the_stream_endpoint_emits_each_event_in_order(monkeypatch):
     ], names
     assert names[-1] == "pipeline_result", names
     assert events[-1]["question_ids"] == [11, 12]
+
+
+def test_explore_honours_the_selected_documents_and_course(monkeypatch):
+    """W1 E5 细节：逐题管线以前**完全忽略 document_ids**（用户选的资料范围无效），
+    也不吃 course —— 这里钉住：范围与课程都要传给检索。"""
+    from quiz import pipeline as pipeline_module
+
+    seen: dict[str, object] = {}
+
+    class _KB:
+        def __init__(self, workspace):
+            seen["workspace"] = workspace
+
+        def search(self, query, course=None, top_k=5, document_ids=None, **kwargs):
+            seen.update({"query": query, "course": course, "document_ids": document_ids, "top_k": top_k})
+            return {"ok": True, "results": [{"chunk_id": "c1", "text": "证据", "document_id": "doc-2"}]}
+
+    monkeypatch.setattr("service.kb_service.KBService", _KB)
+
+    chunks = pipeline_module._explore(
+        workspace="/tmp/x", topic="最短路", document_ids=["doc-2"], course="算法课",
+    )
+
+    assert [chunk["chunk_id"] for chunk in chunks] == ["c1"], chunks
+    assert seen["document_ids"] == ["doc-2"], seen
+    assert seen["course"] == "算法课", seen
+
+
+def test_explore_reports_no_evidence_when_the_search_fails(monkeypatch):
+    from quiz import pipeline as pipeline_module
+
+    class _Failing:
+        def __init__(self, workspace):
+            pass
+
+        def search(self, *args, **kwargs):
+            raise RuntimeError("index missing")
+
+    monkeypatch.setattr("service.kb_service.KBService", _Failing)
+
+    assert pipeline_module._explore(workspace="/tmp/x", topic="x", document_ids=None) == []
+
+
+def test_the_pipeline_forwards_course_to_explore(monkeypatch):
+    from quiz import pipeline as pipeline_module
+
+    seen: dict[str, object] = {}
+
+    def _fake_explore(**kwargs):
+        seen.update(kwargs)
+        return []
+
+    monkeypatch.setattr(pipeline_module, "_explore", _fake_explore)
+
+    outcome = pipeline_module.run_question_pipeline(
+        workspace="/tmp/x", topic="最短路", count=1, llm=None, course="算法课", document_ids=["doc-2"],
+    )
+
+    assert outcome["ok"] is False and outcome["code"] == "no_evidence", outcome
+    assert seen["course"] == "算法课", seen
+    assert seen["document_ids"] == ["doc-2"], seen

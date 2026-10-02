@@ -106,12 +106,32 @@ def build_plan(
     return items, "llm"
 
 
-def _explore(*, workspace: str, topic: str, document_ids: list[str] | None, top_k: int = 8) -> list[dict]:
-    """Phase 1：确认有可出题的资料。检索异常按"没有证据"处理（由调用方如实报错）。"""
-    try:
-        from rag.retriever import search_index
+def _explore(
+    *,
+    workspace: str,
+    topic: str,
+    document_ids: list[str] | None,
+    course: str | None = None,
+    top_k: int = 8,
+) -> list[dict]:
+    """Phase 1：确认有可出题的资料。检索异常按「没有证据」处理（由调用方如实报错）。
 
-        return search_index(workspace, topic, top_k=top_k) or []
+    W1 E5 修正：以前这里直接调 «search_index»，于是**完全忽略 document_ids 与 course** ——
+    用户在界面上选的资料范围对逐题管线无效（可能拿到范围外的证据）。现在走
+    «KBService.search»：它按 document_ids 过滤、按 course 限定，并保住可见性规则。
+    """
+    try:
+        from service.kb_service import KBService
+
+        result = KBService(workspace).search(
+            topic,
+            course=course,
+            top_k=top_k,
+            document_ids=list(document_ids) if document_ids else None,
+        )
+        if not result.get("ok"):
+            return []
+        return list(result.get("results") or [])
     except Exception as exc:
         logger.warning("Explore retrieval failed: %s", exc)
         return []
@@ -125,6 +145,7 @@ def run_question_pipeline(
     llm: Any = None,
     config: dict | None = None,
     document_ids: list[str] | None = None,
+    course: str | None = None,
     on_event: Callable[[dict], None] | None = None,
     cancel_token: Any = None,
 ) -> dict[str, Any]:
@@ -132,7 +153,9 @@ def run_question_pipeline(
     emit = on_event or (lambda event: None)
     emit({"event": "pipeline_started", "topic": topic, "count": int(count)})
 
-    chunks = _explore(workspace=workspace, topic=topic, document_ids=document_ids)
+    chunks = _explore(
+        workspace=workspace, topic=topic, document_ids=document_ids, course=course,
+    )
     if not chunks:
         emit({"event": "pipeline_failed", "code": "no_evidence"})
         return {

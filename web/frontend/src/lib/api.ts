@@ -1145,12 +1145,18 @@ export type QuestionPipelineEvent =
 
 /** W1 E5：逐题生成并**边出边收**（每题一帧，不等整批）。 */
 export async function streamQuestionPipeline(
-  body: { topic: string; count?: number; document_ids?: string[] },
+  body: { topic: string; count?: number; document_ids?: string[]; course?: string },
   onEvent: (event: QuestionPipelineEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
   const response = await fetch("/api/quiz/pipeline/stream", {
-    ...json({ topic: body.topic, count: body.count ?? 5, document_ids: body.document_ids ?? [] }),
+    ...json({
+      topic: body.topic,
+      count: body.count ?? 5,
+      document_ids: body.document_ids ?? [],
+      // W1 E5：课程范围可选（界面暂时只发资料范围）。
+      ...(body.course ? { course: body.course } : {}),
+    }),
     signal,
   });
   if (!response.ok || !response.body) {

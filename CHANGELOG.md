@@ -7,6 +7,11 @@
 ## [未发布]
 
 ### 变更
+- **W1 · E5 细节：逐题管线吃 course，并尊重用户选的资料范围（2026-09-30，本地未推送）**：核对发现 `_explore` 直接调 `search_index`，于是 **`document_ids` 与 `course` 全被忽略** —— 用户在界面上选的资料范围对逐题管线无效，可能拿到范围外的证据。
+  - **修法**：`_explore` 改走 `KBService.search(course=…, document_ids=…)`（它按资料过滤、按课程限定、保住可见性规则），检索异常仍然按「没有证据」如实报错；`run_question_pipeline(course=…)` 与 `generate_questions` 转发该参数。
+  - **API**：`QuestionPipelineRequest.course`（可选，≤200）+ 前端 `streamQuestionPipeline({ course })` 带上（界面暂时只发资料范围，课程留给 API 调用方）。
+  - **回归**：3 条（范围与课程都传到检索 / 检索抛异常时如实返回空 / 管线把 course 转发给 explore）。
+  - **仍未做**：练习页还没有课程选择器（所以界面路径实际只用资料范围）；个性化上下文（`personalization_context`）仍未进管线。
 - **W1 · E4 补回页面级测试 —— 它抓到两个真 bug（2026-09-30，本地未推送）**：上一轮我撤掉的那条『跳过→恢复 run』用例，本轮用探针查清了：**不是测试挂住，是我写的代码有洞**。
   - **根因**：ask_user 卡片在**流中途**就渲染出来了，而 ChatPage 那时只把会话 id 写进 `sessionIdRef`，**state 还是空的**；`skipInteraction / resolveInteraction / sendResume` 三处都以 `if (!sessionId) return` 开头 —— 于是用户在卡片刚出现时点「跳过」或「回答」，**会静默什么都不发生**（既不关卡片，也不恢复那一轮）。
   - **修法**：三处统一取 `sessionId || sessionIdRef.current`，`sendResume` 内部一律用这个 id（含 `getSessionId` 与 `refreshChatSession`）。

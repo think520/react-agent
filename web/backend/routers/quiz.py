@@ -54,6 +54,8 @@ class QuestionPipelineRequest(BaseModel):
     topic: str = Field(..., min_length=1, max_length=500)
     count: int = Field(default=5, ge=1, le=15)
     document_ids: list[str] = Field(default_factory=list, max_length=50)
+    # W1 E5：课程范围（可选）。练习页目前只发 document_ids，API 调用方可以用它限定课程。
+    course: str | None = Field(default=None, max_length=200)
 
 
 @router.post("/pipeline/stream")
@@ -80,6 +82,7 @@ def stream_question_pipeline(body: QuestionPipelineRequest, request: Request) ->
                 count=body.count,
                 config=config,
                 document_ids=body.document_ids or None,
+                course=body.course,
                 on_event=events.put,
                 cancel_token=token,
             )

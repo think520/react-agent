@@ -117,6 +117,7 @@ class QuizService:
                 llm=llm,
                 config=self.config,
                 document_ids=document_ids,
+                course=course,
             )
             if not outcome.get("ok"):
                 return _err(
