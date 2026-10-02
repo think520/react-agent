@@ -121,10 +121,15 @@ def test_get_review_queue_aggregates_learning_and_quiz_data(store, svc, monkeypa
     assert result["due_concepts"][0]["question_ids"] == [question_id]
     assert result["wrong_answers"] == [{"question_id": 1}]
     # W1 E9：队列要带上"最近一次答错是哪次"（这里没有作答历史 → None）。
+    # W1 E6：还要带上推导出来的掌握度，并说明来源（这里是存量分数 → stored）。
     assert result["weaknesses"] == [
-        {"concept": "A", "question_ids": [question_id], "last_attempt_id": None},
+        {
+            "concept": "A", "question_ids": [question_id], "last_attempt_id": None,
+            "mastery": 0.0, "evidence": 0, "mastery_source": "stored",
+        },
     ]
     assert result["due_concepts"][0]["last_attempt_id"] is None
+    assert result["due_concepts"][0]["mastery_source"] == "stored"
 
 
 def test_review_queue_reports_the_next_future_review(store, svc):

@@ -284,6 +284,26 @@ class InteractionService:
             conn.close()
         return [_row_to_dict(row) for row in rows]
 
+    def list_pending(self, limit: int = 1) -> list[dict]:
+        """跨会话的挂起问题（W1 E6 接线：next_objective 要知道"用户还欠一个回答"）。
+
+        «list_open» 按会话取；这里要的是全局最早的几个，顺便清一次过期数据。
+        """
+        self.init_db()
+        self.expire_stale()
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                """SELECT * FROM interactions
+                   WHERE status IN (?, ?)
+                   ORDER BY created_at
+                   LIMIT ?""",
+                (_OPEN_STATUSES[0], _OPEN_STATUSES[1], max(1, int(limit))),
+            ).fetchall()
+        finally:
+            conn.close()
+        return [_row_to_dict(row) for row in rows]
+
     def _update(self, interaction_id: str, **fields: Any) -> None:
         if not fields:
             return

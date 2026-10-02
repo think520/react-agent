@@ -106,6 +106,62 @@ class LearningService:
             })
         return _ok(count=len(due), concepts=concepts)
 
+    # --- W1 E6：掌握度引擎接线 ---
+
+    ATTEMPT_WINDOW = 5
+
+    def _derived_mastery(self, record: dict[str, Any], store: LearningStore) -> dict[str, Any]:
+        """给队列条目补上「推导出来的掌握度」。
+
+        - 有逐次历史 → 用纯函数引擎算（并给出证据条数）；
+        - 老数据没有历史 → 退回存量 score，但**如实标注** «mastery_source="stored"»，
+          不把存量冒充推导结果。
+        """
+        from learning.engine import weighted_mastery
+
+        concept = str(record.get("concept") or "")
+        history = store.recent_mastery_attempts(concept, limit=self.ATTEMPT_WINDOW) if concept else []
+        if history:
+            return {
+                **record,
+                "mastery": weighted_mastery(history),
+                "evidence": len(history),
+                "mastery_source": "history",
+            }
+        return {
+            **record,
+            "mastery": round(float(record.get("score") or 0.0), 4),
+            "evidence": 0,
+            "mastery_source": "stored",
+        }
+
+    def get_next_objective(self) -> dict[str, Any] | None:
+        """今天下一件该做的事（纯函数引擎给优先级）。
+
+        挂起问题 > 到期复习 > 第一个未掌握点；都没有就返回 None（今天没有必须做的）。
+        """
+        from learning.engine import next_objective
+        from service.interaction_service import InteractionService
+
+        pending = InteractionService(self.workspace).list_pending(limit=1)
+        pending_payload: dict[str, Any] | None = None
+        if pending:
+            questions = pending[0].get("questions") or []
+            prompt = str(questions[0].get("prompt") or "") if questions else ""
+            pending_payload = {
+                "interaction_id": pending[0].get("interaction_id", ""),
+                "prompt": prompt,
+            }
+        store = LearningStore(self.workspace)
+        unmastered = [
+            row.concept for row in store.list_mastery(limit=50) if row.status != MASTERY_MASTERED
+        ]
+        return next_objective(
+            pending_question=pending_payload,
+            due_reviews=self.get_due_reviews(limit=1).get("concepts", []),
+            unseen_concepts=unmastered,
+        )
+
     # D5: the wrong set belongs to the bank, not to a 20-row window. The rows
     # stay bounded so a long history cannot flood the page, but the reported
     # total comes from the bank, so Review and the bank always agree.
@@ -127,19 +183,19 @@ class LearningService:
         # W1 E9：带上"最近一次答错是哪次"，让界面能走 E3 已交付的**变式**通道，
         # 而不是把原题重放一遍（变式通道只认 attempt_id）。
         due_concepts = [
-            {
+            self._derived_mastery({
                 **record,
                 "question_ids": quiz_store.find_question_ids_by_concept(record["concept"]),
                 "last_attempt_id": quiz_store.last_wrong_attempt_id_for_concept(record["concept"]),
-            }
+            }, learning_store)
             for record in due_result.get("concepts", [])
         ]
         weaknesses = [
-            {
+            self._derived_mastery({
                 **record,
                 "question_ids": quiz_store.find_question_ids_by_concept(record["concept"]),
                 "last_attempt_id": quiz_store.last_wrong_attempt_id_for_concept(record["concept"]),
-            }
+            }, learning_store)
             for record in weakness_result.get("analysis", [])
         ]
         next_review = learning_store.get_next_scheduled_review()
@@ -156,6 +212,8 @@ class LearningService:
                 }
                 if next_review else None
             ),
+            # W1 E6 接线：今天下一件该做的事（挂起问题 > 到期复习 > 第一个未掌握点）。
+            next_objective=self.get_next_objective(),
         )
 
     # --- Manual mastery ---

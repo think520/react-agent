@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { EmptyState, ErrorNotice, LoadingState, textValue } from "../components/common";
 import { api } from "../lib/api";
 import { wrongAnswerFallbackNotice } from "../lib/wrongAnswerMode";
+import { masteryLabel, nextObjectiveText } from "../lib/reviewObjective";
 import { notifyInfo } from "../stores/noticeStore";
 import type { ReviewQueue } from "../types";
 
@@ -15,6 +16,8 @@ interface ReviewItem {
   meta: string;
   questionIds: number[];
   attemptId?: number;
+  /** W1 E6：引擎推导的掌握度（含来源说明），没有就不显示。 */
+  mastery?: string;
 }
 
 function questionIds(record: Record<string, unknown>): number[] {
@@ -65,9 +68,9 @@ export function ReviewPage() {
       return "按照学习计划到期";
     };
     return [
-      ...queue.due_concepts.map((record, index) => ({ id: `due-${index}`, kind: "到期" as const, title: textValue(record, ["concept", "title", "name"], "待复习知识点"), meta: dueMeta(textValue(record, ["status"], "按照学习计划到期")), questionIds: questionIds(record), attemptId: lastAttemptId(record) })),
+      ...queue.due_concepts.map((record, index) => ({ id: `due-${index}`, kind: "到期" as const, title: textValue(record, ["concept", "title", "name"], "待复习知识点"), meta: dueMeta(textValue(record, ["status"], "按照学习计划到期")), questionIds: questionIds(record), attemptId: lastAttemptId(record), mastery: masteryLabel(record) })),
       ...queue.wrong_answers.map((record, index) => ({ id: `wrong-${index}`, kind: "错题" as const, title: textValue(record, ["question", "concept", "title"], "需要回看的错题"), meta: textValue(record, ["feedback", "course"], "将生成考察同一误区的变式题"), questionIds: questionIds(record), attemptId: typeof record.attempt_id === "number" ? record.attempt_id : undefined })),
-      ...queue.weaknesses.map((record, index) => ({ id: `weak-${index}`, kind: "薄弱点" as const, title: textValue(record, ["concept", "name", "title"], "尚未掌握的知识点"), meta: textValue(record, ["reason", "status"], "建议进行针对性练习"), questionIds: questionIds(record), attemptId: lastAttemptId(record) })),
+      ...queue.weaknesses.map((record, index) => ({ id: `weak-${index}`, kind: "薄弱点" as const, title: textValue(record, ["concept", "name", "title"], "尚未掌握的知识点"), meta: textValue(record, ["reason", "status"], "建议进行针对性练习"), questionIds: questionIds(record), attemptId: lastAttemptId(record), mastery: masteryLabel(record) })),
     ];
   }, [queue]);
   const nextReview = nextReviewText(queue);
@@ -102,6 +105,10 @@ export function ReviewPage() {
         {error && <ErrorNotice message={error} />}
         {loading ? <LoadingState label="正在整理复习队列…" state="thinking" /> : items.length ? <>
           {queue?.personalization?.length ? <details className="personalization-chip review-personalization"><summary><Brain size={13} />复习排序依据 <span>{queue.personalization.length}</span></summary><div>{queue.personalization.map((reference) => <section key={reference.id}><strong>{reference.title}</strong><p>{reference.content}</p><small>{reference.scope === "global" ? "全局" : "当前资料库"}</small></section>)}</div></details> : null}
+          {/* W1 E6：先把"今天下一件该做什么"说出来（纯函数引擎给优先级）。 */}
+          {nextObjectiveText(queue?.next_objective) && (
+            <p className="review-objective">{nextObjectiveText(queue?.next_objective)}</p>
+          )}
           <div className="review-summary">
             <div><strong>{queue?.due_concepts.length || 0}</strong><span>到期知识点</span></div>
             <div><strong>{queue?.wrong_total ?? queue?.wrong_answers.length ?? 0}</strong><span>需要回看的错题</span></div>
@@ -112,7 +119,11 @@ export function ReviewPage() {
             <article className="review-row" key={item.id}>
               <span className="review-index">{String(index + 1).padStart(2, "0")}</span>
               <span className={`review-kind ${item.kind}`}>{item.kind}</span>
-              <div><h3>{item.title}</h3><p>{item.meta}</p></div>
+              <div>
+                <h3>{item.title}</h3>
+                <p>{item.meta}</p>
+                {item.mastery && <small className="review-mastery">{item.mastery}</small>}
+              </div>
               <button className="quiet-button" disabled={Boolean(workingId)} onClick={() => void startReview(item)}>{workingId === item.id ? "正在准备" : item.kind === "错题" ? "生成变式题" : "开始复习"}<ArrowRight size={15} /></button>
             </article>
           ))}</div>

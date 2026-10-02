@@ -2025,4 +2025,21 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
   color: var(--muted);
 }
 
+/* W1 E6：复习页的"下一步"与推导掌握度。 */
+.review-objective {
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  border-left: 3px solid var(--blue);
+  background: var(--blue-wash);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}
+
+.review-mastery {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--faint);
+}
+
 

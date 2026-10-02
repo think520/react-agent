@@ -7,6 +7,12 @@
 ## [未发布]
 
 ### 变更
+- **W1 · E6 接线（2026-09-30，本地未推送）**：上一轮交付了逐次历史与纯函数引擎，但**没人用**；这一步把它接到真实路径上。
+  - **队列带推导掌握度**：`get_review_queue` 的每条到期/薄弱点条目新增 `mastery` / `evidence` / `mastery_source`：有逐次历史就用引擎算（近 5 次加权 + 置信缩放），**老数据没有历史则退回存量 score 并标注 `stored`** —— 不把存量冒充推导结果。
+  - **今天下一件该做的事**：新增 `LearningService.get_next_objective()`（挂起问题 > 到期复习 > 第一个未掌握点，用引擎的纯函数），并随复习队列一起返回；为取「跨会话挂起问题」新增 `InteractionService.list_pending()`（`list_open` 只能按会话取）。
+  - **前端**：复习页顶部显示「现在该复习『极限』」这类**下一步**提示；每条条目下方显示掌握度，并**区分来源**：「掌握度 0.5（1 次作答记录）」对「掌握度 0.7（存量分数，没有逐次记录）」。
+  - **回归**：后端 7 条（历史→推导 0.5 + source=history / 无历史→存量 0.7 + source=stored / 挂起问题优先 / 到期优先于未掌握 / 未掌握里取最弱 / 无事可做返回 None / 队列里带 next_objective）+ 既有精确断言随契约更新；前端 7 条纯函数 + 1 条复习页集成（下一步文案 + 两种来源文案）。
+  - **仍未做（如实记账）**：**agent 每轮先读引擎**尚未接（当前只有复习页与队列在用）；掌握度调度本身仍是原 SM-2 增量逻辑，本轮**没有**改变它的行为。
 - **W1 · E6 掌握度引擎（第一步 + 第二步，2026-09-30，本地未推送）**：核对确认两件事：没有 `learning/engine.py`；掌握度是在 `scheduler.py` 里**增量累加**（对 +0.1/+0.2、错 −0.2），**不是从历史推导**，而「逐次对错」根本没落库（`Mastery` 只存计数/连对/分数）。
   - **第一步：逐次作答落库**。新增表 `mastery_attempts(concept, is_correct, verdict, source, created_at)` + 索引；`LearningStore.record_mastery_attempt()/recent_mastery_attempts()`；写入点放在**唯一漏斗** `ReviewScheduler.record_review()`（所有自动作答都经过它；手动标记掌握度不是一次作答，不写）。
   - **第二步：纯函数引擎** `learning/engine.py`：`weighted_mastery(attempts)` = 近 5 次加权（0.4/0.25/0.15/0.12/0.08，新→旧）+ **置信缩放**（1 次 ×0.5、2 次 ×0.8、3 次起 ×1.0）+ partial 记半分；`next_objective()` 按路线优先级（挂起问题 > 到期复习 > 第一个未掌握点）。

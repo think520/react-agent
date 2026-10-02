@@ -128,3 +128,25 @@ describe("到期复习的变式通道（W1 E9）", () => {
     expect(api.generateWrongAnswerVariant).not.toHaveBeenCalled();
   });
 });
+
+// W1 E6 接线：复习页要说清"今天先做什么"，以及掌握度是推导的还是存量。
+it("显示引擎给的下一步，并标注推导/存量掌握度", async () => {
+  vi.mocked(api.reviewQueue).mockResolvedValue({
+    due_concepts: [{
+      concept: "极限", status: "learning", question_ids: [7],
+      mastery: 0.5, evidence: 1, mastery_source: "history",
+    }],
+    wrong_answers: [],
+    weaknesses: [{ concept: "导数", mastery: 0.7, evidence: 0, mastery_source: "stored" }],
+    wrong_total: 0,
+    personalization: [],
+    next_review: null,
+    next_objective: { kind: "due_review", concept: "极限" },
+  });
+
+  renderPage();
+
+  expect(await screen.findByText(/现在该复习「极限」/)).toBeTruthy();
+  expect(screen.getByText("掌握度 0.5（1 次作答记录）")).toBeTruthy();
+  expect(screen.getByText("掌握度 0.7（存量分数，没有逐次记录）")).toBeTruthy();
+});
