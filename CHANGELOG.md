@@ -7,6 +7,11 @@
 ## [未发布]
 
 ### 变更
+- **W1 · E14 会话类别（2026-09-30，本地未推送）**：练习辅导走的是**同一条 chat 流式通道**，会话 id 形如 `practice-tutor-3` —— 它和真正的聊天一起出现在主会话列表里，用户看到一堆自己没开过的会话。
+  - **后端**：`Session` 新增 `kind`（默认 `chat`；老文件没有这个字段一律算 chat）；`list_session_summaries(save_dir, kind="chat")` 默认**只回主列表**，需要全部时显式传 `kind="all"`；`GET /api/chat/sessions?kind=`（白名单 chat/practice/review/all，非法值 422）；`POST /api/chat/runs` 的请求体新增 `kind`，**只在新建会话时落库** —— 已存在的会话保留自己的类别（否则同一会话被另一个入口碰一下就换了类别）。
+  - **前端**：`streamChat` 的偏好里新增 `sessionKind`；练习页按练习记录的 `origin` 声明 `practice` / `review`（不用猜）。
+  - **回归中抓到一个我自己引入的真 bug**：给列表加默认过滤后，`AgentService.load_session` 也用了同一个默认值 → **加载练习辅导会话直接报 `No saved sessions found`**。已修：加载与命名迁移都用 `kind="all"`（加载不是列列表）。
+  - **回归**：后端 4 条（kind 往返 / 老文件算 chat / 主列表隐藏辅导会话而 `all` 包含 / 已有会话不被重分类且新建按声明落库）+ 既有会话/Web 套件 122 passed；前端 1 条（练习页声明 `sessionKind=practice`）。
 - **W1 · E1 错误码上屏 + 切库清理（2026-09-30，本地未推送）—— S 组清零**：
   - **错误码从来没被渲染**：后端一直返回结构化 `code`（`ApiError` 也一路带着），但界面只显示文案，用户分不清「等会儿重试就行」「得先去设置里配模型」「资料库被移动了要重新接入」。新增 `lib/errorHints.ts`：只对**用户确实有下一步**的 code 写提示（判分不可用 / 未配置模型 / 模型超时 / 资料库不可用 / 格式不支持 / 只读资料 / 题库为空 / 目标已存在 / 页面版本冲突），**不认识的 code 一律不给建议**（不编）。`ErrorNotice` 新增 `code` 参数并渲染这句「下一步」；已在**两个高价值入口**接线：新建资料库对话框（把 catch 到的 code 留下）、导入流程（AppShell 记住 `errorCode` → LibraryPage 传给 ErrorNotice）。**未接**：练习页与 Chat 的错误（前者后端文案本身已含「稍后重试」，后者走 SSE、code 未随流保留）。
   - **切库串提示（真问题）**：`switchLibrary` 过去只清 notice/error —— **导入报告与「可重试文件」留着**，于是上一库的失败清单还挂在页面上，点「重试这 N 份」会把文件导进**新**资料库。现在新增纯函数 `clearImportReport()`（清报告/通知/计数/错误码）并在切库时重置，同时清空 `pendingRetryFiles`。

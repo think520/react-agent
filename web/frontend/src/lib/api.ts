@@ -1121,6 +1121,9 @@ export async function streamChat(
     resumeInteractionId?: string;
     /** F05: replay the persisted failed turn without duplicating its user message. */
     retryFailed?: boolean;
+    /** W1 E14: session category — "chat" (default) | "practice" | "review". Only
+     * stamped when the session is created, so tutor sessions stay out of the main list. */
+    sessionKind?: "chat" | "practice" | "review";
     /** P0-1: called with the stream id as soon as a frame names it. */
     onStreamId?: (streamId: string) => void;
   },
@@ -1133,6 +1136,7 @@ export async function streamChat(
       resume_interaction_id: preferences.resumeInteractionId || null,
       retry_failed: preferences.retryFailed ?? false,
       chat_session_id: chatSessionId || null,
+      kind: preferences.sessionKind || "chat",
       document_ids: preferences.strictDocumentScope ? documentIds : [],
       preferred_document_ids: preferences.strictDocumentScope ? [] : documentIds,
       learning_goal: preferences.learningGoal || "",

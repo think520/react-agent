@@ -32,6 +32,8 @@ class ChatRunRequest(BaseModel):
     # F05: replay the last failed turn without appending its user message twice.
     retry_failed: bool = False
     chat_session_id: str | None = None
+    # W1 E14: "chat" (default) | "practice" | "review" — only stamped on a new session.
+    kind: str = Field(default="chat", max_length=16)
     provider: str | None = None
     model: str | None = None
     save: bool = True

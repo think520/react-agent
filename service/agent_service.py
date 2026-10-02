@@ -86,11 +86,11 @@ class AgentService:
     # --- Session management ---
 
     @staticmethod
-    def list_sessions(save_dir: str) -> dict[str, Any]:
-        """List all saved sessions with metadata."""
+    def list_sessions(save_dir: str, kind: str = "chat") -> dict[str, Any]:
+        """List saved sessions with metadata (W1 E14: filtered by category)."""
         from core.session import Session
 
-        summaries = Session.list_session_summaries(save_dir)
+        summaries = Session.list_session_summaries(save_dir, kind=kind)
         return _ok(sessions=summaries)
 
     @staticmethod
@@ -129,7 +129,9 @@ class AgentService:
         if query.endswith(".json"):
             query = query[:-5]
 
-        summaries = Session.list_session_summaries(save_dir)
+        # W1 E14：**加载**不是列列表 —— 必须能看见所有类别，否则练习/复习的辅导会话
+        # 会加载不到（这正是加了默认过滤后回归测试抓到的）。
+        summaries = Session.list_session_summaries(save_dir, kind="all")
         if not summaries:
             return _err("No saved sessions found")
 

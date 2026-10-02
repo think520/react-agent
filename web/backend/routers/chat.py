@@ -133,6 +133,7 @@ def _load_or_create_session(
     config: dict[str, Any],
     workspace: str,
     library_id: str | None,
+    kind: str = "chat",
 ) -> Session:
     save_dir = get_session_save_dir(config, workspace)
     if chat_session_id:
@@ -148,13 +149,21 @@ def _load_or_create_session(
     max_messages = config.get("session", {}).get("max_messages")
     session = Session.new(workspace, max_messages=max_messages)
     session.library_id = library_id
+    # W1 E14：类别只在**新建**时落库；已存在的会话保留自己的类别 ——
+    # 否则同一会话被另一个入口碰一下就换了类别（练习会话会突然冒进主列表）。
+    session.kind = kind if kind in SESSION_KINDS else "chat"
     return session
+
+
+# W1 E14：会话类别白名单（chat = 主聊天，practice/review = 学习闭环里的辅导会话）。
+SESSION_KINDS = ("chat", "practice", "review")
 
 
 def _session_summary(summary: dict[str, Any]) -> dict[str, Any]:
     return {
         "chat_session_id": summary.get("session_id", ""),
         "name": summary.get("name", ""),
+        "kind": summary.get("kind", "chat"),
         "name_source": summary.get("name_source", "fallback"),
         "created_at": summary.get("created_at", ""),
         "last_active": summary.get("last_active", ""),
@@ -765,7 +774,8 @@ def _clean_generated_title(text: str) -> str:
 
 def migrate_unnamed_sessions(save_dir: str) -> int:
     migrated = 0
-    for summary in Session.list_session_summaries(save_dir):
+    # W1 E14：命名迁移要覆盖**所有**类别（练习辅导会话也需要名字），不是只做主列表。
+    for summary in Session.list_session_summaries(save_dir, kind="all"):
         if summary.get("name") not in _UNTITLED_NAMES:
             continue
         result = AgentService.load_session(summary["session_id"], save_dir)
@@ -783,9 +793,16 @@ def migrate_unnamed_sessions(save_dir: str) -> int:
 
 
 @router.get("/sessions")
-def list_sessions(request: Request) -> dict:
+def list_sessions(request: Request, kind: str = "chat") -> dict:
+    """主会话列表默认**只列 chat**（W1 E14）。
+
+    练习/复习的辅导会话走的是同一条流式通道，但它们不是用户"开的会话"；
+    默认过滤掉，需要看全部时显式传 «kind=all»。
+    """
+    if kind not in (*SESSION_KINDS, "all"):
+        raise APIError(422, "invalid_request", "kind 只能是 chat、practice、review 或 all。")
     workspace = get_request_workspace(request)
-    result = AgentService.list_sessions(get_session_save_dir(get_config(), workspace))
+    result = AgentService.list_sessions(get_session_save_dir(get_config(), workspace), kind=kind)
     return {"sessions": [_session_summary(item) for item in result["sessions"]]}
 
 
@@ -1465,7 +1482,10 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
     preferences = _preferences(config)
     search_preferences = preferences.get("search") or {}
     search_permission = search_preferences.get("permission", "ask")
-    session = _load_or_create_session(body.chat_session_id, config, workspace, library_id)
+    # W1 E14：调用方声明这次会话的类别（练习辅导传 practice），只在新建时落库。
+    session = _load_or_create_session(
+        body.chat_session_id, config, workspace, library_id, kind=body.kind,
+    )
     # E4: a resume continues a paused ask_user turn; a fresh message must first
     # close any pending question so the provider never sees a dangling tool_call.
     resume_record: dict[str, Any] | None = None

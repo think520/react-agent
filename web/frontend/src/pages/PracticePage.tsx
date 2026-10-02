@@ -279,7 +279,10 @@ export function PracticePage() {
         `我的问题：${aiQuestion.trim()}`,
         "请只围绕当前题目给出分步提示或指出思考方向，不要直接替我完成答案。",
       ].join("\n\n");
-      await streamChat(prompt, previousSessionId, selectedDocumentIds, profile, (streamEvent) => {
+      // W1 E14：辅导会话声明自己的类别，别让它混进主会话列表。
+      // 复习来源的练习标成 review（练习记录里本来就带 origin，不用猜）。
+      const sessionKind = session?.origin === "review" ? "review" : "practice";
+      await streamChat(prompt, previousSessionId, selectedDocumentIds, { ...profile, sessionKind }, (streamEvent) => {
         if (streamEvent.event === "run_started") {
           nextSessionId = streamEvent.data.chat_session_id;
           aiSessionByQuestionRef.current[currentQuestion.id] = nextSessionId;

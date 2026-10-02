@@ -22,6 +22,10 @@ class Session:
     library_id: str | None = None
     provider_name: str | None = None
     model_name: str | None = None
+    # W1 E14：会话类别。练习/复习的辅导会话也是 chat 会话（同样的流式通道），
+    # 但它们不该出现在主会话列表里 —— 用户会看到一堆自己没开过的会话。
+    # 老会话文件没有这个字段，一律当作 "chat"。
+    kind: str = "chat"
 
     @staticmethod
     def new(cwd: str, max_messages: Optional[int] = None) -> "Session":
@@ -201,6 +205,8 @@ class Session:
             data["provider_name"] = None
         if "model_name" not in data:
             data["model_name"] = None
+        if not data.get("kind"):
+            data["kind"] = "chat"
         return Session(**data)
 
     @staticmethod
@@ -215,8 +221,13 @@ class Session:
         return sorted(sessions)
 
     @staticmethod
-    def list_session_summaries(save_dir: str) -> list[dict]:
-        """Return session metadata sorted by last_active descending."""
+    def list_session_summaries(save_dir: str, kind: str = "chat") -> list[dict]:
+        """Return session metadata sorted by last_active descending.
+
+        W1 E14: «kind» filters by session category — the default is the main chat
+        list, which must not contain practice/review tutor sessions. Pass
+        «kind="all"» when you really want everything.
+        """
         import os
         if not os.path.exists(save_dir):
             return []
@@ -228,9 +239,13 @@ class Session:
             try:
                 with open(path, "r", encoding="utf-8") as f:
                     data = json.load(f)
+                record_kind = data.get("kind") or "chat"
+                if kind != "all" and record_kind != kind:
+                    continue
                 summaries.append({
                     "session_id": data.get("session_id", file_name[:-5]),
                     "name": data.get("name", ""),
+                    "kind": record_kind,
                     "name_source": data.get(
                         "name_source", "manual" if data.get("name") else "fallback"
                     ),

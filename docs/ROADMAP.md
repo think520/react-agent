@@ -105,7 +105,7 @@ R12 的覆盖式“导入为新版本”仍是独立产品能力，不能用当�
 | E11 | AgentLoop 单循环契约：无工具轮=finish、探索预算 + 3 轮结算期、截断续写 | core/agent_loop.py | D4 |
 | E12 | prompt 具名块字节稳定 + KB seed 预检索进末尾 user 消息 | core/agent_loop.py | D5/D13 |
 | E13 | 出题卡防绕过三道防线：服务端注入参数 / 纯文本收尾重定向 / 卡片数据从持久化重绑定（A0：重绑定已存在，缺前两道） | Practice artifacts | D7 |
-| E14 | 「问 AI」复用练习辅导会话，不再污染会话列表 | PracticePage | 体验审查 P1-9；R11 已实现同题 session 复用 |
+| E14 | **已完成（2026-09-30）** 辅导会话不污染会话列表：① 同题 session 复用（R11）**此前已交付** ② 本轮补上**类别**：`Session.kind`（chat/practice/review，老文件默认 chat），`GET /api/chat/sessions` 默认只回主列表（`kind=all` 取全部），`POST /api/chat/runs` 带 `kind` 且**只在新建时落库**（已有会话不被重分类），练习页按练习 `origin` 声明 practice/review ③ 回归中抓到并修掉自己引入的 bug：`load_session` 误用默认过滤 → 练习会话加载不到（加载与命名迁移改用 `kind=all`）。回归：后端 4 条 + 前端 1 条 | core/session + chat 路由 + PracticePage | 体验审查 P1-9 |
 | E15 | **已完成（2026-09-30 收口）** 简答三态判分与「学习中」映射：三态判分 / verdict 落库迁移 / partial→学习中 / 逐题回顾三态**此前已交付**；本轮补上最后的口径矛盾 —— ① progress 三态分开数（`correct`/`partial`/`wrong`）② `quiz_answered` 事件带 `verdict` ③ 无 LLM 兜底判分改回「partial ⇒ is_correct=False」 ④ 小结文案按三态分支（partial 不再被说成「错题已入队」），老数据缺字段时不猜。回归：后端 3 条 + 前端 6 条 | quiz_service + PracticePage | 体验审查 P1-10；O10 |
 | E16 | 新确认概念返回坐标 + 前端高亮数秒 | concept_service + KnowledgeMap | 体验审查 P1-12 |
 | E17 | **资料库文件树：按真实文件夹呈现与建立资料库**（详见下方设计记录） | Library 前后端 + 受沙盒保护的资料库文件 API | 2026-09-10 设计确认（用户 E2E 反馈） |

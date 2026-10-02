@@ -171,3 +171,15 @@ it("真的答错时才说错题已入队", async () => {
 
   expect(await screen.findByText(/错题和薄弱点已经加入复习队列/)).toBeTruthy();
 });
+
+// W1 E14：练习辅导会话要声明自己的类别，否则它会作为普通聊天出现在主会话列表里。
+it("辅导对话声明 sessionKind=practice", async () => {
+  render(<PracticePage />);
+  await screen.findByText("什么是 RAG？");
+  fireEvent.click(screen.getByRole("button", { name: "问 AI" }));
+  fireEvent.click(screen.getByRole("button", { name: "发送" }));
+  await waitFor(() => expect(streamChat).toHaveBeenCalledTimes(1));
+
+  const prefs = vi.mocked(streamChat).mock.calls[0][3] as { sessionKind?: string };
+  expect(prefs.sessionKind).toBe("practice");
+});
