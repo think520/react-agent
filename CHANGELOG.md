@@ -7,6 +7,12 @@
 ## [未发布]
 
 ### 变更
+- **W1 · E8 导入流程（第 6 步，收尾）：界面切到运行态（进度条 + 取消按钮）—— E8 完成（2026-09-30，本地未推送）**：
+  - `api.ts` 新增 `startImport` / `importStatus` / `cancelImport`（对应已就绪的三个端点）。
+  - `hooks/useImportRun.ts`：起导入 → **轮询**进度（逐文件/逐来源）→ 终态把本次批次结果交回来；`cancel()` 调取消端点。**取消是协作式**的（文件边界生效），返回的批次里 `cancelled=true`、已收下的仍在；失败会把原因抛给调用方（同时留一份状态给进度条）。
+  - `AppShell` 的导入改走运行态（不再是一次性 POST），并把 `documentImportProgress / cancelDocumentImport` 暴露给页面；`LibraryPage` 显示进度条（「正在收下文件 N/M」/「正在建立索引 N/M · 当前文件」+ 百分比）与「取消导入」。
+  - 回归：hook 3 条（轮询到终态、取消用当前 run id、失败如实报）；资料库页 1 条（进度文案 + 取消回调）；**真机 live 抓到并修掉一个真实回归** —— 拖拽包裹层断了 `.library-workspace` 的高度链，导致阅读列不再滚动、自绘滚动条消失（live 从 6 passed/1 failed 修回 **7 passed**）。
+  - **E8 四件套至此全部闭环**：取消（服务层 + HTTP + 界面按钮）、进度（服务层事件 + HTTP 快照 + 界面进度条）、失败清单（逐文件文件名 + 可行动原因 + 重试）、拖拽热区（计数器 + 窗口级兜底）。
 - **W1 · E8 导入流程（第 5 步）：拖拽热区（2026-09-30，本地未推送）**：核对结论是前端**完全没有** drag 处理。新增 `ImportDropZone`：
   - **计数器而不是布尔**（dragenter/dragleave 会在子元素间成对抖动），并在 **window 上兜 drop / dragend / blur** —— 松手在窗口外、按 Escape、切走窗口时收不到成对的 dragleave，只靠组件事件会让覆盖层永远退不掉（openhanako 的 desk 拖拽踩过这个坑）。
   - 没有资料库时**不摆热区**（拖进来的文件先记住、引导新建资料库）；有资料库时走同一条导入通道（`AppShell.importDroppedFiles`）。

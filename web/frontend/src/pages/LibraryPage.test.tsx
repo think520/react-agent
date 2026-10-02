@@ -67,6 +67,8 @@ function buildContext() {
     importDuplicatesAsCopies: vi.fn(),
     documentImportResults: null,
     documentImportCanRetry: false,
+    documentImportProgress: null,
+    cancelDocumentImport: vi.fn(),
     retryFailedImports: vi.fn(),
     dismissImportReport: vi.fn(),
     libraryReady: true,
@@ -529,5 +531,31 @@ describe("资料库文件夹同步", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /重试这 1 份/ }));
     expect(retryFailedImports).toHaveBeenCalledTimes(1);
+  });
+
+  // E8 收尾：导入是运行态 —— 运行中要看得见进度，并且当场能取消。
+  it("导入进行中显示进度并当场能取消", async () => {
+    vi.mocked(api.knowledgeTree).mockResolvedValue(treeWith([]) as never);
+    vi.mocked(api.documents).mockResolvedValue([] as never);
+    const cancelDocumentImport = vi.fn();
+    hoisted.ctx = {
+      ...buildContext(),
+      documentImportProgress: {
+        phase: "indexing", filesDone: 2, filesTotal: 2,
+        sourcesDone: 3, sourcesTotal: 6, current: "lesson-3.md",
+      },
+      cancelDocumentImport,
+    };
+
+    render(
+      <MemoryRouter initialEntries={["/library"]}>
+        <LibraryPage />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("正在建立索引")).toBeTruthy();
+    expect(screen.getByText(/3\/6 份资料/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "取消导入" }));
+    expect(cancelDocumentImport).toHaveBeenCalledTimes(1);
   });
 });

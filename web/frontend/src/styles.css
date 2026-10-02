@@ -1146,6 +1146,9 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
   .library-scroll { overflow: hidden; }
   .library-scroll .library-container { display: flex; height: 100%; flex-direction: column; }
   .library-scroll .library-workspace { flex: 1 1 auto; min-height: 0; }
+/* E8：拖拽热区包在资料库工作区外面，必须**对布局透明**：它自己要接住父级的高度，
+   否则 .library-workspace 拿不到约束高度、阅读列不再滚动，自绘滚动条会消失（真机 live 抓到过）。 */
+.library-scroll .import-drop-zone { display: flex; flex: 1 1 auto; min-height: 0; flex-direction: column; }
   .library-scroll .library-tree-pane { overflow-y: auto; min-height: 0; }
   /* overflow-x: hidden 是护栏：正文里有宽表格/图片时，scrollIntoView（引用跳转、小节定位）
      会把整个阅读列**横向**滚走 —— 用户看到的就是"文字左边被切掉、右边多出一块空白"（2026-09-24）。
@@ -1849,6 +1852,7 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--ink);
+}
 
 /* E8：拖拽热区 —— 计数器 + 窗口级兜底，松手在窗口外也能退掉覆盖层。 */
 .import-drop-zone { position: relative; }
@@ -1867,7 +1871,6 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
   color: var(--blue);
   font-size: 14px;
   pointer-events: none;
-}
 }
 
 .import-report-icon { flex: 0 0 auto; }
@@ -1971,6 +1974,35 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
   background: var(--blue-wash, #edf1f6);
   color: var(--blue, #1b365d);
   font-size: 13px;
+}
+
+/* E8：运行中的导入进度（进度条 + 当场取消）。 */
+.import-progress {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--paper);
+}
+
+.import-progress-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.import-progress-line { display: flex; align-items: baseline; gap: 8px; font-size: 13px; }
+
+.import-progress-track {
+  height: 4px;
+  border-radius: var(--radius-sm);
+  background: var(--blue-wash);
+  overflow: hidden;
+}
+
+.import-progress-fill {
+  height: 100%;
+  background: var(--blue);
+  transition: width var(--dur-base) var(--ease-out);
 }
 
 

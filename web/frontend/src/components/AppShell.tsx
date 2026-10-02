@@ -22,6 +22,8 @@ import { NavLink, Outlet, useLocation, useNavigate, useParams, useSearchParams }
 
 import { api, setActiveLibraryId } from "../lib/api";
 import type { ImportBatchResult } from "../lib/api";
+import { useImportRun } from "../hooks/useImportRun";
+import type { ImportRunProgress } from "../hooks/useImportRun";
 import { toErrorMessage } from "../lib/errors";
 import { describeDocumentImport } from "../lib/importSummary";
 import { notifyError } from "../stores/noticeStore";
@@ -74,6 +76,10 @@ export interface AppOutletContext {
   documentImportVersion: number;
   /** E8：本次导入的**逐文件**结果（失败清单 UI 用），null 表示还没有结果。 */
   documentImportResults: ImportBatchResult[] | null;
+  /** E8：运行中的进度（null = 没有正在跑的导入）。 */
+  documentImportProgress: ImportRunProgress | null;
+  /** E8：取消正在跑的导入（协作式：文件边界生效，已收下的保持收下）。 */
+  cancelDocumentImport: () => void;
   /** E8：拖拽进来的文件走同一条导入通道（没有资料库时先引导新建并记住文件）。 */
   importDroppedFiles: (files: File[]) => void;
   /** 还留着原文件对象时才为 true —— 不给假的"重试"按钮。 */
@@ -208,6 +214,7 @@ export function AppShell() {
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
   const previewTimer = useRef<number | null>(null);
+  const importRun = useImportRun();
   const [documentImport, setDocumentImport] = useState({
     importing: false, notice: "", error: "", duplicateCount: 0, version: 0,
     results: null as ImportBatchResult[] | null,
@@ -302,7 +309,9 @@ export function AppShell() {
   const uploadDocuments = useCallback(async (files: File[], duplicateStrategy: "keep_existing" | "save_copy" = "keep_existing") => {
     setDocumentImport((current) => ({ ...current, importing: true, notice: "", error: "", duplicateCount: duplicateStrategy === "save_copy" ? 0 : current.duplicateCount }));
     try {
-      const result = await api.importDocuments(files, duplicateStrategy);
+      // E8：导入走**运行态**（可轮询进度、可取消），不再是黑盒的一次性 POST。
+      const result = await importRun.start(files, duplicateStrategy);
+      if (!result) throw new Error("导入没有返回结果。");
       const duplicates = result.duplicates || [];
       if (duplicateStrategy === "keep_existing") {
         const duplicateNames = new Set(duplicates.map((item) => item.filename));
@@ -333,7 +342,7 @@ export function AppShell() {
       setDocumentImport((current) => ({ ...current, importing: false }));
       navigate("/library");
     }
-  }, [loadScopedData, navigate]);
+  }, [importRun, loadScopedData, navigate]);
 
   const importDroppedFiles = useCallback((files: File[]) => {
     if (!files.length) return;
@@ -715,7 +724,9 @@ export function AppShell() {
           createLibrary,
           switchLibrary,
           startDocumentImport,
-          documentImporting: documentImport.importing,
+          documentImporting: documentImport.importing || importRun.running,
+    documentImportProgress: importRun.progress,
+    cancelDocumentImport: () => void importRun.cancel(),
           documentImportNotice: documentImport.notice,
           documentImportError: documentImport.error,
           documentImportDuplicateCount: documentImport.duplicateCount,

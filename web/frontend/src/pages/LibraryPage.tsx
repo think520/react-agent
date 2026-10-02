@@ -49,6 +49,15 @@ function matchesWikiView(document: DocumentSummary, view: WikiView) {
   return wikiViewForType(document.wiki_type) === view;
 }
 
+/** E8：进度百分比。收下阶段看文件数，建索引阶段看来源数；总量未知时给 0（不假装有进度）。 */
+function progressPercent(progress: { phase: string; filesDone: number; filesTotal: number; sourcesDone: number; sourcesTotal: number }): number {
+  const [done, total] = progress.phase === "indexing"
+    ? [progress.sourcesDone, progress.sourcesTotal]
+    : [progress.filesDone, progress.filesTotal];
+  if (!total) return 0;
+  return Math.max(0, Math.min(100, Math.round((done / total) * 100)));
+}
+
 export function LibraryPage() {
   const {
     activeLibrary,
@@ -64,6 +73,8 @@ export function LibraryPage() {
     importDuplicatesAsCopies,
     documentImportVersion,
     importDroppedFiles,
+    documentImportProgress,
+    cancelDocumentImport,
     documentImportResults,
     documentImportCanRetry,
     retryFailedImports,
@@ -1169,6 +1180,31 @@ export function LibraryPage() {
         {confirmElement}
         {(documentImportNotice || notice) && <div className="success-notice"><CheckCircle2 size={17} /><span>{documentImportNotice || notice}</span>{documentImportDuplicateCount > 0 && <button className="text-link" type="button" onClick={importDuplicatesAsCopies}>重复文件仍要另存副本</button>}</div>}
         {documentImportError && <ErrorNotice message={documentImportError} />}
+        {/* E8：导入是**运行态** —— 运行中显示进度，并且当场能取消（协作式：文件边界生效）。 */}
+        {documentImportProgress && (
+          <div className="import-progress" role="status">
+            <div className="import-progress-body">
+              <div className="import-progress-line">
+                <strong>{documentImportProgress.phase === "indexing" ? "正在建立索引" : "正在收下文件"}</strong>
+                <span className="text-faint">
+                  {documentImportProgress.phase === "indexing"
+                    ? `${documentImportProgress.sourcesDone}/${documentImportProgress.sourcesTotal} 份资料`
+                    : `${documentImportProgress.filesDone}/${documentImportProgress.filesTotal} 份文件`}
+                  {documentImportProgress.current ? ` · ${documentImportProgress.current}` : ""}
+                </span>
+              </div>
+              <div className="import-progress-track" aria-hidden="true">
+                <div
+                  className="import-progress-fill"
+                  style={{
+                    width: `${progressPercent(documentImportProgress)}%`,
+                  }}
+                />
+              </div>
+            </div>
+            <button className="quiet-button" onClick={cancelDocumentImport}>取消导入</button>
+          </div>
+        )}
         {/* E8：逐文件说清楚这次导入（文件名 + 可行动原因 + 重试），不再只有一句汇总。 */}
         {documentImportResults && (
           <ImportReportPanel

@@ -417,7 +417,42 @@ export const api = {
       { method: "POST", body: form },
     );
   },
-  wikiHealth: () => request<WikiHealth>("/api/kb/wiki/maintenance"),
+  /** E8：开始一次**可观察、可取消**的导入（返回 import_id，进度靠轮询）。 */
+  startImport: async (files: File[], duplicateStrategy: "keep_existing" | "save_copy" = "keep_existing") => {
+    const form = new FormData();
+    files.forEach((file) => form.append("files", file));
+    form.append("duplicate_strategy", duplicateStrategy);
+    return request<{ ok: boolean; import_id: string }>(
+      "/api/kb/imports",
+      { method: "POST", body: form },
+    );
+  },
+  /** E8：读一次导入进度快照（终态时带 result）。 */
+  importStatus: (importId: string) => request<{
+    import_id: string;
+    status: "running" | "completed" | "failed" | "cancelled";
+    phase: string;
+    files_total: number;
+    files_done: number;
+    current: string;
+    sources_total: number;
+    sources_done: number;
+    error: string;
+    result: {
+      imported: string[];
+      duplicates?: Array<{ filename: string; existing: string; reason: string }>;
+      rejected: unknown[];
+      pending?: unknown[];
+      cancelled?: boolean;
+      results?: ImportBatchResult[];
+      library_sync: KnowledgeSyncSummary;
+    } | null;
+  }>(`/api/kb/imports/${encodeURIComponent(importId)}`),
+  /** E8：协作式取消（在文件边界生效，已收下的保持收下）。 */
+  cancelImport: (importId: string) => request<{ ok: boolean; cancelled: boolean }>(
+    `/api/kb/imports/${encodeURIComponent(importId)}/cancel`,
+    { method: "POST" },
+  ),  wikiHealth: () => request<WikiHealth>("/api/kb/wiki/maintenance"),
   wikiCoverage: () => request<{ documents: WikiDocumentCoverage[]; counts: Record<string, number> }>("/api/kb/wiki/coverage"),
   maintainWiki: () => request<{ archived_count: number; canonical_count: number; health: WikiHealth; plan_id: string; repair_plan: WikiRepairPlan }>(
     "/api/kb/wiki/maintenance",
