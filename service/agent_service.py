@@ -212,6 +212,7 @@ class AgentService:
         resume_tool_call_id: str | None = None,
         resume_tool_content: str = "",
         kb_seed: str | None = None,
+        exploration_budget: int | None = None,
     ) -> Iterator[dict]:
         """Create an AgentLoop and return its event stream iterator.
 
@@ -239,6 +240,9 @@ class AgentService:
             memory_injector=memory_injector,
             # P0-8: without this the compaction threshold never fired.
             context_window=context_window,
+            # W1 E11 / D4：探索预算可由配置覆盖；没配就沿用 AgentLoop 的默认
+            # （max_iterations - SETTLEMENT_ROUNDS）。
+            exploration_budget=exploration_budget,
             cancel_token=cancel_token,
         )
         return agent.run_stream(

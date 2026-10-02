@@ -973,7 +973,7 @@ interface StreamFrameMeta {
 
 export type ChatStreamEvent =
   | { event: "run_started"; data: { run_id: string; chat_session_id: string } & StreamFrameMeta }
-  | { event: "message_delta"; data: { content: string } & StreamFrameMeta }
+  | { event: "message_delta"; data: { content: string; call_role?: "narration" | "finish" } & StreamFrameMeta }
   | { event: "status"; data: { phase: string; message: string; tool_name?: string; elapsed?: number } & StreamFrameMeta }
   | { event: "citation"; data: { attribution: Attribution } & StreamFrameMeta }
   | { event: "chat_artifact"; data: { artifact: ChatArtifact } & StreamFrameMeta }

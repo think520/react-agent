@@ -15,6 +15,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
 from core.session import Session
+from core.exploration_budget import resolve_exploration_budget
 from core.session_compactor import resolve_context_window
 from core.agent_events import canonicalize_event
 from core.event_bus import get_default_bus
@@ -1799,6 +1800,9 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
                 response_guard=response_guard,
                 memory_injector=memory_injector,
                 context_window=resolve_context_window(config),
+                # W1 E11 / D4：探索预算可由配置覆盖（«agent.exploration_budget»）；
+                # 没配就是 None，AgentLoop 用自己的默认（max_iterations − 结算期）。
+                exploration_budget=resolve_exploration_budget(config),
                 resume_tool_call_id=(resume_record or {}).get("tool_call_id") or None,
                 resume_tool_content=_resume_content(resume_record) if resume_record else "",
                 cancel_token=handle.token,

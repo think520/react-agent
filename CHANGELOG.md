@@ -7,6 +7,12 @@
 ## [未发布]
 
 ### 变更
+- **W1 · E11 收尾：`call_role` + 探索预算配置项（2026-09-30，本地未推送）**：D4 的最后两项。
+  - **核对发现（真缺口）**：工具轮的 `response.content`（「我先查一下资料」这类过渡话）**从来没有发给界面** —— 只写进了会话，用户看不到模型的过渡说明。
+  - **`call_role`**：循环现在给每个增量标角色 —— 要调工具的那一轮标 `narration`，最终答案（含兜底文案）标 `finish`；适配层透出（没角色的老增量保持原样）；前端把 `narration` 放进消息的**过程**列表，**不进答案正文**（老路径行为不变）。
+  - **探索预算配置项**：新增 `core/exploration_budget.py::resolve_exploration_budget`（读 `agent.exploration_budget`；**配得不合理就返回 None**，让 AgentLoop 的默认 `max_iterations − 3` 生效，而不是当成 0 轮探索）；`AgentService.run_stream` 新增同名参数，聊天路由从配置解析后传入（与 `context_window` 同一范式）。
+  - **回归**：`call_role` 后端 3 + 适配层 2 + 前端 2；预算 4 条（没配置→默认 / 显式读到 / 配错不猜 / 配置真的到达循环）。
+  - **测试写法上的坑（记下来）**：`_execute_tool_calls` 是**生成器**（yield 事件、return 状态），stub 必须照做，否则 `yield from` 直接 TypeError —— 我第一版就踩了。
 - **W1 · E5 细节：个性化上下文进管线（2026-09-30，本地未推送）**：单发路径会给生成器设 `personalization_context`，逐题管线**从来没设过**（于是逐题生成的题目不吃个人上下文）。
   - **实现**：`run_question_pipeline(personalization=…)` 把它设到每道题用的 `QuestionGenerator` 上（与单发路径同一机制）；`generate_questions` 把已经从个人知识取到的上下文转发进来。
   - **证据契约**：个人上下文**只调讲法与难度偏好**，题目的来源仍由检索到的 chunk 决定 —— 专门有一条用例钉住「个性化里出现的内容不会变成 source」。

@@ -37,3 +37,17 @@ def test_settlement_shows_up_as_a_status_line():
 def test_unknown_events_still_map_to_nothing():
     """不认识的内部事件不要硬塞给前端（宁可少一个事件，也不要编错语义）。"""
     assert to_web_events({"type": "something_brand_new"}) == []
+
+
+def test_a_narration_delta_keeps_its_role():
+    """D4：过渡说明与最终答案在传输层就要能区分。"""
+    events = to_web_events({"type": "assistant_delta", "content": "我先查一下。", "call_role": "narration"})
+
+    assert events == [("message_delta", {"content": "我先查一下。", "call_role": "narration"})], events
+
+
+def test_a_plain_delta_is_unchanged():
+    """没有角色的增量保持原样（老路径不受影响）。"""
+    assert to_web_events({"type": "assistant_delta", "content": "答案。"}) == [
+        ("message_delta", {"content": "答案。"})
+    ]

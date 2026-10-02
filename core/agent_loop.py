@@ -351,6 +351,15 @@ class AgentLoop:
                     })
 
                 if response.tool_calls:
+                    # W1 E11 / D4：这一轮要调工具 → 它的文字是**过渡说明**（narration）。
+                    # 以前这些话只写进会话、从不发给界面；现在带 call_role 发出，
+                    # 由界面放进"过程"里，而不是混进最终答案正文。
+                    if response.content:
+                        yield {
+                            "type": "assistant_delta",
+                            "content": response.content,
+                            "call_role": "narration",
+                        }
                     # Add assistant(tool_calls) FIRST — providers require this
                     # before the corresponding tool result messages.
                     tool_calls_data = [tc.to_dict() for tc in response.tool_calls]
@@ -378,7 +387,7 @@ class AgentLoop:
                         fallback = "本轮操作被安全策略终止。"
                         final_response = fallback
                         self.session.add_message("assistant", fallback)
-                        yield {"type": "assistant_delta", "content": fallback}
+                        yield {"type": "assistant_delta", "content": fallback, "call_role": "finish"}
                         term_event = {
                             "type": "assistant_done",
                             "content": fallback,
@@ -437,7 +446,7 @@ class AgentLoop:
                     safe_deltas = response_deltas if response.content == original_content else [response.content]
                     for content_delta in safe_deltas:
                         if content_delta:
-                            yield {"type": "assistant_delta", "content": content_delta}
+                            yield {"type": "assistant_delta", "content": content_delta, "call_role": "finish"}
                 # 续写过就把前缀与续写合成**一条**回答（与用户看到的一致）。
                 if truncated_prefix:
                     response.content = "".join(truncated_prefix) + response.content
@@ -462,7 +471,7 @@ class AgentLoop:
             fallback = "本轮工具调用次数过多，未能完成回答。请缩小问题范围后重试。"
             final_response = fallback
             self.session.add_message("assistant", fallback)
-            yield {"type": "assistant_delta", "content": fallback}
+            yield {"type": "assistant_delta", "content": fallback, "call_role": "finish"}
             max_iter_event = {
                 "type": "assistant_done",
                 "content": fallback,
@@ -809,7 +818,8 @@ class AgentLoop:
                 **self._provider_cancel_kwargs(),
             )
             if response.content and emit_content:
-                yield {"type": "assistant_delta", "content": response.content}
+                # 角色由调用方按"这一轮有没有工具调用"决定；这里默认 finish。
+                yield {"type": "assistant_delta", "content": response.content, "call_role": "finish"}
             return response, ([response.content] if response.content else [])
 
         content_parts: list[str] = []

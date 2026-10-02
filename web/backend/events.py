@@ -65,7 +65,12 @@ def to_web_events(event: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
     event_type = canonical_type(event.get("type"))
 
     if event_type == MESSAGE_DELTA:
-        return [("message_delta", {"content": event.get("content", "")})]
+        payload = {"content": event.get("content", "")}
+        # W1 E11 / D4：narration（调工具前的过渡说明）与 finish（最终答案）分开，
+        # 界面据此把过渡说明放进"过程"而不是答案正文。
+        if event.get("call_role"):
+            payload["call_role"] = str(event["call_role"])
+        return [("message_delta", payload)]
 
     if event_type == TOOL_START:
         tool_name = str(event.get("tool_name", ""))

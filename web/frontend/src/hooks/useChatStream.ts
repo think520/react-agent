@@ -81,6 +81,14 @@ export function useChatStream() {
     if (streamEvent.event === "message_delta") {
       setStatus("正在组织回答");
       setBrandState("writing");
+      if (streamEvent.data.call_role === "narration") {
+        // W1 E11 / D4：调工具前的过渡说明进"过程"，不进最终答案正文。
+        updateLastMessage((item) => ({
+          ...item,
+          process: [...(item.process || []), { phase: "narration", message: streamEvent.data.content }],
+        }));
+        return;
+      }
       enqueueDelta(streamEvent.data.content);
     }
     if (streamEvent.event === "answer_truncated") {
