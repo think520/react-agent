@@ -138,7 +138,9 @@ class QuizEvaluator:
             if expected == actual:
                 return True, "正确！", "correct"
             if expected in actual or actual in expected:
-                return True, "基本正确。", "correct"
+                # W1 E15：守三态约定（partial ⇒ is_correct=False，与 _parse_grading_response 一致）。
+                # 旧代码在这里返回 True + "correct"，同一句"基本正确"在两条路径下被判成不同状态。
+                return False, "基本正确。", "partial"
             return False, f"参考答案：{question.answer}", "incorrect"
 
         prompt = GRADING_PROMPT.format(

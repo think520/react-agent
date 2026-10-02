@@ -306,6 +306,9 @@ def test_session_state_and_abandon(store, svc):
         "answered": 1,
         "total": 2,
         "correct": 1,
+        # W1 E15：三态分开数（partial 既不算答对、也不进错题本）。
+        "partial": 0,
+        "wrong": 0,
         "current_index": 1,
         "completed": False,
     }

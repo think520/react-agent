@@ -331,6 +331,8 @@ class QuizService:
                     "question_id": question_id,
                     "origin": session.origin,
                     "is_correct": is_correct,
+                    # W1 E15：学习轨迹也要能分清三态（partial 不算错、也不是答对）。
+                    "verdict": verdict,
                     "concepts": question.concepts,
                 },
                 dedupe_key=f"quiz_answered:{attempt_id}",
@@ -425,7 +427,17 @@ class QuizService:
             latest_attempts[attempt.question_id] = attempt
 
         answered_count = len(latest_attempts)
-        correct_count = sum(1 for attempt in latest_attempts.values() if attempt.is_correct)
+        # W1 E15：三态要分开数 —— partial 既不是"答对"，也不进错题本（错题谓词排除 partial）。
+        # 只给一个 correct 时，界面上的"答对 X/Y"与"错题已加入复习队列"两句话必然有一句在撒谎。
+        correct_count = sum(
+            1 for attempt in latest_attempts.values()
+            if attempt.is_correct and attempt.verdict != "partial"
+        )
+        partial_count = sum(1 for attempt in latest_attempts.values() if attempt.verdict == "partial")
+        wrong_count = sum(
+            1 for attempt in latest_attempts.values()
+            if not attempt.is_correct and attempt.verdict != "partial"
+        )
         total = len(session.question_ids)
         current_index = total
         for index, question_id in enumerate(session.question_ids):
@@ -459,6 +471,8 @@ class QuizService:
                 "answered": answered_count,
                 "total": total,
                 "correct": correct_count,
+                "partial": partial_count,
+                "wrong": wrong_count,
                 "current_index": current_index,
                 "completed": session.status == "completed",
             },

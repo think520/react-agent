@@ -7,6 +7,10 @@
 ## [未发布]
 
 ### 变更
+- **W1 · E15 三态口径统一（2026-09-30，本地未推送）**：核对发现「小结文案与事实相反」—— 错题谓词**排除 partial**（`_WRONG_VERDICT_SQL`），所以「只有 partial」的一轮根本没新增错题，而小结一律说「错题和薄弱点已经加入复习队列」。
+  - **后端三处**：① `get_session_state` 的 progress 三态分开数（`correct` / `partial` / `wrong`；partial 既不算答对也不算错）② `quiz_answered` 事件补 `verdict`（学习轨迹不能只有 is_correct）③ **无 LLM 的兜底判分**改回三态约定（「基本正确」⇒ `verdict=partial, is_correct=False`）—— 旧代码在同一个函数里对同一句话给出与 LLM 路径相反的状态。
+  - **前端**：新增纯函数 `practiceSummaryLine()`，按三态分三种说法：全对 → 「全部答对，复习队列没有新增错题」；只有 partial → 「这几题已计入薄弱点，但没有进错题本」；真有错题 → 才说「错题和薄弱点已经加入复习队列」。老数据缺少三态计数时**不猜**（只报答对 X/Y），不用一句可能错的话补空。
+  - **回归**：后端 3 条（progress 分三态 / 事件带 verdict 且与落库一致 / 兜底判分守约定）；前端 6 条（文案三种情况 + 老数据保守 + 练习页两种完成的会话）。既有精确断言随契约更新（progress 新增两个字段）。
 - **W1 · E9 到期复习与薄弱原因修复（2026-09-30，本地未推送）**：核对发现两处与事实不符的地方，都修好并补了回归。
   - **薄弱原因是假的（真 bug）**：`quiz/store.py::get_weakness_analysis` 的 SQL **没有 WHERE/HAVING** —— 每个被作答过的概念都会进「当前薄弱点」，**包括从来没答错过的**（实测：全对 3 次的概念照样出现，`error_rate 0.0`），顶部统计也跟着虚高；同时它**不产出 `reason`**，而界面读的正是这个字段，所以那句说明永远是 UI 兜底句、不是后端结论。现在：`HAVING wrong_count > 0` 只留真的错过的概念，并新增 `_weakness_reason()` **由代码**给出中文原因（近 N 次作答里错了 M 次），按错次/作答数排序并加上限。
   - **到期复习是原题重放**：变式通道（E3 已交付的 `generate_wrong_answer_variant(attempt_id)`）只认 attempt_id，而队列从不带这条证据。现在 `QuizStore.last_wrong_attempt_id_for_concept()` 给出「这个概念最近一次答错是哪次」，队列的 due/weaknesses 都带上 `last_attempt_id`；界面只要拿到它就**走变式通道**（没有作答历史的新概念才按概念出题），并保留 E3 的降级提示。

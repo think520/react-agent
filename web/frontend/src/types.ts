@@ -182,6 +182,9 @@ export interface PracticeSession {
     answered: number;
     total: number;
     correct: number;
+    /** W1 E15：三态分开数 —— partial 既不算答对，也不进错题本（老数据可能没有）。 */
+    partial?: number;
+    wrong?: number;
     current_index: number;
     completed: boolean;
   };

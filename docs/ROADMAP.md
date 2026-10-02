@@ -106,7 +106,7 @@ R12 的覆盖式“导入为新版本”仍是独立产品能力，不能用当�
 | E12 | prompt 具名块字节稳定 + KB seed 预检索进末尾 user 消息 | core/agent_loop.py | D5/D13 |
 | E13 | 出题卡防绕过三道防线：服务端注入参数 / 纯文本收尾重定向 / 卡片数据从持久化重绑定（A0：重绑定已存在，缺前两道） | Practice artifacts | D7 |
 | E14 | 「问 AI」复用练习辅导会话，不再污染会话列表 | PracticePage | 体验审查 P1-9；R11 已实现同题 session 复用 |
-| E15 | 简答三态判分与"学习中"映射核对（AnswerResult.verdict 已有三态，核对批改链路与展示一致性） | quiz_service | 体验审查 P1-10；O10 |
+| E15 | **已完成（2026-09-30 收口）** 简答三态判分与「学习中」映射：三态判分 / verdict 落库迁移 / partial→学习中 / 逐题回顾三态**此前已交付**；本轮补上最后的口径矛盾 —— ① progress 三态分开数（`correct`/`partial`/`wrong`）② `quiz_answered` 事件带 `verdict` ③ 无 LLM 兜底判分改回「partial ⇒ is_correct=False」 ④ 小结文案按三态分支（partial 不再被说成「错题已入队」），老数据缺字段时不猜。回归：后端 3 条 + 前端 6 条 | quiz_service + PracticePage | 体验审查 P1-10；O10 |
 | E16 | 新确认概念返回坐标 + 前端高亮数秒 | concept_service + KnowledgeMap | 体验审查 P1-12 |
 | E17 | **资料库文件树：按真实文件夹呈现与建立资料库**（详见下方设计记录） | Library 前后端 + 受沙盒保护的资料库文件 API | 2026-09-10 设计确认（用户 E2E 反馈） |
 | E18 | **题库**：浏览 / 筛选 / 收藏 / 一键练 / 对话引用 / 命名练习集 / 联网搜题 / 导出与备份（设计 D1–D9 见 [`QUESTION_BANK_DESIGN.md`](QUESTION_BANK_DESIGN.md)）——**S1–S7 全部交付（2026-09-10 立项 + 2026-09-11 收口）**；只剩「联网题新概念进候选」与「资料库整体备份」两件，分别属 D9 的候选钩子与 PROJECT_GUIDE 的数据保护专项 | quiz store + 练习页视图 + 复习页 + Chat 工具 | 2026-09-10 立项设计 |

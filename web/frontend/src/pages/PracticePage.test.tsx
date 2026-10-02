@@ -136,3 +136,38 @@ it("isolates tutor sessions for identical practice and question IDs in different
   await waitFor(() => expect(streamChat).toHaveBeenCalledTimes(3));
   expect(vi.mocked(streamChat).mock.calls[2][1]).toBe("tutor-session-1");
 });
+
+// W1 E15：小结不能与事实相反 —— partial 不进错题本，就不能说"错题已加入复习队列"。
+it("只有 partial 的一轮，小结不说'错题已入队'", async () => {
+  vi.mocked(api.practice).mockResolvedValue({
+    ...session,
+    status: "completed",
+    attempts: [{
+      question_id: 11, user_answer: "大概是 RAG", is_correct: false,
+      verdict: "partial", feedback: "基本正确。",
+    }],
+    progress: { answered: 1, total: 1, correct: 0, partial: 1, wrong: 0, current_index: 1, completed: true },
+  } as never);
+
+  render(<PracticePage />);
+
+  expect(await screen.findByText(/另有 1 题基本正确/)).toBeTruthy();
+  expect(screen.getByText(/没有进错题本/)).toBeTruthy();
+  expect(screen.queryByText(/错题和薄弱点已经加入复习队列/)).toBeNull();
+});
+
+it("真的答错时才说错题已入队", async () => {
+  vi.mocked(api.practice).mockResolvedValue({
+    ...session,
+    status: "completed",
+    attempts: [{
+      question_id: 11, user_answer: "不知道", is_correct: false,
+      verdict: "incorrect", feedback: "参考答案：…",
+    }],
+    progress: { answered: 1, total: 1, correct: 0, partial: 0, wrong: 1, current_index: 1, completed: true },
+  } as never);
+
+  render(<PracticePage />);
+
+  expect(await screen.findByText(/错题和薄弱点已经加入复习队列/)).toBeTruthy();
+});

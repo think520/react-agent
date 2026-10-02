@@ -5,6 +5,7 @@ import { useNavigate, useOutletContext, useParams } from "react-router-dom";
 import type { AppOutletContext } from "../components/AppShell";
 import { AttributionBadges, BrandIllustration, ErrorNotice, LoadingState, formatRelativeDate } from "../components/common";
 import { api, streamChat } from "../lib/api";
+import { practiceSummaryLine } from "../lib/practiceSummary";
 import { prefersReducedMotion } from "../lib/motion";
 import { StreamBuffer } from "../lib/streamBuffer";
 import { toErrorMessage } from "../lib/errors";
@@ -344,11 +345,11 @@ export function PracticePage() {
   if (error && !session) return <section className="page-scroll"><div className="page-container"><ErrorNotice message={error} action={<button className="quiet-button" onClick={() => id && void loadSession(id)}><RotateCcw size={15} />重试</button>} /></div></section>;
 
   if (session && session.progress.completed) {
-    const allCorrect = session.progress.correct === session.progress.total;
     return (
       <section className="page-scroll"><div className="page-container">
         <div className="practice-summary">
-          <header><span>练习小结</span><h2>这一轮练习已完成</h2><p>答对 {session.progress.correct} / {session.progress.total} 题。{allCorrect ? "全部答对，复习队列没有新增错题。" : "错题和薄弱点已经加入复习队列。"}</p></header>
+          {/* W1 E15：小结必须与事实一致（partial 不进错题本，就不能说"错题已入队"）。 */}
+          <header><span>练习小结</span><h2>这一轮练习已完成</h2><p>{practiceSummaryLine(session.progress)}</p></header>
           {session.attempts.length > 0 && <section className="summary-recap"><h3>逐题回顾</h3>{session.questions.map((question) => {
             const attempt = session.attempts.find((item) => item.question_id === question.id);
             // Three-state recap (E15): a partial short answer is not a failure.
