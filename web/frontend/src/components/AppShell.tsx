@@ -74,6 +74,8 @@ export interface AppOutletContext {
   documentImportVersion: number;
   /** E8：本次导入的**逐文件**结果（失败清单 UI 用），null 表示还没有结果。 */
   documentImportResults: ImportBatchResult[] | null;
+  /** E8：拖拽进来的文件走同一条导入通道（没有资料库时先引导新建并记住文件）。 */
+  importDroppedFiles: (files: File[]) => void;
   /** 还留着原文件对象时才为 true —— 不给假的"重试"按钮。 */
   documentImportCanRetry: boolean;
   retryFailedImports: () => void;
@@ -332,6 +334,16 @@ export function AppShell() {
       navigate("/library");
     }
   }, [loadScopedData, navigate]);
+
+  const importDroppedFiles = useCallback((files: File[]) => {
+    if (!files.length) return;
+    if (!activeLibrary) {
+      pendingDocumentFiles.current = files;
+      openLibrarySetup({ initialMode: "create", importCount: files.length });
+      return;
+    }
+    void uploadDocuments(files);
+  }, [activeLibrary, openLibrarySetup, uploadDocuments]);
 
   /** E8：重试这次"需要处理"的那几份（复用导入通道：字节已在库里的会走补索引路径）。 */
   const retryFailedImports = useCallback(() => {
@@ -709,6 +721,7 @@ export function AppShell() {
           documentImportDuplicateCount: documentImport.duplicateCount,
           importDuplicatesAsCopies,
           documentImportVersion: documentImport.version,
+          importDroppedFiles,
           documentImportResults: documentImport.results,
           documentImportCanRetry: pendingRetryFiles.current.length > 0,
           retryFailedImports,

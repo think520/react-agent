@@ -5,6 +5,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useNavigate, useOutletContext, useSearchParams } from "react-router-dom";
 import { DropdownSelect } from "../components/DropdownSelect";
+import { ImportDropZone } from "../components/ImportDropZone";
 import { ImportReportPanel } from "../components/ImportReportPanel";
 import { DocumentEditor } from "../components/DocumentEditor";
 
@@ -62,6 +63,7 @@ export function LibraryPage() {
     documentImportDuplicateCount,
     importDuplicatesAsCopies,
     documentImportVersion,
+    importDroppedFiles,
     documentImportResults,
     documentImportCanRetry,
     retryFailedImports,
@@ -1177,6 +1179,8 @@ export function LibraryPage() {
           />
         )}
         {error && <ErrorNotice message={error} action={<button className="quiet-button" onClick={() => void loadDocuments()}>重试</button>} />}
+        {/* E8：整页都是拖拽热区（没有资料库时先引导新建，并记住拖进来的文件）。 */}
+        <ImportDropZone onFiles={importDroppedFiles} enabled={Boolean(activeLibrary)}>
         {loading ? <div className="illustrated-loading"><BrandIllustration state="reading" size={76} /><LoadingState label={collection === "wiki" ? "正在整理 Wiki…" : "正在读取本地资料…"} /></div> : documents.length ? (
           <div
             className={
@@ -1466,6 +1470,7 @@ export function LibraryPage() {
             action={collection === "material" ? <div className="library-empty-actions"><button className="primary-button" onClick={startDocumentImport}><FilePlus2 size={17} />导入资料</button><button className="quiet-button" onClick={() => openLibrarySetup({ initialMode: "open" })}><FolderOpen size={16} />打开或接入已有资料库</button></div> : undefined}
           />
         )}
+        </ImportDropZone>
       </div>
       {editingDocumentId && selected && (
         <DocumentEditor

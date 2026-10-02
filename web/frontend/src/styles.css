@@ -1849,6 +1849,25 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--ink);
+
+/* E8：拖拽热区 —— 计数器 + 窗口级兜底，松手在窗口外也能退掉覆盖层。 */
+.import-drop-zone { position: relative; }
+
+.import-drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 2px dashed var(--blue);
+  border-radius: var(--radius-lg);
+  background: var(--paper);
+  color: var(--blue);
+  font-size: 14px;
+  pointer-events: none;
+}
 }
 
 .import-report-icon { flex: 0 0 auto; }
