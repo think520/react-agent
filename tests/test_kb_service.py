@@ -533,7 +533,7 @@ def test_wiki_plan_requires_confirmation_before_writing(svc, workspace, monkeypa
         def to_dict(self):
             return {"updated_files": 1, "errors": []}
 
-    monkeypatch.setattr(svc, "_sync_registered_sources", lambda mode, config: Summary())
+    monkeypatch.setattr(svc, "_sync_registered_sources", lambda mode, config, cancel_token=None: Summary())
     applied = svc.apply_wiki_plan(planned["plan_id"])
 
     assert applied["ok"]
@@ -607,7 +607,7 @@ def test_applied_wiki_plan_remains_successful_when_resync_is_deferred(svc, monke
     monkeypatch.setattr(
         svc,
         "_sync_registered_sources",
-        lambda mode, config: (_ for _ in ()).throw(RuntimeError("index busy")),
+        lambda mode, config, cancel_token=None: (_ for _ in ()).throw(RuntimeError("index busy")),
     )
 
     result = svc.apply_wiki_plan("a" * 32)
@@ -707,7 +707,7 @@ def test_delete_managed_document_removes_source_and_resyncs(svc, workspace, monk
         def to_dict(self):
             return {"updated_files": 1, "errors": []}
 
-    monkeypatch.setattr(svc, "_sync_registered_sources", lambda mode, config: Summary())
+    monkeypatch.setattr(svc, "_sync_registered_sources", lambda mode, config, cancel_token=None: Summary())
 
     result = svc.delete_document("doc-1")
 
@@ -819,7 +819,8 @@ def test_import_files_uses_managed_sources_and_preserves_registered_roots(
         def to_dict(self):
             return {"scanned_files": 1, "errors": []}
 
-    def fake_sync(mode, config):
+    def fake_sync(mode, config, cancel_token=None):
+        # E8：导入路径现在多传一个取消 token（默认 None，行为不变）。
         captured["roots"] = svc._registered_roots()
         return Summary()
 
@@ -863,7 +864,7 @@ def test_import_files_reindexes_identical_content_that_was_never_indexed(
     monkeypatch.setattr(
         svc,
         "_sync_registered_sources",
-        lambda mode, config: (synced.append(mode), _Summary())[1],
+        lambda mode, config, cancel_token=None: (synced.append(mode), _Summary())[1],
     )
 
     result = svc.import_files([("lesson-copy.md", b"# Same lesson")])
@@ -892,7 +893,7 @@ def test_portable_library_upload_uses_raw_inbox_without_creating_wiki_pages(tmp_
         def to_dict(self):
             return {"scanned_files": 1, "errors": []}
 
-    monkeypatch.setattr(portable, "_sync_registered_sources", lambda mode, config: Summary())
+    monkeypatch.setattr(portable, "_sync_registered_sources", lambda mode, config, cancel_token=None: Summary())
     before = sorted(str(path.relative_to(root / "wiki")) for path in (root / "wiki").rglob("*.md"))
 
     result = portable.import_files([("lesson.md", b"# Lesson")])
@@ -930,7 +931,7 @@ def test_portable_library_delete_archives_raw_and_marks_wiki_stale(tmp_path, mon
         def to_dict(self):
             return {"updated_files": 1, "errors": []}
 
-    monkeypatch.setattr(portable, "_sync_registered_sources", lambda mode, config: Summary())
+    monkeypatch.setattr(portable, "_sync_registered_sources", lambda mode, config, cancel_token=None: Summary())
     result = portable.delete_document("doc-1")
 
     assert result["ok"]

@@ -71,6 +71,12 @@ class SyncSummary:
     pending_removal: list = field(default_factory=list)
     #: P1-18: documents whose vectors were written by the backfill pass.
     vectors_backfilled: int = 0
+    #: E8: the run stopped at a cooperative checkpoint (user cancelled the
+    #: import). Unparsed sources keep their previous hash so the next sync
+    #: still sees them as changed, and nothing is deleted on a cancelled run.
+    cancelled: bool = False
+    #: Sources that were scheduled but never processed because of the cancel.
+    cancelled_sources: list = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -92,6 +98,8 @@ class SyncSummary:
             "removed_files": list(self.removed_files),
             "duplicates_cleaned": list(self.duplicates_cleaned),
             "pending_removal": list(self.pending_removal),
+            "cancelled": bool(self.cancelled),
+            "cancelled_sources": list(self.cancelled_sources),
         }
 
 
@@ -420,8 +428,13 @@ def sync_sources(
     missing_roots: list[str] | None = None,
     mode: str = "incremental",
     config: dict | None = None,
+    cancel_token=None,
 ) -> SyncSummary:
-    """Parse source files, rebuild RAG index (SQLite + Qdrant), and sync graph."""
+    """Parse source files, rebuild RAG index (SQLite + Qdrant), and sync graph.
+
+    `cancel_token`（可选，`core/cancellation.py::CancelToken`，E8）：在**文件边界**
+    协作式检查。取消时不删除任何东西，未解析的来源保留旧 hash，下一次同步照样会处理它们。
+    """
     config = config or {}
     knowledge_dir = _knowledge_dir(workspace)
     state = _load_state(workspace)
@@ -575,7 +588,18 @@ def sync_sources(
     extraction_counts: dict[str, int] = {"complete": 0, "partial": 0, "empty": 0, "error": 0}
     failed_processing_sources: dict[str, str] = {}
 
-    for source, abs_path, content_hash, kind in changed_sources:
+    cancelled_sources: list[str] = []
+    for index, (source, abs_path, content_hash, kind) in enumerate(changed_sources):
+        if cancel_token is not None and cancel_token.is_cancelled():
+            # E8：从这里开始的来源**没有**被解析。绝不能把新 hash 记进 state ——
+            # 那会让下一次增量同步以为它们"没变过"，于是永久跳过、静默不索引。
+            cancelled_sources = [item[0] for item in changed_sources[index:]]
+            for pending_source in cancelled_sources:
+                if pending_source in old_state:
+                    new_state[pending_source] = old_state[pending_source]
+                else:
+                    new_state.pop(pending_source, None)
+            break
         try:
             # Parse document into sections + extraction report
             sections, extraction_report_obj = parse_document(abs_path, workspace)
@@ -744,12 +768,17 @@ def sync_sources(
     # hash state so the next incremental run retries them.
     deletion_state = dict(new_state)
     deletion_state.update(failed_processing_sources)
-    deleted_sources, pending_missing = _resolve_deletions(
-        old_state,
-        deletion_state,
-        previous_missing,
-        scan_failed=bool(scan_errors) or bool(incomplete_reasons),
-    )
+    if cancelled_sources:
+        # E8：被取消的一轮**不做任何删除判定**，也不推进"待确认移除"的计数 ——
+        # 用户只是不想等了，不该因此丢掉任何资料。
+        deleted_sources, pending_missing = [], dict(previous_missing)
+    else:
+        deleted_sources, pending_missing = _resolve_deletions(
+            old_state,
+            deletion_state,
+            previous_missing,
+            scan_failed=bool(scan_errors) or bool(incomplete_reasons),
+        )
 
     # ── Step 5: Delete removed documents ────────────────────────────────
     for source in deleted_sources:
@@ -889,6 +918,8 @@ def sync_sources(
         duplicates_cleaned=duplicates_cleaned,
         pending_removal=sorted(pending_missing),
         vectors_backfilled=vectors_backfilled,
+        cancelled=bool(cancelled_sources),
+        cancelled_sources=cancelled_sources,
     )
 
 

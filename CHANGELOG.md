@@ -7,6 +7,12 @@
 ## [未发布]
 
 ### 变更
+- **W1 · E8 导入流程（第 1 步）：协作式取消（2026-09-30，本地未推送）**：按 W1 的 E8 拆成四步走（取消 → 进度 → 失败清单 UI → 拖拽热区），这是第一步，**先写会失败的测试**（`tests/test_import_cancellation.py`，修前红：`unexpected keyword argument 'cancel_token'`）。
+  - **复用已有原语**：A4 批次三交付的 `core/cancellation.py::CancelToken`（设计见 `docs/CANCELLATION_DESIGN.md`）+ 文件边界检查 —— 不新造机制，也不假装能杀线程。
+  - **语义如实**：取消在**文件边界**生效；已经收进来/已经解析的保持原样，剩下的报成 `cancelled`；**不再写新文件**；被取消的一轮**不做任何删除判定**、也不推进"待确认移除"计数。
+  - **一个容易踩的坑（已处理）**：未解析的来源**不能**把新 hash 写进 `sync_state.json` —— 否则下一次增量同步会以为它们"没变过"而永久跳过、静默不索引。取消时对这些来源恢复旧 hash（原本不在 state 里的直接移除）。
+  - **回归**：预取消 → 什么都不写、三条结果全 cancelled；中途取消 → 只保住已收下的那份 + 余下如实报 cancelled（两份都验过红→绿）。受影响的既有套件（kb_service / 导入重试 / 同步抽取 / 整理恢复 / web 后端）**65 passed**。
+  - **纪律事故（如实记账）**：我用 PowerShell `Set-Content` 改 `tests/test_kb_service.py`，写坏了文件（加 BOM + 中文变乱码）——**已用 `git checkout --` 恢复，并改用 edit 工具重做**。这是同一个坑第二次（第一次是 CHANGELOG），已确认是硬规矩：**绝不用 PowerShell 写文本文件**。
 - **独立审查后的修复（2026-09-30，本地未推送）**：另一个 AI 在独立上下文里只读审查了这批改动，结论"有条件合入"，并指出**这批自己引入的一个病态循环**与我的一处错误归因。已修 3 处、登记 6 处。
   - **【已修·中】永久失败的文件每次同步都被重解析**：`_sources_needing_reindex` 只排除 `empty`，而永久失败那类恰好是 `error`（`parse_document` 吞异常返回 error report、零 chunk 照样 upsert）→ 一个坏 PDF 让每次增量同步都 `changed=1`，代价随文件大小线性增长，且**每次上传都连带重跑一遍**。现在改成**有界重试**：`MAX_REINDEX_ATTEMPTS = 2`，计数按 `source+content_hash` 记进 `sync_state.json` 的 `retries`，字节一变计数自动归零（用户换掉文件照样重试）。回归：`tests/test_sync_extraction_status.py::test_a_permanently_broken_file_is_not_reparsed_on_every_sync`。
   - **【已修·低】零成功时"自建文件夹回收 + 忘记台账"从未生效**：`if not moved and not failed:` 永远为假（调用点传入的 failed 至少含当前项）→ 文件夹留盘、台账挂空批次。现在只看 `moved`。回归：`tests/test_organization_recovery.py::test_a_zero_success_apply_does_not_leave_its_own_folder_behind`（**先证明它红**：`assert 'ff97c0b4…' == ''`）。

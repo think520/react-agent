@@ -1272,7 +1272,7 @@ class KBService:
             missing.append(str(vault))
         return missing
 
-    def _sync_registered_sources(self, mode: str, config: dict):
+    def _sync_registered_sources(self, mode: str, config: dict, cancel_token=None):
         from obsidian.sync import sync_sources
 
         vault_path, course_dirs = self._registered_roots()
@@ -1286,6 +1286,7 @@ class KBService:
             missing_roots=self._missing_declared_roots(),
             mode=mode,
             config=config,
+            cancel_token=cancel_token,
         )
 
     def import_files(
@@ -1293,7 +1294,13 @@ class KBService:
         files: list[tuple[str, bytes]],
         config: dict | None = None,
         duplicate_strategy: str = "keep_existing",
+        cancel_token=None,
     ) -> dict[str, Any]:
+        """收文件 + 建索引。`cancel_token`（E8）在**文件边界**协作式检查：
+
+        - 已经收进来/已经解析的保持原样，剩下的如实报成 `cancelled`；
+        - 不再写新文件，也不删除任何东西（取消不是失败，不该丢资料）。
+        """
         if duplicate_strategy not in {"keep_existing", "save_copy"}:
             return _err(
                 "duplicate_strategy must be keep_existing or save_copy",
@@ -1342,7 +1349,13 @@ class KBService:
                 **extra,
             })
 
+        cancelled = False
         for filename, content in files:
+            if cancel_token is not None and cancel_token.is_cancelled():
+                # E8：到这里为止的都算数，剩下的不再写盘、如实报成 cancelled。
+                cancelled = True
+                record(filename, "cancelled", "")
+                continue
             safe_name = os.path.basename(filename).strip()
             extension = os.path.splitext(safe_name)[1].lower()
             if not safe_name or extension not in allowed:
@@ -1394,7 +1407,7 @@ class KBService:
             )
             record(filename, "imported", target)
 
-        if not imported and not duplicates and not pending:
+        if not imported and not duplicates and not pending and not cancelled:
             return _err("No supported files were provided")
 
         # 逐文件结果要**绑定到本次批次**：这一批里哪些能检索、哪些还在等索引（审查 F09）。
@@ -1438,7 +1451,9 @@ class KBService:
         summary = None
         if imported or pending:
             try:
-                summary = self._sync_registered_sources(mode="incremental", config=config or {})
+                summary = self._sync_registered_sources(
+                    mode="incremental", config=config or {}, cancel_token=cancel_token,
+                )
             except Exception as exc:  # 同步失败要**如实结构化返回**，而不是把 500 抛给界面（审查 F04）
                 return _err(
                     f"文件已经收进资料库，但建立索引失败：{exc}",
@@ -1447,6 +1462,7 @@ class KBService:
                     duplicates=duplicates,
                     rejected=rejected,
                     pending=pending,
+                    cancelled=cancelled,
                     results=results_for_batch(self._documents_by_path()),
                     library_sync={"extraction_counts": {}, "error_files": 0},
                 )
@@ -1455,6 +1471,7 @@ class KBService:
             duplicates=duplicates,
             rejected=rejected,
             pending=pending,
+            cancelled=cancelled,
             results=results_for_batch(self._documents_by_path(), summary),
             # 全库增量同步单独一个字段：它可以比这批大（资料库里别的文件也变了），
             # 但**不能**拿来当本次上传的计数（审查 F09）。
