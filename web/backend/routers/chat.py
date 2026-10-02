@@ -96,6 +96,9 @@ _WEB_TOOL_NAMES = frozenset({
     "learning_path",
     "learning_progress",
     "learning_review",
+    # W1 E6/D1: read the mastery engine (next objective + derived scores) before
+    # deciding what to do next. Read-only, so it cannot become a bypass.
+    "learning_status",
     "request_memory_confirmation",
     "ask_user",
     # P1-16: the three specialists the CLI always had. Registered for the web

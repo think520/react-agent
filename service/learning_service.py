@@ -135,6 +135,18 @@ class LearningService:
             "mastery_source": "stored",
         }
 
+    def mastery_overview(self, limit: int = 5) -> dict[str, Any]:
+        """掌握度总览（W1 E6）：最弱的几个概念 + **推导**分数，并标注来源。
+
+        «list_mastery» 按分数升序 —— 最需要推进的排在最前面。
+        """
+        store = LearningStore(self.workspace)
+        rows = store.list_mastery(limit=max(1, int(limit)))
+        return _ok(overview=[
+            self._derived_mastery({"concept": row.concept, "score": row.score, "status": row.status}, store)
+            for row in rows
+        ])
+
     def get_next_objective(self) -> dict[str, Any] | None:
         """今天下一件该做的事（纯函数引擎给优先级）。
 

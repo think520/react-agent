@@ -47,6 +47,48 @@ def learning_path(
         return ToolResult(ok=False, content=f"学习计划生成失败: {e}")
 
 
+def learning_status(workspace: str = ".") -> ToolResult:
+    """Read today's next objective and the engine's mastery view (W1 E6 / D1).
+
+    Use this before deciding what the learner should do next: it reads the pure
+    mastery engine rather than guessing, and says whether each score was derived
+    from attempt history or is a stored legacy number.
+    """
+    try:
+        from service.learning_service import LearningService
+        svc = LearningService(workspace)
+        objective = svc.get_next_objective()
+        mastery = svc.mastery_overview(limit=5).get("overview", [])
+
+        lines: list[str] = []
+        if objective is None:
+            lines.append("今天下一件：今天没有必须做的（没有到期复习，也没有挂起的问题）。")
+        elif objective.get("kind") == "pending_question":
+            prompt = objective.get("prompt") or ""
+            lines.append(f"今天下一件：先回答挂起的问题{('：' + prompt) if prompt else '。'}")
+        elif objective.get("kind") == "due_review":
+            lines.append(f"今天下一件：复习「{objective.get('concept', '')}」。")
+        else:
+            lines.append(f"今天下一件：开始学「{objective.get('concept', '')}」。")
+
+        if mastery:
+            lines.append("")
+            lines.append("掌握度（最近 5 次作答加权；证据越少越保守）：")
+            for item in mastery:
+                if item.get("mastery_source") == "history":
+                    lines.append(f"- {item['concept']}：{item['mastery']}（{item.get('evidence', 0)} 次作答记录）")
+                else:
+                    lines.append(f"- {item['concept']}：{item['mastery']}（存量分数，没有逐次记录）")
+
+        return ToolResult(ok=True, content="\n".join(lines), data={
+            "next_objective": objective,
+            "mastery": mastery,
+        })
+    except Exception as e:  # pragma: no cover - 兜底，具体异常依服务实现而定
+        logger.error("Learning status failed: %s", e)
+        return ToolResult(ok=False, content=f"读取学习状态失败: {e}")
+
+
 def learning_progress(
     concept: str | None = None,
     course: str | None = None,
@@ -230,6 +272,21 @@ register_tool(
         "required": ["goal"],
     },
     func=learning_path,
+)
+
+register_tool(
+    name="learning_status",
+    description=(
+        "Read today's next objective and the mastery the engine derives from attempt history. "
+        "Use before deciding what to do next (pending question > due review > weakest concept). "
+        "Scores from history are labelled as such; legacy stored scores say they have no history."
+    ),
+    params_schema={
+        "type": "object",
+        "properties": {},
+        "required": [],
+    },
+    func=learning_status,
 )
 
 register_tool(
