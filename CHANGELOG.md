@@ -7,6 +7,12 @@
 ## [未发布]
 
 ### 变更
+- **W1 · E5 细节：个性化上下文进管线（2026-09-30，本地未推送）**：单发路径会给生成器设 `personalization_context`，逐题管线**从来没设过**（于是逐题生成的题目不吃个人上下文）。
+  - **实现**：`run_question_pipeline(personalization=…)` 把它设到每道题用的 `QuestionGenerator` 上（与单发路径同一机制）；`generate_questions` 把已经从个人知识取到的上下文转发进来。
+  - **证据契约**：个人上下文**只调讲法与难度偏好**，题目的来源仍由检索到的 chunk 决定 —— 专门有一条用例钉住「个性化里出现的内容不会变成 source」。
+  - **回归**：3 条（个性化进**出题**提示词 / 没有个性化时提示词如实写「无。按资料本身生成题目。」/ 个性化永不成为来源）。
+  - **测试写法上的一个坑（记下来）**：生成器在 Phase 3 **自己还会检索一次**，只 stub `_explore` 的话真实生成路径根本走不到提示词 —— 那样测的是假路径。现在两处都 stub，测的才是真提示词。
+  - **仍未做**：练习页没有课程选择器；实时列表只列题干不是完整卡片。
 - **W1 · E5 细节：逐题管线吃 course，并尊重用户选的资料范围（2026-09-30，本地未推送）**：核对发现 `_explore` 直接调 `search_index`，于是 **`document_ids` 与 `course` 全被忽略** —— 用户在界面上选的资料范围对逐题管线无效，可能拿到范围外的证据。
   - **修法**：`_explore` 改走 `KBService.search(course=…, document_ids=…)`（它按资料过滤、按课程限定、保住可见性规则），检索异常仍然按「没有证据」如实报错；`run_question_pipeline(course=…)` 与 `generate_questions` 转发该参数。
   - **API**：`QuestionPipelineRequest.course`（可选，≤200）+ 前端 `streamQuestionPipeline({ course })` 带上（界面暂时只发资料范围，课程留给 API 调用方）。

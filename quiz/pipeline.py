@@ -146,6 +146,7 @@ def run_question_pipeline(
     config: dict | None = None,
     document_ids: list[str] | None = None,
     course: str | None = None,
+    personalization: str = "",
     on_event: Callable[[dict], None] | None = None,
     cancel_token: Any = None,
 ) -> dict[str, Any]:
@@ -193,6 +194,10 @@ def run_question_pipeline(
             }
         try:
             generator = QuestionGenerator(workspace, llm) if llm is not None else None
+            if generator is not None:
+                # W1 E5：个性化只调**讲法与难度偏好**，永远不参与来源绑定
+                # （题目来源仍由检索到的 chunk 决定，见 generate_from_chunks）。
+                generator.personalization_context = personalization or ""
             if generator is None:
                 generated: list[Any] = []
             else:

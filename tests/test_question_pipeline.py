@@ -338,3 +338,55 @@ def test_the_pipeline_forwards_course_to_explore(monkeypatch):
     assert outcome["ok"] is False and outcome["code"] == "no_evidence", outcome
     assert seen["course"] == "算法课", seen
     assert seen["document_ids"] == ["doc-2"], seen
+
+
+# --- W1 E5 细节：个性化上下文进管线（只影响讲法/难度偏好，**不能变成证据**） ---
+
+
+def _stub_explore(monkeypatch, chunks):
+    """只管 Phase 1 探路；Phase 3 里生成器**自己**还会检索一次，所以两处都要 stub，
+    否则真实生成路径根本走不到提示词（那样测的就不是提示词了）。"""
+    from quiz import pipeline as pipeline_module
+
+    monkeypatch.setattr(pipeline_module, "_explore", lambda **kwargs: chunks)
+    monkeypatch.setattr("quiz.generator.search_index", lambda *args, **kwargs: chunks)
+
+
+def test_the_pipeline_feeds_personalization_into_the_question_prompt(monkeypatch, tmp_path):
+    _stub_explore(monkeypatch, [{"chunk_id": "c1", "text": "极限的严格定义……", "document_id": "doc-1"}])
+    llm = StubLLM(plan=PLAN_JSON, question=_question_json("极限的定义"))
+
+    run_question_pipeline(
+        workspace=str(tmp_path), topic="极限", count=1, llm=llm,
+        personalization="这位学生是初学者，喜欢先看例子。",
+    )
+
+    question_prompts = [prompt for prompt in llm.calls if "初学者" in prompt]
+    assert question_prompts, llm.calls
+    assert len(question_prompts) == 1, llm.calls
+
+
+def test_without_personalization_the_prompt_says_so(monkeypatch, tmp_path):
+    _stub_explore(monkeypatch, [{"chunk_id": "c1", "text": "证据", "document_id": "doc-1"}])
+    llm = StubLLM(plan=PLAN_JSON, question=_question_json("极限的定义"))
+
+    run_question_pipeline(workspace=str(tmp_path), topic="极限", count=1, llm=llm)
+
+    assert any("无。按资料本身生成题目。" in prompt for prompt in llm.calls), llm.calls
+
+
+def test_personalization_never_becomes_a_source(monkeypatch, tmp_path):
+    """个人上下文只能调讲法；题目来源必须仍然来自检索到的 chunk。"""
+    _stub_explore(monkeypatch, [{"chunk_id": "c1", "text": "极限的严格定义……", "document_id": "doc-1"}])
+    llm = StubLLM(plan=PLAN_JSON, question=_question_json("极限的定义"))
+
+    outcome = run_question_pipeline(
+        workspace=str(tmp_path), topic="极限", count=1, llm=llm,
+        personalization="学生上次说自己在准备考研。",
+    )
+
+    store = QuizStore(str(tmp_path))
+    question = store.get_question(outcome["question_ids"][0])
+    sources = [str(item) for item in (question.sources or [])]
+    assert sources, question
+    assert all("考研" not in source for source in sources), sources
