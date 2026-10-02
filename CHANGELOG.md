@@ -7,6 +7,12 @@
 ## [未发布]
 
 ### 变更
+- **W1 · E10 Socratic persona 载体 + 优先级裁决（2026-09-30，本地未推送）**：核对结论是产品里**没有 persona 系统**（`assistant.display_name` 只是名字），所以这一步先定**载体**再谈人格。
+  - **载体沿用既有 skills 通道**（不新造机制）：`skills/socratic-persona/SKILL.md`（frontmatter name/description + 正文）→ `core/skills.py` 发现并作为目录注入 system prompt，模型按需读 SKILL.md → 偏好 `skills.enabled_names` 决定启用 → Web 设置里再由 `WEB_SKILL_NAMES` 白名单决定可见性（**不加白名单，Web 上完全看不见**，这正是核对点出来的坑）。
+  - **人格内容**：改写自参考项目 DeepTutor `deeptutor/services/persona/presets/peer/PERSONA.md` @ `6e6e56a`，按 Bobodan 的规则重写（先问后讲、一次一个问题、用用户自己的话、允许说『我不知道』、该讲就讲）。
+  - **裁决（写进载体也写进文档 `docs/PERSONA.md`）**：优先级从高到低 = **证据门禁** > **来源绑定与资料库边界** > persona 的风格与流程；冲突时 persona 永远让路。persona **不得**让模型用纯文本 A/B/C 直接发题（练习只能经服务端绑定的练习卡），也不得放宽证据要求。
+  - **回归**：5 条（技能能被加载且描述说明何时使用 / 在 Web 白名单里 / 设置页列得出它 / 启用后进 system prompt 且不夹带其它技能 / 正文与文档都写明裁决与练习卡边界）。
+  - **未做（如实记账）**：默认**不启用**（偏好里 `enabled_names` 默认为空，需用户在设置里打开）；没有做人格切换 UI，也没有做多 persona 互斥的规则。
 - **W1 · E13 防线②触发面（2026-09-30，本地未推送）**：核对原文「防线②只在 `_requests_practice` 命中时启用（表外语义可绕过）」。根因是**挂载看的是用户措辞，而判定看的是模型输出** —— 两者错配：措辞表没收录的说法（『刷几道题』『来点题』『drill me』）就等于没有这道防线。
   - **无条件挂载**：把策略组装提取为 `_build_response_policies()`（可测），防线②**每轮都挂**；用户措辞只决定**灵敏度**：明确要题时用宽松判定（≥2 个字母选项），否则用新的**严格判定**。
   - **严格判定**（`InlineQuestionPolicy(strict=True)`）：必须是「成组的**短**选项（≤48 字符）出现在**结尾**」且上下文在提问（下列/哪个/which/选择… 或问号）才算内联出题 —— 这样才不会误伤讲解里并列的「A. 从能量角度……」那种长句列举。
