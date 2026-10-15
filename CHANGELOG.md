@@ -13,6 +13,12 @@
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
 ### 变更
+- **检索降级可见性 ①：FTS5 查询转义（2026-10-15，分支 fix/retrieval-transparency，未推送）**：G4 评测第一次对真实库跑就报 `FTS5 search failed: fts5: syntax error …` / `no such column: 数学` —— 用户查询里带引号或运算符时，**FTS 腿静默变空**，界面只会显示「检索不到」。
+  - **根因**：`_build_fts_query` 对 `* ( ) :` 的处理是**在 token 内部插引号**（`a*b` → `a"*"b`），外层再包一次引号 → 生成 `"a"*"b"` ✗；FTS5 于是把随后的裸 token 当成**列名**（`no such column: 数学`）或直接报语法错。
+  - **修法**：去掉用户写的引号（那是查询语法、不是内容，FTS 也索引不到标点）→ 每个 token **整体**加一层引号（引号内的 `* ( ) : AND OR NOT NEAR` 全是字面量）→ 完全不含词字符的 token（如 `***`）直接丢掉，不生成残破表达式。
+  - **回归**：6 条（带引号的短语仍是单个被引住的原子 / 运算符留在引号内 / 裸 `OR` 被引住 / 纯标点返回空 / **真 FTS5 表上五种写法都要命中** / 恶意输入不抛异常）。
+  - **A/B 证据（真实库、只读、同一批 25 个用例）**：修前 **hit@5=0.720 / MRR=0.720（18/25）** → 修后 **hit@5=1.000 / MRR=1.000（25/25）**。
+  - **顺带记录**：评测在服务运行时跑不了向量腿 —— 本地 Qdrant 是**单进程**存储，外部进程报 `already accessed by another instance`（已写进 §1.1）。
 - **W2 G4 召回评测：度量 + 入口 + 合成夹具（2026-10-15，已推送至 main）**：先有度量再谈调权重。
   - **新增 `rag/recall_eval.py`**：纯函数度量（`hit_at_k` / `reciprocal_rank` / `evaluate` 按模式聚合）+ `load_cases`（JSONL，**没有期望的用例直接拒绝**，不静默算 0 分）+ `evaluate_workspace` + CLI（`python -m rag.recall_eval --workspace … --cases …`）。报告**必须带 `resolved_modes`** —— 要了 A 实际跑了 B 时一眼可见（与产品「降级必须可见」一致）。命中键用**来源文件名**，因为 chunk id 会随重切变化。
   - **合成夹具**：`tests/eval/sample_corpus/`（3 篇通用算法小笔记，**不含任何真实资料**）+ `tests/eval/recall_cases.jsonl`（5 条）。真实资料内容**不进仓库**。
