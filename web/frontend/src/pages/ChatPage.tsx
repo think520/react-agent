@@ -236,7 +236,7 @@ export function ChatPage() {
   const [mentionTab, setMentionTab] = useState<"document" | "session">("document");
   const [mentionIndex, setMentionIndex] = useState(0);
   const [mentionDismissed, setMentionDismissed] = useState(false);
-  const scrollRef = useStickyBottomScroll<HTMLDivElement>([messages, status]);
+  const { ref: scrollRef, pinToBottom } = useStickyBottomScroll<HTMLDivElement>([messages, status]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   // P0-1: the run lives on the server now, so stopping it needs its stream id.
@@ -342,6 +342,9 @@ export function ChatPage() {
       openLibrarySetup();
       return;
     }
+    // W3 F7：只有**用户发消息**才无条件回到底部 —— 助手流式输出不会把视图拽回去，
+    // 而用户自己滚到上面之后再发一条，应该回到最新消息。
+    pinToBottom();
     const route = webResearchId ? { kind: "none" as const } : routeSlashCommand(message, { webOnce });
     if (route.kind === "navigate") { setDraft(""); navigate(route.to); return; }
     if (route.kind === "wiki-generate") {

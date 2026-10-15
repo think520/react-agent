@@ -12,6 +12,13 @@
 > 从 2026-10-15 起时间戳已正确（`177fbc2` / `c9e9b52` / `0a767bb` / `d123b43` 均为当日）。
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
+- **W3 FE-P0 ③F7：自动滚动升级（2026-10-15，分支 feat/stream-correctness，未推送）**：核对出三个真问题 —— **多个写者**（rAF 动画 / scroll 事件 / ResizeObserver 各自直接写 `scrollTop` ✗）、**内容变长但容器盒子不变时收不到通知**（ResizeObserver 看的是容器自己的盒子 ✗）、**手势期间没有任何保护**（动画会跟手指抢滚动 ✗）。
+  - **决策抽成纯函数**（新增 `lib/scrollFollow.ts`）：`distanceFromBottom` / `shouldFollow({metrics, interacting, pinned})` / `shouldJump`。jsdom 没有布局，滚不滚的判断必须离开 DOM 才测得了。
+  - **hook 重写**（`useStickyBottomScroll`）：① **单写者** —— 所有触发都进 `schedule()`，一帧只排一次，`scrollTop` 只在 `step()` 一处被写；② **MutationObserver**（childList+subtree+characterData）管内容变长，与 rAF 合帧；③ **手势释放** —— touchstart/touchmove/wheel 期间绝不写，touchend/touchcancel（滚轮用 `WHEEL_RELEASE_MS`=140ms 空闲）之后按用户现在停在哪决定；④ **用户消息才回底** —— 新增 `pinToBottom()`，由 ChatPage 在**用户发消息**时调用，助手流式输出不会把视图拽回去。
+  - **过程中发现并修掉一个经典陷阱（重要）**：第一版我在 `step()` 里每次重新判定离底部多远 —— 而**内容变长时 `scrollTop` 不变、距离会瞬间变成几百像素**，于是「内容长出来了」被误读成「用户滚走了」而停止跟随 ✗。改成：跟随状态**只由用户意图决定**（滚动/手势/发消息），并用「最后一次是不是我们自己写的」（`lastWrittenRef`）把动画造成的 scroll 事件与用户滚动区分开。
+  - **CSS**：`.chat-scroll` 加 `overflow-anchor: none`（浏览器自带的滚动锚定会和我们的跟随逻辑打架）。
+  - **回归 4 条**（真元素 + 假测量 + 手动帧队列）：内容变长跟随且**一帧只写一次** / 手势期间**零写入**、松手尊重用户位置、滚回底部后恢复 / 滚上去不再跟随但 `pinToBottom` 能重新跟随 / `.chat-scroll` 确实关掉了滚动锚定。
+  - **顺带修掉自己三处测试夹具缺陷**：用 `replaceWith` 换掉 React 管理的节点（NotFoundError）→ 改成在真元素上装假测量；缓动是渐进的，断言要跑到收敛而不是一帧；「一帧一次写」要只走一帧再断言。lint 也报了一处重复实现（内联了一份 `refreshFollow`）→ 改为通过 ref 复用同一份。
 - **W3 FE-P0 ②F14：字体契约（2026-10-15，分支 feat/stream-correctness，未推送）**：把 DESIGN.md 的「字体气质 / 字体 Token」变成**可执行**约束，并修掉实测出的一处退化。
   - **核对结论（先说好消息）**：字体**已是本地打包**（`public/assets/fonts/` 下 kami-reading 的仓耳今楷 W04/W05 + noto-serif-sc 的 woff2 全集），CSS 里**没有**任何公共 CDN，`@font-face` 全是本地 URL；品牌字体只用在标题（正文不碰 Luo）—— 这三条本来就对。
   - **实测出一处真缺口**：全局继承规则只写了 `button, input, textarea { font: inherit }`，**漏了 `select`** —— select 默认用系统 UI 字体，Windows 上中文选项会跟着变脸。已补进同一条规则。
