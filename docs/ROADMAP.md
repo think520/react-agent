@@ -14,6 +14,8 @@
 
 ## 0. 当前状态快照（2026-09-08）
 
+> **这是 2026-09-08 的快照，不是当前状态**（它早于 W1–W5 的绝大多数工作）。工作流的当前状态看 §1 各节里的「复测」行（最近一次：2026-10-02）；动手前先复测，不要拿这里的历史数字当现状。
+
 | 大轮次 | 状态 |
 |---|---|
 | P5C–P5F（Web 界面 / 资料库 / 设置中心 / 联网研究 / 个人知识库 / 知识地图） | ✅ 完成 |
@@ -160,9 +162,11 @@ E1–E16 逐条核对并交付后（截至 2026-10-02）：**16 条全部交付*
 
 ### W2 检索与 RAG（第十章决策落地）
 
-> 现状（2026-09-23 复测）：向量腿从未运行——真实工作区 70 份资料 / 1857 chunk，`vector_status` **全为 `pending`**，`.bobodan/qdrant` 不存在。产品实际是 FTS5-only。2026-09-03 已拍板：**向量库不动（qdrant 本地模式）、不内置 ONNX 模型、embedding 走用户自配 API**。完整论证见调研报告第十章。
->
-> 2026-09-23 进展：**B2 的 provider 层已落地**（`rag/embedding_provider.py`：Ollama 之外可用用户自配的 OpenAI 兼容 API，预设 siliconflow/dashscope/openai，密钥走环境变量）。但**尚未在真实资料集上跑通**（需要一个用户侧的 key 才能建向量），G4 召回评测集未建——所以在评测集通过前，「FTS5-only 是当前事实」这句话仍然有效，且不得宣称混合检索更好。
+> **现状（2026-10-02 复测 —— 替换 2026-09-23 的旧结论）**：向量腿**已经在跑**；旧文字（「从未运行 / 1857 chunk 全 pending / qdrant 不存在 / 实际是 FTS5-only」）**已全部过期，别再当现状**。实测真实工作区：**47 份资料 / 1694 chunk，其中 46 份 `vector_status=indexed`、1 份 pending**；`.bobodan/qdrant` 存在（40.1 MB）；`.bobodan/embedding_signature.json` = provider `openai_compat` / model `embedding-3` / dim `2048`；`retrieval_runs` 最近三条都是 `mode=hybrid`。
+> 
+> 复测方式（只读，不写库）：用 sqlite 以 `mode=ro` 打开 `note/vault/.bobodan/knowledge.db`，看 `documents.vector_status` 分组计数与 `retrieval_runs` 最新一条的 `mode`。
+> 
+> 逐条状态（2026-10-02，附代码证据）：**G1 已完成**（`rag/embedding_provider.py` 协议 + 预设含 zhipu dim=2048）｜**G2 基本完成**（签名版本化 `rag/embedding_signature.py` + 测试；429 退避带 Retry-After；维度不匹配被拒绝）｜**G3 未做**（`rag/` 内无心跳/600s 守卫）｜**G4 未做**（无 `tests/eval`、无 hit@5/MRR 评测）｜**G5 部分完成**（扫描页判定 `needs_ocr` ✓、第一行标题启发式 ✓；四级降级链 outline→heading→印刷目录→粗体 未做）。
 
 | # | 事项 | 动哪里 | 来源 |
 |---|---|---|---|
@@ -189,12 +193,12 @@ E1–E16 逐条核对并交付后（截至 2026-10-02）：**16 条全部交付*
 
 | # | 事项 | 动哪里 |
 |---|---|---|
-| F2 | narration/finish 元数据协议：过程文本靠标记事件从答案剔除，前端零启发式 | useChatStream |
+| F2 | **已完成（2026-10-02，经 W1 E11 落地）** narration/finish 元数据协议：`call_role` 随增量下发（narration 进「过程」、不进答案正文），前端只按元数据分支、**无文本启发式** | core/agent_loop.py + web/backend/events.py + hooks/useChatStream.ts |
 | F6 | rAF 自适应打字机 + 单调 Simple→Rich markdown 分级渲染 | ChatPage 管线 |
 | F8–F10 | 过程可视化升级：工具卡规则表（动词短语+chips+disclosure，测试对账）、工具组双时钟、thinking 预览/waiting 三点分离 | ProcessFoldBlock |
 | F11 | ask_user 卡**剩余**部分：多题 tab + 自动跳题 + Other 草稿（**E4 已交付**：流序渲染 + 原位 resolved，勿重复实现） | artifacts/ |
 | F12 | question 未答时接管 composer（编号问卷 + 键盘），answered 由 fold 派生（**E4 已交付**：答案经 tool result 回填、不产生用户气泡） | ChatPage composer |
-| F13 | Quiz 流式卡：逐题出现 + chip 导航 + turnId 隔离 | PracticePage |
+| F13 | **部分完成（2026-10-02）** 逐题出现 ✓（W1 E5：`quiz_question_emitted` 事件 → 可读卡片，题型/难度/选项）；**未做**：chip 导航、turnId 隔离 | PracticePage.tsx |
 | F17 | Playwright mock SSE fixture（确定性事件串重放） | e2e/ |
 | H-a | 消息操作条（悬停 复制/重答）+ 用户消息编辑重发 | ChatPage；openhanako MessageFooterActions |
 | H-b | 会话内查找 Ctrl+F + 时间线导航条 | ChatPage；openhanako |
@@ -223,13 +227,27 @@ E1–E16 逐条核对并交付后（截至 2026-10-02）：**16 条全部交付*
 
 ### W5 发布通道（P5G.2 / P5G.3）
 
-**门禁**：W1 的 E1–E7 完成、W2 的 G1–G3 落地、W3 FE-P0 完成。桌面版调试测试难题已由 R0（契约测试替代浏览器 e2e、dev.py、diagnose）正面解决，启动时再吸收 openhanako 三条结论：
+**门禁（2026-10-02 复测）**：W1 的 E1–E7 ✅ **已完成**；W2 的 G1 ✅ / G2 ✅ / **G3 ❌**（心跳守卫未做）；W3 FE-P0 ❌（F1/F3/F7/F14 未做）。桌面版调试测试难题已由 R0（契约测试替代浏览器 e2e、dev.py、diagnose）正面解决，启动时再吸收 openhanako 三条结论：
 
 1. **sidecar 范式**：服务端独立进程 + stock runtime spawn（零 ABI 地狱）+ 启动心跳 + 崩溃诊断（契约测试保护）。
 2. **release digest 生成器**：双语结构化发布说明作为数据（现在就可给 CHANGELOG 用，将来喂给更新 UI）。
 3. **signed update trains**：签名清单 + pointer 通道 + 暂存激活回滚（研究不实现，桌面版启动时照抄）。
 
 P5G.3 的产品能力不再整体等待 Electron：Roadmap、复习提醒和部分数据保护可在 Web 先交付；Memory Browser、Workbench 和桌面专属的数据恢复入口仍受 E 门禁约束。P5G 补充项（备份恢复 / 提醒交付 / 升级路径 / 卸载契约 / DPI 与性能预算）按 `PROJECT_GUIDE.md` 的发布验收执行。
+
+### §1.1 下一步候选（2026-10-02 复测后的**真实**缺口，按依赖排序）
+
+只列复测过、确实还没做的东西；每条的「现状」都可以用上面的复测方式重跑验证。
+
+| 候选 | 现状 | 为什么是现在 | 依赖 |
+|---|---|---|---|
+| **W2 G3 索引心跳守卫** | ❌ 未做（`rag/` 无 600s 无进度报错） | 向量腿**真的在跑**（46/47 indexed、hybrid 检索），本地 embedding 卡死时会静默无进度 —— 现在正是最需要护栏的时候 | 无 |
+| **W2 G4 召回评测集** | ❌ 未做（无 `tests/eval`） | 换模型/调 RRF 权重之前先有 hit@5 + MRR 基线，否则「检索变好了」无法证明 | 无 |
+| **W3 FE-P0（F1/F3/F7/F14）** | ❌ 未做 | W5 门禁之一；F1（fold reducer）同时是流式正确性的根 | 无 |
+| **W1 残留三处** | 🟡 见 §0.1 收口表 | 都小、都可见：练习页课程选择器 / 掌握度调度仍是 SM-2 / 划线只能同步进正在编辑的笔记 | 无 |
+| **W2 G5 PDF 四级降级链** | 🟡 扫描页判定与首行标题启发式已有 | 收益取决于是否导入 PDF —— 真实库现在没有 PDF | 有 PDF 数据再谈 |
+
+**明确过期的旧结论（复测后作废，别再据此排期）**：W2 开头那句「向量腿从未运行 / FTS5-only」（实测 hybrid 在跑）、§0 的 2026-09-08 快照、§2「A0 核对结果」里 E4–E7 的「未开始」（这两处已加时效标注）。
 
 ---
 
