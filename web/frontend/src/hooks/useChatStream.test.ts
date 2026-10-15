@@ -93,3 +93,48 @@ describe("chat stream event subscription", () => {
     }
   });
 });
+
+
+describe("W3 F1：断线重连重放不会把回答写两遍", () => {
+  it("同一个 seq 的 delta 重放一次，正文只出现一次", () => {
+    const { result } = renderHook(() => useChatStream());
+    act(() => result.current.setMessages([{ role: "assistant", content: "", pending: true }]));
+
+    const delta = {
+      event: "message_delta" as const,
+      data: { content: "只此一份", call_role: "finish" as const, seq: 7, stream_id: "s1" },
+    };
+    act(() => result.current.handleStreamEvent(delta));
+    act(() => result.current.handleStreamEvent(delta)); // 重放
+    act(() => result.current.settleLastMessage());
+
+    expect(result.current.messages[0].content).toBe("只此一份");
+  });
+
+  it("序号更大的帧照常追加", () => {
+    const { result } = renderHook(() => useChatStream());
+    act(() => result.current.setMessages([{ role: "assistant", content: "", pending: true }]));
+
+    act(() => result.current.handleStreamEvent({
+      event: "message_delta", data: { content: "甲", call_role: "finish", seq: 1, stream_id: "s1" },
+    }));
+    act(() => result.current.handleStreamEvent({
+      event: "message_delta", data: { content: "乙", call_role: "finish", seq: 2, stream_id: "s1" },
+    }));
+    act(() => result.current.settleLastMessage());
+
+    expect(result.current.messages[0].content).toBe("甲乙");
+  });
+
+  it("store 只通过 applyEvent 这一个入口改状态", () => {
+    const { result } = renderHook(() => useChatStream());
+
+    expect(typeof result.current.applyEvent).toBe("function");
+    act(() => result.current.applyEvent({
+      event: "status", data: { phase: "tool", message: "正在查找你的资料", tool_name: "rag_search" },
+    }));
+
+    expect(result.current.status).toBe("正在查找你的资料");
+    expect(result.current.brandState).toBe("reading");
+  });
+});

@@ -1,12 +1,22 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef } from "react";
 
 import { StreamBuffer } from "../lib/streamBuffer";
 import { prefersReducedMotion } from "../lib/motion";
 import type { ChatStreamEvent } from "../lib/api";
 import type { ChatStreamEventKind } from "../lib/chatStreamEvents";
+import {
+  foldChatStream,
+  initialChatStreamState,
+  isStaleSeq,
+  rememberSeq,
+  streamEffects,
+  type ChatFoldInput,
+  type ChatStreamState,
+  type ProcessBrandState,
+} from "../lib/chatFold";
 import type { ChatMessage, KnowledgeContext } from "../types";
 
-export type ProcessBrandState = "thinking" | "reading" | "writing" | "ready";
+export type { ProcessBrandState } from "../lib/chatFold";
 
 export interface StreamEventHandlers {
   /** Called when the backend assigns/echoes the chat session id. */
@@ -17,13 +27,6 @@ export interface StreamEventHandlers {
   onKnowledgeContext?: (context: KnowledgeContext) => void;
 }
 
-/**
- * Owns the streaming chat surface state (messages, status line, brand state)
- * and reduces SSE events onto the pending assistant message.
- *
- * The backend evidence gate replays a full answer as a burst of deltas; a
- * 30fps StreamBuffer flushes those into a typewriter-like effect (FE-2).
- */
 /**
  * W3 F3：**明确忽略**的事件。
  *
@@ -41,130 +44,104 @@ export const IGNORED_STREAM_EVENTS: Partial<Record<ChatStreamEventKind, string>>
   learning_update: "同上：learning_update artifact 帧；掌握度由复习页自己拉队列，这类帧暂无消费者",
 };
 
+/**
+ * 流式聊天界面状态的**适配层**（W3 F1）。
+ *
+ * 归约逻辑本身已经搬进 `lib/chatFold.ts` 的纯函数；这里只做三件事：
+ * 1) 把事件喂给 reducer（**唯一入口** `applyEvent`，也就是 `handleStreamEvent`）；
+ * 2) 在**入打字机缓冲之前**丢掉重放帧（用同一份 `isStaleSeq` —— 否则重放会被缓冲后
+ *    作为已刷新内容追加，正文照样写两遍）；
+ * 3) 执行纯函数无法执行的副作用（会话 id、知识上下文回调、缓冲器）。
+ */
 export function useChatStream() {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [status, setStatus] = useState("");
-  const [brandState, setBrandState] = useState<ProcessBrandState>("thinking");
-  // W1 E11：这次回答有没有被输出上限截断（续写中 / 续写用尽）。
-  const [truncated, setTruncated] = useState<{ continuing: boolean } | null>(null);
-
+  const [state, rawDispatch] = useReducer(foldChatStream, initialChatStreamState);
   const bufferRef = useRef<StreamBuffer | null>(null);
+  //: reducer 是纯函数，所以这里能同步镜像出「下一次的状态」——
+  //: setMessages 的 updater 形式需要立刻读到最新消息，不能等一次渲染。
+  const stateRef = useRef<ChatStreamState>(state);
+  //: 已应用的帧序号（与 reducer 里的那份同步推进），用于在入缓冲前判重放。
+  const appliedSeqRef = useRef<Record<string, number>>({});
 
-  const updateLastMessage = (patch: (message: ChatMessage) => ChatMessage) => {
-    setMessages((current) => current.map((item, index) => index === current.length - 1 ? patch(item) : item));
-  };
+  const dispatch = useCallback((input: ChatFoldInput) => {
+    stateRef.current = foldChatStream(stateRef.current, input);
+    rawDispatch(input);
+  }, []);
 
-  const ensureBuffer = () => {
+  const ensureBuffer = useCallback(() => {
     if (!bufferRef.current) {
       // Live provider: honoring the in-app reduced-motion toggle mid-session
       // requires re-evaluating on every flush, not once at mount.
       bufferRef.current = new StreamBuffer(
-        (chunk) => updateLastMessage((item) => ({ ...item, content: item.content + chunk })),
+        (chunk) => dispatch({ kind: "delta-flush", content: chunk }),
         { reducedMotion: prefersReducedMotion },
       );
     }
     return bufferRef.current;
-  };
+  }, [dispatch]);
 
-  const resetBuffer = () => {
+  const resetBuffer = useCallback(() => {
     bufferRef.current?.reset();
     bufferRef.current = null;
-  };
+  }, []);
 
-  const drainBuffer = () => bufferRef.current?.drain();
+  const drainBuffer = useCallback(() => bufferRef.current?.drain(), []);
 
-  const enqueueDelta = (text: string) => ensureBuffer().push(text);
+  useEffect(() => () => resetBuffer(), [resetBuffer]);
 
-  useEffect(() => () => resetBuffer(), []);
+  const applyEvent = useCallback((streamEvent: ChatStreamEvent, handlers: StreamEventHandlers = {}) => {
+    // 重放（断线重连会重发）在任何副作用之前丢掉。
+    if (isStaleSeq(appliedSeqRef.current, streamEvent)) return;
+    appliedSeqRef.current = rememberSeq(appliedSeqRef.current, streamEvent);
 
-  function handleStreamEvent(streamEvent: ChatStreamEvent, handlers: StreamEventHandlers = {}) {
-    if (streamEvent.event === "run_started") {
-      resetBuffer();
-      handlers.onRunStarted?.(streamEvent.data.chat_session_id);
+    const effects = streamEffects(streamEvent);
+    if (effects.sessionId) handlers.onRunStarted?.(effects.sessionId);
+    if (effects.knowledgeContext) handlers.onKnowledgeContext?.(effects.knowledgeContext);
+
+    if (streamEvent.event === "run_started") resetBuffer();
+    if (streamEvent.event === "run_completed") drainBuffer();
+    if (streamEvent.event === "run_failed") {
+      dispatch({ kind: "stream", event: streamEvent, sessionId: handlers.getSessionId?.() });
+      throw new Error(streamEvent.data.error.message);
     }
-    if (streamEvent.event === "status") {
-      setStatus(streamEvent.data.message);
-      if (["rag_search", "web_research"].includes(streamEvent.data.tool_name || "") || /资料|检索|查找|读取|网页/.test(streamEvent.data.message)) setBrandState("reading");
-      else if (["question_generate", "quiz_start"].includes(streamEvent.data.tool_name || "") || /题目|练习|生成/.test(streamEvent.data.message)) setBrandState("writing");
-      updateLastMessage((item) => ({
-        ...item,
-        process: [...(item.process || []), {
-          phase: streamEvent.data.phase,
-          message: streamEvent.data.message,
-          toolName: streamEvent.data.tool_name,
-          elapsed: streamEvent.data.elapsed,
-        }],
-      }));
+    if (streamEvent.event === "message_delta" && streamEvent.data.call_role !== "narration") {
+      // 正文走打字机缓冲；过程说明（narration）直接进过程列表。
+      ensureBuffer().push(streamEvent.data.content);
     }
-    if (streamEvent.event === "message_delta") {
-      setStatus("正在组织回答");
-      setBrandState("writing");
-      if (streamEvent.data.call_role === "narration") {
-        // W1 E11 / D4：调工具前的过渡说明进"过程"，不进最终答案正文。
-        updateLastMessage((item) => ({
-          ...item,
-          process: [...(item.process || []), { phase: "narration", message: streamEvent.data.content }],
-        }));
-        return;
-      }
-      enqueueDelta(streamEvent.data.content);
-    }
-    if (streamEvent.event === "answer_truncated") {
-      // 续写中不打断用户；只有"续写用尽仍被截断"才提示，并给一个接着写的入口。
-      setTruncated({ continuing: Boolean(streamEvent.data.continuing) });
-      setStatus(streamEvent.data.continuing ? "回答被长度上限截断，正在接着写" : "回答被长度上限截断");
-    }
-    if (streamEvent.event === "citation") {
-      setStatus("已找到相关资料，正在整理");
-      setBrandState("reading");
-      updateLastMessage((item) => ({ ...item, attribution: streamEvent.data.attribution }));
-    }
-    if (streamEvent.event === "personalization") {
-      updateLastMessage((item) => ({ ...item, personalization: streamEvent.data.references }));
-    }
-    if (streamEvent.event === "chat_artifact") {
-      const artifact = streamEvent.data.artifact.type === "practice_ready"
-        ? { ...streamEvent.data.artifact, chat_session_id: handlers.getSessionId?.() }
-        : streamEvent.data.artifact;
-      if (artifact.type === "knowledge_context") {
-        handlers.onKnowledgeContext?.(artifact.context);
-        // 一轮内多次 concept_map_query 只保留第一张概念卡片，避免重复
-        updateLastMessage((item) => {
-          if ((item.artifacts || []).some((existing) => existing.type === "knowledge_context")) return item;
-          return { ...item, artifacts: [...(item.artifacts || []), artifact] };
-        });
-      } else {
-        updateLastMessage((item) => ({ ...item, artifacts: [...(item.artifacts || []), artifact] }));
-      }
-    }
-    if (streamEvent.event === "run_failed") throw new Error(streamEvent.data.error.message);
-    if (streamEvent.event === "run_completed") {
-      drainBuffer();
-      setBrandState("ready");
-      setStatus("回答已经整理完成");
-    }
-  }
+    dispatch({ kind: "stream", event: streamEvent, sessionId: handlers.getSessionId?.() });
+  }, [dispatch, drainBuffer, ensureBuffer, resetBuffer]);
+
+  /** 原来的名字，保留给已有调用方；语义就是 applyEvent。 */
+  const handleStreamEvent = applyEvent;
 
   /** Marks the trailing pending assistant message as settled (optionally failed or user-stopped). */
-  function settleLastMessage(failed = false, stopped = false) {
+  const settleLastMessage = useCallback((failed = false, stopped = false) => {
     drainBuffer();
-    updateLastMessage((item) => {
-      if (failed) return { ...item, pending: false, failed: true };
-      if (stopped) return { ...item, pending: false, stopped: true };
-      return { ...item, pending: false };
-    });
-  }
+    dispatch({ kind: "settle", failed, stopped });
+  }, [dispatch, drainBuffer]);
+
+  const setMessages = useCallback((next: ChatMessage[] | ((current: ChatMessage[]) => ChatMessage[])) => {
+    const messages = typeof next === "function" ? next(stateRef.current.messages) : next;
+    dispatch({ kind: "replace-messages", messages });
+  }, [dispatch]);
+
+  const setStatus = useCallback((status: string) => dispatch({ kind: "set-status", status }), [dispatch]);
+  const setBrandState = useCallback(
+    (brandState: ProcessBrandState) => dispatch({ kind: "set-brand", brandState }),
+    [dispatch],
+  );
+  const clearTruncated = useCallback(() => dispatch({ kind: "clear-truncated" }), [dispatch]);
 
   return {
-    messages,
+    messages: state.messages,
     setMessages,
-    status,
+    status: state.status,
     setStatus,
-    brandState,
+    brandState: state.brandState,
     setBrandState,
     handleStreamEvent,
+    applyEvent,
     settleLastMessage,
-    truncated,
-    clearTruncated: () => setTruncated(null),
+    truncated: state.truncated,
+    clearTruncated,
   };
 }

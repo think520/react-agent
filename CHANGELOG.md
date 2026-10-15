@@ -12,6 +12,14 @@
 > 从 2026-10-15 起时间戳已正确（`177fbc2` / `c9e9b52` / `0a767bb` / `d123b43` 均为当日）。
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
+- **W3 FE-P0 ④F1：流式归约搬进纯函数 + seq 幂等（2026-10-15，分支 feat/stream-correctness，未推送）**：归约逻辑以前埋在 `useChatStream` 的 if 链里，只能通过渲染间接测；而**断线重连会把帧重放一次**，重放会把回答写两遍。
+  - **新增 `lib/chatFold.ts`（纯函数）**：`foldChatStream(state, input)` 承担全部状态过渡（delta / narration / status / citation / personalization / artifact / 截断 / 完成 / settle），`streamEffects(event)` 把副作用（会话 id、知识上下文）**读出来**交给 hook 执行，`isStaleSeq` / `rememberSeq` 是导出的序号守卫。
+  - **seq 幂等**：按 `stream_id` 记已应用到的序号，重复或回退的帧**原样丢弃**（连状态对象都不换 → 不会有多余渲染）；换 `stream_id`（新一轮）序号重新开始；没有 `seq` 的帧不去重（兼容老服务端与夹具）。
+  - **去重必须在入缓冲之前**：delta 是经打字机缓冲（`delta-flush`）进正文的，如果只在 reducer 里去重，重放会先被缓冲一遍、稍后照样追加 —— 所以 hook 用**同一份** `isStaleSeq` 在入缓冲前就丢掉。
+  - **hook 变薄**：状态改由 `useReducer(foldChatStream, …)` 持有，**唯一改状态的入口**是 `applyEvent`（`handleStreamEvent` 保留为同义别名，已有调用方零改动）；对外 API 一字未改。
+  - **先红后绿**：新增 hook 级重放测试，第一版**真的把正文写成了『只此一份只此一份』**；纯函数 15 条 + hook 3 条，修完全绿。既有 46 个前端测试文件 / 282 条全部通过 —— 这就是行为对齐的证据。
+  - **顺带**：修掉纯函数里一处「未知事件也会换状态对象」（无条件展开序号表）→ 改为序号表没变就不换对象。
+  - **我自己造成并修回的一处**：重写 seq 那组测试时用了「从某行替换到文件尾」，把**后面那组 `streamEffects` 测试一起删了**；是 lint 报「导入未使用」才暴露出来 —— 已补回（并要求自己以后替换到文件尾前先确认后面还有什么）。
 - **W3 FE-P0 ③F7：自动滚动升级（2026-10-15，分支 feat/stream-correctness，未推送）**：核对出三个真问题 —— **多个写者**（rAF 动画 / scroll 事件 / ResizeObserver 各自直接写 `scrollTop` ✗）、**内容变长但容器盒子不变时收不到通知**（ResizeObserver 看的是容器自己的盒子 ✗）、**手势期间没有任何保护**（动画会跟手指抢滚动 ✗）。
   - **决策抽成纯函数**（新增 `lib/scrollFollow.ts`）：`distanceFromBottom` / `shouldFollow({metrics, interacting, pinned})` / `shouldJump`。jsdom 没有布局，滚不滚的判断必须离开 DOM 才测得了。
   - **hook 重写**（`useStickyBottomScroll`）：① **单写者** —— 所有触发都进 `schedule()`，一帧只排一次，`scrollTop` 只在 `step()` 一处被写；② **MutationObserver**（childList+subtree+characterData）管内容变长，与 rAF 合帧；③ **手势释放** —— touchstart/touchmove/wheel 期间绝不写，touchend/touchcancel（滚轮用 `WHEEL_RELEASE_MS`=140ms 空闲）之后按用户现在停在哪决定；④ **用户消息才回底** —— 新增 `pinToBottom()`，由 ChatPage 在**用户发消息**时调用，助手流式输出不会把视图拽回去。
