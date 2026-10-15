@@ -2,6 +2,12 @@
 为什么先做度量：路线图要求「RRF 权重由数据决定」，但没有基线之前，「检索变好了」只是感觉。
 设计取舍：度量是纯函数、检索通过回调注入；命中键用来源**文件名**（chunk id 会随重切变化）；
 报告必须带**实际跑的模式**（要了 vector 却只能跑 fts_only 时要看得见）；用例文件没有期望就拒绝。
+**运行时限制（2026-10-15 实测，写在这里免得下次再踩）**：本地 Qdrant 是**单进程**存储。
+服务（或任何别的进程）已经打开该知识库时，外部再跑评测会得到
+`Storage folder … is already accessed by another instance` —— 此时只有 FTS 腿能测，
+向量腿必然报不可用。要测向量腿：**先停掉服务**，或把评测做成服务端入口（未做）。
+另外评测进程要自己 `load_dotenv(.env)` 并传**整个** config 对象（只传 rag 那一段子字典会让
+`EmbeddingService` 解析不出预设，从而把它误判成「没有可用的 embedding 后端」）。
 """
 
 from __future__ import annotations
