@@ -87,6 +87,8 @@ export function useStickyBottomScroll<T extends HTMLElement>(deps: unknown[]) {
         animBeginRef.current = null;
         return;
       }
+      // pin 已经生效（这一帧真的会写位置）→ 消费掉，避免它变成长期状态。
+      pinnedRef.current = false;
       const target = element.scrollHeight - element.clientHeight;
       const distance = target - element.scrollTop;
       if (Math.abs(distance) < 1) {
@@ -136,7 +138,8 @@ export function useStickyBottomScroll<T extends HTMLElement>(deps: unknown[]) {
     const beginGesture = () => { interactingRef.current = true; };
     const endGesture = () => {
       interactingRef.current = false;
-      pinnedRef.current = false;
+      // 注意：这里**不**清 pinned —— 用户刚发消息（pin）时若正好有一次滚轮余波，
+      // 清掉就等于把他的消息吞了。pin 是一次性的，由 step 在真正执行后消费。
       animBeginRef.current = null;
       // 松手之后按「用户现在停在哪」决定：在底部附近就继续跟随，否则不打扰。
       refreshFollowRef.current?.();

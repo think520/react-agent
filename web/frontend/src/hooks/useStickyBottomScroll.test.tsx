@@ -177,3 +177,25 @@ describe("useStickyBottomScroll（W3 F7）", () => {
     expect(rule).toContain("overflow-anchor: none");
   });
 });
+
+  it("刚发消息时来了一下滚轮，松手后仍然会回底（pin 不该被手势吞掉）", async () => {
+    const fake = await mount();
+    fake.setTop(0); // 用户之前滚到了最上面
+    await act(async () => {
+      fake.element.dispatchEvent(new Event("scroll"));
+      flushFrames();
+    });
+
+    await act(async () => {
+      pinRef.current?.(); // 用户发送消息
+      fake.element.dispatchEvent(new Event("wheel")); // 恰好一次滚轮余波
+      flushFrames();
+    });
+    // 松手（滚轮空闲计时器到点）之后仍然应当回到最新消息 —— 缓动要跑到收敛。
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      flushFrames(40);
+    });
+
+    expect(fake.top).toBeGreaterThan(595);
+  });

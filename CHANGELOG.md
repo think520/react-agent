@@ -12,6 +12,10 @@
 > 从 2026-10-15 起时间戳已正确（`177fbc2` / `c9e9b52` / `0a767bb` / `d123b43` 均为当日）。
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
+- **合并前的自我审查（2026-10-15，分支 feat/stream-correctness）**：审查了 F1/F7 两个风险最高的改动，结论与修复如下。
+  - **F1 的 seq 语义核对（重要，且要如实说明）**：后端确有 seq 与重放端点（`/api/chat/streams/{id}/replay?after_seq=`，注释写明是给断线重连用的），`stream_id` 是每轮 `uuid4()`、seq 从 1 单调递增 ✓，所以按 stream_id 计数的语义正确、**不会误丢合法帧** ✓。同时发现：**前端传输层 `lib/api.ts` 本来就有 seq 去重**（`consumedSeqs` + `lastSeq`，且与重连在同一个闭包内）—— 也就是说我在 hook 级测试里复现的『回答写两遍』，在生产路径上被传输层挡住了；F1 这层是**第二道防线**（覆盖绕过传输层的调用方，并把 reducer 的契约写清楚）。**不夸大成『修了一个线上双写 bug』。**
+  - **F7 审查出一个真问题并修掉**：`endGesture` 会把 `pinned` 清掉 —— 用户刚点发送时若正好有一次滚轮余波，回底就被吞了。改成**一次性消费**（`step` 真正执行后再清），并加回归（先红：只跑 3 帧时值停在 258，是我帧数不够而不是逻辑错，跑到收敛即 600）。
+  - **其余核对**：15 个改动文件逐个过了一遍，`ChatPage` 只多了一处 `pinToBottom()` 调用、`styles.css` 只多一条 `overflow-anchor` + `select` 继承，没有顺手改的无关代码；工作区干净、真实资料库 `note/` 无改动。
 - **W3 FE-P0 ④F1：流式归约搬进纯函数 + seq 幂等（2026-10-15，分支 feat/stream-correctness，未推送）**：归约逻辑以前埋在 `useChatStream` 的 if 链里，只能通过渲染间接测；而**断线重连会把帧重放一次**，重放会把回答写两遍。
   - **新增 `lib/chatFold.ts`（纯函数）**：`foldChatStream(state, input)` 承担全部状态过渡（delta / narration / status / citation / personalization / artifact / 截断 / 完成 / settle），`streamEffects(event)` 把副作用（会话 id、知识上下文）**读出来**交给 hook 执行，`isStaleSeq` / `rememberSeq` 是导出的序号守卫。
   - **seq 幂等**：按 `stream_id` 记已应用到的序号，重复或回退的帧**原样丢弃**（连状态对象都不换 → 不会有多余渲染）；换 `stream_id`（新一轮）序号重新开始；没有 `seq` 的帧不去重（兼容老服务端与夹具）。
