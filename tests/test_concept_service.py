@@ -796,3 +796,56 @@ def test_extract_from_document_llm_error(svc):
         llm_provider=mock_llm,
     )
     assert result["ok"] is False
+
+
+def test_confirm_candidate_reports_where_the_concept_lives(svc):
+    """W1 E16：确认之后要能知道**新概念落在哪**。
+
+    核对现状：«confirm_candidates» 只返回 concepts/relationships，**不带坐标** ——
+    界面无法把用户带到新节点上、也没法把它高亮几秒。
+    """
+    store = svc._store
+    cand = store.add_candidate(
+        name="注意力机制", level="core", confidence="high",
+        definition="注意力机制", excerpt="...",
+    )
+
+    result = svc.confirm_candidate(cand["candidate_id"])
+
+    concept = result["concept"]
+    assert "position" in concept, concept
+    # 新概念还没有布局坐标：如实说"未布置"，而不是编一个 (0, 0)。
+    assert concept["position"] is None, concept
+    assert concept["placed"] is False, concept
+
+
+def test_confirm_candidate_returns_the_saved_position(svc):
+    """已经有坐标的概念（用户拖过或布局保存过）要把它带回来。"""
+    store = svc._store
+    cand = store.add_candidate(
+        name="图神经网络", level="core", confidence="high",
+        definition="GNN", excerpt="...",
+    )
+    concept = svc.confirm_candidate(cand["candidate_id"])["concept"]
+    store.save_positions([{"concept_id": concept["concept_id"], "x": 128.5, "y": 64.25}])
+
+    # 再确认一个（同名概念会被复用）后，坐标应当能取到。
+    again = store.add_candidate(
+        name="图神经网络", level="core", confidence="high",
+        definition="GNN", excerpt="...",
+    )
+    result = svc.confirm_candidate(again["candidate_id"])
+
+    assert result["concept"]["position"] == {"x": 128.5, "y": 64.25}, result["concept"]
+    assert result["concept"]["placed"] is True, result["concept"]
+
+
+def test_batch_confirm_reports_positions_too(svc):
+    store = svc._store
+    first = store.add_candidate(name="批量甲", level="core", confidence="high", definition="甲", excerpt=".")
+    second = store.add_candidate(name="批量乙", level="core", confidence="high", definition="乙", excerpt=".")
+
+    result = svc.confirm_candidates([first["candidate_id"], second["candidate_id"]])
+
+    assert [item["placed"] for item in result["concepts"]] == [False, False], result["concepts"]
+    assert all("position" in item for item in result["concepts"]), result["concepts"]

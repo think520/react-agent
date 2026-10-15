@@ -1,3 +1,4 @@
+import { readerLocation } from "../lib/documentLinks";
 import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BookOpen,
@@ -20,7 +21,14 @@ import {
 import { NavLink, Outlet, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { api, setActiveLibraryId } from "../lib/api";
+import type { ImportBatchResult } from "../lib/api";
+import { clearImportReport, emptyDocumentImport } from "../lib/importState";
+import type { DocumentImportState } from "../lib/importState";
+import { errorCodeOf } from "../lib/errorHints";
+import { useImportRun } from "../hooks/useImportRun";
+import type { ImportRunProgress } from "../hooks/useImportRun";
 import { toErrorMessage } from "../lib/errors";
+import { describeDocumentImport } from "../lib/importSummary";
 import { notifyError } from "../stores/noticeStore";
 import { useUiStore } from "../stores/uiStore";
 import type { Attribution, ChatSessionSummary, DocumentSummary, KnowledgeContext, LibraryMigrationPreview, LibrarySummary, ReviewQueue, SettingsSummary } from "../types";
@@ -66,7 +74,23 @@ export interface AppOutletContext {
   documentImporting: boolean;
   documentImportNotice: string;
   documentImportError: string;
+  documentImportDuplicateCount: number;
+  importDuplicatesAsCopies: () => void;
   documentImportVersion: number;
+  /** E8：本次导入的**逐文件**结果（失败清单 UI 用），null 表示还没有结果。 */
+  documentImportResults: ImportBatchResult[] | null;
+  /** W1 E1：这次导入失败的结构化错误码（界面据此给"下一步"）。 */
+  documentImportErrorCode: string;
+  /** E8：运行中的进度（null = 没有正在跑的导入）。 */
+  documentImportProgress: ImportRunProgress | null;
+  /** E8：取消正在跑的导入（协作式：文件边界生效，已收下的保持收下）。 */
+  cancelDocumentImport: () => void;
+  /** E8：拖拽进来的文件走同一条导入通道（没有资料库时先引导新建并记住文件）。 */
+  importDroppedFiles: (files: File[]) => void;
+  /** 还留着原文件对象时才为 true —— 不给假的"重试"按钮。 */
+  documentImportCanRetry: boolean;
+  retryFailedImports: () => void;
+  dismissImportReport: () => void;
   libraryReady: boolean;
 }
 
@@ -140,7 +164,7 @@ function LearningContext({
                 <div>{group.sources.map((source, index) => <section key={source.source_id || index}>
                   <small>{source.heading || (source.page ? `第 ${source.page} 页` : source.slide ? `第 ${source.slide} 页` : "原文片段")}</small>
                   {source.excerpt && <p>{source.excerpt}</p>}
-                  {source.document_id && <NavLink className="text-link" to={`/library?collection=${source.collection === "wiki" ? "wiki" : "material"}&document=${encodeURIComponent(source.document_id)}${source.chunk_id ? `&chunk=${encodeURIComponent(source.chunk_id)}` : ""}`}>打开原文</NavLink>}
+                  {source.document_id && <NavLink className="text-link" to={readerLocation(source) ?? "/library"}>打开原文</NavLink>}
                 </section>)}</div>
               </details>;
             })}
@@ -195,12 +219,16 @@ export function AppShell() {
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
   const previewTimer = useRef<number | null>(null);
+  const importRun = useImportRun();
+  const [documentImport, setDocumentImport] = useState<DocumentImportState>(emptyDocumentImport);
   const [loadingSessions, setLoadingSessions] = useState(true);
   const [libraries, setLibraries] = useState<LibrarySummary[]>([]);
   const [activeLibrary, setActiveLibrary] = useState<LibrarySummary | null>(null);
   const documentImportInput = useRef<HTMLInputElement>(null);
   const pendingDocumentFiles = useRef<File[]>([]);
-  const [documentImport, setDocumentImport] = useState({ importing: false, notice: "", error: "", version: 0 });
+  const pendingDuplicateFiles = useRef<File[]>([]);
+  // E8：留下这次"需要处理"的文件对象，才能提供真正的重试（而不是假按钮）。
+  const pendingRetryFiles = useRef<File[]>([]);
   const [backendState, setBackendState] = useState<"connected" | "disconnected" | "reconnecting">("connected");
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
@@ -280,24 +308,76 @@ export function AppShell() {
     ]);
   }, [refreshSessions]);
 
-  const uploadDocuments = useCallback(async (files: File[]) => {
-    setDocumentImport((current) => ({ ...current, importing: true, notice: "", error: "" }));
+  const uploadDocuments = useCallback(async (files: File[], duplicateStrategy: "keep_existing" | "save_copy" = "keep_existing") => {
+    setDocumentImport((current) => ({ ...current, importing: true, notice: "", error: "", duplicateCount: duplicateStrategy === "save_copy" ? 0 : current.duplicateCount }));
     try {
-      const result = await api.importDocuments(files);
-      const rejected = result.rejected.length ? `，${result.rejected.length} 份未能导入` : "";
+      // E8：导入走**运行态**（可轮询进度、可取消），不再是黑盒的一次性 POST。
+      const result = await importRun.start(files, duplicateStrategy);
+      if (!result) throw new Error("导入没有返回结果。");
+      const duplicates = result.duplicates || [];
+      if (duplicateStrategy === "keep_existing") {
+        const duplicateNames = new Set(duplicates.map((item) => item.filename));
+        pendingDuplicateFiles.current = files.filter((file) => duplicateNames.has(file.name));
+      } else {
+        pendingDuplicateFiles.current = [];
+      }
+      const batch = result.results || [];
+      // E8：留下"需要处理"的那几份文件对象，重试按钮才有真东西可重发。
+      const problematic = new Set(
+        batch
+          .filter((item) => item.status === "rejected" || item.status === "cancelled"
+            || (item.status === "imported" && !item.searchable))
+          .map((item) => item.filename),
+      );
+      pendingRetryFiles.current = files.filter((file) => problematic.has(file.name));
       setDocumentImport((current) => ({
         ...current,
-        notice: `已导入 ${result.imported.length} 份资料并建立索引${rejected}。`,
+        notice: describeDocumentImport(result),
+        duplicateCount: duplicates.length,
+        results: batch,
         version: current.version + 1,
       }));
       await loadScopedData();
     } catch (reason) {
-      setDocumentImport((current) => ({ ...current, error: toErrorMessage(reason, "资料导入失败。") }));
+      setDocumentImport((current) => ({
+        ...current,
+        error: toErrorMessage(reason, "资料导入失败。"),
+        // W1 E1：把 code 一起留下，界面才能说"下一步"（换格式 / 去设置 / 稍后重试）。
+        errorCode: errorCodeOf(reason),
+      }));
     } finally {
       setDocumentImport((current) => ({ ...current, importing: false }));
       navigate("/library");
     }
-  }, [loadScopedData, navigate]);
+  }, [importRun, loadScopedData, navigate]);
+
+  const importDroppedFiles = useCallback((files: File[]) => {
+    if (!files.length) return;
+    if (!activeLibrary) {
+      pendingDocumentFiles.current = files;
+      openLibrarySetup({ initialMode: "create", importCount: files.length });
+      return;
+    }
+    void uploadDocuments(files);
+  }, [activeLibrary, openLibrarySetup, uploadDocuments]);
+
+  /** E8：重试这次"需要处理"的那几份（复用导入通道：字节已在库里的会走补索引路径）。 */
+  const retryFailedImports = useCallback(() => {
+    const files = pendingRetryFiles.current;
+    pendingRetryFiles.current = [];
+    if (files.length) void uploadDocuments(files);
+  }, [uploadDocuments]);
+
+  const dismissImportReport = useCallback(() => {
+    pendingRetryFiles.current = [];
+    setDocumentImport((current) => ({ ...current, results: null }));
+  }, []);
+
+  const importDuplicatesAsCopies = useCallback(() => {
+    const files = pendingDuplicateFiles.current;
+    pendingDuplicateFiles.current = [];
+    if (files.length) void uploadDocuments(files, "save_copy");
+  }, [uploadDocuments]);
 
   function cancelLibrarySetup() {
     if (librarySetup?.importCount) pendingDocumentFiles.current = [];
@@ -305,7 +385,8 @@ export function AppShell() {
   }
 
   function startDocumentImport() {
-    setDocumentImport((current) => ({ ...current, notice: "", error: "" }));
+    pendingDuplicateFiles.current = [];
+    setDocumentImport((current) => ({ ...current, notice: "", error: "", duplicateCount: 0 }));
     documentImportInput.current?.click();
   }
 
@@ -487,7 +568,10 @@ export function AppShell() {
 
   async function switchLibrary(libraryId: string) {
     if (libraryId === activeLibrary?.library_id) return;
-    setDocumentImport((current) => ({ ...current, notice: "", error: "" }));
+    // W1 E1：导入报告、通知与"可重试文件"都属于**上一个**资料库 —— 不清就会串库
+    // （上一库的失败清单还挂着，点「重试这 N 份」会导进新库）。
+    setDocumentImport(clearImportReport);
+    pendingRetryFiles.current = [];
     setConceptDetailId(null);
     setKnowledgeContext(null);
     setSourceContext(null);
@@ -528,17 +612,25 @@ export function AppShell() {
   const leftOpen = leftSavedOpen && !leftAutoCollapsed;
   const rightOpen = rightSavedOpen && !rightAutoCollapsed;
 
+  const openRightPanel = useCallback(() => {
+    if (!desktop) {
+      setContextOpen(true);
+    } else if (rightAutoCollapsed) {
+      setPreview("right", true);
+    } else {
+      setPanelOpen("right", true);
+    }
+  }, [desktop, rightAutoCollapsed, setContextOpen, setPanelOpen, setPreview]);
+
   function openConceptDetail(conceptId: string) {
     setConceptDetailId(conceptId);
-    if (desktop) setPanelOpen("right", true);
-    else setContextOpen(true);
+    openRightPanel();
   }
 
   const showKnowledgeContext = useCallback((context: KnowledgeContext) => {
     setKnowledgeContext(context);
-    if (desktop) setPanelOpen("right", true);
-    else setContextOpen(true);
-  }, [desktop, setContextOpen, setKnowledgeContext, setPanelOpen]);
+    openRightPanel();
+  }, [openRightPanel, setKnowledgeContext]);
 
   // 流式/恢复时只记录上下文，不自动打开面板（P5G 体验整改：卡片不自动弹面板）
   const receiveKnowledgeContext = useCallback((context: KnowledgeContext) => {
@@ -550,8 +642,7 @@ export function AppShell() {
   function showSourceContext(attribution: Attribution) {
     setSourceContext(attribution);
     setConceptDetailId(null);
-    if (desktop) setPanelOpen("right", true);
-    else setContextOpen(true);
+    openRightPanel();
   }
 
   function schedulePreview(side: "left" | "right", open: boolean) {
@@ -623,7 +714,7 @@ export function AppShell() {
           settings,
           refreshSettings,
           refreshSessions,
-          openContext: () => desktop ? setPanelOpen("right", true) : setContextOpen(true),
+          openContext: openRightPanel,
           conceptDetailId,
           openConceptDetail,
           closeConceptDetail: () => setConceptDetailId(null),
@@ -643,20 +734,34 @@ export function AppShell() {
           createLibrary,
           switchLibrary,
           startDocumentImport,
-          documentImporting: documentImport.importing,
+          documentImporting: documentImport.importing || importRun.running,
+    documentImportProgress: importRun.progress,
+    documentImportErrorCode: documentImport.errorCode,
+    cancelDocumentImport: () => void importRun.cancel(),
           documentImportNotice: documentImport.notice,
           documentImportError: documentImport.error,
+          documentImportDuplicateCount: documentImport.duplicateCount,
+          importDuplicatesAsCopies,
           documentImportVersion: documentImport.version,
+          importDroppedFiles,
+          documentImportResults: documentImport.results,
+          documentImportCanRetry: pendingRetryFiles.current.length > 0,
+          retryFailedImports,
+          dismissImportReport,
           libraryReady: initialDataLoaded,
         } satisfies AppOutletContext} />
       </main>
 
-      <aside className={`context-panel ${contextOpen ? "open" : ""}`} aria-label="学习上下文" onMouseEnter={() => schedulePreview("right", true)} onMouseLeave={() => schedulePreview("right", false)}>
+      <aside className={`context-panel ${contextOpen ? "open" : ""}`} aria-label="学习上下文">
         <div className="context-header">
           <strong>{conceptDetailId ? "概念详情" : "学习书桌"}</strong>
           <IconButton
             label={conceptDetailId ? "返回学习书桌" : "关闭上下文"}
-            onClick={() => conceptDetailId ? setConceptDetailId(null) : setContextOpen(false)}
+            onClick={() => conceptDetailId
+              ? setConceptDetailId(null)
+              : desktop && rightAutoCollapsed
+                ? setPreview("right", false)
+                : setContextOpen(false)}
           ><X /></IconButton>
         </div>
         {conceptDetailId ? (
@@ -682,7 +787,6 @@ export function AppShell() {
       </aside>
 
       {!leftOpen && <div className="panel-hover-edge left" onMouseEnter={() => schedulePreview("left", true)} onMouseLeave={() => schedulePreview("left", false)} />}
-      {!rightOpen && <div className="panel-hover-edge right" onMouseEnter={() => schedulePreview("right", true)} onMouseLeave={() => schedulePreview("right", false)} />}
 
       <nav className="mobile-nav" aria-label="移动端主导航">
         {navItems.map(({ to, label, icon: Icon }) => <NavLink to={to} key={to} className={({ isActive }) => isActive ? "active" : ""}><Icon /><span>{label}</span></NavLink>)}
@@ -716,7 +820,7 @@ export function AppShell() {
         initialMode={librarySetup.initialMode}
         importCount={librarySetup.importCount}
       />}
-      <input ref={documentImportInput} className="visually-hidden" type="file" multiple accept=".md,.pdf,.docx,.pptx" onChange={(event) => void selectDocumentsForImport(event)} />
+      <input ref={documentImportInput} className="visually-hidden" type="file" multiple accept=".md,.txt,.pdf,.docx,.pptx" onChange={(event) => void selectDocumentsForImport(event)} />
       {backendState !== "connected" && <div className={`connection-bar ${backendState}`} role="status">
         <span>{backendState === "reconnecting" ? "正在重新连接 Bobodan…" : `Bobodan 后端已断开${reconnectAttempt ? `，已重试 ${reconnectAttempt} 次` : ""}`}</span>
         <button type="button" onClick={() => void reconnectBackend()}>重新连接</button>

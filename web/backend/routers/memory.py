@@ -83,13 +83,11 @@ def list_knowledge_by_document(document_id: str, request: Request, limit: int = 
 
 @router.post("/knowledge")
 def create_knowledge(body: KnowledgeCreateRequest, request: Request) -> dict:
-    _require_memory_write_enabled()
     return _unwrap(_service(request).create_knowledge(**body.model_dump()))
 
 
 @router.patch("/knowledge/{item_id}")
 def update_knowledge(item_id: str, body: KnowledgeUpdateRequest, request: Request) -> dict:
-    _require_memory_write_enabled()
     return _unwrap(_service(request).update_knowledge(item_id, body.revision, body.patch))
 
 

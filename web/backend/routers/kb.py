@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import threading
 from typing import Literal
 
-from fastapi import APIRouter, File, Request, UploadFile
+from fastapi import APIRouter, File, Form, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from service.kb_service import KBService
@@ -18,10 +20,19 @@ from web.backend.deps import (
     get_runtime_context, get_workspace,
 )
 from web.backend.errors import APIError, unwrap_service_result
+from web.backend.import_runs import ImportRegistry
 
 router = APIRouter()
 
 _MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+
+# E8：导入是一个可观察、可取消的运行（注册表在进程内，按 import_id 寻址）。
+_import_registry = ImportRegistry()
+
+
+def _import_registry_for_tests() -> ImportRegistry:
+    """测试用：拿到同一个注册表，好在用例之间清空它。"""
+    return _import_registry
 
 
 class KBSyncRequest(BaseModel):
@@ -165,7 +176,11 @@ def sync(body: KBSyncRequest, request: Request) -> dict:
 
 
 @router.post("/import")
-async def import_files(request: Request, files: list[UploadFile] = File(...)) -> dict:
+async def import_files(
+    request: Request,
+    files: list[UploadFile] = File(...),
+    duplicate_strategy: str = Form("keep_existing"),
+) -> dict:
     payload = []
     for upload in files:
         content = await upload.read(_MAX_UPLOAD_BYTES + 1)
@@ -179,11 +194,96 @@ async def import_files(request: Request, files: list[UploadFile] = File(...)) ->
     # Parsing/extraction is CPU- and disk-bound; running it inline here would
     # freeze the event loop for every concurrent request.
     service_result = await run_in_threadpool(
-        lambda: _service(request).import_files(payload, config=get_config())
+        lambda: _service(request).import_files(
+            payload,
+            config=get_config(),
+            duplicate_strategy=duplicate_strategy,
+        )
     )
     result = unwrap_service_result(service_result)
-    result["sync"] = _public_sync(result["sync"])
+    # 全库增量同步单列一个字段：它可以比这批大（资料库里别的文件也变了），
+    # 但**不能**拿来当本次上传的计数（审查 F09）。
+    result["library_sync"] = _public_sync(result["library_sync"])
     return result
+
+
+async def _read_import_uploads(files: list[UploadFile]) -> list[tuple[str, bytes]]:
+    """E8 的共用上传读取（与旧 /import 同一套 25MB 限制）。"""
+    payload: list[tuple[str, bytes]] = []
+    for upload in files:
+        content = await upload.read(_MAX_UPLOAD_BYTES + 1)
+        if len(content) > _MAX_UPLOAD_BYTES:
+            raise APIError(
+                413,
+                "file_too_large",
+                f"File exceeds 25 MB limit: {upload.filename or '(unnamed)'}",
+            )
+        payload.append((upload.filename or "", content))
+    return payload
+
+
+@router.post("/imports", status_code=202)
+async def start_import(
+    request: Request,
+    files: list[UploadFile] = File(...),
+    duplicate_strategy: str = Form("keep_existing"),
+) -> dict:
+    """开始一次导入，立刻返回 import_id（E8：进度与取消都靠它寻址）。
+
+    取消是**协作式**的：它在文件边界生效，已经收下的文件保持收下
+    （docs/CANCELLATION_DESIGN.md：Python 杀不了线程，我们不假装能）。
+    """
+    payload = await _read_import_uploads(files)
+    if not payload:
+        raise APIError(400, "no_files", "没有收到文件。")
+    # 请求上下文不能在后台线程里再用，服务对象在这里先取好。
+    service = _service(request)
+    config = get_config()
+    run = _import_registry.start(len(payload))
+
+    def work() -> None:
+        try:
+            result = service.import_files(
+                payload,
+                config=config,
+                duplicate_strategy=duplicate_strategy,
+                cancel_token=run.token,
+                progress=lambda event: _import_registry.record_progress(run.import_id, event),
+            )
+        except Exception as exc:  # 后台线程的异常必须落进 run 状态，不能静默消失
+            _import_registry.finish(run.import_id, error=str(exc))
+            return
+        _import_registry.finish(run.import_id, result=result)
+
+    threading.Thread(target=work, name=f"import-{run.import_id}", daemon=True).start()
+    return {"ok": True, "import_id": run.import_id}
+
+
+@router.get("/imports/{import_id}")
+def import_status(import_id: str) -> dict:
+    run = _import_registry.get(import_id)
+    if run is None:
+        raise APIError(404, "import_not_found", "这次导入已经不存在了。")
+    snapshot = run.snapshot()
+    if snapshot.get("result") is not None:
+        snapshot["result"] = {
+            **snapshot["result"],
+            "library_sync": _public_sync(snapshot["result"].get("library_sync") or {}),
+        }
+    return snapshot
+
+
+@router.post("/imports/{import_id}/cancel")
+def cancel_import(import_id: str) -> dict:
+    if not _import_registry.cancel(import_id):
+        raise APIError(404, "import_not_found", "这次导入已经不存在了。")
+    return {"ok": True, "import_id": import_id, "cancelled": True}
+
+
+@router.get("/tree")
+def knowledge_tree(request: Request) -> dict:
+    """只读文件夹树（E17 ②）：真实文件夹 + 资料徽章 + 已忽略计数。"""
+    return unwrap_service_result(_service(request).tree())
 
 
 @router.get("/documents")
@@ -524,6 +624,154 @@ def document_impact(document_id: str, request: Request) -> dict:
     )
 
 
+class OrganizeProposalRequest(BaseModel):
+    use_model: bool = False
+    provider: str | None = None
+
+
+@router.post("/organize/apply")
+def apply_organization(body: dict, request: Request) -> dict:
+    """执行整理建议：把散落资料收进文件夹（身份保留），返回可撤销清单（E17 ⑤）。"""
+    return unwrap_service_result(
+        _service(request).apply_organization(
+            [str(item) for item in (body.get("items") or [])],
+            str(body.get("target_folder") or ""),
+            config=get_config(),
+        ),
+        code="organization_failed",
+    )
+
+
+@router.post("/organize/undo")
+def undo_organization(body: dict | None = None, request: Request = None) -> dict:
+    """一键撤销上一步整理（E17 ⑤）。
+
+    不传 `moves` 时撤销的是**服务端台账里的最后一步** —— 界面刷新或应用重启后
+    仍然撤销得回来。
+    """
+    payload = body or {}
+    moves = payload.get("moves") or []
+    return unwrap_service_result(
+        _service(request).undo_organization(
+            [item for item in moves if isinstance(item, dict)],
+            batch_id=str(payload.get("batch_id") or ""),
+            config=get_config(),
+        ),
+        code="organization_undo_failed",
+    )
+
+
+@router.get("/organize/state")
+def organization_state(request: Request) -> dict:
+    """还有没有一步可以撤销（E17 ⑤）：界面刷新后据此决定是否显示「撤销」。"""
+    return unwrap_service_result(_service(request).organization_state())
+
+
+@router.get("/organize/proposals")
+def organization_proposals(request: Request) -> dict:
+    """整理建议（E17 ⑤ 前半）：给出可复核的建议，**一份文件都不动**。"""
+    return unwrap_service_result(_service(request).propose_organization())
+
+
+@router.post("/organize/proposals")
+def organization_proposals_with_model(body: OrganizeProposalRequest, request: Request) -> dict:
+    """让模型提出归类（E17 ⑤）：仍然**一份文件都不动**，且只提议。
+
+    模型拿不到任何写权限：文件清单由服务端给，服务端也只接受真实存在的文件与
+    合法的目标文件夹；模型不可用时如实降级回规则建议（`source` / `degraded`
+    会说明这次到底是谁提的）。
+    """
+    service = _service(request)
+    if not body.use_model:
+        return unwrap_service_result(service.propose_organization())
+    workspace = get_request_workspace(request)
+    try:
+        provider = _runtime_for(workspace).create_provider(*_preferred_provider(body.provider))
+    except ValueError as exc:
+        raise APIError(409, "provider_unavailable", str(exc)) from exc
+    return unwrap_service_result(service.propose_organization(llm_provider=provider))
+
+
+@router.post("/folders")
+def create_folder(body: dict, request: Request) -> dict:
+    """新建文件夹（E17 ③）。"""
+    return unwrap_service_result(_service(request).create_folder(str(body.get("path") or "")))
+
+
+@router.post("/folders/delete")
+def delete_folder(body: dict, request: Request) -> dict:
+    """删文件夹=只删容器：资料移回库根，一份都不删（E17 ③）。"""
+    result = unwrap_service_result(
+        _service(request).delete_folder(
+            str(body.get("path") or ""), mode=str(body.get("mode") or "ungroup")
+        ),
+        code="folder_not_deletable",
+    )
+    result["sync"] = _public_sync(result["sync"])
+    return result
+
+
+@router.post("/documents/{document_id}/move")
+def move_document(document_id: str, body: dict, request: Request) -> dict:
+    """重命名/移动资料：身份保留、引用与证据跟着迁移（E17 ③）。"""
+    result = unwrap_service_result(
+        _service(request).move_document(document_id, str(body.get("path") or ""), config=get_config()),
+        code="document_not_movable",
+    )
+    result["sync"] = _public_sync(result["sync"])
+    return result
+
+
+@router.post("/documents/{document_id}/anchors")
+def create_document_anchor(document_id: str, body: dict, request: Request) -> dict:
+    """W1 E7：chunk 级划线锚点（四元组 + 引文）。"""
+    from service.anchor_service import AnchorService
+
+    result = AnchorService(get_request_workspace(request)).create(
+        document_id=document_id,
+        chunk_id=str(body.get("chunk_id") or ""),
+        quote=str(body.get("quote") or ""),
+        char_start=body.get("char_start"),
+        char_end=body.get("char_end"),
+        note=str(body.get("note") or ""),
+    )
+    return unwrap_service_result(result, code="anchor_create_failed")
+
+
+@router.get("/documents/{document_id}/anchors")
+def list_document_anchors(document_id: str, request: Request) -> dict:
+    """列出该资料的划线，并**逐条报告还能不能指到**（exact / relocated / stale）。"""
+    from service.anchor_service import AnchorService
+
+    return AnchorService(get_request_workspace(request)).list_for_document(document_id)
+
+
+@router.delete("/anchors/{anchor_id}")
+def delete_document_anchor(anchor_id: str, request: Request) -> dict:
+    from service.anchor_service import AnchorService
+
+    return unwrap_service_result(
+        AnchorService(get_request_workspace(request)).delete(anchor_id),
+        code="anchor_not_found",
+    )
+
+
+@router.get("/archive")
+def list_archive(request: Request) -> dict:
+    """已归档的资料（E17 ③）：归档只是移走，永远可以恢复。"""
+    return unwrap_service_result(_service(request).list_archive())
+
+
+@router.post("/archive/{entry_id}/restore")
+def restore_archive(entry_id: str, request: Request) -> dict:
+    result = unwrap_service_result(
+        _service(request).restore_archived(entry_id, config=get_config()),
+        code="archive_restore_failed",
+    )
+    result["sync"] = _public_sync(result["sync"])
+    return result
+
+
 @router.delete("/documents/{document_id}")
 def delete_document(document_id: str, request: Request) -> dict:
     result = unwrap_service_result(
@@ -546,6 +794,47 @@ def document_content(document_id: str, request: Request) -> dict:
         DocumentEditService(get_request_workspace(request)).read(document_id),
         status_code=404,
         code="document_not_found",
+    )
+
+
+@router.get("/documents/{document_id}/asset")
+def document_asset(document_id: str, path: str, request: Request) -> FileResponse:
+    """Serve an image next to a document, so rendered markdown keeps its images.
+
+    Same containment rule as the original file itself: markdown is not a trusted
+    path source, and only files inside the workspace are ever returned.
+    """
+    result = unwrap_service_result(
+        DocumentEditService(get_request_workspace(request)).raw_asset(document_id, path),
+        status_code=404,
+        code="asset_not_found",
+    )
+    return FileResponse(
+        result["path"],
+        media_type=result["media_type"],
+        filename=result["filename"],
+        content_disposition_type="inline",
+    )
+
+
+@router.get("/documents/{document_id}/raw")
+def document_raw(document_id: str, request: Request) -> FileResponse:
+    """Serve the original file, read-only (原文查看).
+
+    Parsing flattens tables and drops images, so the reader has to be able to
+    look at the file itself - the same thing Obsidian shows. Inline disposition
+    is what lets the browser's own PDF viewer take over instead of downloading.
+    """
+    result = unwrap_service_result(
+        DocumentEditService(get_request_workspace(request)).raw_file(document_id),
+        status_code=404,
+        code="document_not_found",
+    )
+    return FileResponse(
+        result["path"],
+        media_type=result["media_type"],
+        filename=result["filename"],
+        content_disposition_type="inline",
     )
 
 

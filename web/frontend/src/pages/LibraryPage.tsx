@@ -1,20 +1,42 @@
+import { readerLocation } from "../lib/documentLinks";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CheckCircle2, FilePlus2, FileText, FolderOpen, Library, MessageCircle, MoreHorizontal, NotebookPen, Pencil, Quote, RefreshCw, Save, Search, Settings2, ShieldCheck, Sparkles, Trash2, Upload, Wrench, X } from "lucide-react";
+import { CheckCircle2, FilePlus2, FileText, FolderOpen, FolderTree, Library, MessageCircle, MoreHorizontal, Pencil, RefreshCw, Save, Search, Settings2, ShieldCheck, Sparkles, Trash2, Upload, Wrench, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useNavigate, useOutletContext, useSearchParams } from "react-router-dom";
 import { DropdownSelect } from "../components/DropdownSelect";
+import { ImportDropZone } from "../components/ImportDropZone";
+import { ImportReportPanel } from "../components/ImportReportPanel";
 import { DocumentEditor } from "../components/DocumentEditor";
 
 import type { AppOutletContext } from "../components/AppShell";
 import { BrandIllustration, EmptyState, ErrorNotice, IconButton, LoadingState, formatRelativeDate } from "../components/common";
 import { WikiPlanCard } from "../components/WikiPlanCard";
 import { ApiError, api } from "../lib/api";
+import type { ArchivedEntry, KnowledgeSyncSummary, KnowledgeTree, OrganizationBatch, OrganizationProposal } from "../lib/api";
+import { DocumentReader } from "../components/DocumentReader";
+import { ScrollIndicator } from "../components/ScrollIndicator";
+import { LibraryTree } from "../components/LibraryTree";
+import { useReaderTabsStore } from "../stores/readerTabsStore";
 import { Modal, useConfirm } from "../ui/Modal";
 import { useHandoffStore } from "../stores/handoffStore";
-import type { DocumentExtractionStatus, DocumentSection, DocumentSummary, PersonalKnowledgeItem, WikiEditablePage, WikiGenerationMode, WikiHealth, WikiPlan, WikiRepairPlan, WikiRunEstimate, WikiScopeMode, WikiTask } from "../types";
+import type { DocumentExtractionStatus, DocumentSection, DocumentSummary, WikiEditablePage, WikiGenerationMode, WikiHealth, WikiPlan, WikiRepairPlan, WikiRunEstimate, WikiScopeMode, WikiTask } from "../types";
 
 type WikiView = "knowledge" | "sources" | "notes" | "all";
+
+/** 同步明细里的一组来源（新增 / 移除 / 跳过 …），最多列 20 条。 */
+function SyncSourceList({ title, sources }: { title: string; sources: string[] }) {
+  if (sources.length === 0) return null;
+  return (
+    <div className="library-sync-group">
+      <strong>{title} {sources.length}</strong>
+      <ul>
+        {sources.slice(0, 20).map((source) => <li key={source}>{source}</li>)}
+        {sources.length > 20 && <li className="text-faint">…… 其余 {sources.length - 20} 条</li>}
+      </ul>
+    </div>
+  );
+}
 
 function wikiViewForType(type: DocumentSummary["wiki_type"]): WikiView {
   if (type === "source") return "sources";
@@ -25,6 +47,15 @@ function wikiViewForType(type: DocumentSummary["wiki_type"]): WikiView {
 function matchesWikiView(document: DocumentSummary, view: WikiView) {
   if (view === "all") return true;
   return wikiViewForType(document.wiki_type) === view;
+}
+
+/** E8：进度百分比。收下阶段看文件数，建索引阶段看来源数；总量未知时给 0（不假装有进度）。 */
+function progressPercent(progress: { phase: string; filesDone: number; filesTotal: number; sourcesDone: number; sourcesTotal: number }): number {
+  const [done, total] = progress.phase === "indexing"
+    ? [progress.sourcesDone, progress.sourcesTotal]
+    : [progress.filesDone, progress.filesTotal];
+  if (!total) return 0;
+  return Math.max(0, Math.min(100, Math.round((done / total) * 100)));
 }
 
 export function LibraryPage() {
@@ -38,9 +69,18 @@ export function LibraryPage() {
     documentImporting,
     documentImportNotice,
     documentImportError,
+    documentImportErrorCode,
+    documentImportDuplicateCount,
+    importDuplicatesAsCopies,
     documentImportVersion,
+    importDroppedFiles,
+    documentImportProgress,
+    cancelDocumentImport,
+    documentImportResults,
+    documentImportCanRetry,
+    retryFailedImports,
+    dismissImportReport,
     selectedDocumentIds,
-    toggleDocumentScope,
     setDocumentScope,
   } = useOutletContext<AppOutletContext>();
   const navigate = useNavigate();
@@ -56,18 +96,49 @@ export function LibraryPage() {
   });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [sections, setSections] = useState<DocumentSection[]>([]);
-  const [relatedNotes, setRelatedNotes] = useState<PersonalKnowledgeItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+  // ①（E17）：文件夹同步 —— 用户在资源管理器里把资料剪进资料库文件夹后，
+  // 需要有一个明确入口去发现它们，并看到「这次到底动了什么」。
+  const [syncingFolder, setSyncingFolder] = useState(false);
+  const [syncSummary, setSyncSummary] = useState<KnowledgeSyncSummary | null>(null);
+  // ②（E17）：只读文件夹树 + 当前选中的文件夹（"" = 根）。
+  const [tree, setTree] = useState<KnowledgeTree | null>(null);
+  const [selectedFolder, setSelectedFolder] = useState("");
+  // ③：已归档的资料（归档只是移走，永远可恢复）。
+  const [archive, setArchive] = useState<ArchivedEntry[]>([]);
+  // ⑤：整理建议（只提议 → 执行 → 一键撤销）。
+  const [organizeProposals, setOrganizeProposals] = useState<OrganizationProposal[] | null>(null);
+  // ⑤：可撤销的那一步由**服务端台账**说了算（刷新页面后仍然撤销得回来）。
+  const [organizePending, setOrganizePending] = useState<OrganizationBatch | null>(null);
+  const [organizeBusy, setOrganizeBusy] = useState(false);
+  // ⑤：这份建议到底是谁提的（模型 / 规则），以及模型为什么没参与 —— 界面要如实说。
+  const [organizeSource, setOrganizeSource] = useState("");
+  const [organizeDegraded, setOrganizeDegraded] = useState("");
+  // ④：阅读区标签页（每篇记住读到哪；关掉最后一个自动收起）。
+  // ④：复用既有的标签模型（ReaderPage 也用它）：openIds + 每篇滚动位置。
+  const openIds = useReaderTabsStore((state) => state.openIds);
+  const openTab = useReaderTabsStore((state) => state.open);
+  const closeTab = useReaderTabsStore((state) => state.close);
+  const scrollFor = useReaderTabsStore((state) => state.scrollFor);
+  // ④：树栏可收起（用户："文件树那一栏占用了很多"）。选择记在本地，下次照旧。
+  const [treeCollapsed, setTreeCollapsed] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem("bobodan:library-tree:collapsed") === "1";
+    } catch {
+      return false;
+    }
+  });
   const [editingDocumentId, setEditingDocumentId] = useState<string | null>(null);
-  const [highlightedChunk, setHighlightedChunk] = useState<string | null>(null);
+  // ④：编辑器保存后让阅读器重新拉一次小节（阅读器自己持有小节加载）。
+  const [readerReloadToken, setReaderReloadToken] = useState(0);
   const [startingExtractionId, setStartingExtractionId] = useState<string | null>(null);
   const [extractionStatuses, setExtractionStatuses] = useState<Record<string, DocumentExtractionStatus>>({});
   const [documentQuery, setDocumentQuery] = useState("");
-  const [selectionQuote, setSelectionQuote] = useState("");
+  // ④ 搜索命中 → 定位：标题过滤之外，再问一次后端的原文检索，命中直接深链到阅读器
+  // 的那一段（?chunk= 通道已在 2026-09-23 验证可用）。
+  const [hits, setHits] = useState<Array<{ chunk_id: string; document_id: string; collection?: string; title?: string; source?: string; text?: string }>>([]);
   const [maintenanceOpen, setMaintenanceOpen] = useState(false);
   const [maintenanceLoading, setMaintenanceLoading] = useState(false);
   const [wikiHealth, setWikiHealth] = useState<WikiHealth | null>(null);
@@ -85,22 +156,15 @@ export function LibraryPage() {
   const [wikiInstruction, setWikiInstruction] = useState("");
   const [wikiTopic, setWikiTopic] = useState("");
   const [wikiScopeMode, setWikiScopeMode] = useState<WikiScopeMode>("uncovered");
-  const pageRef = useRef<HTMLElement>(null);
-  const readingOpenedRef = useRef(false);
-  const lastProgressRef = useRef(0);
+  // 资料库页自己管滚动：正文列是滚动容器，阅读进度与标签位置都记在它身上（不再是整页）。
+  const readerScrollRef = useRef<HTMLElement | null>(null);
   const selectedIdRef = useRef(selectedId);
   const searchParamsRef = useRef(searchParams);
   const wikiViewRef = useRef(wikiView);
   useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
 
-  // TASKS_LIBRARY_REWORK task 1: restore list scroll on mount, save on unmount.
-  useEffect(() => {
-    const element = pageRef.current;
-    if (element) element.scrollTop = Number(localStorage.getItem("bobodan:library-scroll")) || 0;
-    return () => {
-      if (element) localStorage.setItem("bobodan:library-scroll", String(element.scrollTop));
-    };
-  }, []);
+  // （原来这里在整页滚动容器上存取 "bobodan:library-scroll"：那是"我的资料"平铺列表时代的
+  //  遗留物，列表已经删掉、整页也不再滚，逐文档的阅读位置由标签条的 scrollFor 负责，故移除。）
   useEffect(() => { searchParamsRef.current = searchParams; }, [searchParams]);
   useEffect(() => { wikiViewRef.current = wikiView; }, [wikiView]);
 
@@ -121,22 +185,81 @@ export function LibraryPage() {
       const requestedDocument = nextDocuments.find((item) => item.document_id === requested)
         || nextDocuments.find((item) => item.title === requestedTitle);
       if (collection === "wiki" && requestedDocument) setWikiView(wikiViewForType(requestedDocument.wiki_type));
+      // ④：资料库**不再自动打开第一份资料** —— 进页面就该看见列表，
+      // "打开"是用户动作（双击/点击），只有 wiki 视图才需要一个兜底页面。
+      // 否则窄窗口一进来就变成"树 + 列表 + 正文"三栏挤在一起，正文只剩四百来像素。
       const preferredDocument = collection === "wiki"
         ? nextDocuments.find((item) => matchesWikiView(item, wikiViewRef.current))
-        : nextDocuments[0];
+        : undefined;
       const nextSelected = requestedDocument?.document_id
         || nextDocuments.find((item) => item.document_id === selectedIdRef.current)?.document_id
         || preferredDocument?.document_id
         || null;
+      // 深链接（?document=…）算"明确打开"：进阅读模式并进标签条。
+      if (requestedDocument && collection === "material") openTab(requestedDocument.document_id);
       setSelectedId(nextSelected);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "无法读取资料库。" );
     } finally {
       setLoading(false);
     }
-  }, [activeLibrary, collection]);
+  }, [activeLibrary, collection, openTab]);
 
   useEffect(() => { void loadDocuments(); }, [documentImportVersion, loadDocuments]);
+
+  const loadArchive = useCallback(async () => {
+    if (!activeLibrary) {
+      setArchive([]);
+      return;
+    }
+    try {
+      const result = await api.knowledgeArchive();
+      setArchive(result.entries);
+    } catch {
+      // 归档列表读不到不影响浏览；不把整页变成错误页。
+      setArchive([]);
+    }
+  }, [activeLibrary]);
+
+  useEffect(() => { void loadArchive(); }, [loadArchive]);
+
+  const loadTree = useCallback(async () => {
+    if (!activeLibrary) {
+      setTree(null);
+      return;
+    }
+    try {
+      const result = await api.knowledgeTree();
+      setTree(result.tree);
+    } catch {
+      // 树只是导航层：读不到时保持资料列表可用，不把整页变成错误页。
+      setTree(null);
+    }
+  }, [activeLibrary]);
+
+  // ⑤：可撤销的那一步记在服务端台账里，刷新页面（甚至重启）之后照样撤得回来。
+  const loadOrganizeState = useCallback(async () => {
+    if (!activeLibrary || collection !== "material") {
+      setOrganizePending(null);
+      return;
+    }
+    try {
+      setOrganizePending((await api.organizationState()).pending_undo);
+    } catch {
+      // 读不到"可撤销状态"不该打断阅读：面板里仍然可以看建议、做整理。
+      setOrganizePending(null);
+    }
+  }, [activeLibrary, collection]);
+  useEffect(() => { void loadOrganizeState(); }, [loadOrganizeState]);
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("bobodan:library-tree:collapsed", treeCollapsed ? "1" : "0");
+    } catch {
+      // 无痕模式等写不了 localStorage：只是记不住，不该影响阅读。
+    }
+  }, [treeCollapsed]);
+
+  useEffect(() => { void loadTree(); }, [loadTree, documentImportVersion]);
 
   useEffect(() => {
     if (!activeLibrary || collection !== "material") {
@@ -182,60 +305,25 @@ export function LibraryPage() {
     if (requestedCollection !== collection) setCollection(requestedCollection);
   }, [collection, searchParams]);
 
+  // ④：小节加载、相关笔记、阅读进度、选区工具条、目录都归 DocumentReader（唯一实现）。
+  // 外壳只留两件事：知道"当前这份资料的小节"（提取概念要用），以及恢复标签的滚动位置。
   useEffect(() => {
-    setSelectionQuote("");
-    setRelatedNotes([]);
-    if (!selectedId) { setSections([]); return; }
-    let cancelled = false;
-    setDetailLoading(true);
-    void api.document(selectedId)
-      .then((result) => { if (!cancelled) setSections(result.sections); })
-      .catch((reason: Error) => { if (!cancelled) setError(reason.message); })
-      .finally(() => { if (!cancelled) setDetailLoading(false); });
-    // 资料 → 笔记联动：加载关联到这份资料的个人笔记
-    if (collection === "material") {
-      void api.knowledgeByDocument(selectedId)
-        .then((result) => { if (!cancelled) setRelatedNotes(result.items); })
-        .catch(() => { if (!cancelled) setRelatedNotes([]); });
-    }
-    return () => { cancelled = true; };
-  }, [selectedId, collection]);
+    setSections([]);
+  }, [selectedId]);
 
+  // ④：切到一份资料并把内容渲染出来之后，恢复到上次读到的位置。
+  // 只做一次（用 ref 记已恢复的 document_id），避免用户往下读时被反复拽回。
+  const restoredRef = useRef<string | null>(null);
   useEffect(() => {
-    readingOpenedRef.current = false;
-    lastProgressRef.current = 0;
-    if (!selectedId || detailLoading || !sections.length) return;
-    let visibleSeconds = 0;
-    const timer = window.setInterval(() => {
-      if (document.visibilityState !== "visible") return;
-      visibleSeconds += 1;
-      if (visibleSeconds < 10 || readingOpenedRef.current) return;
-      readingOpenedRef.current = true;
-      void api.updateReadingProgress(selectedId, lastProgressRef.current, true).catch(() => undefined);
-    }, 1000);
-    return () => window.clearInterval(timer);
-  }, [selectedId, detailLoading, sections.length]);
-
-  function recordReadingProgress() {
-    const element = pageRef.current;
-    if (!element || !selectedId || !readingOpenedRef.current) return;
-    const available = element.scrollHeight - element.clientHeight;
-    const raw = available > 0 ? Math.round((element.scrollTop / available) * 100) : 100;
-    const progress = raw >= 100 ? 100 : Math.floor(raw / 10) * 10;
-    if (progress < 10 || progress <= lastProgressRef.current) return;
-    lastProgressRef.current = progress;
-    void api.updateReadingProgress(selectedId, progress).catch(() => undefined);
-  }
-
-  useEffect(() => {
-    const chunkId = searchParams.get("chunk");
-    if (detailLoading || !chunkId || !sections.length) return;
-    const target = Array.from(document.querySelectorAll<HTMLElement>("[data-chunk-id]"))
-      .find((element) => element.dataset.chunkId === chunkId);
-    if (!target) return;
-    setHighlightedChunk(chunkId);
-    target.scrollIntoView({ block: "center", behavior: "smooth" });
-  }, [detailLoading, searchParams, sections]);
+    if (!selectedId || sections.length === 0) return;
+    if (restoredRef.current === selectedId) return;
+    restoredRef.current = selectedId;
+    const element = readerScrollRef.current;
+    if (!element) return;
+    const target = scrollFor(selectedId);
+    if (target <= 0) return;
+    element.scrollTop = target;
+  }, [selectedId, sections.length, scrollFor]);
 
   async function checkWiki() {
     setMaintenanceLoading(true);
@@ -582,21 +670,10 @@ export function LibraryPage() {
   }
 
   function selectDocument(documentId: string) {
-    // TASKS_LIBRARY_REWORK task 1: material documents open the full reader page.
-    if (collection === "material") {
-      saveListScroll();
-      navigate(`/library/read/${documentId}?collection=material`);
-      return;
-    }
+    // ④：打开阅读区的一个标签页（已开只激活）。
+    openTab(documentId);
     setSelectedId(documentId);
-    setHighlightedChunk(null);
     setSearchParams({ collection, document: documentId, ...(collection === "wiki" ? { wikiView } : {}) }, { replace: true });
-  }
-
-  // Preserve the list scroll position across list <-> reader navigation.
-  function saveListScroll() {
-    const element = pageRef.current;
-    if (element) localStorage.setItem("bobodan:library-scroll", String(element.scrollTop));
   }
 
   function selectCollection(next: "material" | "wiki") {
@@ -615,22 +692,6 @@ export function LibraryPage() {
     setSelectedId(first?.document_id || null);
     setSections([]);
     setSearchParams({ collection: "wiki", wikiView: next, ...(first ? { document: first.document_id } : {}) }, { replace: true });
-  }
-
-  function captureSelection() {
-    const text = window.getSelection()?.toString().trim() || "";
-    setSelectionQuote(text.slice(0, 1200));
-  }
-
-  function askAboutSelection() {
-    if (!selectionQuote || !selected) return;
-    useHandoffStore.getState().setChatDraft(
-      `请结合资料《${selected.title || selected.source}》解释下面这段内容：\n\n> ${selectionQuote.replace(/\n/g, "\n> ")}`,
-    );
-    if (!selectedDocumentIds.includes(selected.document_id) && selected.collection === "material") {
-      toggleDocumentScope(selected.document_id);
-    }
-    navigate("/chat");
   }
 
   function askAboutDocument() {
@@ -731,29 +792,168 @@ export function LibraryPage() {
     }
   }
 
-  async function deleteDocument(document: DocumentSummary) {
-    if (!document.managed || deletingId) return;
-    setDeletingId(document.document_id);
-    setError("");
-    setNotice("");
+  async function createFolder(relativePath: string) {
+    if (!activeLibrary) return;
     try {
-      const impact = await api.documentImpact(document.document_id);
-      const affected = impact.affected_pages.slice(0, 4).map((item) => item.title).join("、");
-      const impactMessage = impact.affected_count
-        ? `这会影响 ${impact.affected_count} 个 Wiki 页面${affected ? `：${affected}` : ""}。这些页面只会标记为待更新，不会自动删除。`
-        : "";
-      if (!(await confirm({ title: `归档资料“${document.title || document.source}”？`, detail: <>原文件会移入资料库归档区，并从当前索引移除。{impactMessage && <p>{impactMessage}</p>}</>, confirmLabel: "归档资料", danger: true }))) return;
-      await api.deleteDocument(document.document_id);
-      setNotice("资料已归档，本地索引已更新；关联 Wiki 已标记为待检查。");
-      if (selectedId === document.document_id) {
-        setSelectedId(null);
-        setSearchParams({}, { replace: true });
-      }
-      await loadDocuments();
+      await api.createFolder(relativePath);
+      await Promise.all([loadTree(), loadDocuments()]);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "无法删除这份资料。");
+      setError(reason instanceof Error ? reason.message : "新建文件夹失败。");
+    }
+  }
+
+  async function deleteFolder(relativePath: string) {
+    if (!activeLibrary) return;
+    const confirmed = await confirm({
+      title: `删掉文件夹「${relativePath}」？`,
+      detail: "只是删掉这个容器：里面的资料会移回资料库根目录，一份都不会删。如果还有非资料文件，文件夹会保留。",
+      confirmLabel: "删文件夹",
+    });
+    if (!confirmed) return;
+    try {
+      const result = await api.deleteFolder(relativePath);
+      setNotice(
+        result.kept_directory
+          ? `已移出 ${result.moved.length} 份资料；文件夹因为还有非资料文件而保留。`
+          : `已移出 ${result.moved.length} 份资料，并删掉空文件夹。`,
+      );
+      if (selectedFolder === relativePath) setSelectedFolder("");
+      await Promise.all([loadTree(), loadDocuments()]);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "删文件夹失败。");
+    }
+  }
+
+  async function moveDocument(documentId: string, newRelativePath: string) {
+    if (!activeLibrary) return;
+    try {
+      const result = await api.moveDocument(documentId, newRelativePath);
+      setNotice(`已移动「${result.migration.relative_path}」；引用与证据已跟着迁移。`);
+      await Promise.all([loadTree(), loadDocuments()]);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "移动失败。");
+    }
+  }
+
+  async function archiveDocument(documentId: string, title: string) {
+    if (!activeLibrary) return;
+    const confirmed = await confirm({
+      title: `归档「${title}」？`,
+      detail: "文件会移进资料库归档区并从索引移除；随时可以在「已归档」里恢复原位。",
+      confirmLabel: "归档",
+    });
+    if (!confirmed) return;
+    try {
+      await api.deleteDocument(documentId);
+      setNotice("已归档，可在「已归档」里恢复。");
+      await Promise.all([loadTree(), loadDocuments(), loadArchive()]);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "归档失败。");
+    }
+  }
+
+  async function restoreArchived(entryId: string) {
+    try {
+      await api.restoreArchived(entryId);
+      setNotice("已恢复到原来的位置并重新索引。");
+      await Promise.all([loadTree(), loadDocuments(), loadArchive()]);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "恢复失败。");
+    }
+  }
+
+  async function loadOrganizeProposals() {
+    setOrganizeBusy(true);
+    setError("");
+    try {
+      const result = await api.organizationProposals();
+      setOrganizeProposals(result.proposals);
+      setOrganizeSource(result.source);
+      setOrganizeDegraded(result.degraded);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "读取整理建议失败。");
     } finally {
-      setDeletingId(null);
+      setOrganizeBusy(false);
+    }
+  }
+
+  /** ⑤：让模型归类 —— 仍然只提议；模型不可用时如实降级，并说明这次是规则建议。 */
+  async function loadAiProposals() {
+    setOrganizeBusy(true);
+    setError("");
+    try {
+      const result = await api.aiOrganizationProposals();
+      setOrganizeProposals(result.proposals);
+      setOrganizeSource(result.source);
+      setOrganizeDegraded(result.degraded);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "AI 归类失败。");
+    } finally {
+      setOrganizeBusy(false);
+    }
+  }
+
+  async function applyProposal(proposal: OrganizationProposal) {
+    setOrganizeBusy(true);
+    setError("");
+    try {
+      const result = await api.applyOrganization(proposal.items, proposal.suggested_folder);
+      setOrganizeProposals([]);
+      setNotice(`已把 ${result.moved.length} 份资料收进「${proposal.suggested_folder}」；引用与证据已跟着迁移。`);
+      // 台账写在服务端，界面以它为准（刷新/重启后一致）。
+      await Promise.all([loadTree(), loadDocuments(), loadOrganizeState()]);
+    } catch (reason) {
+      // 审查 F07：部分失败时，**当场**把服务端台账读回来 —— 用户要立刻看到
+      // "已经搬走了哪几份"，并且当场就能撤销，而不是刷新以后才发现。
+      const details = reason instanceof ApiError
+        ? reason.details as { moved?: { from: string }[]; failed?: { from: string; error?: string }[] } | undefined
+        : undefined;
+      const movedCount = details?.moved?.length || 0;
+      const failedCount = details?.failed?.length || 0;
+      const message = failedCount > 0
+        ? `整理没有全部完成：已搬走 ${movedCount} 份，${failedCount} 份没搬成（${details?.failed?.[0]?.error || "原因未知"}）。已经搬走的部分可以撤销。`
+        : reason instanceof Error ? reason.message : "整理失败。";
+      // 先刷新（loadDocuments 开头会 setError("")，会把刚写的错误冲掉），再设错误信息。
+      await Promise.all([loadTree(), loadDocuments(), loadOrganizeState()]);
+      setError(message);
+    } finally {
+      setOrganizeBusy(false);
+    }
+  }
+
+  async function undoOrganize() {
+    setOrganizeBusy(true);
+    setError("");
+    try {
+      const result = await api.undoOrganization();
+      const skipped = result.skipped || [];
+      // 审查 F03：有跳过的项要**如实说**（原位已经有文件，我们选择不覆盖），
+      // 而且台账还留着，用户处理完冲突可以再撤销一次。
+      setNotice(
+        skipped.length
+          ? `已还回 ${result.restored.length} 份；${skipped.length} 份因为原位已经有文件被跳过（没有覆盖），台账保留着。`
+          : `已撤销整理，${result.restored.length} 份资料回到原位。`,
+      );
+      await Promise.all([loadTree(), loadDocuments(), loadOrganizeState()]);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "撤销失败。");
+    } finally {
+      setOrganizeBusy(false);
+    }
+  }
+
+  async function syncLibraryFolder() {
+    if (!activeLibrary || syncingFolder) return;
+    setSyncingFolder(true);
+    setError("");
+    try {
+      const summary = await api.syncLibrary(activeLibrary.library_id);
+      setSyncSummary(summary);
+      await Promise.all([loadDocuments(), loadTree()]);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "同步资料库文件夹失败。");
+    } finally {
+      setSyncingFolder(false);
     }
   }
 
@@ -774,32 +974,30 @@ export function LibraryPage() {
     return status ? status.status : "not_started" as const;
   }
 
-  function extractionStatusLabel(document: DocumentSummary) {
-    const status = extractionStatuses[document.document_id];
-    switch (effectiveExtractionStatus(document)) {
-      case "extracting": return "正在提取";
-      case "review": return `待审查 ${status?.pending_count || ""}`.trim();
-      case "completed": return "已提取";
-      case "failed": return "提取失败";
-      case "stale": return "内容已更新";
-      default: return "尚未提取";
-    }
-  }
-  function textExtractionLabel(document: DocumentSummary) {
-    switch (document.extraction_status) {
-      case "empty": return "无可检索文本";
-      case "partial": return `部分可检索（${document.extraction_extracted_units ?? 0}/${document.extraction_total_units ?? 0}）`;
-      case "error": return "提取失败";
-      default: return null;
-    }
-  }
   const filteredDocuments = documents.filter((document) => {
     if (collection === "wiki" && !matchesWikiView(document, wikiView)) return false;
+    // ②：选中某个文件夹时，右侧只显示这个文件夹里的资料（按真实相对路径前缀）。
+    if (collection === "material" && selectedFolder) {
+      const prefix = selectedFolder + "/";
+      if (!(document.relative_path || "").startsWith(prefix)) return false;
+    }
     const query = documentQuery.trim().toLocaleLowerCase();
     if (!query) return true;
     return [document.title, document.source, document.course, document.kind]
       .some((value) => value?.toLocaleLowerCase().includes(query));
   });
+  useEffect(() => {
+    const query = documentQuery.trim();
+    if (query.length < 2) { setHits([]); return; }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void api.searchKnowledge(query, collection)
+        .then((result) => { if (!cancelled) setHits((result.results || []).slice(0, 5)); })
+        .catch(() => { if (!cancelled) setHits([]); });
+    }, 300);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [documentQuery, collection]);
+
   const uncoveredCount = documents.length;
   const wikiTypeLabels: Record<NonNullable<DocumentSummary["wiki_type"]>, string> = {
     source: "资料索引",
@@ -811,7 +1009,7 @@ export function LibraryPage() {
   };
 
   return (
-    <section className="page-scroll" ref={pageRef} onScroll={recordReadingProgress}>
+    <section className="page-scroll library-scroll">
       <div className="page-container library-container">
         <header className="library-toolbar">
           <div className="library-toolbar-context">
@@ -822,10 +1020,28 @@ export function LibraryPage() {
                 <DropdownSelect ariaLabel="切换资料库" value={activeLibrary?.library_id || ""} onChange={(value) => void switchLibrary(value)} options={libraries.filter((item) => item.available).map((library) => ({ value: library.library_id, label: library.name }))} />
               ) : <strong>{collection === "wiki" ? activeLibrary?.name || "资料库" : "尚未创建资料库"}</strong>}
             </div>
+            {/* 2026-09-24：树的开关挪到左上角（原来埋在右侧按钮组里，用户找不着）。
+                位置就在「资料库 / vault」右边，和 Obsidian 的侧栏开关同一个角落的意思。 */}
+            {collection === "material" && tree && (
+              <button
+                className="quiet-button"
+                type="button"
+                aria-pressed={!treeCollapsed}
+                title={treeCollapsed ? "显示文件夹树" : "收起文件夹树，把宽度留给正文"}
+                onClick={() => setTreeCollapsed((collapsed) => !collapsed)}
+              >
+                <FolderTree size={15} />文件夹
+              </button>
+            )}
           </div>
           <div className="library-toolbar-actions">
             {collection === "wiki" && <button className="quiet-button" onClick={() => selectCollection("material")}>返回资料</button>}
             {activeLibrary && <IconButton label="刷新资料" onClick={() => void loadDocuments()}><RefreshCw size={16} /></IconButton>}
+            {collection === "material" && activeLibrary && (
+              <button className="quiet-button" type="button" disabled={syncingFolder} onClick={() => void syncLibraryFolder()}>
+                <FolderOpen size={15} />{syncingFolder ? "正在同步文件夹…" : "同步文件夹"}
+              </button>
+            )}
             <details className="library-more-menu">
               <summary><MoreHorizontal size={17} /><span>更多</span></summary>
               <div>
@@ -836,6 +1052,49 @@ export function LibraryPage() {
             {collection === "material" && <button className="primary-button" disabled={documentImporting} onClick={startDocumentImport}><Upload size={16} />{documentImporting ? "正在建立索引" : "导入资料"}</button>}
           </div>
         </header>
+        {syncSummary && (
+          <section className="library-sync-summary" role="status" aria-live="polite">
+            <div className="library-sync-line">
+              <CheckCircle2 size={17} />
+              <span>
+                已扫描 {syncSummary.scanned_files} 份资料：新增 {syncSummary.added_files.length}、更新 {syncSummary.changed_files}、移除{" "}
+                {syncSummary.removed_files.length}
+                {syncSummary.pending_removal.length > 0 ? `、待确认移除 ${syncSummary.pending_removal.length}` : ""}
+                、跳过 {syncSummary.skipped_files.length}（仓库元文件）
+                {syncSummary.error_files > 0 ? `、失败 ${syncSummary.error_files}` : ""}
+              </span>
+              <button className="quiet-button" type="button" onClick={() => setSyncSummary(null)}>收起</button>
+            </div>
+            {syncSummary.scan_incomplete && (
+              <p className="library-sync-warning">
+                本次扫描看不全，因此没有移除任何资料：{syncSummary.incomplete_reasons.join("；") || "原因未提供"}
+              </p>
+            )}
+            <details className="library-sync-details">
+              <summary>查看明细</summary>
+              <div>
+                <SyncSourceList title="新增" sources={syncSummary.added_files} />
+                <SyncSourceList title="移除" sources={syncSummary.removed_files} />
+                <SyncSourceList
+                  title="内容与现存资料相同（可能是移动或改名）"
+                  sources={syncSummary.duplicates_cleaned}
+                />
+                <SyncSourceList title="待确认移除（连续两次缺失才真正移除）" sources={syncSummary.pending_removal} />
+                <SyncSourceList title="跳过（仓库元文件）" sources={syncSummary.skipped_files} />
+                {syncSummary.errors.length > 0 && (
+                  <div className="library-sync-group">
+                    <strong>失败 {syncSummary.errors.length}</strong>
+                    <ul>
+                      {syncSummary.errors.slice(0, 20).map((item, index) => (
+                        <li key={`${item.source || "unknown"}-${index}`}>{item.source || "（未知来源）"}：{item.error || "原因未提供"}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            </details>
+          </section>
+        )}
         {collection === "wiki" && <div className="wiki-view-tabs" role="tablist" aria-label="Wiki 页面类型">
           <button role="tab" aria-selected={wikiView === "knowledge"} className={wikiView === "knowledge" ? "active" : ""} onClick={() => selectWikiView("knowledge")}>知识页</button>
           <button role="tab" aria-selected={wikiView === "sources"} className={wikiView === "sources" ? "active" : ""} onClick={() => selectWikiView("sources")}>资料索引</button>
@@ -920,44 +1179,274 @@ export function LibraryPage() {
             <footer>{wikiEditor.document_id && <button className="danger-text-button" disabled={wikiEditorSaving} onClick={() => void archiveSelectedWikiPage()}><Trash2 size={15} />归档</button>}<div><button className="quiet-button" disabled={wikiEditorSaving} onClick={() => setWikiEditorOpen(false)}>取消</button><button className="primary-button" disabled={wikiEditorSaving || !wikiEditor.title.trim() || !wikiEditor.body.trim()} onClick={() => void saveWikiEditor()}><Save size={15} />{wikiEditorSaving ? "正在保存" : "保存页面"}</button></div></footer>
         </Modal>}
         {confirmElement}
-        {(documentImportNotice || notice) && <div className="success-notice"><CheckCircle2 size={17} />{documentImportNotice || notice}</div>}
-        {documentImportError && <ErrorNotice message={documentImportError} />}
+        {(documentImportNotice || notice) && <div className="success-notice"><CheckCircle2 size={17} /><span>{documentImportNotice || notice}</span>{documentImportDuplicateCount > 0 && <button className="text-link" type="button" onClick={importDuplicatesAsCopies}>重复文件仍要另存副本</button>}</div>}
+        {documentImportError && <ErrorNotice message={documentImportError} code={documentImportErrorCode} />}
+        {/* E8：导入是**运行态** —— 运行中显示进度，并且当场能取消（协作式：文件边界生效）。 */}
+        {documentImportProgress && (
+          <div className="import-progress" role="status">
+            <div className="import-progress-body">
+              <div className="import-progress-line">
+                <strong>{documentImportProgress.phase === "indexing" ? "正在建立索引" : "正在收下文件"}</strong>
+                <span className="text-faint">
+                  {documentImportProgress.phase === "indexing"
+                    ? `${documentImportProgress.sourcesDone}/${documentImportProgress.sourcesTotal} 份资料`
+                    : `${documentImportProgress.filesDone}/${documentImportProgress.filesTotal} 份文件`}
+                  {documentImportProgress.current ? ` · ${documentImportProgress.current}` : ""}
+                </span>
+              </div>
+              <div className="import-progress-track" aria-hidden="true">
+                <div
+                  className="import-progress-fill"
+                  style={{
+                    width: `${progressPercent(documentImportProgress)}%`,
+                  }}
+                />
+              </div>
+            </div>
+            <button className="quiet-button" onClick={cancelDocumentImport}>取消导入</button>
+          </div>
+        )}
+        {/* E8：逐文件说清楚这次导入（文件名 + 可行动原因 + 重试），不再只有一句汇总。 */}
+        {documentImportResults && (
+          <ImportReportPanel
+            results={documentImportResults}
+            canRetry={documentImportCanRetry}
+            onRetryFailed={retryFailedImports}
+            onDismiss={dismissImportReport}
+          />
+        )}
         {error && <ErrorNotice message={error} action={<button className="quiet-button" onClick={() => void loadDocuments()}>重试</button>} />}
+        {/* E8：整页都是拖拽热区（没有资料库时先引导新建，并记住拖进来的文件）。 */}
+        <ImportDropZone onFiles={importDroppedFiles} enabled={Boolean(activeLibrary)}>
         {loading ? <div className="illustrated-loading"><BrandIllustration state="reading" size={76} /><LoadingState label={collection === "wiki" ? "正在整理 Wiki…" : "正在读取本地资料…"} /></div> : documents.length ? (
-          <div className={"library-workspace" + (collection === "material" ? " list-only" : "")}>
+          <div
+            className={
+              "library-workspace"
+              + (collection === "material" ? " list-only" : "")
+              // 收起树时**不给 with-tree**：网格自然回到单栏，正文拿到全部宽度。
+              + (collection === "material" && tree && !treeCollapsed ? " with-tree" : "")
+
+            }
+          >
+            {collection === "material" && tree && !treeCollapsed && (
+              <aside className="library-tree-pane" aria-label="资料库文件夹">
+                <div className="rail-label"><FolderOpen size={15} />文件夹 <span>{tree.material_count}</span></div>
+                
+                <label className="document-search"><Search size={14} /><input value={documentQuery} onChange={(event) => setDocumentQuery(event.target.value)} placeholder="搜索资料" aria-label="搜索资料" /></label>
+                {hits.length > 0 && (
+                  <div className="document-hits" aria-label="原文命中">
+                    {hits.map((hit) => (
+                      <button
+                        key={hit.chunk_id}
+                        className="document-hit"
+                        type="button"
+                        title={hit.text || ""}
+                        onClick={() =>
+                          navigate(
+                            readerLocation({
+                              document_id: hit.document_id,
+                              collection: hit.collection ?? collection,
+                              chunk_id: hit.chunk_id,
+                            }) || "/library",
+                          )
+                        }
+                      >
+                        <Search size={13} />
+                        <span>
+                          <strong>{hit.title || hit.source}</strong>
+                          <small>{(hit.text || "").replace(/\s+/g, " ").slice(0, 56)}</small>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <LibraryTree
+                  tree={tree}
+                  query={documentQuery}
+                  selectedFolder={selectedFolder}
+                  onSelectFolder={setSelectedFolder}
+                  activeDocumentId={selectedId}
+                  onOpenDocument={(documentId) => selectDocument(documentId)}
+                  onMoveDocument={(documentId, path) => void moveDocument(documentId, path)}
+                  onArchiveDocument={(documentId, title) => void archiveDocument(documentId, title)}
+                  onCreateFolder={(path) => void createFolder(path)}
+                  onDeleteFolder={(path) => void deleteFolder(path)}
+                />
+                {collection === "material" && (
+                  <details className="library-organize">
+                    <summary>整理建议</summary>
+                    <div>
+                      {organizeProposals === null ? (
+                        <>
+                          <button className="quiet-button" type="button" disabled={organizeBusy} onClick={() => void loadOrganizeProposals()}>
+                            看看有什么可以整理的
+                          </button>
+                          <button className="quiet-button" type="button" disabled={organizeBusy} onClick={() => void loadAiProposals()}>
+                            让 AI 归类
+                          </button>
+                        </>
+                      ) : organizeProposals.length === 0 ? (
+                        <p className="text-faint">资料库已经很整齐了。</p>
+                      ) : (
+                        <>
+                        <p className="text-faint">
+                          {organizeSource === "model"
+                            ? "AI 提议 —— 执行前由你确认，执行后可一键撤销。"
+                            : organizeDegraded
+                              ? "模型这次没能参与，下面是规则建议 —— 执行前由你确认，执行后可一键撤销。"
+                              : "规则建议 —— 执行前由你确认，执行后可一键撤销。"}
+                        </p>
+                        {organizeProposals.map((proposal) => (
+                          <div key={proposal.kind}>
+                            <strong>{proposal.title}（{proposal.items.length} 份）</strong>
+                            <p>{proposal.reason}</p>
+                            <ul>
+                              {proposal.items.slice(0, 8).map((item) => <li key={item}>{item}</li>)}
+                              {proposal.items.length > 8 && <li className="text-faint">…… 其余 {proposal.items.length - 8} 份</li>}
+                            </ul>
+                            <button className="quiet-button" type="button" disabled={organizeBusy} onClick={() => void applyProposal(proposal)}>
+                              收进「{proposal.suggested_folder}」
+                            </button>
+                          </div>
+                        ))}
+                        </>
+                      )}
+                    </div>
+                  </details>
+                )}
+                {collection === "material" && organizePending && (
+                  <div className="library-organize-undo">
+                    <button className="quiet-button" type="button" disabled={organizeBusy} onClick={() => void undoOrganize()}>
+                      撤销这一步整理
+                    </button>
+                    <small className="text-faint">
+                      {organizePending.status && organizePending.status !== "applied"
+                        ? `上一次整理未完成（${organizePending.moves.length} 项），可以撤销已经搬走的部分`
+                        : `上一步：${organizePending.moves.length} 份资料收进「${organizePending.target_folder}」`}
+                    </small>
+                  </div>
+                )}
+                {archive.length > 0 && (
+                  <details className="library-archive">
+                    <summary>已归档 {archive.length} 份</summary>
+                    <ul>
+                      {archive.slice(0, 30).map((entry) => (
+                        <li key={entry.entry_id}>
+                          <span title={entry.original_path}>{entry.title || entry.original_path}</span>
+                          <button className="quiet-button" type="button" onClick={() => void restoreArchived(entry.entry_id)}>
+                            恢复
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+              </aside>
+            )}
+            {/* 资料库不再有"我的资料"平铺列表：它和左边的文件夹树功能重复，还白占一栏
+                （2026-09-24 用户要求）。wiki 的三个视图仍然用这一栏。 */}
+            {collection === "wiki" && (
             <aside className="document-rail">
-              <div className="rail-label"><FolderOpen size={15} />{collection === "wiki" ? wikiView === "knowledge" ? "知识页面" : wikiView === "sources" ? "资料索引" : wikiView === "notes" ? "个人笔记" : "全部页面" : "我的资料"} <span>{filteredDocuments.length}</span></div>
+              <div className="rail-label"><FolderOpen size={15} />{wikiView === "knowledge" ? "知识页面" : wikiView === "sources" ? "资料索引" : wikiView === "notes" ? "个人笔记" : "全部页面"} <span>{filteredDocuments.length}</span></div>
               <label className="document-search"><Search size={14} /><input value={documentQuery} onChange={(event) => setDocumentQuery(event.target.value)} placeholder="搜索资料" aria-label="搜索资料" /></label>
+              {hits.length > 0 && (
+                <div className="document-hits" aria-label="原文命中">
+                  {hits.map((hit) => (
+                    <button
+                      key={hit.chunk_id}
+                      className="document-hit"
+                      type="button"
+                      title={hit.text || ""}
+                      onClick={() =>
+                        navigate(
+                          readerLocation({
+                            document_id: hit.document_id,
+                            collection: hit.collection ?? collection,
+                            chunk_id: hit.chunk_id,
+                          }) || "/library",
+                        )
+                      }
+                    >
+                      <Search size={13} />
+                      <span>
+                        <strong>{hit.title || hit.source}</strong>
+                        <small>{(hit.text || "").replace(/\s+/g, " ").slice(0, 56)}</small>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
               {filteredDocuments.map((document) => (
                 <div className={`document-row-wrap ${selectedId === document.document_id ? "active" : ""}`} key={document.document_id}>
                   <button className="document-row" onClick={() => selectDocument(document.document_id)}>
                     <span className="document-kind"><FileText size={17} /></span>
-                    <span><strong>{document.title || document.source}</strong><small>{collection === "wiki" ? (document.wiki_type ? wikiTypeLabels[document.wiki_type] : "历史整理") : document.course || (document.origin === "legacy_index" ? "已有知识库" : document.kind || "资料")} · {document.chunk_count ? `${document.chunk_count} 个片段` : formatRelativeDate(document.updated_at)}</small></span>
-                    {collection === "material" ? (
-                      <>
-                        <span
-                          className={`document-extraction-state ${effectiveExtractionStatus(document)}`}
-                          title={extractionStatusLabel(document)}
-                        >
-                          {extractionStatusLabel(document)}
-                        </span>
-                        {textExtractionLabel(document) && (
-                          <span className={`document-text-extraction ${document.extraction_status}`} title={`文本提取：${textExtractionLabel(document)}`}>
-                            {textExtractionLabel(document)}
-                          </span>
-                        )}
-                      </>
-                    ) : (
-                      <i className={document.vector_status === "error" ? "error" : "ready"} title={document.vector_status || "已建立索引"} />
-                    )}
+                    {/* 这一栏现在只服务 wiki 三个视图：资料的阅读入口在文件夹树里。 */}
+                    <span><strong>{document.title || document.source}</strong><small>{(document.wiki_type ? wikiTypeLabels[document.wiki_type] : "历史整理")} · {document.chunk_count ? `${document.chunk_count} 个片段` : formatRelativeDate(document.updated_at)}</small></span>
+                    <i className={document.vector_status === "error" ? "error" : "ready"} title={document.vector_status || "已建立索引"} />
                   </button>
-                  {collection === "material" && (document.kind === "md" || document.kind === "txt" || document.kind === "markdown") && <IconButton className="document-edit" label={`编辑 ${document.title || document.source}`} onClick={(event) => { event.stopPropagation(); setEditingDocumentId(document.document_id); }}><Pencil size={14} /></IconButton>}
-                  {collection === "material" && document.managed && <IconButton className="document-delete" label={`删除 ${document.title || document.source}`} disabled={deletingId === document.document_id} onClick={() => void deleteDocument(document)}><Trash2 size={14} /></IconButton>}
                 </div>
               ))}
               {!filteredDocuments.length && <p className="document-search-empty">没有找到匹配的资料。</p>}
             </aside>
-            {collection === "wiki" && <article className="document-reader">
+            )}
+            {/* 资料库没有列表栏时，右栏不能空着一条白条 —— 给一句"从哪开始"的指引。 */}
+            {collection === "material" && !(selected || openIds.length > 0) && (
+              <div className="library-reader-placeholder">
+                <EmptyState
+                  state="reading"
+                  title="从左边选一份资料开始阅读"
+                  description="文件夹树里点一份资料，它会在这一栏打开；打开过的资料会留在标签条里。"
+                />
+              </div>
+            )}
+            {/* ④：标签条和阅读区必须是**同一个网格列**。标签条曾经是 .library-workspace 的
+                第 4 个直接子元素，一开标签 3 列网格就自动换行：阅读区被挤到下一行，
+                列表被顶到阅读区的位置（2026-09-24 用户截图发现的布局塌陷）。
+                没有选中资料又没有标签时整列不渲染 —— 否则会留一条空白栏。 */}
+            {/* 两层是必须的（2026-09-24 用户反馈"只有滚到最上面才看得见滑动条"）：
+                滑块如果直接放在滚动容器里，它会**跟着内容一起滚走**（实测滚 1500px 后
+                轨道 y 从 133 变成 -1367）。所以外面套一层不滚动的定位父层，滑块挂它身上。 */}
+            {(selected || openIds.length > 0) && (
+            <div className="library-reader-wrap">
+            <ScrollIndicator targetRef={readerScrollRef} />
+            <div className="library-reader-column" ref={(node) => { readerScrollRef.current = node; }}>
+            {openIds.length > 0 && (
+              <div className="reader-tabs" role="tablist" aria-label="打开的资料">
+                {openIds.map((tabId) => (
+                  <span key={tabId} className={selectedId === tabId ? "reader-tab active" : "reader-tab"}>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={selectedId === tabId}
+                      onClick={() => {
+                        selectDocument(tabId);
+                      }}
+                    >
+                      {documents.find((item) => item.document_id === tabId)?.title || tabId}
+                    </button>
+                    <button
+                      type="button"
+                      className="reader-tab-close"
+                      aria-label={`关闭 ${documents.find((item) => item.document_id === tabId)?.title || tabId}`}
+                      onClick={() => {
+                        const wasActive = selectedId === tabId;
+                        closeTab(tabId);
+                        if (wasActive) {
+                          const remaining = openIds.filter((item) => item !== tabId);
+                          const index = openIds.indexOf(tabId);
+                          const next = remaining[index] ?? remaining[index - 1];
+                          if (next) selectDocument(next);
+                          else setSelectedId(null);
+                        }
+                      }}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <article className="document-reader">
               {selected && <header>
                 <span>{selected.collection === "wiki" ? `历史整理 · ${selected.wiki_type ? wikiTypeLabels[selected.wiki_type] : "页面"}` : selected.kind || "本地资料"}{selected.course ? ` · ${selected.course}` : ""}</span>
                 <h2>{selected.title || selected.source}</h2>
@@ -992,34 +1481,24 @@ export function LibraryPage() {
                   )}
                 </div>}
                 {selected.summary && <p>{selected.summary}</p>}
-                {selected.collection === "material" && relatedNotes.length > 0 && (
-                  <div className="reader-related-notes">
-                    <span><NotebookPen size={14} />相关笔记</span>
-                    {relatedNotes.map((note) => (
-                      <div key={note.id}>
-                        <strong>{note.title}</strong>
-                        <p>{note.content}</p>
-                        <small>更新于 {new Date(note.updated_at).toLocaleString("zh-CN")}</small>
-                      </div>
-                    ))}
-                  </div>
-                )}
               </header>}
-              {selectionQuote && <div className="selection-toolbar"><Quote size={15} /><span>已选择 {selectionQuote.length} 个字符</span><button className="quiet-button" onClick={askAboutSelection}>带到对话</button></div>}
-              {detailLoading && !sections.length ? <LoadingState label="正在打开资料…" /> : sections.length ? <div className={`reader-prose ${detailLoading ? "refreshing" : ""}`} onMouseUp={captureSelection}>{sections.map((section, index) => {
-                // 同一标题的相邻切片只显示一次 heading，避免切片边界造成
-                // 重复标题的"断开感"（2026-08-12 阅读体验决策）。
-                const previous = index > 0 ? sections[index - 1] : undefined;
-                const showHeading = Boolean(section.heading) && section.heading !== previous?.heading;
-                return (
-                  <section className={highlightedChunk === section.chunk_id ? "highlighted" : ""} data-chunk-id={section.chunk_id} key={section.chunk_id}>
-                    {showHeading && <h3>{section.heading}</h3>}
-                    <div className="section-location">{section.page_start ? `第 ${section.page_start} 页` : section.slide_start ? `第 ${section.slide_start} 页` : "资料片段"}</div>
-                    <div className="reader-section-prose"><ReactMarkdown remarkPlugins={[remarkGfm]}>{section.text}</ReactMarkdown></div>
-                  </section>
-                );
-              })}</div> : <EmptyState compact title="没有可阅读的片段" description="这份资料可能仍在建立索引，刷新后再试一次。" state="resting" />}
-            </article>}
+              {selected && (
+                <DocumentReader
+                  key={selected.document_id}
+                  documentId={selected.document_id}
+                  collection={selected.collection === "wiki" ? "wiki" : "material"}
+                  chunkId={searchParams.get("chunk")}
+                  documentSummary={selected}
+                  scrollRef={readerScrollRef}
+                  onError={setError}
+                  onSectionsLoaded={setSections}
+                  reloadToken={readerReloadToken}
+                />
+              )}
+            </article>
+            </div>
+            </div>
+            )}
           </div>
         ) : (
           <EmptyState state={collection === "wiki" ? "listening" : "reading"}
@@ -1028,6 +1507,7 @@ export function LibraryPage() {
             action={collection === "material" ? <div className="library-empty-actions"><button className="primary-button" onClick={startDocumentImport}><FilePlus2 size={17} />导入资料</button><button className="quiet-button" onClick={() => openLibrarySetup({ initialMode: "open" })}><FolderOpen size={16} />打开或接入已有资料库</button></div> : undefined}
           />
         )}
+        </ImportDropZone>
       </div>
       {editingDocumentId && selected && (
         <DocumentEditor
@@ -1037,12 +1517,7 @@ export function LibraryPage() {
           onSaved={() => {
             setEditingDocumentId(null);
             void loadDocuments();
-            if (selectedId) {
-              setDetailLoading(true);
-              void api.document(selectedId)
-                .then((result) => setSections(result.sections))
-                .finally(() => setDetailLoading(false));
-            }
+            setReaderReloadToken((token) => token + 1);
           }}
         />
       )}

@@ -642,11 +642,19 @@ body { margin: 0; overflow: hidden; background: var(--paper); }
 [data-paper-texture="on"] body { background-color: #f5f4ed; }
 [data-paper-texture="off"] { --paper: #f7f6f1; --paper-soft: #f8f7f3; --paper-sunken: #f1f0ea; }
 [data-paper-texture="on"] .main-column, [data-paper-texture="on"] .sidebar, [data-paper-texture="on"] .context-panel, [data-paper-texture="on"] .settings-dialog { background-image: repeating-linear-gradient(0deg, rgba(61,53,43,.008) 0, rgba(61,53,43,.008) 1px, transparent 1px, transparent 5px); }
-* { scrollbar-width: thin; scrollbar-color: rgba(154,145,133,.34) transparent; }
+/* 滚动条（2026-09-24 实测结论，别再试了）：
+   Windows 11 + Chromium 上的滚动条**一定是覆盖式** —— `::-webkit-scrollbar { width: 20px }`、
+   `scrollbar-width: thin`、什么都不写，四种写法的 offsetWidth - clientWidth 全是 0，
+   也就是不占布局、平时不画出来。CSS 改不出"常驻可见"的经典滚动条。
+   所以：这里只保留细条样式（Firefox 走下面的 @supports 兜底），而**阅读区那条
+   自己画**（components/ScrollIndicator.tsx）。 */
 *::-webkit-scrollbar { width: 8px; height: 8px; }
 *::-webkit-scrollbar-track { background: transparent; }
-*::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 999px; background: rgba(154,145,133,.3); background-clip: content-box; }
-*::-webkit-scrollbar-thumb:hover { background: rgba(122,112,101,.48); background-clip: content-box; }
+*::-webkit-scrollbar-thumb { border: 1px solid transparent; border-radius: 999px; background: rgba(122,112,101,.45); background-clip: content-box; }
+*::-webkit-scrollbar-thumb:hover { background: rgba(90,82,73,.62); background-clip: content-box; }
+@supports not selector(::-webkit-scrollbar) {
+  * { scrollbar-width: thin; scrollbar-color: rgba(122,112,101,.45) transparent; }
+}
 button, input, textarea { color: inherit; font: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
 button { cursor: pointer; }
@@ -1128,7 +1136,29 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 .page-heading h2 { margin: var(--space-1) 0 var(--space-1); color: var(--blue); font-family: var(--font-reading); font-size: 32px; font-weight: 400; line-height: 1.25; }
 .page-heading p { margin: 0; color: var(--muted); font-family: var(--font-reading); font-size: 15px; line-height: 1.7; }
 .heading-actions { display: flex; gap: 8px; }
-.library-container { padding-top: 0; }
+/* 资料库要同时放下「文件夹树 + 列表 + 正文」三栏，1120px 的通用上限会让正文只剩四百来像素。 */
+/* 资料库是工作区而不是一篇文章：让它铺满可用宽度（原来卡 1600px，宽屏下画布右侧会多出
+   一条空白、滚动条也落在画布边缘而不在窗口边，2026-09-24 用户截图）。正文本身仍有 800px 量度。 */
+.library-container { padding-top: 0; width: 100%; max-width: none; }
+/* 资料库页自己管滚动（2026-09-24 用户：'文章继续往下划的时候，左边文件树是不动的'，像 Obsidian）：
+   整页不再滚，改成**树栏固定并自己滚、正文自己滚**。窄屏（≤767px）仍走原来的整页滚动。 */
+@media (min-width: 768px) {
+  .library-scroll { overflow: hidden; }
+  .library-scroll .library-container { display: flex; height: 100%; flex-direction: column; }
+  .library-scroll .library-workspace { flex: 1 1 auto; min-height: 0; }
+/* E8：拖拽热区包在资料库工作区外面，必须**对布局透明**：它自己要接住父级的高度，
+   否则 .library-workspace 拿不到约束高度、阅读列不再滚动，自绘滚动条会消失（真机 live 抓到过）。 */
+.library-scroll .import-drop-zone { display: flex; flex: 1 1 auto; min-height: 0; flex-direction: column; }
+  .library-scroll .library-tree-pane { overflow-y: auto; min-height: 0; }
+  /* overflow-x: hidden 是护栏：正文里有宽表格/图片时，scrollIntoView（引用跳转、小节定位）
+     会把整个阅读列**横向**滚走 —— 用户看到的就是"文字左边被切掉、右边多出一块空白"（2026-09-24）。
+     宁可让宽内容自己在块内处理，也不许整列平移。 */
+  /* 网格列是这层"不滚动的壳"，它才是滑块的定位父层；真正的滚动容器是里面的列。 */
+  .library-scroll .library-reader-wrap { display: flex; min-width: 0; min-height: 0; position: relative; }
+  .library-scroll .library-reader-column { flex: 1 1 auto; overflow-x: hidden; overflow-y: auto; min-height: 0; scrollbar-width: none; }
+  .library-scroll .library-reader-column::-webkit-scrollbar { display: none; }
+  .library-scroll .library-reader-placeholder { overflow-y: auto; }
+}
 .library-toolbar { display: flex; min-height: 64px; align-items: center; justify-content: space-between; gap: 18px; border-bottom: 1px solid var(--border); }
 .library-toolbar-context { display: flex; min-width: 0; align-items: center; gap: var(--space-3); color: var(--blue); }
 .library-toolbar-context > div { display: grid; min-width: 0; gap: 1px; }
@@ -1140,7 +1170,7 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 .library-more-menu > summary { display: inline-flex; min-height: 36px; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0 var(--space-3); color: var(--muted); font-size: 13px; cursor: pointer; list-style: none; transition: border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
 .library-more-menu > summary::-webkit-details-marker { display: none; }
 .library-more-menu[open] > summary, .library-more-menu > summary:hover { border-color: var(--border-strong); color: var(--blue); }
-.library-more-menu > div { position: absolute; z-index: 12; top: calc(100% + 6px); right: 0; display: grid; min-width: 158px; overflow: hidden; border: 1px solid var(--border-strong); border-radius: var(--radius-md); padding: var(--space-1); background: var(--paper-soft); box-shadow: var(--shadow-float); }
+.library-more-menu > div { position: absolute; z-index: 40; top: calc(100% + 6px); right: 0; display: grid; min-width: 158px; overflow: hidden; border: 1px solid var(--border-strong); border-radius: var(--radius-md); padding: var(--space-1); background: var(--paper-soft); box-shadow: var(--shadow-float); }
 .library-more-menu > div button { display: flex; min-height: 34px; align-items: center; gap: var(--space-2); border: 0; border-radius: var(--radius-sm); padding: 0 var(--space-2); background: transparent; color: var(--ink); font: inherit; font-size: 13px; text-align: left; }
 .library-more-menu > div button:hover { background: var(--blue-wash); color: var(--blue); }
 .primary-button, .quiet-button { display: inline-flex; min-height: 40px; align-items: center; justify-content: center; gap: 7px; border-radius: var(--radius-md); padding: 0 13px; font-size: 13px; font-weight: 650; transition: background var(--dur-base) var(--ease-out), border-color var(--dur-base) var(--ease-out), box-shadow var(--dur-base) var(--ease-out), transform var(--dur-fast) var(--spring-micro); }
@@ -1153,6 +1183,17 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 .error-notice, .success-notice { display: flex; align-items: flex-start; gap: 10px; border: 1px solid rgba(147,77,67,0.2); border-radius: 8px; margin: 16px 0; padding: 12px 14px; background: rgba(147,77,67,0.04); color: var(--danger); font-size: 13px; }
 .error-notice > div { min-width: 0; flex: 1; }.error-notice strong { display: block; }.error-notice p { margin: 2px 0 0; color: var(--muted); line-height: 1.55; }
 .success-notice { border-color: rgba(122,155,118,0.25); background: var(--sage-wash); color: var(--sage-deep); }
+/* ①（E17）：文件夹同步的摘要条。数字要能对上用户能看到的东西，
+   明细默认收起，不抢资料列表的位置。 */
+.library-sync-summary { display: grid; gap: 8px; margin: 0 0 12px; border: 1px solid rgba(122,155,118,0.25); border-radius: var(--radius-md); padding: 10px 12px; background: var(--sage-wash); color: var(--sage-deep); font-size: 13px; line-height: 1.6; }
+.library-sync-line { display: flex; align-items: center; gap: 10px; }
+.library-sync-line span { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.library-sync-warning { margin: 0; color: var(--danger); font-size: 12.5px; }
+.library-sync-details > summary { cursor: pointer; color: var(--muted); font-size: 12.5px; }
+.library-sync-details > div { display: grid; gap: 8px; margin-top: 8px; }
+.library-sync-group strong { display: block; margin-bottom: 4px; font-size: 12.5px; font-weight: 650; }
+.library-sync-group ul { margin: 0; padding-left: 18px; color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; }
+
 /* App-level notice surface (E1): an operation that fails inside a chat card,
    dialog or side panel stays visible wherever the user is looking. */
 .notice-center { position: fixed; z-index: 130; right: 18px; bottom: 18px; display: grid; gap: 8px; width: min(360px, calc(100vw - 32px)); }
@@ -1323,9 +1364,12 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 .document-row-wrap:has(.document-delete) .document-scope { right: 33px; }
 .document-scope.selected { opacity: 1; color: var(--sage-deep); }
 .document-row-wrap:hover .document-delete, .document-row-wrap:focus-within .document-delete, .document-row-wrap:hover .document-scope, .document-row-wrap:focus-within .document-scope { opacity: 1; }
-.document-reader { min-width: 0; padding: 18px 0 60px 42px; }
+.document-reader { min-width: 0; padding: 18px var(--space-4) 60px; }
+/* 贴着选区出现的气泡（2026-09-24）：位置由 components/DocumentReader.tsx 按选区 Range 算，
+   left/top 直接来自选区矩形，再往上抬一个气泡的高度。 */
+.selection-toolbar.floating { position: fixed; z-index: 40; margin: 0; transform: translate(-50%, -100%); box-shadow: var(--shadow-lift); }
 .selection-toolbar { position: sticky; z-index: 3; top: 8px; display: flex; width: fit-content; min-height: 42px; align-items: center; gap: 9px; margin: 12px 0 -4px auto; border: 1px solid var(--border-strong); border-radius: 7px; padding: 5px 6px 5px 11px; background: rgba(247,245,239,.96); color: var(--blue); box-shadow: var(--shadow-soft); backdrop-filter: blur(10px); }.selection-toolbar span { color: var(--muted); font-size: 12px; }.selection-toolbar .quiet-button { min-height: 30px; padding: 0 9px; font-size: 13px; }
-.document-reader > header { border-bottom: 1px solid var(--border); padding: 0 0 25px; }.document-reader > header span, .section-location { color: var(--faint); font-size: 12px; }.document-reader > header h2 { margin: 7px 0; color: var(--blue); font-family: var(--font-article); font-size: 28px; font-weight: 500; }.document-reader > header p { margin: 0; color: var(--muted); font-family: var(--font-article); line-height: 1.7; }
+.document-reader > header { max-width: 800px; margin: 0 auto; border-bottom: 1px solid var(--border); padding: 0 0 25px; }.document-reader > header span, .section-location { color: var(--faint); font-size: 12px; }.document-reader > header h2 { margin: 7px 0; color: var(--blue); font-family: var(--font-article); font-size: 28px; font-weight: 500; }.document-reader > header p { margin: 0; color: var(--muted); font-family: var(--font-article); line-height: 1.7; }
 .reader-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
 .reader-actions .reader-extract { box-shadow: 0 4px 14px rgba(27,54,93,.14); }
 .reader-actions .status-completed { border-color: rgba(90,122,106,.35); color: var(--sage-deep); box-shadow: none; }
@@ -1381,6 +1425,7 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 
 .mobile-nav, .mobile-only, .scrim { display: none; }
 .context-header .icon-button { display: none; }
+.app-shell.right-collapsed .context-header .icon-button { display: inline-grid; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; clip-path: inset(50%); }
 
 @keyframes process-enter { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: translateY(0); } }
@@ -1565,8 +1610,94 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 .sidebar-rel-item:hover .rel-delete { opacity: 1; }
 
 /* Library rework (task 1): list/reader split + reader page. */
+/* ②（E17）：只读文件夹树。树是导航层——它出问题时资料列表照常可用。
+   （这里原来还有一条 `.library-workspace.with-tree { 260px 270px 1fr }` 的三列声明：
+   中间的"我的资料"列表早在 2026-09-24 就删了，它只会在某些类名组合下凭空多出一个空列，
+   所以一并删除；列宽统一由文件下方"资料库分栏"那一段负责。） */
+.library-tree-pane { border-right: 1px solid var(--border); padding: var(--space-4) var(--space-3) var(--space-4) 0; min-width: 0; }
+/* ④：标签条 + 阅读区是**一个**网格列。它俩以前是网格的两个孩子，一开标签就变成 4 个，
+   3 列网格自动换行，整个分栏塌陷（2026-09-24 用户截图）。 */
+.library-reader-column { display: flex; flex-direction: column; min-width: 0; }
+.library-tree { list-style: none; margin: 0; padding: 0; font-size: 13px; }
+.library-tree ul { list-style: none; margin: 0; padding: 0; }
+.library-tree-row { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 28px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--ink); text-align: left; cursor: pointer; }
+.library-tree-row:hover { background: var(--paper-soft); }
+.library-tree-row.selected { background: var(--blue-wash); color: var(--blue); }
+.library-tree-row.active { background: var(--blue-wash); color: var(--blue); font-weight: 650; }
+.library-tree-row.file:disabled { cursor: default; color: var(--muted); }
+.library-tree-row .library-tree-name { display: inline-flex; align-items: center; gap: 6px; min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.library-tree-row .library-tree-meta { flex: 0 0 auto; color: var(--muted); font-size: 12px; }
+.library-tree-row .library-tree-meta em { font-style: normal; color: var(--clay); }
+.library-tree-disclosure { display: inline-flex; width: 18px; height: 18px; align-items: center; justify-content: center; border: 0; border-radius: 4px; background: transparent; color: var(--muted); cursor: pointer; }
+.library-tree-dot { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; background: var(--border-strong); }
+.library-tree-dot.complete { background: var(--sage-deep); }
+.library-tree-dot.pending { background: var(--clay); }
+.library-tree-dot.failed { background: var(--danger); }
+.library-tree-dot.empty { background: var(--border-strong); }
+.library-tree-ignored { margin: 2px 0 6px; color: var(--muted); font-size: 12px; }
+.library-tree-ignored > summary { cursor: pointer; }
+.library-tree-ignored ul { margin: 4px 0 0; padding-left: 22px; }
+.library-tree-ignored li { display: flex; gap: 6px; overflow-wrap: anywhere; }
+.library-tree-ignored small { color: var(--faint); }
+
+/* ④：阅读区目录浮层（每份资料自己的小节列表，点击跳段）。 */
+.reader-toc { position: relative; }
+.reader-toc > summary { display: inline-flex; min-height: 40px; align-items: center; border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0 13px; background: var(--paper); color: var(--ink); font-size: 13px; font-weight: 650; list-style: none; cursor: pointer; }
+.reader-toc > summary::-webkit-details-marker { display: none; }
+.reader-toc > summary:hover { background: var(--paper-soft); }
+.reader-toc > div { position: absolute; z-index: 30; right: 0; top: 44px; display: grid; max-height: 60vh; overflow-y: auto; min-width: 220px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); padding: 4px; background: var(--paper); box-shadow: var(--shadow-float); }
+.reader-toc button { border: 0; border-radius: var(--radius-sm); padding: 7px 9px; background: transparent; color: var(--ink); text-align: left; font-size: 12.5px; cursor: pointer; }
+.reader-toc button:hover { background: var(--paper-soft); }
+/* ④：工具条只放「读」的动作，「改」的收进 ⋯ 菜单。 */
+.reader-more-actions { position: relative; }
+.reader-more-actions > summary { display: inline-flex; min-height: 40px; align-items: center; border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0 11px; background: var(--paper); color: var(--muted); font-size: 14px; list-style: none; cursor: pointer; }
+.reader-more-actions > summary::-webkit-details-marker { display: none; }
+.reader-more-actions > summary:hover { background: var(--paper-soft); color: var(--ink); }
+.reader-more-actions > div { position: absolute; z-index: 30; right: 0; top: 44px; display: grid; min-width: 180px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); padding: 4px; background: var(--paper); box-shadow: var(--shadow-float); }
+/* ④：阅读区标签条（参考项目：tab 条就是面板 header 的名字那一半）。 */
+.reader-tabs { display: flex; gap: 4px; overflow-x: auto; border-bottom: 1px solid var(--border); padding: 0 var(--space-3) var(--space-2); }
+.reader-tab { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 2px; max-width: 220px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--paper); }
+.reader-tab.active { border-color: rgba(27,54,93,0.28); background: var(--blue-wash); color: var(--blue); }
+.reader-tab > button:first-child { min-width: 0; max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 0; background: transparent; color: inherit; padding: 6px 8px; font-size: 12.5px; cursor: pointer; }
+.reader-tab-close { border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--muted); padding: 4px 6px; font-size: 14px; line-height: 1; cursor: pointer; }
+.reader-tab-close:hover { background: var(--paper-soft); color: var(--ink); }
+/* ③：树上的写操作（新建文件夹 / 行内重命名 / 行操作菜单）与已归档列表。 */
+.library-tree-create { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; color: var(--muted); font-size: 12.5px; }
+.library-tree-create input { min-width: 0; flex: 1; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 5px 8px; background: var(--paper); color: var(--ink); font-size: 12.5px; }
+.library-tree-rename { min-width: 0; flex: 1; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 4px 6px; background: var(--paper); color: var(--ink); font-size: 13px; }
+.library-tree-open { display: inline-flex; align-items: center; gap: 6px; min-width: 0; flex: 1; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.library-tree-actions { position: relative; flex: 0 0 auto; }
+.library-tree-actions > summary { display: inline-flex; width: 20px; height: 20px; align-items: center; justify-content: center; border-radius: var(--radius-sm); color: var(--muted); cursor: pointer; list-style: none; }
+.library-tree-actions > summary::-webkit-details-marker { display: none; }
+.library-tree-actions > div { position: absolute; z-index: 20; right: 0; top: 22px; display: grid; min-width: 190px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); padding: 4px; background: var(--paper); box-shadow: var(--shadow-float); }
+.library-tree-actions button { border: 0; border-radius: var(--radius-sm); padding: 7px 9px; background: transparent; color: var(--ink); text-align: left; font-size: 12.5px; cursor: pointer; }
+.library-tree-actions button:hover { background: var(--paper-soft); }
+.note-editor-hint.over-limit { color: var(--danger); }
+/* ⑤：整理建议面板（树上，只提议 → 执行 → 撤销）。 */
+.library-organize { margin-top: 10px; color: var(--muted); font-size: 12.5px; }
+.library-organize > summary { cursor: pointer; }
+.library-organize > div { display: grid; gap: 8px; margin-top: 6px; }
+.library-organize strong { color: var(--ink); font-size: 12.5px; }
+.library-organize p { margin: 2px 0; }
+.library-organize ul { margin: 4px 0; padding-left: 18px; }
+.library-organize-undo { display: grid; gap: 4px; margin-top: 10px; }
+.library-archive { margin-top: 10px; color: var(--muted); font-size: 12.5px; }
+.library-archive > summary { cursor: pointer; }
+.library-archive ul { margin: 6px 0 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.library-archive li { display: flex; align-items: center; gap: 6px; }
+.library-archive li span { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 .library-workspace.list-only { grid-template-columns: minmax(0, 1fr); }
 .library-workspace.list-only .document-rail { max-width: 880px; margin: 0 auto; }
+/* 资料库分栏（④，2026-09-24 按用户要求收敛）：
+   · **资料**：文件夹树 | 正文 —— 原来中间还有一栏"我的资料"平铺列表，
+     它和树功能重复、还白占一栏，已经删掉；搜索框搬进了树面板；
+   · **wiki**：列表 | 正文（树只在资料集合里渲染）。
+   这条必须排在 list-only 那条之后：同优先级下后写的才生效。 */
+.library-workspace.with-tree,
+.library-workspace.list-only.with-tree { grid-template-columns: 240px minmax(0, 1fr); }
+.library-reader-placeholder { display: flex; align-items: center; justify-content: center; min-width: 0; }
+.library-workspace.list-only.with-tree .document-rail { max-width: none; margin: 0; }
 .document-edit { position: absolute; right: 33px; width: 29px; height: 29px; opacity: 0; color: var(--blue); }
 .document-row-wrap:hover .document-edit, .document-row-wrap:focus-within .document-edit { opacity: 1; }
 
@@ -1578,7 +1709,9 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 .reader-topbar-title h2 { margin: var(--space-1) 0 0; overflow: hidden; color: var(--blue); font-family: var(--font-reading); font-size: 20px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .reader-topbar-actions { display: flex; align-items: center; gap: 6px; }
 .reader-article { padding: 24px 0 60px; }
-.reader-article .reader-prose { margin: 0 auto; }
+/* 阅读量度（2026-09-24 用户反馈"文章不够大"）：正文列 720 → 800px、字号 17 → 18px，
+   正文与顶部的视图行、页头保持同一条中轴。 */
+.reader-article .reader-prose { max-width: 800px; margin: 0 auto; font-size: 18px; }
 
 /* DocumentEditor split-pane (TASKS_LIBRARY_REWORK task 3.4.2). */
 .document-editor-header-actions { display: flex; gap: 2px; }
@@ -1590,15 +1723,27 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 .document-editor-preview-body { max-width: 720px; margin: 0 auto; padding: 18px 22px; }
 
 /* Chapter rail (TASKS_LIBRARY_REWORK task 2.3.2): right-edge hover zone. */
-.chapter-rail-zone { position: fixed; z-index: 30; top: 0; right: 0; bottom: 0; width: 64px; }
+/* 右边缘的 64px 悬停带已在 2026-09-24 删除：它压在 8px 滚动条上，鼠标一进去就弹目录，
+   用户根本拖不了滚动条。目录改由工具条按钮 / ] 打开。 */
 .chapter-rail { position: fixed; z-index: 31; top: 0; right: 0; bottom: 0; width: 220px; display: flex; flex-direction: column; border-left: 1px solid var(--border); background: var(--paper-soft); box-shadow: var(--shadow-float); }
 .chapter-rail > header { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid var(--border); color: var(--blue); font-size: 12px; font-weight: 650; }
 .chapter-rail > div { flex: 1 1 auto; overflow-y: auto; padding: 8px 10px; }
 .chapter-rail > div > button { display: block; width: 100%; border: 0; border-radius: 6px; padding: 7px 9px; background: transparent; color: var(--muted); font-size: 12px; text-align: left; }
 .chapter-rail > div > button:hover { background: var(--blue-wash); color: var(--blue); }
+.chapter-rail > div > button.active { background: var(--blue-wash); color: var(--blue); font-weight: 650; }
+.reader-toc-button.active { border-color: rgba(27,54,93,.2); background: var(--blue-wash); color: var(--blue); }
+
+/* 阅读区自绘滚动条：常驻可见、可拖，滚动或悬停时加深加宽（绝对定位，不撑动正文）。 */
+.scroll-indicator { position: absolute; z-index: 25; top: 0; right: 0; bottom: 0; width: 12px; }
+.scroll-indicator-thumb { position: absolute; right: 2px; width: 6px; border-radius: var(--radius-sm); background: rgba(122,112,101,.38); transition: width var(--dur-base) var(--ease-out), background var(--dur-base) var(--ease-out); }
+.scroll-indicator:hover .scroll-indicator-thumb, .scroll-indicator.active .scroll-indicator-thumb { width: 8px; background: rgba(90,82,73,.6); }
 
 /* Reader tabs (TASKS_LIBRARY_REWORK task 2.3.1). */
-.reader-tabs { position: sticky; top: 0; z-index: 20; display: flex; gap: 4px; overflow-x: auto; border-bottom: 1px solid var(--border); padding: 8px 0; background: var(--bg); }
+/* 吸顶标签栏必须**不透明**：原来写的是不存在的 `--bg`（无 fallback → 声明被丢掉），
+   于是滚动时正文从它下面透出来，看着就是一条挡视野的"透明条"（2026-09-24 用户反馈）。 */
+/* flex: 0 0 auto 是必须的：阅读列是 flex 容器，标签条作为子项会被压缩 ——
+   实测它曾被压成 18px 高（按钮 31px 直接溢出），用户看到的就是"导航条变窄了"（2026-09-24）。 */
+.reader-tabs { position: sticky; top: 0; z-index: 20; display: flex; flex: 0 0 auto; gap: 4px; overflow-x: auto; border-bottom: 1px solid var(--border); padding: 8px 0; background: var(--paper); }
 .reader-tab { flex: 0 0 auto; max-width: 200px; overflow: hidden; border: 1px solid var(--border); border-radius: 6px 6px 0 0; padding: 6px 12px; background: transparent; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .reader-tab.active { background: var(--paper-soft); color: var(--blue); border-bottom-color: var(--paper-soft); font-weight: 650; }
 
@@ -1650,6 +1795,88 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 /* A question is a light sheet: real border, tinted state rail, no shadow. */
 .bank-list { display: grid; gap: 10px; }
 .bank-row { display: grid; gap: 8px; border: 1px solid var(--border); border-left: 3px solid var(--border); border-radius: 8px; padding: 14px 18px; background: var(--paper-soft); }
+
+/* E8：导入结果的**逐文件**清单（需要处理的排最前，带可行动原因与重试）。 */
+.import-report {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--paper);
+}
+
+.import-report-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.import-report-head > div:first-child {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.import-report-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.import-report-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.import-report-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.import-report-name {
+  min-width: 0;
+  max-width: 42%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+}
+
+/* E8：拖拽热区 —— 计数器 + 窗口级兜底，松手在窗口外也能退掉覆盖层。 */
+.import-drop-zone { position: relative; }
+
+.import-drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 2px dashed var(--blue);
+  border-radius: var(--radius-lg);
+  background: var(--paper);
+  color: var(--blue);
+  font-size: 14px;
+  pointer-events: none;
+}
+
+.import-report-icon { flex: 0 0 auto; }
+.import-report-icon.is-ok { color: var(--blue); }
+.import-report-icon.is-warning { color: var(--blue); opacity: 0.85; }
+
 .bank-row.state-incorrect { border-left-color: var(--clay); }
 .bank-row.state-partial, .bank-row.state-correct { border-left-color: var(--sage); }
 .bank-row-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
@@ -1686,4 +1913,296 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
   .bank-search { flex: 1 1 100%; }
   .bank-answer-grid { grid-template-columns: minmax(0,1fr); }
 }
+
+/* 阅读视图切换：与相邻的 .quiet-button 完全同一套度量（:1146 的 40px / --radius-md /
+   0 13px / 13px 650），选中态按 DESIGN.md §913 用墨蓝浅底 + 墨蓝文字 + 清楚边线。 */
+.reader-view-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.reader-view-switch button {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  padding: 0 13px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: background var(--dur-base) var(--ease-out), border-color var(--dur-base) var(--ease-out), box-shadow var(--dur-base) var(--ease-out), transform var(--dur-fast) var(--spring-micro);
+}
+
+.reader-view-switch button:hover {
+  border-color: rgba(27, 54, 93, 0.2);
+  background: var(--blue-wash);
+  color: var(--blue);
+  box-shadow: var(--shadow-lift);
+}
+
+.reader-view-switch button:active {
+  transform: scale(0.97);
+}
+
+.reader-view-switch button.active {
+  border-color: rgba(27, 54, 93, 0.2);
+  background: var(--blue-wash);
+  color: var(--blue);
+  box-shadow: inset 0 0 0 1px rgba(27, 54, 93, 0.18);
+}
+/* 阅读控件行：视图切换（原文/按小节）与「用系统打开」跟着正文列宽右对齐
+   （控件由 components/DocumentReader.tsx 持有）。 */
+.reader-view-row { display: flex; align-items: center; justify-content: flex-end; gap: 6px; max-width: 800px; margin: 0 auto 12px; }
+
+/* 从引用跳进来时的定位提示：同样走墨蓝浅底，与选中态同一族。 */
+.reader-citation-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--border, #ddd);
+  border-radius: 6px;
+  background: var(--blue-wash, #edf1f6);
+  color: var(--blue, #1b365d);
+  font-size: 13px;
+}
+
+/* E8：运行中的导入进度（进度条 + 当场取消）。 */
+.import-progress {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--paper);
+}
+
+.import-progress-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.import-progress-line { display: flex; align-items: baseline; gap: 8px; font-size: 13px; }
+
+.import-progress-track {
+  height: 4px;
+  border-radius: var(--radius-sm);
+  background: var(--blue-wash);
+  overflow: hidden;
+}
+
+.import-progress-fill {
+  height: 100%;
+  background: var(--blue);
+  transition: width var(--dur-base) var(--ease-out);
+}
+
+/* W1 E2：「保存到这个目录」填的是父目录，这里把**最终**会创建的目录说清楚。 */
+.library-root-preview {
+  margin: 0;
+  font-size: 12px;
+  color: var(--faint);
+  word-break: break-all;
+}
+
+.library-root-preview code {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* W1 E1：错误码带来的"下一步"（可重试 / 去设置 / 重新接入资料库）。 */
+.error-hint {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* W1 E6：复习页的"下一步"与推导掌握度。 */
+.review-objective {
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  border-left: 3px solid var(--blue);
+  background: var(--blue-wash);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}
+
+.review-mastery {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--faint);
+}
+
+/* W1 E5：逐题生成的开关与实时列表（每出一道立刻显示）。 */
+.practice-stepwise {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.practice-stepwise-live {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--paper);
+}
+
+.practice-stepwise-live header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.practice-stepwise-live ol {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+/* W1 E7：我的划线（引文 + 现状 + 定位/删除）。 */
+.reader-anchors {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--paper);
+}
+
+.reader-anchors header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.reader-anchors ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.reader-anchor {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.reader-anchor.stale .reader-anchor-quote {
+  color: var(--faint);
+  text-decoration: line-through;
+}
+
+.reader-anchor-quote {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: left;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.reader-anchor-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--faint);
+}
+
+/* W1 E11：回答被输出上限截断时的提示与"接着写"。 */
+.answer-truncated {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 8px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--blue);
+  border-radius: var(--radius-sm);
+  background: var(--paper);
+  font-size: 13px;
+}
+
+/* W1 E7：正文里的划线上色（DOM 装饰，引文定位）。 */
+mark.reader-anchor-mark {
+  background: color-mix(in srgb, var(--blue) 18%, transparent);
+  border-bottom: 1px solid var(--blue);
+  color: inherit;
+  padding: 0 1px;
+}
+
+/* W1 E7：划线汇总写入后的提示。 */
+.document-editor-notice {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* W1 E5：逐题生成时每道题的实时卡片。 */
+.practice-stepwise-questions {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.practice-stepwise-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  background: var(--paper);
+}
+
+.practice-stepwise-card header {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.practice-card-question {
+  margin: 0;
+  font-size: 13px;
+}
+
+.practice-card-options {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
 

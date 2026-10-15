@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ArrowLeft, ArrowRight, Check, Database, ShieldCheck, Sparkles, UserRound } from "lucide-react";
 
+import { api } from "../lib/api";
 import type { DocumentSummary, SettingsSummary } from "../types";
 import { BrandIllustration } from "./common";
 import { Modal } from "../ui/Modal";
@@ -30,6 +31,8 @@ export function OnboardingDialog({
   const [learningGoal, setLearningGoal] = useState("");
   const [memoryEnabled, setMemoryEnabled] = useState(true);
   const [webEnabled, setWebEnabled] = useState(false);
+  const [connectionState, setConnectionState] = useState<"idle" | "testing" | "ready" | "failed">("idle");
+  const [connectionMessage, setConnectionMessage] = useState("");
   const provider = settings?.providers.find((item) => item.name === settings.default_provider);
 
   const steps = [
@@ -45,6 +48,20 @@ export function OnboardingDialog({
       memoryEnabled,
       webEnabled,
     });
+  }
+
+  async function testConnection() {
+    if (!provider?.configured) return;
+    setConnectionState("testing");
+    setConnectionMessage("正在验证连接…");
+    try {
+      const result = await api.providerTest(provider.name);
+      setConnectionState("ready");
+      setConnectionMessage(result.latency_ms + "ms · 连接正常，可以开始对话和出题。");
+    } catch (reason) {
+      setConnectionState("failed");
+      setConnectionMessage(reason instanceof Error ? reason.message : "连接验证失败，请检查配置。");
+    }
   }
 
   return (
@@ -72,8 +89,16 @@ export function OnboardingDialog({
           </div>}
 
           {step === 1 && <div className="connection-check">
-            <span className={provider?.configured ? "connection-mark ready" : "connection-mark"}><Sparkles /></span>
-            <div><strong>{settings?.default_provider || "尚未选择模型"}</strong><p>{provider?.configured ? "连接已就绪，可以开始对话和出题。" : "当前模型尚未配置密钥。你仍可先整理资料，配置完成后再开始 AI 对话。"}</p></div>
+            <span className={connectionState === "ready" ? "connection-mark ready" : "connection-mark"}><Sparkles /></span>
+            <div>
+              <strong>{settings?.default_provider || "尚未选择模型"}</strong>
+              <p>{connectionMessage || (provider?.configured ? "配置已保存，但尚未验证连接。" : "当前模型尚未配置密钥。你仍可先整理资料，配置完成后再开始 AI 对话。")}</p>
+              {provider?.configured && (
+                <button className="quiet-button" type="button" disabled={connectionState === "testing"} onClick={() => void testConnection()}>
+                  {connectionState === "testing" ? "正在测试" : "测试连接"}
+                </button>
+              )}
+            </div>
           </div>}
 
           {step === 2 && <div className="onboarding-sources">

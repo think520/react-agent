@@ -1,0 +1,141 @@
+import shutil
+import sqlite3
+import pytest
+from service.kb_service import KBService
+from service.library_service import LibraryService
+from tests.test_organization_apply import _sync
+from rag.sqlite_store import KBSQLiteStore
+from web.backend.errors import APIError, unwrap_service_result
+from tests.test_web_backend import backend_client
+
+@pytest.fixture
+def audit_library(tmp_path):
+    library = tmp_path / "library"
+    LibraryService(str(tmp_path / "home")).initialize(str(library), name="Review probe")
+    for name in ("first.md", "second.md"):
+        (library / name).write_text("A lesson with enough text for indexing. " * 20, encoding="utf-8")
+    return library
+
+def test_indexed_move_exception_retains_recovery_batch(audit_library, monkeypatch):
+    _sync(audit_library, monkeypatch)
+    service = KBService(str(audit_library))
+    original = shutil.move
+    calls = 0
+    def fail_second(source, target):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise PermissionError("review injected: file is locked")
+        return original(source, target)
+    monkeypatch.setattr("service.kb_service.shutil.move", fail_second)
+    try:
+        service.apply_organization(["first.md", "second.md"], "Lessons")
+    except PermissionError:
+        pass
+    assert (audit_library / "Lessons/first.md").exists()
+    assert service.organization_state()["pending_undo"] is not None, "first file moved but no recovery batch"
+
+def test_index_failure_after_physical_move_retains_recovery(audit_library, monkeypatch):
+    _sync(audit_library, monkeypatch)
+    service = KBService(str(audit_library))
+    def fail_index(*args, **kwargs):
+        raise sqlite3.OperationalError("review injected: database is locked")
+    monkeypatch.setattr(KBSQLiteStore, "remap_chunk_ids", fail_index)
+    try:
+        service.apply_organization(["first.md"], "Lessons")
+    except sqlite3.OperationalError:
+        pass
+    assert (audit_library / "Lessons/first.md").exists()
+    assert not (audit_library / "first.md").exists()
+    assert service.organization_state()["pending_undo"] is not None, "physical move completed before failing index update, no recovery batch"
+
+def test_recovery_plan_exists_before_first_move(audit_library, monkeypatch):
+    service = KBService(str(audit_library))
+    def stop_process(source, target):
+        assert service.organization_state()["pending_undo"] is not None, "no write-ahead plan before filesystem mutation"
+        raise SystemExit("review simulated process exit")
+    monkeypatch.setattr("service.kb_service.shutil.move", stop_process)
+    with pytest.raises(SystemExit):
+        service.apply_organization(["first.md"], "Lessons")
+
+def test_partial_batch_survives_http_error_mapping(audit_library, monkeypatch):
+    original = shutil.move
+    calls = 0
+    def fail_second(source, target):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("review injected failure")
+        return original(source, target)
+    monkeypatch.setattr("service.kb_service.shutil.move", fail_second)
+    result = KBService(str(audit_library)).apply_organization(["first.md", "second.md"], "Lessons")
+    assert result["batch_id"] and len(result["moved"]) == 1
+    with pytest.raises(APIError) as caught:
+        unwrap_service_result(result, code="organization_failed")
+    assert caught.value.details and caught.value.details.get("batch_id") == result["batch_id"], "HTTP error discards recovery metadata"
+
+def test_undo_does_not_overwrite_new_original_file(audit_library):
+    service = KBService(str(audit_library))
+    result = service.apply_organization(["first.md"], "Lessons")
+    assert result["ok"]
+    (audit_library / "first.md").write_text("New user file created after organizing", encoding="utf-8")
+    service.undo_organization(batch_id=result["batch_id"])
+    assert (audit_library / "first.md").read_text(encoding="utf-8") == "New user file created after organizing", "undo replaced a new user file"
+
+def test_retry_failed_import_retries_indexing(audit_library, monkeypatch):
+    from types import SimpleNamespace
+    service = KBService(str(audit_library))
+    calls = 0
+    def flaky_sync(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("review transient sync failure")
+        return SimpleNamespace(to_dict=lambda: {"extraction_counts": {"complete": 1}})
+    monkeypatch.setattr(service, "_sync_registered_sources", flaky_sync)
+    files = [("retry.md", b"A new learning document")]
+    with pytest.raises(RuntimeError):
+        service.import_files(files)
+    result = service.import_files(files)
+    assert result["ok"]
+    assert calls == 2, "raw file exists, but retry is silently classified as duplicate without indexing"
+
+def test_import_summary_counts_only_uploaded_files(audit_library, monkeypatch):
+    _sync(audit_library, monkeypatch)
+    existing = audit_library / "first.md"
+    existing.write_text(existing.read_text(encoding="utf-8") + "Changed unrelated material", encoding="utf-8")
+    result = KBService(str(audit_library)).import_files([("new.md", b"A newly uploaded learning document. " * 20)])
+    assert result["imported"] == ["new.md"]
+    assert result["sync"]["extraction_counts"].get("complete", 0) <= len(result["imported"]), result
+
+def test_reimport_after_organizing_does_not_duplicate_document(audit_library, monkeypatch):
+    _sync(audit_library, monkeypatch)
+    service = KBService(str(audit_library))
+    content = b"A newly uploaded learning document. " * 20
+    first = service.import_files([("upload.md", content)])
+    assert first["ok"]
+    document = next(item for item in service.list_documents(collection="all")["documents"] if item["relative_path"] == "raw/inbox/upload.md")
+    moved = service.move_document(document["document_id"], "Lessons/upload.md")
+    assert moved["ok"], moved
+    again = service.import_files([("upload.md", content)])
+    assert again["imported"] == [], "dedup only scans inbox and misses organized documents"
+
+def test_failed_chat_retains_failure_summary_after_reload(backend_client, monkeypatch):
+    import json
+    from types import SimpleNamespace
+    runtime = SimpleNamespace(workspace=str(backend_client.workspace), skills_prompt=None, memory_prompt=None, create_provider=lambda _name, model=None: object(), refresh_memory=lambda: None, create_trace=lambda _session_id: object())
+    def failed_run(**kwargs):
+        kwargs["session"].add_message("user", kwargs["user_input"])
+        raise RuntimeError("review simulated provider exception")
+        yield
+    monkeypatch.setattr("web.backend.routers.chat.get_runtime_context", lambda: runtime)
+    monkeypatch.setattr("web.backend.routers.chat.AgentService.run_stream", failed_run)
+    response = backend_client.post("/api/chat/runs", json={"message": "explain vectors", "save": True})
+    assert "event: run_failed" in response.text
+    payloads = [json.loads(line[6:]) for line in response.text.splitlines() if line.startswith("data: ")]
+    session_id = next(item["chat_session_id"] for item in payloads if "chat_session_id" in item)
+    detail = backend_client.get(f"/api/chat/sessions/{session_id}").json()
+    messages = detail["messages"]
+    assert any(message.get("failed") or any(artifact.get("status") == "failed" for artifact in message.get("artifacts", [])) for message in messages), detail
+
+

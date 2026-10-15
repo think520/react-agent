@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { EmptyState, ErrorNotice, LoadingState, textValue } from "../components/common";
 import { api } from "../lib/api";
 import { wrongAnswerFallbackNotice } from "../lib/wrongAnswerMode";
+import { masteryLabel, nextObjectiveText } from "../lib/reviewObjective";
 import { notifyInfo } from "../stores/noticeStore";
 import type { ReviewQueue } from "../types";
 
@@ -15,6 +16,8 @@ interface ReviewItem {
   meta: string;
   questionIds: number[];
   attemptId?: number;
+  /** W1 E6：引擎推导的掌握度（含来源说明），没有就不显示。 */
+  mastery?: string;
 }
 
 function questionIds(record: Record<string, unknown>): number[] {
@@ -22,6 +25,21 @@ function questionIds(record: Record<string, unknown>): number[] {
     return record.question_ids.filter((value): value is number => typeof value === "number");
   }
   return typeof record.question_id === "number" ? [record.question_id] : [];
+}
+
+function nextReviewText(queue: ReviewQueue | null): string {
+  const next = queue?.next_review;
+  if (!next?.next_review) return "";
+  const date = new Date(next.next_review);
+  if (Number.isNaN(date.getTime())) return "";
+  const when = date.toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  return "下一次复习：" + when + " · " + next.concept;
+}
+
+/** W1 E9：队列带回来的"最近一次答错是哪次"（没有作答历史就是 undefined）。 */
+function lastAttemptId(record: Record<string, unknown>): number | undefined {
+  const value = record.last_attempt_id;
+  return typeof value === "number" && value > 0 ? value : undefined;
 }
 
 export function ReviewPage() {
@@ -50,20 +68,23 @@ export function ReviewPage() {
       return "按照学习计划到期";
     };
     return [
-      ...queue.due_concepts.map((record, index) => ({ id: `due-${index}`, kind: "到期" as const, title: textValue(record, ["concept", "title", "name"], "待复习知识点"), meta: dueMeta(textValue(record, ["status"], "按照学习计划到期")), questionIds: questionIds(record) })),
+      ...queue.due_concepts.map((record, index) => ({ id: `due-${index}`, kind: "到期" as const, title: textValue(record, ["concept", "title", "name"], "待复习知识点"), meta: dueMeta(textValue(record, ["status"], "按照学习计划到期")), questionIds: questionIds(record), attemptId: lastAttemptId(record), mastery: masteryLabel(record) })),
       ...queue.wrong_answers.map((record, index) => ({ id: `wrong-${index}`, kind: "错题" as const, title: textValue(record, ["question", "concept", "title"], "需要回看的错题"), meta: textValue(record, ["feedback", "course"], "将生成考察同一误区的变式题"), questionIds: questionIds(record), attemptId: typeof record.attempt_id === "number" ? record.attempt_id : undefined })),
-      ...queue.weaknesses.map((record, index) => ({ id: `weak-${index}`, kind: "薄弱点" as const, title: textValue(record, ["concept", "name", "title"], "尚未掌握的知识点"), meta: textValue(record, ["reason", "status"], "建议进行针对性练习"), questionIds: questionIds(record) })),
+      ...queue.weaknesses.map((record, index) => ({ id: `weak-${index}`, kind: "薄弱点" as const, title: textValue(record, ["concept", "name", "title"], "尚未掌握的知识点"), meta: textValue(record, ["reason", "status"], "建议进行针对性练习"), questionIds: questionIds(record), attemptId: lastAttemptId(record), mastery: masteryLabel(record) })),
     ];
   }, [queue]);
+  const nextReview = nextReviewText(queue);
 
   async function startReview(item: ReviewItem) {
     setWorkingId(item.id);
     setError("");
     try {
       let ids: number[];
-      if (item.kind === "错题" && item.attemptId) {
+      // W1 E9：只要这条记录带着"最近一次答错"，到期与薄弱点也走**变式通道** ——
+      // 变式针对的是当初那个误区，而不是把原题重放一遍（没有作答历史的新概念才按概念出题）。
+      if (item.attemptId) {
         const variant = await api.generateWrongAnswerVariant(item.attemptId);
-        const fallbackReason = wrongAnswerFallbackNotice(variant.mode);
+        const fallbackReason = wrongAnswerFallbackNotice(variant.mode, variant.reason);
         if (fallbackReason) notifyInfo(fallbackReason);
         ids = [variant.question_id];
       } else {
@@ -84,16 +105,25 @@ export function ReviewPage() {
         {error && <ErrorNotice message={error} />}
         {loading ? <LoadingState label="正在整理复习队列…" state="thinking" /> : items.length ? <>
           {queue?.personalization?.length ? <details className="personalization-chip review-personalization"><summary><Brain size={13} />复习排序依据 <span>{queue.personalization.length}</span></summary><div>{queue.personalization.map((reference) => <section key={reference.id}><strong>{reference.title}</strong><p>{reference.content}</p><small>{reference.scope === "global" ? "全局" : "当前资料库"}</small></section>)}</div></details> : null}
+          {/* W1 E6：先把"今天下一件该做什么"说出来（纯函数引擎给优先级）。 */}
+          {nextObjectiveText(queue?.next_objective) && (
+            <p className="review-objective">{nextObjectiveText(queue?.next_objective)}</p>
+          )}
           <div className="review-summary">
             <div><strong>{queue?.due_concepts.length || 0}</strong><span>到期知识点</span></div>
             <div><strong>{queue?.wrong_total ?? queue?.wrong_answers.length ?? 0}</strong><span>需要回看的错题</span></div>
             <div><strong>{queue?.weaknesses.length || 0}</strong><span>当前薄弱点</span></div>
           </div>
+          <p className="review-logic-note">错题表示最近一次未答对的题；薄弱点来自更长期的表现汇总，答对一道题后不会立即把知识点从薄弱点中删除。</p>
           <div className="review-list">{items.map((item, index) => (
             <article className="review-row" key={item.id}>
               <span className="review-index">{String(index + 1).padStart(2, "0")}</span>
               <span className={`review-kind ${item.kind}`}>{item.kind}</span>
-              <div><h3>{item.title}</h3><p>{item.meta}</p></div>
+              <div>
+                <h3>{item.title}</h3>
+                <p>{item.meta}</p>
+                {item.mastery && <small className="review-mastery">{item.mastery}</small>}
+              </div>
               <button className="quiet-button" disabled={Boolean(workingId)} onClick={() => void startReview(item)}>{workingId === item.id ? "正在准备" : item.kind === "错题" ? "生成变式题" : "开始复习"}<ArrowRight size={15} /></button>
             </article>
           ))}</div>
@@ -103,7 +133,7 @@ export function ReviewPage() {
               <button className="text-link" type="button" onClick={() => navigate("/practice/bank")}>在题库中查看全部</button>
             </p>
           )}
-        </> : <EmptyState state="resting" title="今天没有到期内容" description="可以开始一轮新练习，或回到资料库继续阅读。" action={<button className="primary-button" onClick={() => navigate("/practice")}><BookOpenCheck size={17} />开始练习</button>} />}
+        </> : <EmptyState state="resting" title="今天没有到期内容" description={nextReview || "可以开始一轮新练习，或回到资料库继续阅读。"} action={<button className="primary-button" onClick={() => navigate("/practice")}><BookOpenCheck size={17} />开始练习</button>} />}
         <section className="review-note"><Target size={20} /><div><strong>复习不是重新读一遍</strong><p>Bobodan 会优先让你主动回忆，再用解释和资料定位补齐缺口。</p></div><CheckCircle2 size={18} /></section>
       </div>
     </section>

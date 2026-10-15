@@ -1,0 +1,490 @@
+{
+  "空白资料.txt": {
+    "status": 400,
+    "body": {
+      "error": {
+        "code": "request_failed",
+        "message": "No supported files were provided",
+        "details": null
+      }
+    }
+  },
+  "损坏资料.pdf": {
+    "status": 200,
+    "body": {
+      "ok": true,
+      "imported": [
+        "损坏资料.pdf"
+      ],
+      "rejected": [],
+      "sync": {
+        "scanned_files": 2,
+        "updated_files": 1,
+        "chunk_count": 1,
+        "relationship_count": 0,
+        "graph_backend": "concept_sqlite",
+        "error_files": 0,
+        "errors": [],
+        "extraction_counts": {
+          "complete": 1,
+          "partial": 0,
+          "empty": 0,
+          "error": 0
+        },
+        "skipped_files": [
+          "course/README.md"
+        ],
+        "changed_files": 1,
+        "scan_incomplete": false,
+        "incomplete_reasons": [],
+        "added_files": [
+          "course/inbox/损坏资料.pdf"
+        ],
+        "removed_files": [],
+        "duplicates_cleaned": [],
+        "pending_removal": []
+      }
+    }
+  },
+  "无文本PDF.pdf": {
+    "status": 200,
+    "body": {
+      "ok": true,
+      "imported": [
+        "无文本PDF.pdf"
+      ],
+      "rejected": [],
+      "sync": {
+        "scanned_files": 3,
+        "updated_files": 1,
+        "chunk_count": 0,
+        "relationship_count": 0,
+        "graph_backend": "concept_sqlite",
+        "error_files": 0,
+        "errors": [],
+        "extraction_counts": {
+          "complete": 0,
+          "partial": 0,
+          "empty": 1,
+          "error": 0
+        },
+        "skipped_files": [
+          "course/README.md"
+        ],
+        "changed_files": 1,
+        "scan_incomplete": false,
+        "incomplete_reasons": [],
+        "added_files": [
+          "course/inbox/无文本PDF.pdf"
+        ],
+        "removed_files": [],
+        "duplicates_cleaned": [],
+        "pending_removal": []
+      }
+    }
+  },
+  "复习调度.docx": {
+    "status": 200,
+    "body": {
+      "ok": true,
+      "imported": [
+        "复习调度.docx"
+      ],
+      "rejected": [],
+      "sync": {
+        "scanned_files": 4,
+        "updated_files": 1,
+        "chunk_count": 1,
+        "relationship_count": 0,
+        "graph_backend": "concept_sqlite",
+        "error_files": 0,
+        "errors": [],
+        "extraction_counts": {
+          "complete": 1,
+          "partial": 0,
+          "empty": 0,
+          "error": 0
+        },
+        "skipped_files": [
+          "course/README.md"
+        ],
+        "changed_files": 1,
+        "scan_incomplete": false,
+        "incomplete_reasons": [],
+        "added_files": [
+          "course/inbox/复习调度.docx"
+        ],
+        "removed_files": [],
+        "duplicates_cleaned": [],
+        "pending_removal": []
+      }
+    }
+  },
+  "RAG学习材料.md": {
+    "status": 200,
+    "body": {
+      "ok": true,
+      "imported": [
+        "RAG学习材料 (2).md"
+      ],
+      "rejected": [],
+      "sync": {
+        "scanned_files": 5,
+        "updated_files": 1,
+        "chunk_count": 5,
+        "relationship_count": 0,
+        "graph_backend": "concept_sqlite",
+        "error_files": 0,
+        "errors": [],
+        "extraction_counts": {
+          "complete": 1,
+          "partial": 0,
+          "empty": 0,
+          "error": 0
+        },
+        "skipped_files": [
+          "course/README.md"
+        ],
+        "changed_files": 1,
+        "scan_incomplete": false,
+        "incomplete_reasons": [],
+        "added_files": [
+          "course/inbox/RAG学习材料 (2).md"
+        ],
+        "removed_files": [],
+        "duplicates_cleaned": [],
+        "pending_removal": []
+      }
+    }
+  },
+  "/api/kb/documents?collection=material": {
+    "ok": true,
+    "documents": [
+      {
+        "document_id": "4fe782f5eafa89fd",
+        "source": "course/inbox/复习调度.docx",
+        "relative_path": "raw/inbox/复习调度.docx",
+        "kind": "course_document",
+        "title": "复习调度",
+        "course": null,
+        "summary": "复习调度\n首次复习在一天后；第二次六天后。答错后重新安排。",
+        "vector_status": "pending",
+        "vector_error": null,
+        "extraction_status": "complete",
+        "extraction_total_units": 1,
+        "extraction_extracted_units": 1,
+        "extraction_empty_units": 0,
+        "updated_at": "2026-09-25 12:43:46",
+        "content_hash": "57269cfeee4562fc44e8dbff0228f49d91a796caa3f77f7532acf6ffe41f10df",
+        "managed": true,
+        "origin": "managed",
+        "has_original": true,
+        "collection": "material",
+        "wiki_type": null,
+        "canonical_id": null,
+        "content_role": "content"
+      },
+      {
+        "document_id": "e2ba86c0b53c1f0e",
+        "source": "course/inbox/损坏资料.pdf",
+        "relative_path": "raw/inbox/损坏资料.pdf",
+        "kind": "course_document",
+        "title": "损坏资料",
+        "course": null,
+        "summary": "this is not a PDF",
+        "vector_status": "pending",
+        "vector_error": null,
+        "extraction_status": "complete",
+        "extraction_total_units": 1,
+        "extraction_extracted_units": 1,
+        "extraction_empty_units": 0,
+        "updated_at": "2026-09-25 12:43:41",
+        "content_hash": "c01c3f7725b397f3f7ea20c67b71c56b1e5ea4f45809a4a46867e7c0ff4bda7a",
+        "managed": true,
+        "origin": "managed",
+        "has_original": true,
+        "collection": "material",
+        "wiki_type": null,
+        "canonical_id": null,
+        "content_role": "content"
+      },
+      {
+        "document_id": "625d2afd8be73881",
+        "source": "course/inbox/无文本PDF.pdf",
+        "relative_path": "raw/inbox/无文本PDF.pdf",
+        "kind": "course_document",
+        "title": "无文本PDF",
+        "course": null,
+        "summary": "",
+        "vector_status": "pending",
+        "vector_error": null,
+        "extraction_status": "empty",
+        "extraction_total_units": 1,
+        "extraction_extracted_units": 0,
+        "extraction_empty_units": 1,
+        "updated_at": "2026-09-25 12:43:43",
+        "content_hash": "b3e44df802e407df3d586bb3d4b3a7db17bc868565f04a061077f7d8de3e44bd",
+        "managed": true,
+        "origin": "managed",
+        "has_original": true,
+        "collection": "material",
+        "wiki_type": null,
+        "canonical_id": null,
+        "content_role": "content"
+      },
+      {
+        "document_id": "5c87dba5e315d48b",
+        "source": "course/inbox/RAG学习材料 (2).md",
+        "relative_path": "raw/inbox/RAG学习材料 (2).md",
+        "kind": "course_document",
+        "title": "检索增强生成入门",
+        "course": null,
+        "summary": "# 检索增强生成入门 向量检索将文本转换为向量，通过相似度查找语义相关资料。它不是事实正确性的保证。 关键词检索适合精确术语。SQLite FTS5 提供全文检索。",
+        "vector_status": "pending",
+        "vector_error": null,
+        "extraction_status": "complete",
+        "extraction_total_units": 5,
+        "extraction_extracted_units": 5,
+        "extraction_empty_units": 0,
+        "updated_at": "2026-09-25 12:43:49",
+        "content_hash": "1352b0128eb43c9b1f91b5e7ccaf709c5395a06f19d1be97a1918643f0085bc7",
+        "managed": true,
+        "origin": "managed",
+        "has_original": true,
+        "collection": "material",
+        "wiki_type": null,
+        "canonical_id": null,
+        "content_role": "content"
+      },
+      {
+        "document_id": "56068ee874e4750e",
+        "source": "course/inbox/RAG学习材料.md",
+        "relative_path": "raw/inbox/RAG学习材料.md",
+        "kind": "course_document",
+        "title": "检索增强生成入门",
+        "course": null,
+        "summary": "# 检索增强生成入门 向量检索将文本转换为向量，通过相似度查找语义相关资料。它不是事实正确性的保证。 关键词检索适合精确术语。SQLite FTS5 提供全文检索。",
+        "vector_status": "pending",
+        "vector_error": null,
+        "extraction_status": "complete",
+        "extraction_total_units": 5,
+        "extraction_extracted_units": 5,
+        "extraction_empty_units": 0,
+        "updated_at": "2026-09-25 12:36:25",
+        "content_hash": "1352b0128eb43c9b1f91b5e7ccaf709c5395a06f19d1be97a1918643f0085bc7",
+        "managed": true,
+        "origin": "managed",
+        "has_original": true,
+        "collection": "material",
+        "wiki_type": null,
+        "canonical_id": null,
+        "content_role": "content"
+      }
+    ]
+  },
+  "/api/kb/tree": {
+    "ok": true,
+    "tree": {
+      "type": "folder",
+      "name": "审查体验库",
+      "path": "",
+      "children": [
+        {
+          "type": "folder",
+          "name": "raw",
+          "path": "raw",
+          "children": [
+            {
+              "type": "folder",
+              "name": "articles",
+              "path": "raw/articles",
+              "children": [],
+              "files": [],
+              "material_count": 0,
+              "indexed_count": 0,
+              "ignored_count": 0,
+              "ignored_here": []
+            },
+            {
+              "type": "folder",
+              "name": "assets",
+              "path": "raw/assets",
+              "children": [],
+              "files": [],
+              "material_count": 0,
+              "indexed_count": 0,
+              "ignored_count": 0,
+              "ignored_here": []
+            },
+            {
+              "type": "folder",
+              "name": "books",
+              "path": "raw/books",
+              "children": [],
+              "files": [],
+              "material_count": 0,
+              "indexed_count": 0,
+              "ignored_count": 0,
+              "ignored_here": []
+            },
+            {
+              "type": "folder",
+              "name": "inbox",
+              "path": "raw/inbox",
+              "children": [],
+              "files": [
+                {
+                  "type": "file",
+                  "name": "RAG学习材料 (2).md",
+                  "path": "raw/inbox/RAG学习材料 (2).md",
+                  "size": 451,
+                  "modified_at": "2026-09-25T12:43:46.983494+00:00",
+                  "indexed": true,
+                  "document_id": "5c87dba5e315d48b",
+                  "title": "检索增强生成入门",
+                  "extraction_status": "complete",
+                  "chunk_count": 0
+                },
+                {
+                  "type": "file",
+                  "name": "RAG学习材料.md",
+                  "path": "raw/inbox/RAG学习材料.md",
+                  "size": 451,
+                  "modified_at": "2026-09-25T12:36:22.272208+00:00",
+                  "indexed": true,
+                  "document_id": "56068ee874e4750e",
+                  "title": "检索增强生成入门",
+                  "extraction_status": "complete",
+                  "chunk_count": 0
+                },
+                {
+                  "type": "file",
+                  "name": "复习调度.docx",
+                  "path": "raw/inbox/复习调度.docx",
+                  "size": 36712,
+                  "modified_at": "2026-09-25T12:43:43.966717+00:00",
+                  "indexed": true,
+                  "document_id": "4fe782f5eafa89fd",
+                  "title": "复习调度",
+                  "extraction_status": "complete",
+                  "chunk_count": 0
+                },
+                {
+                  "type": "file",
+                  "name": "损坏资料.pdf",
+                  "path": "raw/inbox/损坏资料.pdf",
+                  "size": 17,
+                  "modified_at": "2026-09-25T12:43:38.574260+00:00",
+                  "indexed": true,
+                  "document_id": "e2ba86c0b53c1f0e",
+                  "title": "损坏资料",
+                  "extraction_status": "complete",
+                  "chunk_count": 0
+                },
+                {
+                  "type": "file",
+                  "name": "无文本PDF.pdf",
+                  "path": "raw/inbox/无文本PDF.pdf",
+                  "size": 431,
+                  "modified_at": "2026-09-25T12:43:41.936356+00:00",
+                  "indexed": true,
+                  "document_id": "625d2afd8be73881",
+                  "title": "无文本PDF",
+                  "extraction_status": "empty",
+                  "chunk_count": 0
+                }
+              ],
+              "material_count": 5,
+              "indexed_count": 5,
+              "ignored_count": 0,
+              "ignored_here": []
+            },
+            {
+              "type": "folder",
+              "name": "misc",
+              "path": "raw/misc",
+              "children": [],
+              "files": [],
+              "material_count": 0,
+              "indexed_count": 0,
+              "ignored_count": 0,
+              "ignored_here": []
+            },
+            {
+              "type": "folder",
+              "name": "papers",
+              "path": "raw/papers",
+              "children": [],
+              "files": [],
+              "material_count": 0,
+              "indexed_count": 0,
+              "ignored_count": 0,
+              "ignored_here": []
+            }
+          ],
+          "files": [],
+          "material_count": 5,
+          "indexed_count": 5,
+          "ignored_count": 1,
+          "ignored_here": [
+            {
+              "name": "README.md",
+              "path": "raw/README.md",
+              "reason": "repo_metadata"
+            }
+          ]
+        }
+      ],
+      "files": [],
+      "material_count": 5,
+      "indexed_count": 5,
+      "ignored_count": 1,
+      "ignored_here": []
+    }
+  },
+  "/api/learning/review-queue": {
+    "ok": true,
+    "due_concepts": [],
+    "wrong_answers": [],
+    "wrong_total": 0,
+    "weaknesses": [
+      {
+        "concept": "向量检索",
+        "total_attempts": 2,
+        "wrong_count": 1,
+        "error_rate": 0.5,
+        "question_ids": [
+          3,
+          2,
+          1
+        ]
+      }
+    ],
+    "personalization": [
+      {
+        "id": "mastery:向量检索",
+        "title": "向量检索",
+        "scope": "library",
+        "kind": "mastery",
+        "content": "learning, 10%",
+        "updated_at": "2026-09-25T12:41:22.883843+00:00"
+      }
+    ]
+  },
+  "long_note": {
+    "status": 422,
+    "body": {
+      "error": {
+        "code": "invalid_request",
+        "message": "Request validation failed.",
+        "details": [
+          {
+            "field": "content",
+            "message": "String should have at most 5000 characters",
+            "type": "string_too_long"
+          }
+        ]
+      }
+    }
+  }
+}

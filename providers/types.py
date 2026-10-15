@@ -28,6 +28,9 @@ class LLMResponse:
     model: str = ""
     request_id: str = ""
     usage: dict[str, Any] | None = None
+    # W1 E11：provider 如实带回的停止原因（"stop" / "length" / "tool_calls" …）。
+    # 以前没有这个字段，循环看不出"被输出上限截断"，会把半截回答当成完成。
+    finish_reason: str = ""
 
 
 @dataclass
@@ -46,3 +49,4 @@ class LLMStreamChunk:
     tool_call_deltas: list[ToolCallDelta] = field(default_factory=list)
     usage: dict[str, Any] | None = None
     request_id: str = ""
+    finish_reason: str = ""

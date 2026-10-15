@@ -86,11 +86,11 @@ class AgentService:
     # --- Session management ---
 
     @staticmethod
-    def list_sessions(save_dir: str) -> dict[str, Any]:
-        """List all saved sessions with metadata."""
+    def list_sessions(save_dir: str, kind: str = "chat") -> dict[str, Any]:
+        """List saved sessions with metadata (W1 E14: filtered by category)."""
         from core.session import Session
 
-        summaries = Session.list_session_summaries(save_dir)
+        summaries = Session.list_session_summaries(save_dir, kind=kind)
         return _ok(sessions=summaries)
 
     @staticmethod
@@ -129,7 +129,9 @@ class AgentService:
         if query.endswith(".json"):
             query = query[:-5]
 
-        summaries = Session.list_session_summaries(save_dir)
+        # W1 E14：**加载**不是列列表 —— 必须能看见所有类别，否则练习/复习的辅导会话
+        # 会加载不到（这正是加了默认过滤后回归测试抓到的）。
+        summaries = Session.list_session_summaries(save_dir, kind="all")
         if not summaries:
             return _err("No saved sessions found")
 
@@ -209,6 +211,8 @@ class AgentService:
         cancel_token=None,
         resume_tool_call_id: str | None = None,
         resume_tool_content: str = "",
+        kb_seed: str | None = None,
+        exploration_budget: int | None = None,
     ) -> Iterator[dict]:
         """Create an AgentLoop and return its event stream iterator.
 
@@ -227,6 +231,8 @@ class AgentService:
             skills_prompt=skills_prompt,
             mcp_prompt=mcp_prompt,
             request_prompt=request_prompt,
+            # W1 E12：预检索块（拼到末尾 user 消息，不替代工具检索）。
+            kb_seed=kb_seed,
             trace_writer=trace_writer,
             tools_schema=tools_schema,
             allowed_tool_names=allowed_tool_names,
@@ -234,6 +240,9 @@ class AgentService:
             memory_injector=memory_injector,
             # P0-8: without this the compaction threshold never fired.
             context_window=context_window,
+            # W1 E11 / D4：探索预算可由配置覆盖；没配就沿用 AgentLoop 的默认
+            # （max_iterations - SETTLEMENT_ROUNDS）。
+            exploration_budget=exploration_budget,
             cancel_token=cancel_token,
         )
         return agent.run_stream(

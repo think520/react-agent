@@ -56,7 +56,15 @@ def create_app() -> FastAPI:
         if request.url.path.startswith(scoped_prefixes):
             service = get_library_service()
             registry = service.list_libraries()
+            # Media URLs (<img src>, <a href>) cannot carry custom headers, so the
+            # same opaque library id is also accepted as a query parameter. It
+            # still has to resolve to a registered library below - this widens
+            # the channel, not the authority.
             library_id = request.headers.get("X-Bobodan-Library-ID")
+            # The query fallback exists only because media URLs cannot carry
+            # headers; it must not become a second way to scope every API call.
+            if not library_id and request.url.path.endswith(("/asset", "/raw")):
+                library_id = request.query_params.get("library")
             try:
                 record = service.resolve(library_id) if registry["libraries"] else None
             except ValueError as exc:

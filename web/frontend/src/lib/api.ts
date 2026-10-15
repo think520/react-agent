@@ -42,6 +42,123 @@ import type {
   WebArtifact,
 } from "../types";
 
+/**
+ * 资料库文件夹同步的摘要（E17 ①）。
+ *
+ * 每个数字都要对得上用户能看到的东西：新增 / 更新 / 移除 / 待确认移除 /
+ * 跳过（仓库元文件）/ 重复清理 / 失败（含每份的原因）。
+ */
+export interface KnowledgeSyncSummary {
+  ok: boolean;
+  scanned_files: number;
+  updated_files: number;
+  changed_files: number;
+  error_files: number;
+  errors: { source?: string; error?: string }[];
+  extraction_counts: Record<string, number>;
+  added_files: string[];
+  removed_files: string[];
+  duplicates_cleaned: string[];
+  pending_removal: string[];
+  skipped_files: string[];
+  /** 本次扫描看不全（路径读不到，或已登记的来源根此刻不可用）——此时不会移除任何资料。 */
+  scan_incomplete: boolean;
+  incomplete_reasons: string[];
+}
+
+/** 只读文件夹树（E17 ②）。计数是**含子目录**的合计；ignored_here 只列本层。 */
+export interface KnowledgeTreeFile {
+  type: "file";
+  name: string;
+  /** 相对资料库根的真实路径（不含盘符，绝不外泄绝对路径）。 */
+  path: string;
+  size: number;
+  modified_at: string;
+  indexed: boolean;
+  document_id: string | null;
+  title: string;
+  extraction_status: string | null;
+  chunk_count: number;
+}
+
+export interface KnowledgeTreeIgnored {
+  name: string;
+  path: string;
+  reason: "repo_metadata" | "unsupported_type";
+}
+
+export interface KnowledgeTreeFolder {
+  type: "folder";
+  name: string;
+  path: string;
+  children: KnowledgeTreeFolder[];
+  files: KnowledgeTreeFile[];
+  material_count: number;
+  indexed_count: number;
+  ignored_count: number;
+  ignored_here: KnowledgeTreeIgnored[];
+}
+
+export interface KnowledgeTree extends KnowledgeTreeFolder {
+  /** 库名，只用于展示。 */
+  name: string;
+}
+
+/** 一条归档记录（E17 ③）：文件被移到了哪里，以及怎么放回去。 */
+export interface ArchivedEntry {
+  entry_id: string;
+  archived_at: string;
+  reason: string;
+  document_id: string;
+  source: string;
+  title: string;
+  original_path: string;
+  archived_path: string;
+  size: number;
+}
+
+/** 一条整理建议（E17 ⑤）：只提议，等用户确认才执行。 */
+export interface OrganizationProposal {
+  kind: string;
+  title: string;
+  reason: string;
+  items: string[];
+  suggested_folder: string;
+  requires_confirmation: boolean;
+  /** "model" = 模型提的，"rules" = 确定性规则提的（E17 ⑤）。 */
+  source?: string;
+}
+
+/** 整理建议的来源与降级原因（E17 ⑤）：界面必须如实说明是谁提的。 */
+export interface OrganizationProposalResult {
+  ok: boolean;
+  proposals: OrganizationProposal[];
+  source: string;
+  degraded: string;
+}
+
+/** 服务端记下的一步整理（E17 ⑤）：界面刷新后据此决定还能不能撤销。 */
+export interface OrganizationBatch {
+  batch_id: string;
+  created_at: string;
+  target_folder: string;
+  moves: { document_id: string; from: string; to: string; state?: string; error?: string }[];
+  /** planned / applying / applied / partial / failed / partial_undo（F02 的"先写计划"）。 */
+  status?: string;
+}
+
+/** E8：一次导入里**单个文件**的结果（失败清单 UI 按它逐条说明）。 */
+export interface ImportBatchResult {
+  filename: string;
+  status: string;
+  path?: string;
+  searchable?: boolean;
+  chunks?: number;
+  extraction?: string | null;
+  reason?: string;
+  existing?: string;
+}
+
 interface ErrorEnvelope {
   error?: { code?: string; message?: string; details?: unknown };
 }
@@ -114,7 +231,56 @@ export const api = {
     `/api/libraries/${encodeURIComponent(id)}/activate`,
     { method: "POST" },
   ),
-  syncLibrary: (id: string) => request<Record<string, unknown>>(
+  /** 只读文件夹树（E17 ②）：真实文件夹 + 资料徽章 + 已忽略计数。 */
+  /** 新建文件夹 / 删文件夹（只删容器）/ 重命名移动（E17 ③）。 */
+  /** 整理建议：只提议，不动文件（E17 ⑤）。 */
+  organizationProposals: () => request<OrganizationProposalResult>(
+    "/api/kb/organize/proposals",
+  ),
+  /** 让模型归类（E17 ⑤）：仍然只提议，**一份文件都不动**，执行前还要用户确认。 */
+  aiOrganizationProposals: () => request<OrganizationProposalResult>(
+    "/api/kb/organize/proposals",
+    json({ use_model: true }),
+  ),
+  applyOrganization: (items: string[], targetFolder: string) => request<{
+    ok: boolean;
+    moved: { document_id: string; from: string; to: string }[];
+    /** 部分失败时：没搬成的那几项（F07 —— 界面必须如实说清楚）。 */
+    failed?: { document_id?: string; from: string; to: string; state?: string; error?: string }[];
+    batch_id: string;
+    partial?: boolean;
+  }>("/api/kb/organize/apply", json({ items, target_folder: targetFolder })),
+  /** 还有没有一步可以撤销（刷新页面后仍要知道）。 */
+  organizationState: () => request<{ ok: boolean; pending_undo: OrganizationBatch | null }>(
+    "/api/kb/organize/state",
+  ),
+  /** 不带清单时撤销服务端台账里的最后一步（刷新 / 重启后依然可撤销）。 */
+  undoOrganization: (moves?: { document_id: string; from: string; to: string }[]) => request<{
+    ok: boolean;
+    restored: string[];
+    /** 原位已经有文件、因此**没有**覆盖的那些项（F03）。 */
+    skipped?: { from: string; to: string; reason: string }[];
+  }>("/api/kb/organize/undo", json(moves ? { moves } : {})),
+  createFolder: (path: string) => request<{ ok: boolean; folder: { name: string; path: string } }>(
+    "/api/kb/folders",
+    json({ path }),
+  ),
+  deleteFolder: (path: string) => request<{ ok: boolean; moved: string[]; kept_directory: boolean }>(
+    "/api/kb/folders/delete",
+    json({ path, mode: "ungroup" }),
+  ),
+  moveDocument: (documentId: string, path: string) => request<{
+    ok: boolean;
+    migration: { document_id: string; new_source: string; relative_path: string };
+  }>(`/api/kb/documents/${encodeURIComponent(documentId)}/move`, json({ path })),
+  /** 已归档的资料（归档只是移走，永远可以恢复）。 */
+  knowledgeArchive: () => request<{ ok: boolean; entries: ArchivedEntry[] }>("/api/kb/archive"),
+  restoreArchived: (entryId: string) => request<{ ok: boolean; restored: ArchivedEntry }>(
+    `/api/kb/archive/${encodeURIComponent(entryId)}/restore`,
+    { method: "POST" },
+  ),
+  knowledgeTree: () => request<{ ok: boolean; tree: KnowledgeTree }>("/api/kb/tree"),
+  syncLibrary: (id: string) => request<KnowledgeSyncSummary>(
     `/api/libraries/${encodeURIComponent(id)}/sync`,
     { method: "POST" },
   ),
@@ -230,14 +396,96 @@ export const api = {
   documentImpact: (id: string) => request<DocumentImpact>(
     `/api/kb/documents/${encodeURIComponent(id)}/impact`,
   ),
-  importDocuments: async (files: File[]) => {
+  importDocuments: async (files: File[], duplicateStrategy: "keep_existing" | "save_copy" = "keep_existing") => {
     const form = new FormData();
     files.forEach((file) => form.append("files", file));
-    return request<{ imported: string[]; rejected: unknown[]; sync: Record<string, unknown> }>(
+    form.append("duplicate_strategy", duplicateStrategy);
+    return request<{
+      imported: string[];
+      duplicates?: Array<{ filename: string; existing: string; reason: string }>;
+      /** 字节已经在库里、这次是**补做索引**的那些（F04）。 */
+      pending?: Array<{ filename: string; existing: string; reason: string }>;
+      rejected: unknown[];
+      /** E8：用户中途取消了这次导入（已收下的保持收下）。 */
+      cancelled?: boolean;
+      /** 本次上传的逐文件结果（F09：批次计数只认它）。 */
+      results?: ImportBatchResult[];
+      /** 全库增量同步：单独展示，不当批次计数用。 */
+      library_sync: KnowledgeSyncSummary;
+    }>(
       "/api/kb/import",
       { method: "POST", body: form },
     );
   },
+  /** E8：开始一次**可观察、可取消**的导入（返回 import_id，进度靠轮询）。 */
+  startImport: async (files: File[], duplicateStrategy: "keep_existing" | "save_copy" = "keep_existing") => {
+    const form = new FormData();
+    files.forEach((file) => form.append("files", file));
+    form.append("duplicate_strategy", duplicateStrategy);
+    return request<{ ok: boolean; import_id: string }>(
+      "/api/kb/imports",
+      { method: "POST", body: form },
+    );
+  },
+  /** E8：读一次导入进度快照（终态时带 result）。 */
+  importStatus: (importId: string) => request<{
+    import_id: string;
+    status: "running" | "completed" | "failed" | "cancelled";
+    phase: string;
+    files_total: number;
+    files_done: number;
+    current: string;
+    sources_total: number;
+    sources_done: number;
+    error: string;
+    result: {
+      imported: string[];
+      duplicates?: Array<{ filename: string; existing: string; reason: string }>;
+      rejected: unknown[];
+      pending?: unknown[];
+      cancelled?: boolean;
+      results?: ImportBatchResult[];
+      library_sync: KnowledgeSyncSummary;
+    } | null;
+  }>(`/api/kb/imports/${encodeURIComponent(importId)}`),
+  /** E8：协作式取消（在文件边界生效，已收下的保持收下）。 */
+  cancelImport: (importId: string) => request<{ ok: boolean; cancelled: boolean }>(
+    `/api/kb/imports/${encodeURIComponent(importId)}/cancel`,
+    { method: "POST" },
+  ),  /** W1 E2：新建资料库的默认值 —— 由后端给，前端不再自己拼路径。 */
+  libraryDefaults: () => request<{ name: string; parent_path: string; root_path: string }>(
+    "/api/libraries/defaults",
+  ),
+  /** W1 E2：把「父目录 + 名称」翻译成将来真正创建的根目录（与创建走同一套规则）。 */
+  libraryRootPreview: (name: string, parent: string) => request<{
+    name: string; parent_path: string; root_path: string;
+  }>(`/api/libraries/root-preview?name=${encodeURIComponent(name)}&parent=${encodeURIComponent(parent)}`),
+  /** W1 E4：跳过这个 ask_user 卡片（关闭交互，由调用方随即恢复暂停的 run）。 */
+  skipInteraction: (interactionId: string, chatSessionId: string) =>
+    request<{ chat_session_id: string; artifact: ChatArtifact }>(
+      "/api/chat/interactions/" + encodeURIComponent(interactionId) + "/skip",
+      json({ chat_session_id: chatSessionId, answers: [] }),
+    ),
+  /** W1 E5：三阶段逐题生成（SSE，边出边收）。 */
+  streamQuestionPipeline,
+  /** W1 E7：某份资料上的划线（每条都带 resolution：exact / relocated / stale）。 */
+  documentAnchors: (documentId: string) => request<{
+    anchors: Array<{
+      anchor_id: string; document_id: string; chunk_id: string; quote: string;
+      char_start: number | null; char_end: number | null; note: string; created_at: string;
+      resolution: { status: string; char_start: number | null; char_end: number | null };
+    }>;
+    count: number;
+  }>(`/api/kb/documents/${encodeURIComponent(documentId)}/anchors`),
+  createDocumentAnchor: (
+    documentId: string,
+    body: { chunk_id?: string; quote: string; char_start?: number | null; char_end?: number | null; note?: string },
+  ) => request<{ anchor: { anchor_id: string } }>(
+    `/api/kb/documents/${encodeURIComponent(documentId)}/anchors`, json(body),
+  ),
+  deleteDocumentAnchor: (anchorId: string) => request<{ anchor_id: string }>(
+    `/api/kb/anchors/${encodeURIComponent(anchorId)}`, { method: "DELETE" },
+  ),
   wikiHealth: () => request<WikiHealth>("/api/kb/wiki/maintenance"),
   wikiCoverage: () => request<{ documents: WikiDocumentCoverage[]; counts: Record<string, number> }>("/api/kb/wiki/coverage"),
   maintainWiki: () => request<{ archived_count: number; canonical_count: number; health: WikiHealth; plan_id: string; repair_plan: WikiRepairPlan }>(
@@ -564,7 +812,13 @@ export const api = {
     review_count?: number;
     next_review?: string | null;
   }>(`/api/learning/progress?concept=${encodeURIComponent(concept)}`),
-  generateWrongAnswerVariant: (attemptId: number) => request<{ question_id: number; question: Question; mode?: string }>(
+  generateWrongAnswerVariant: (attemptId: number) => request<{
+    question_id: number;
+    question: Question;
+    mode?: string;
+    /** W1 E3：更精确的归因（evidence_used / evidence_missing / variant_failed / no_provider / generation_failed）。 */
+    reason?: string;
+  }>(
     "/api/quiz/wrong/variant",
     json({ attempt_id: attemptId }),
   ),
@@ -695,6 +949,12 @@ export const api = {
     `/api/graph/extractions/${encodeURIComponent(runId)}/retry`,
     json(body),
   ),
+  /** ④ 原文检索：命中带 chunk_id，可直接深链到阅读器定位那一段。 */
+  searchKnowledge: (query: string, collection = "material") =>
+    request<{ ok: boolean; results: Array<{ chunk_id: string; document_id: string; collection?: string; title?: string; source?: string; text?: string; score?: number }> }>(
+      "/api/kb/search",
+      json({ query, top_k: 10, collection }),
+    ),
   graphSavePositions: (positions: Array<{ concept_id: string; x: number; y: number }>, viewId = "default") =>
     request<{ saved: number }>("/api/graph/positions", json({ positions, view_id: viewId })),
   // P0-1: a run outlives its fetch now, so stopping one is a request to the
@@ -713,12 +973,13 @@ interface StreamFrameMeta {
 
 export type ChatStreamEvent =
   | { event: "run_started"; data: { run_id: string; chat_session_id: string } & StreamFrameMeta }
-  | { event: "message_delta"; data: { content: string } & StreamFrameMeta }
+  | { event: "message_delta"; data: { content: string; call_role?: "narration" | "finish" } & StreamFrameMeta }
   | { event: "status"; data: { phase: string; message: string; tool_name?: string; elapsed?: number } & StreamFrameMeta }
   | { event: "citation"; data: { attribution: Attribution } & StreamFrameMeta }
   | { event: "chat_artifact"; data: { artifact: ChatArtifact } & StreamFrameMeta }
   | { event: "personalization"; data: { references: PersonalizationRef[] } & StreamFrameMeta }
   | { event: "practice" | "learning_update"; data: Record<string, unknown> & StreamFrameMeta }
+  | { event: "answer_truncated"; data: { continuing: boolean; continues: number } & StreamFrameMeta }
   | { event: "run_completed"; data: { chat_session_id: string; termination_reason: string } & StreamFrameMeta }
   | { event: "run_failed"; data: { error: { code: string; message: string } } & StreamFrameMeta };
 
@@ -726,6 +987,132 @@ export type ChatStreamEvent =
 export const RESUME_DELAYS_MS = [300, 900, 2000];
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Asset URL for an image referenced by a document (relative markdown paths).
+ *
+ * <img> cannot carry the library header, so the id travels in the query string -
+ * the backend still requires it to resolve to a registered library, and the
+ * resolved path to stay inside the workspace. Absolute/data/blob sources are
+ * left alone: they are not ours to rewrite.
+ */
+/** The original file's text, for the in-page original view (md/txt only). */
+export async function fetchDocumentRawText(documentId: string): Promise<string> {
+  const response = await fetch(documentRawUrl(documentId), {
+    headers: activeLibraryId ? { "X-Bobodan-Library-ID": activeLibraryId } : undefined,
+  });
+  if (!response.ok) {
+    throw new ApiError(
+      "无法读取原文 (" + response.status + ")",
+      "document_raw_unavailable",
+      response.status,
+    );
+  }
+  return response.text();
+}
+
+/**
+ * Split leading YAML frontmatter so the reader can *fold* it instead of either
+ * dumping it at the top of every article or quietly hiding part of the file.
+ */
+export function splitFrontmatter(text: string): { meta: string; body: string } {
+  const match = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(text || "");
+  if (!match) return { meta: "", body: text || "" };
+  return { meta: match[1].trim(), body: (text || "").slice(match[0].length) };
+}
+
+
+/**
+ * Raw URL suitable for an <iframe>/<img>: those requests cannot carry the
+ * library header, so the id travels in the query string (the backend accepts it
+ * for media routes only, and still requires a registered library).
+ */
+/**
+ * Download the original file with its real name.
+ *
+ * Word and PowerPoint files have no in-page renderer, so the honest options are
+ * "download it" or "open it with the system app" - both start here, and neither
+ * pretends the browser can lay the document out.
+ */
+export async function downloadDocumentRaw(documentId: string, filename: string): Promise<void> {
+  const response = await fetch(documentRawUrl(documentId), {
+    headers: activeLibraryId ? { "X-Bobodan-Library-ID": activeLibraryId } : undefined,
+  });
+  if (!response.ok) {
+    throw new ApiError(
+      "无法取回原件 (" + response.status + ")",
+      "document_raw_unavailable",
+      response.status,
+    );
+  }
+  const url = URL.createObjectURL(await response.blob());
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename || documentId;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  // The download needs the URL until it starts; revoke lazily.
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+
+export function documentRawEmbedUrl(documentId: string): string {
+  const base = documentRawUrl(documentId);
+  return activeLibraryId ? base + "?library=" + encodeURIComponent(activeLibraryId) : base;
+}
+
+
+export function documentAssetUrl(documentId: string, source: string): string {
+  if (!source || /^(https?:|data:|blob:|\/)/i.test(source)) return source;
+  const base =
+    "/api/kb/documents/" + encodeURIComponent(documentId) + "/asset?path=" + encodeURIComponent(source);
+  return activeLibraryId ? base + "&library=" + encodeURIComponent(activeLibraryId) : base;
+}
+
+
+export function documentRawUrl(documentId: string): string {
+  return "/api/kb/documents/" + encodeURIComponent(documentId) + "/raw";
+}
+
+/**
+ * Open the original file in a new tab (原文查看).
+ *
+ * Parsing loses images and flattens tables, so the reader has to be able to see
+ * the file itself. A plain <a href> cannot carry the library header, so the
+ * bytes are fetched first and handed to the browser as a blob - PDFs still land
+ * in the built-in viewer, and what arrives is the untouched original.
+ */
+export async function openDocumentRaw(documentId: string): Promise<void> {
+  // Open the tab *synchronously*: once we await, the user gesture is gone and
+  // popup blockers win. "noopener" is set by hand because passing it to
+  // window.open makes the returned handle unusable.
+  const target = window.open("", "_blank");
+  if (!target) {
+    throw new ApiError("浏览器拦截了新标签页", "popup_blocked", 0);
+  }
+  target.opener = null;
+  try {
+    const response = await fetch(documentRawUrl(documentId), {
+      headers: activeLibraryId ? { "X-Bobodan-Library-ID": activeLibraryId } : undefined,
+    });
+    if (!response.ok) {
+      throw new ApiError(
+        "无法打开原文 (" + response.status + ")",
+        "document_raw_unavailable",
+        response.status,
+      );
+    }
+    const url = URL.createObjectURL(await response.blob());
+    target.location.href = url;
+    // The viewer needs the URL while it is open; revoke lazily.
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  } catch (error) {
+    target.close();
+    throw error;
+  }
+}
+
 
 export function parseFrame(frame: string): ChatStreamEvent | null {
   let event = "message";
@@ -744,6 +1131,76 @@ export function parseFrame(frame: string): ChatStreamEvent | null {
   }
 }
 
+/** W1 E5：三阶段管线的 SSE 事件。 */
+export type QuestionPipelineEvent =
+  | { event: "pipeline_started"; topic: string; count: number }
+  | { event: "explore_done"; chunks: number }
+  | { event: "quiz_plan"; source: string; plan: Array<{ topic: string; question_type?: string; difficulty?: string }> }
+  | { event: "quiz_question_emitted"; index: number; total: number; question_id: number; topic?: string; question?: {
+      id: number; question: string; type?: string; options?: string[];
+      /** W1 E5：实时卡片要显示的字段。 */
+      difficulty?: string; concepts?: string[];
+    } }
+  | { event: "quiz_question_failed"; index: number; total: number; topic?: string }
+  | { event: "pipeline_done"; question_ids: number[]; total: number }
+  | { event: "pipeline_cancelled"; emitted: number; total: number }
+  | { event: "pipeline_failed"; code?: string; error?: string }
+  | { event: "pipeline_result"; ok?: boolean; question_ids?: number[]; plan_source?: string };
+
+/** W1 E5：逐题生成并**边出边收**（每题一帧，不等整批）。 */
+export async function streamQuestionPipeline(
+  body: { topic: string; count?: number; document_ids?: string[]; course?: string },
+  onEvent: (event: QuestionPipelineEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const response = await fetch("/api/quiz/pipeline/stream", {
+    ...json({
+      topic: body.topic,
+      count: body.count ?? 5,
+      document_ids: body.document_ids ?? [],
+      // W1 E5：课程范围可选（界面暂时只发资料范围）。
+      ...(body.course ? { course: body.course } : {}),
+    }),
+    signal,
+  });
+  if (!response.ok || !response.body) {
+    let error: ErrorEnvelope = {};
+    try {
+      error = (await response.json()) as ErrorEnvelope;
+    } catch {
+      // Non-JSON error bodies keep the generic message below.
+    }
+    throw new ApiError(
+      error.error?.message || `无法开始逐题生成 (${response.status})`,
+      error.error?.code || "pipeline_unavailable",
+      response.status,
+      error.error?.details,
+    );
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    // SSE frames are separated by a blank line; a partial tail stays in the buffer.
+    const frames = buffer.split("\n\n");
+    buffer = frames.pop() ?? "";
+    for (const frame of frames) {
+      for (const line of frame.split("\n")) {
+        if (!line.startsWith("data: ")) continue;
+        try {
+          onEvent(JSON.parse(line.slice("data: ".length)) as QuestionPipelineEvent);
+        } catch {
+          // A malformed frame must not kill the stream.
+        }
+      }
+    }
+  }
+}
+
 export async function streamChat(
   message: string,
   chatSessionId: string | undefined,
@@ -759,6 +1216,11 @@ export async function streamChat(
     strictDocumentScope?: boolean;
     /** E4: continue a paused ask_user turn instead of sending a new message. */
     resumeInteractionId?: string;
+    /** F05: replay the persisted failed turn without duplicating its user message. */
+    retryFailed?: boolean;
+    /** W1 E14: session category — "chat" (default) | "practice" | "review". Only
+     * stamped when the session is created, so tutor sessions stay out of the main list. */
+    sessionKind?: "chat" | "practice" | "review";
     /** P0-1: called with the stream id as soon as a frame names it. */
     onStreamId?: (streamId: string) => void;
   },
@@ -769,7 +1231,9 @@ export async function streamChat(
     ...json({
       message,
       resume_interaction_id: preferences.resumeInteractionId || null,
+      retry_failed: preferences.retryFailed ?? false,
       chat_session_id: chatSessionId || null,
+      kind: preferences.sessionKind || "chat",
       document_ids: preferences.strictDocumentScope ? documentIds : [],
       preferred_document_ids: preferences.strictDocumentScope ? [] : documentIds,
       learning_goal: preferences.learningGoal || "",
@@ -808,7 +1272,8 @@ export async function streamChat(
   const consumedSeqs = new Set<number>();
   let lastSeq = 0;
   let streamId = "";
-  let terminal = false;
+  let terminal: "completed" | "failed" | null = null;
+  let terminalError: unknown = null;
   const dispatch = (parsed: ChatStreamEvent) => {
     const seq = parsed.data.seq;
     if (typeof seq === "number" && consumedSeqs.has(seq)) return;
@@ -822,8 +1287,21 @@ export async function streamChat(
       // response, so it needs the id as soon as one frame names it.
       preferences.onStreamId?.(streamId);
     }
-    if (parsed.event === "run_completed" || parsed.event === "run_failed") terminal = true;
-    onEvent(parsed);
+    if (parsed.event === "run_completed") terminal = "completed";
+    if (parsed.event === "run_failed") {
+      terminal = "failed";
+      terminalError = new ApiError(
+        parsed.data.error.message || "AI 运行失败，请重试。",
+        parsed.data.error.code || "chat_run_failed",
+        0,
+      );
+    }
+    try {
+      onEvent(parsed);
+    } catch (error) {
+      if (parsed.event === "run_failed") terminalError = error;
+      else throw error;
+    }
   };
   const pump = async (body: ReadableStream<Uint8Array>): Promise<number> => {
     const reader = body.getReader();
@@ -878,18 +1356,23 @@ export async function streamChat(
     networkError = error;
   }
 
-  // Only a *broken* reader resumes: a clean end without a terminal event is
-  // the server saying the run is over, and retrying it would just add delay.
-  if (networkError != null && !terminal && streamId) {
+  // A stream is complete only after an explicit terminal event. A clean EOF
+  // without one is an interrupted protocol and must try the event log.
+  if (!terminal && streamId) {
+    if (networkError == null) {
+      networkError = new ApiError(
+        "对话连接提前结束，请重试。",
+        "chat_stream_incomplete",
+        0,
+      );
+    }
     for (const delay of RESUME_DELAYS_MS) {
       if (terminal) break;
       await sleep(delay);
       const body = await openResume(streamId, lastSeq);
       if (!body) continue;
       try {
-        // Zero frames after our cursor means the log has nothing left for us,
-        // which is exactly how a run that already finished looks.
-        if ((await pump(body)) === 0) break;
+        await pump(body);
       } catch (error) {
         // This attempt broke too: keep the remaining delays instead of giving
         // up on the run after the first unlucky reconnect.
@@ -899,7 +1382,14 @@ export async function streamChat(
       }
     }
   }
+  if (terminal === "failed") throw terminalError;
   // Nothing resumed and nothing terminal: report the original failure instead
   // of returning a silently truncated answer.
-  if (!terminal && networkError) throw networkError;
+  if (!terminal) {
+    throw networkError || new ApiError(
+      "对话连接提前结束，请重试。",
+      "chat_stream_incomplete",
+      0,
+    );
+  }
 }

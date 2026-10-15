@@ -1,6 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ApiError, RESUME_DELAYS_MS, api, streamChat } from "./api";
+import {
+  ApiError,
+  RESUME_DELAYS_MS,
+  api,
+  documentAssetUrl,
+  documentRawEmbedUrl,
+  downloadDocumentRaw,
+  openDocumentRaw,
+  splitFrontmatter,
+  streamChat,
+} from "./api";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -32,7 +42,7 @@ describe("api client", () => {
     const body = new ReadableStream<Uint8Array>({
       start(controller) {
         controller.enqueue(encoder.encode("event: run_started\ndata: {\"run_id\":\"r1\","));
-        controller.enqueue(encoder.encode("\"chat_session_id\":\"s1\"}\n\nevent: message_delta\ndata: {\"content\":\"你好\"}\n\n"));
+        controller.enqueue(encoder.encode("\"chat_session_id\":\"s1\"}\n\nevent: message_delta\ndata: {\"content\":\"你好\"}\n\nevent: run_completed\ndata: {\"chat_session_id\":\"s1\",\"termination_reason\":\"final_answer\"}\n\n"));
         controller.close();
       },
     });
@@ -47,7 +57,7 @@ describe("api client", () => {
       references: [{ type: "document", id: "doc-2", title: "第二课", collection: "material" }],
     }, (event) => events.push(event.event));
 
-    expect(events).toEqual(["run_started", "message_delta"]);
+    expect(events).toEqual(["run_started", "message_delta", "run_completed"]);
     expect(vi.mocked(fetch)).toHaveBeenCalledWith("/api/chat/runs", expect.objectContaining({
       body: expect.stringContaining('"document_ids":[]'),
     }));
@@ -71,7 +81,7 @@ describe("api client", () => {
       start(controller) {
         controller.enqueue(encoder.encode("event: run_started\ndata: {\"run_id\":\"r1\",\"chat_session_id\":\"s1\"}\n\n"));
         controller.enqueue(encoder.encode("event: message_delta\ndata: {broken json!!\n\n"));
-        controller.enqueue(encoder.encode("event: message_delta\ndata: {\"content\":\"世界\"}\n\n"));
+        controller.enqueue(encoder.encode("event: message_delta\ndata: {\"content\":\"世界\"}\n\nevent: run_completed\ndata: {\"chat_session_id\":\"s1\",\"termination_reason\":\"final_answer\"}\n\n"));
         controller.close();
       },
     });
@@ -81,7 +91,7 @@ describe("api client", () => {
 
     await streamChat("hello", undefined, [], {}, (event) => events.push(event.event));
 
-    expect(events).toEqual(["run_started", "message_delta"]);
+    expect(events).toEqual(["run_started", "message_delta", "run_completed"]);
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
   });
@@ -93,7 +103,8 @@ describe("api client", () => {
         controller.enqueue(encoder.encode(
           'event: message_delta\ndata: {"content":"a","seq":1,"stream_id":"s"}\n\n' +
           'event: message_delta\ndata: {"content":"b","seq":2,"stream_id":"s"}\n\n' +
-          'event: message_delta\ndata: {"content":"a","seq":1,"stream_id":"s"}\n\n',
+          'event: message_delta\ndata: {"content":"a","seq":1,"stream_id":"s"}\n\n' +
+          'event: run_completed\ndata: {"chat_session_id":"s1","termination_reason":"final_answer","seq":3,"stream_id":"s"}\n\n',
         ));
         controller.close();
       },
@@ -172,6 +183,50 @@ describe("api client", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("rejects a failed terminal event even when the handler throws", async () => {
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({ start(controller) {
+      controller.enqueue(encoder.encode(
+        'event: run_started\ndata: {"run_id":"r1","chat_session_id":"s1","seq":1,"stream_id":"s"}\n\n' +
+        'event: run_failed\ndata: {"error":{"code":"provider_unavailable","message":"供应商离线"},"seq":2,"stream_id":"s"}\n\n',
+      ));
+      controller.close();
+    } });
+    const fetchMock = vi.fn().mockResolvedValue(new Response(body, { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(streamChat("hello", undefined, [], {}, (event) => {
+      if (event.event === "run_failed") throw new Error(event.data.error.message);
+    })).rejects.toThrow("供应商离线");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a clean EOF that never receives a terminal event", async () => {
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({ start(controller) {
+      controller.enqueue(encoder.encode(
+        'event: run_started\ndata: {"run_id":"r1","chat_session_id":"s1","seq":1,"stream_id":"s"}\n\n',
+      ));
+      controller.close();
+    } });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(body, { status: 200 }))
+      .mockResolvedValue(new Response("", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const original = [...RESUME_DELAYS_MS];
+    RESUME_DELAYS_MS.length = 0;
+    RESUME_DELAYS_MS.push(0);
+
+    try {
+      await expect(streamChat("hello", undefined, [], {}, () => undefined))
+        .rejects.toMatchObject({ code: "chat_stream_incomplete" });
+    } finally {
+      RESUME_DELAYS_MS.length = 0;
+      RESUME_DELAYS_MS.push(...original);
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("reports the original failure when it cannot resume", async () => {
     const broken = streamThatBreaks(
       'event: run_started\ndata: {"run_id":"r1","chat_session_id":"s1","seq":1,"stream_id":"s"}\n\n',
@@ -212,6 +267,74 @@ describe("api client", () => {
     );
   });
 
+  it("downloads the original with its real filename (用系统打开)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("bytes", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    Object.assign(URL, { createObjectURL: vi.fn(() => "blob:original"), revokeObjectURL: vi.fn() });
+    const clicked: HTMLAnchorElement[] = [];
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+      clicked.push(this);
+    });
+
+    await downloadDocumentRaw("doc-1", "报告.docx");
+
+    expect(String(fetchMock.mock.calls[0][0])).toBe("/api/kb/documents/doc-1/raw");
+    expect(clicked[0]?.download).toBe("报告.docx");
+    expect(String(clicked[0]?.href)).toContain("blob:original");
+    click.mockRestore();
+  });
+
+  it("reports a missing original instead of downloading an error page", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("nope", { status: 404 })));
+    Object.assign(URL, { createObjectURL: vi.fn(() => "blob:original"), revokeObjectURL: vi.fn() });
+
+    await expect(downloadDocumentRaw("gone", "x.docx")).rejects.toMatchObject({
+      code: "document_raw_unavailable",
+    });
+  });
+
+
+  it("folds YAML frontmatter instead of showing it or dropping it", () => {
+    const withMeta = splitFrontmatter("---\ncourse: 数据结构\ntags: [a]\n---\n# 标题\n正文\n");
+    expect(withMeta.meta).toBe("course: 数据结构\ntags: [a]");
+    expect(withMeta.body.startsWith("# 标题")).toBe(true);
+
+    const plain = splitFrontmatter("# 只是正文\n");
+    expect(plain.meta).toBe("");
+    expect(plain.body).toBe("# 只是正文\n");
+
+    // A document that merely starts with a rule must not lose its first line.
+    const ruleOnly = splitFrontmatter("---\n就是一条分隔线\n");
+    expect(ruleOnly.meta).toBe("");
+    expect(ruleOnly.body).toBe("---\n就是一条分隔线\n");
+  });
+
+  it("builds an embeddable raw URL for iframes", () => {
+    expect(documentRawEmbedUrl("doc-1")).toBe("/api/kb/documents/doc-1/raw");
+  });
+
+  it("rewrites relative image sources to the asset endpoint", () => {
+    expect(documentAssetUrl("doc-1", "assets/diagram.png")).toBe(
+      "/api/kb/documents/doc-1/asset?path=assets%2Fdiagram.png",
+    );
+    expect(documentAssetUrl("doc-1", "https://example.com/x.png")).toBe("https://example.com/x.png");
+    expect(documentAssetUrl("doc-1", "data:image/png;base64,AAA")).toBe("data:image/png;base64,AAA");
+    expect(documentAssetUrl("doc-1", "")).toBe("");
+  });
+
+  it("reports a missing original and closes the blank tab", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("nope", { status: 404 })));
+    const target = { opener: {} as unknown, location: { href: "" }, close: vi.fn() };
+    const open = vi.spyOn(window, "open").mockReturnValue(target as unknown as Window);
+
+    await expect(openDocumentRaw("gone")).rejects.toMatchObject({
+      code: "document_raw_unavailable",
+      status: 404,
+    });
+    expect(target.close).toHaveBeenCalled();
+    open.mockRestore();
+  });
+
   it("preserves the stable API error code", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
       error: { code: "provider_unavailable", message: "AI 尚未连接" },
@@ -222,5 +345,39 @@ describe("api client", () => {
       status: 503,
       message: "AI 尚未连接",
     } satisfies Partial<ApiError>);
+  });
+});
+describe("syncLibrary", () => {
+  it("POSTs to the library sync endpoint and returns the actionable summary", async () => {
+    // ① 的前端一半：App 里此前**没有任何入口**能触发文件夹同步
+    // （api.ts 里的 syncLibrary 零调用），用户在资源管理器里把资料剪进
+    // 资料库文件夹后，界面永远发现不了它们。
+    const body = JSON.stringify({
+      ok: true,
+      scanned_files: 47,
+      updated_files: 3,
+      changed_files: 2,
+      error_files: 1,
+      errors: [{ source: "course-2/broken.pdf", error: "解析失败" }],
+      extraction_counts: { complete: 1, partial: 0, empty: 1, error: 0 },
+      added_files: ["course-2/new.md"],
+      removed_files: ["course/course-pack/dup.docx"],
+      duplicates_cleaned: ["course/course-pack/dup.docx"],
+      pending_removal: ["course-2/moved.md"],
+      skipped_files: ["course-2/README.md", "course-2/requirements.txt"],
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(body, { status: 200 })));
+
+    const summary = await api.syncLibrary("lib-1");
+
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith(
+      "/api/libraries/lib-1/sync",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(summary.changed_files).toBe(2);
+    expect(summary.removed_files).toEqual(["course/course-pack/dup.docx"]);
+    expect(summary.duplicates_cleaned).toEqual(["course/course-pack/dup.docx"]);
+    expect(summary.skipped_files).toEqual(["course-2/README.md", "course-2/requirements.txt"]);
+    expect(summary.errors[0].source).toBe("course-2/broken.pdf");
   });
 });

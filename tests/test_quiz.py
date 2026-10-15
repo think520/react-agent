@@ -666,7 +666,7 @@ def test_evaluator_choice_wrong():
     correct, feedback = ev.evaluate(q, "A")
     assert correct is False
     assert "B" in feedback
-    assert "Because" in feedback
+    assert "Because" not in feedback, "解析由 explanation 字段单独展示，不能在 feedback 里重复"
 
 
 def test_evaluator_choice_normalization():

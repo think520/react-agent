@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import os
 import json
+import threading
+import time
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -12,6 +15,7 @@ import pytest
 fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 
+from core.cancellation import RunCancelled
 from core.session import Session
 from service.memory_service import MemoryService
 from web.backend.app import create_app
@@ -1365,6 +1369,192 @@ def test_chat_stream_finalizer_retries_failed_session_save(backend_client, monke
     assert len(save_calls) == 2
 
 
+def test_import_runs_are_observable_and_cancellable(backend_client, monkeypatch):
+    """E8：导入是**可观察、可取消**的运行，不再是黑盒 POST。
+
+    服务层的取消与进度在 effa242 / ead1f36 已就位，但核对发现 HTTP 层没接
+    （不传 token/progress、无 run id、无取消端点）→ 从 Web 不可达。这条钉住 HTTP 契约：
+    起导入 → 读到**中间**进度 → 取消 → 状态与结果都如实说 cancelled，已收下的文件仍在。
+    """
+    from web.backend.routers import kb as kb_router
+
+    kb_router._import_registry_for_tests().clear()
+    started = threading.Event()
+
+    def slow_sync(self, mode, config, cancel_token=None, progress=None):
+        started.set()
+        for index in range(200):
+            if cancel_token is not None and cancel_token.is_cancelled():
+                raise RunCancelled("cancelled by test")
+            if progress is not None:
+                progress({"phase": "indexing", "done": index + 1, "total": 200, "source": "course/a.md"})
+            time.sleep(0.02)
+        return SimpleNamespace(to_dict=lambda: {"extraction_counts": {}, "error_files": 0})
+
+    monkeypatch.setattr("service.kb_service.KBService._sync_registered_sources", slow_sync)
+
+    response = backend_client.post(
+        "/api/kb/imports",
+        files=[("files", ("a.md", b"# a", "text/markdown"))],
+    )
+    assert response.status_code == 202, response.text
+    import_id = response.json()["import_id"]
+
+    assert started.wait(5.0), "导入没有真的开始"
+    mid = backend_client.get(f"/api/kb/imports/{import_id}").json()
+    assert mid["status"] == "running", mid
+    assert mid["phase"] in {"receiving", "indexing"}, mid
+    assert mid["files_done"] == 1, mid
+    assert mid["sources_done"] >= 1, f"至少要能读到一次中间进度: {mid}"
+
+    assert backend_client.post(f"/api/kb/imports/{import_id}/cancel").status_code == 200
+
+    detail = mid
+    for _ in range(200):
+        detail = backend_client.get(f"/api/kb/imports/{import_id}").json()
+        if detail["status"] != "running":
+            break
+        time.sleep(0.05)
+
+    assert detail["status"] == "cancelled", detail
+    assert detail["result"]["cancelled"] is True, detail
+    result = detail["result"]
+    # 已经收下的那份要留着（取消不是回滚），并且逐文件结果如实标成 imported。
+    assert result["cancelled"] is True, detail
+    assert result["imported"] == ["a.md"], detail
+    assert [item["status"] for item in result["results"]] == ["imported"], detail
+
+
+def test_failed_chat_run_keeps_a_failed_turn_in_the_history(backend_client, monkeypatch):
+    """R01/F06：失败的那一轮必须留在会话历史里，刷新后还看得见。
+
+    来源：`docs/reviews/2026-09-28-remediation-code-review.md` §2 与
+    `docs/reviews/evidence/2026-09-28/backend-probe-source.py.txt:123-139`。
+    修之前：run_failed 只把错误发进流里，会话里只剩用户那一句 —— 刷新后这一轮像没发生过。
+    """
+    runtime = SimpleNamespace(
+        workspace=str(backend_client.workspace),
+        skills_prompt=None,
+        memory_prompt=None,
+        create_provider=lambda _name, model=None: object(),
+        refresh_memory=lambda: None,
+        create_trace=lambda _session_id: object(),
+    )
+
+    def failed_run(**kwargs):
+        kwargs["session"].add_message("user", kwargs["user_input"])
+        raise RuntimeError("review simulated provider exception")
+        yield  # pragma: no cover - 保持生成器形状
+
+    monkeypatch.setattr("web.backend.routers.chat.get_runtime_context", lambda: runtime)
+    monkeypatch.setattr("web.backend.routers.chat.AgentService.run_stream", failed_run)
+
+    response = backend_client.post("/api/chat/runs", json={"message": "explain vectors", "save": True})
+
+    assert "event: run_failed" in response.text
+    payloads = [
+        json.loads(line[len("data: "):])
+        for line in response.text.splitlines()
+        if line.startswith("data: ")
+    ]
+    session_id = next(item["chat_session_id"] for item in payloads if "chat_session_id" in item)
+
+    detail = backend_client.get(f"/api/chat/sessions/{session_id}").json()
+    messages = detail["messages"]
+    assert any(
+        message.get("failed")
+        or any(artifact.get("status") == "failed" for artifact in message.get("artifacts", []))
+        for message in messages
+    ), f"失败的一轮没有留在历史里: {messages}"
+
+
+def test_retry_flag_without_a_failed_turn_still_runs(backend_client, monkeypatch):
+    """F05 复审：`retry_failed` 不能变成"没有失败回合就发不出去"。
+
+    「重新发送本轮」同时服务两种消息：失败的和**被停止**的（ChatPage 里两个按钮共用一个
+    handler，前端只在 failed 时声明这个标志，但服务端不能把"清理失败"当成前置条件）。
+    被停止的那一轮没有 failed 标记 —— 若后端这时回 409，用户点了按钮却什么都发不出去。
+    """
+    runtime = SimpleNamespace(
+        workspace=str(backend_client.workspace),
+        skills_prompt=None,
+        memory_prompt=None,
+        create_provider=lambda _name, model=None: object(),
+        refresh_memory=lambda: None,
+        create_trace=lambda _session_id: object(),
+    )
+
+    def ok_run(**kwargs):
+        kwargs["session"].add_message("user", kwargs["user_input"])
+        kwargs["session"].add_message("assistant", "everything is fine")
+        yield {"type": "assistant_done", "content": "everything is fine", "termination_reason": "final_answer"}
+
+    monkeypatch.setattr("web.backend.routers.chat.get_runtime_context", lambda: runtime)
+    monkeypatch.setattr("web.backend.routers.chat.AgentService.run_stream", ok_run)
+
+    # 先正常跑一轮：会话里只有正常消息、没有任何 failed 标记（等价于"被停止"的那种历史）。
+    first = backend_client.post("/api/chat/runs", json={"message": "explain vectors"})
+    assert "event: run_completed" in first.text
+    session_id = next(
+        json.loads(line[len("data: "):])["chat_session_id"]
+        for line in first.text.splitlines()
+        if line.startswith("data: ") and "chat_session_id" in line
+    )
+
+    response = backend_client.post("/api/chat/runs", json={
+        "message": "explain vectors",
+        "chat_session_id": session_id,
+        "retry_failed": True,
+    })
+
+    assert response.status_code == 200, response.text
+    assert "event: run_completed" in response.text, response.text
+
+
+def test_retry_failed_chat_run_does_not_duplicate_the_user_turn(backend_client, monkeypatch):
+    runtime = SimpleNamespace(
+        workspace=str(backend_client.workspace),
+        skills_prompt=None,
+        memory_prompt=None,
+        create_provider=lambda _name, model=None: object(),
+        refresh_memory=lambda: None,
+        create_trace=lambda _session_id: object(),
+    )
+    calls = []
+
+    def fake_run_stream(**kwargs):
+        calls.append([dict(message) for message in kwargs["session"].messages])
+        if len(calls) == 1:
+            kwargs["session"].add_message("user", kwargs["user_input"])
+            raise RuntimeError("review simulated provider exception")
+        kwargs["session"].add_message("user", kwargs["user_input"])
+        kwargs["session"].add_message("assistant", "retry succeeded")
+        yield {"type": "assistant_done", "content": "retry succeeded", "termination_reason": "final_answer"}
+
+    monkeypatch.setattr("web.backend.routers.chat.get_runtime_context", lambda: runtime)
+    monkeypatch.setattr("web.backend.routers.chat.AgentService.run_stream", fake_run_stream)
+
+    failed = backend_client.post("/api/chat/runs", json={"message": "explain vectors"})
+    assert "event: run_failed" in failed.text
+    session_id = next(
+        json.loads(line[len("data: "):])["chat_session_id"]
+        for line in failed.text.splitlines()
+        if line.startswith("data: ") and "chat_session_id" in line
+    )
+
+    retried = backend_client.post("/api/chat/runs", json={
+        "message": "explain vectors",
+        "chat_session_id": session_id,
+        "retry_failed": True,
+    })
+    assert "event: run_completed" in retried.text
+    assert calls[1] == [], "重试开始前应移除上一轮失败的用户/工具尾部"
+
+    detail = backend_client.get(f"/api/chat/sessions/{session_id}").json()
+    users = [message for message in detail["messages"] if message["role"] == "user"]
+    assert [message["content"] for message in users] == ["explain vectors"]
+
+
 def test_chat_persists_web_consent_artifact_without_network_access(backend_client, monkeypatch):
     runtime = SimpleNamespace(
         workspace=str(backend_client.workspace), skills_prompt=None, memory_prompt=None,
@@ -2049,11 +2239,12 @@ def test_review_queue_contract(backend_client, monkeypatch):
 def test_library_import_strips_internal_paths(backend_client, monkeypatch):
     monkeypatch.setattr(
         "web.backend.routers.kb.KBService.import_files",
-        lambda self, files, config: {
+        lambda self, files, config, duplicate_strategy="keep_existing": {
             "ok": True,
             "imported": [files[0][0]],
             "rejected": [],
-            "sync": {
+            # 导入结果里全库同步叫 library_sync（2026-09-28 审查 F09：它不能冒充批次计数）。
+            "library_sync": {
                 "scanned_files": 1,
                 "updated_files": 1,
                 "chunk_count": 2,
@@ -2131,7 +2322,7 @@ def test_personal_knowledge_api_is_library_scoped(backend_client, tmp_path):
     assert updated.json()["item"]["content"] == "先检索，再核实原文"
 
 
-def test_disabling_memory_blocks_knowledge_writes_but_keeps_learning_events(backend_client, tmp_path):
+def test_disabling_memory_allows_manual_notes_but_blocks_automatic_consolidation(backend_client, tmp_path):
     library, _ = create_test_library(backend_client, tmp_path, "DisabledMemory")
     headers = {"X-Bobodan-Library-ID": library["library_id"]}
     preferences = backend_client.get("/api/settings").json()["preferences"]
@@ -2141,10 +2332,13 @@ def test_disabling_memory_blocks_knowledge_writes_but_keeps_learning_events(back
     })
     assert disabled.status_code == 200
 
-    blocked = backend_client.post("/api/memory/knowledge", headers=headers, json={
-        "scope": "library", "kind": "course_insight", "title": "不应保存",
-        "content": "记忆关闭后不能写入长期知识",
+    created = backend_client.post("/api/memory/knowledge", headers=headers, json={
+        "scope": "library", "kind": "course_insight", "title": "手写笔记",
+        "content": "关闭自动记忆后仍可主动保存",
     })
+    assert created.status_code == 200
+
+    blocked = backend_client.post("/api/memory/consolidate", headers=headers, json={})
     assert blocked.status_code == 409
     assert blocked.json()["error"]["code"] == "memory_disabled"
 
@@ -2348,3 +2542,80 @@ def test_a_new_message_closes_the_pending_question(backend_client, monkeypatch):
         if m.get("role") == "tool" and m.get("tool_call_id") == "call_003"
     ]
     assert tool_messages
+
+def test_organize_routes_keep_undo_reachable_without_a_client_list(backend_client, tmp_path):
+    """⑤（E17）：撤销要活过"刷新页面" —— HTTP 层只看服务端台账也得撤得回来。
+
+    这条用例同时是**路由存在性**的钉子：`/organize/state` 曾经在一次实现里只写了
+    服务层方法而没挂路由（真机上就是 404），服务层测试全绿也照样漏掉。
+    """
+    library, root = create_test_library(backend_client, tmp_path, "Organize Study")
+    headers = {"X-Bobodan-Library-ID": library["library_id"]}
+    (root / "散落的一课.md").write_text("# 散落的一课\n\n内容够长。", encoding="utf-8")
+
+    state = backend_client.get("/api/kb/organize/state", headers=headers)
+    assert state.status_code == 200, state.text
+    assert state.json()["pending_undo"] is None
+
+    proposals = backend_client.get("/api/kb/organize/proposals", headers=headers)
+    assert proposals.status_code == 200, proposals.text
+    assert proposals.json()["proposals"][0]["items"] == ["散落的一课.md"]
+
+    applied = backend_client.post(
+        "/api/kb/organize/apply",
+        headers=headers,
+        json={"items": ["散落的一课.md"], "target_folder": "未归类"},
+    )
+    assert applied.status_code == 200, applied.text
+    assert (root / "未归类" / "散落的一课.md").is_file()
+
+    # "刷新页面"：调用方手里没有清单，只能靠服务端记得的那一步。
+    pending = backend_client.get("/api/kb/organize/state", headers=headers).json()["pending_undo"]
+    assert pending is not None and pending["target_folder"] == "未归类", pending
+    assert [move["to"] for move in pending["moves"]] == ["未归类/散落的一课.md"]
+
+    undone = backend_client.post("/api/kb/organize/undo", headers=headers, json={})
+    assert undone.status_code == 200, undone.text
+    assert undone.json()["restored"] == ["散落的一课.md"]
+    assert (root / "散落的一课.md").is_file()
+    assert not (root / "未归类" / "散落的一课.md").exists()
+    assert backend_client.get("/api/kb/organize/state", headers=headers).json()["pending_undo"] is None
+
+
+def test_model_organization_route_only_proposes_validated_groups(backend_client, tmp_path, monkeypatch):
+    """⑤（E17）：AI 归类走 HTTP 层时，**只提议、一份文件都不动**，且服务端说了算。
+
+    模型返回一个不存在的文件名，它必须被丢掉（不许凭空造资料）。
+    """
+    library, root = create_test_library(backend_client, tmp_path, "AI Organize")
+    headers = {"X-Bobodan-Library-ID": library["library_id"]}
+    (root / "散落的一课.md").write_text("# 散落的一课\n\n内容够长。", encoding="utf-8")
+
+    class FakeProvider:
+        def complete(self, messages, **kwargs):
+            return SimpleNamespace(content=(
+                '{"groups":[{"folder":"课程笔记","items":["散落的一课.md","不存在.md"],'
+                '"reason":"看起来是同一门课"}]}'
+            ))
+
+    monkeypatch.setattr(
+        "web.backend.routers.kb._runtime_for",
+        lambda workspace: SimpleNamespace(create_provider=lambda *a, **k: FakeProvider()),
+    )
+
+    response = backend_client.post(
+        "/api/kb/organize/proposals", headers=headers, json={"use_model": True}
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["source"] == "model", body
+    assert body["proposals"][0]["suggested_folder"] == "课程笔记"
+    assert body["proposals"][0]["items"] == ["散落的一课.md"], "不存在的文件必须被丢掉"
+    assert (root / "散落的一课.md").is_file(), "提议阶段一份文件都不许动"
+
+    # 不带 use_model 时仍旧是确定性规则（不调模型、不花 Token）。
+    rules = backend_client.post("/api/kb/organize/proposals", headers=headers, json={})
+    assert rules.status_code == 200, rules.text
+    assert rules.json()["source"] == "rules"
+

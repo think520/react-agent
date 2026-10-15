@@ -1,0 +1,562 @@
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { LibraryPage } from "./LibraryPage";
+import { api, ApiError } from "../lib/api";
+import { useReaderTabsStore } from "../stores/readerTabsStore";
+
+/**
+ * ①（E17）：资料库文件夹同步的入口与摘要。
+ *
+ * 修前状态：`api.ts` 里有 `syncLibrary()`，但**全前端零调用** —— 用户在
+ * 资源管理器里把资料剪进资料库文件夹后，界面里没有任何办法发现它们。
+ * 这条测试钉住：按钮真的会打 `/sync`，并把摘要（新增/更新/移除/跳过/
+ * 失败）如实渲染出来。
+ */
+
+const hoisted = vi.hoisted(() => ({ ctx: {} as Record<string, unknown> }));
+
+vi.mock("react-router-dom", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("react-router-dom")>();
+  return { ...actual, useOutletContext: () => hoisted.ctx };
+});
+
+vi.mock("../lib/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/api")>();
+  return {
+    ...actual,
+    api: {
+      ...actual.api,
+      documents: vi.fn(),
+      graphExtractionStatuses: vi.fn(),
+      syncLibrary: vi.fn(),
+      knowledgeTree: vi.fn(),
+      organizationProposals: vi.fn(),
+      aiOrganizationProposals: vi.fn(),
+      organizationState: vi.fn(),
+      applyOrganization: vi.fn(),
+      undoOrganization: vi.fn(),
+      document: vi.fn(),
+    },
+  };
+});
+
+function buildContext() {
+  return {
+    settings: null,
+    refreshSettings: vi.fn(),
+    refreshSessions: vi.fn(),
+    documents: [],
+    selectedDocumentIds: [],
+    selectedDocuments: [],
+    toggleDocumentScope: vi.fn(),
+    setDocumentScope: vi.fn(),
+    clearDocumentScope: vi.fn(),
+    libraries: [{ library_id: "lib-1", name: "vault", available: true }],
+    activeLibrary: { library_id: "lib-1", name: "vault", available: true },
+    openLibrarySetup: vi.fn(),
+    createLibrary: vi.fn(),
+    switchLibrary: vi.fn(),
+    startDocumentImport: vi.fn(),
+    documentImporting: false,
+    documentImportNotice: "",
+    documentImportError: "",
+    documentImportErrorCode: "",
+    documentImportVersion: 0,
+    documentImportDuplicateCount: 0,
+    importDuplicatesAsCopies: vi.fn(),
+    documentImportResults: null,
+    documentImportCanRetry: false,
+    documentImportProgress: null,
+    cancelDocumentImport: vi.fn(),
+    retryFailedImports: vi.fn(),
+    dismissImportReport: vi.fn(),
+    libraryReady: true,
+  };
+}
+
+beforeEach(() => {
+  // 标签条是模块级 zustand store（跨用例存活）：不清掉的话，上一个用例打开的标签
+  // 会让下一个用例一进页面就渲染阅读区，断言"进页面只有树与提示"就假失败。
+  useReaderTabsStore.setState({ openIds: [], scrolls: {} });
+  // 树栏折叠状态也存在 localStorage：用例之间必须清干净，否则"点树里的文件"会找不到树。
+  window.localStorage.removeItem("bobodan:library-tree:collapsed");
+  hoisted.ctx = buildContext();
+  vi.mocked(api.documents).mockResolvedValue([]);
+  vi.mocked(api.graphExtractionStatuses).mockResolvedValue({ documents: {} } as never);
+  vi.mocked(api.document).mockResolvedValue({ ok: true, document: {}, sections: [] } as never);
+});
+
+afterEach(() => {
+  // 这个仓库的 vitest setup 没有注册自动 cleanup：两个用例若共享 DOM，
+  // 第二个用例会因为"找到多个 alert/status"而在 waitFor 里超时。
+  cleanup();
+  vi.clearAllMocks();
+});
+
+
+/** 树里的一个文件（② 的只读树是资料库唯一的导航：平铺列表已按用户要求去掉）。 */
+function treeFile(name: string, documentId: string, title: string) {
+  return {
+    type: "file", name, path: name, size: 10, modified_at: "2026-09-24T00:00:00+00:00",
+    indexed: true, document_id: documentId, title, extraction_status: "complete", chunk_count: 2,
+  };
+}
+
+function treeWith(files: unknown[]) {
+  return { ok: true, tree: {
+    type: "folder", name: "vault", path: "", material_count: files.length, indexed_count: files.length,
+    ignored_count: 0, ignored_here: [], children: [], files,
+  } };
+}
+
+describe("资料库文件夹同步", () => {
+  it("按钮会同步并渲染可行动的摘要", async () => {
+    vi.mocked(api.syncLibrary).mockResolvedValue({
+      ok: true,
+      scanned_files: 47,
+      updated_files: 3,
+      changed_files: 2,
+      error_files: 1,
+      errors: [{ source: "course-2/broken.pdf", error: "解析失败" }],
+      extraction_counts: { complete: 1, partial: 0, empty: 1, error: 0 },
+      added_files: ["course-2/new.md"],
+      removed_files: ["course/course-pack/dup.docx"],
+      duplicates_cleaned: ["course/course-pack/dup.docx"],
+      pending_removal: ["course-2/moved.md"],
+      skipped_files: ["course-2/README.md", "course-2/requirements.txt"],
+      scan_incomplete: false,
+      incomplete_reasons: [],
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/library"]}>
+        <LibraryPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: /同步文件夹/ }));
+
+    expect(api.syncLibrary).toHaveBeenCalledWith("lib-1");
+    const summary = await screen.findByRole("status");
+    expect(summary.textContent).toContain("新增 1");
+    expect(summary.textContent).toContain("更新 2");
+    expect(summary.textContent).toContain("移除 1");
+    expect(summary.textContent).toContain("待确认移除 1");
+    expect(summary.textContent).toContain("跳过 2");
+    expect(summary.textContent).toContain("失败 1");
+    // 摘要出现后必须重新拉一次列表，否则用户看不到新增的资料
+    await waitFor(() => expect(api.documents).toHaveBeenCalledTimes(2));
+  });
+
+  it("失败时给出可读错误，不显示摘要", async () => {
+    vi.mocked(api.syncLibrary).mockRejectedValue(new Error("资料库文件夹不可用"));
+
+    render(
+      <MemoryRouter initialEntries={["/library"]}>
+        <LibraryPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: /同步文件夹/ }));
+
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeNull());
+    expect(screen.getByRole("alert").textContent).toContain("资料库文件夹不可用");
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("扫描不完整时明确说明并且不谎报移除", async () => {
+    vi.mocked(api.syncLibrary).mockResolvedValue({
+      ok: true,
+      scanned_files: 47,
+      updated_files: 0,
+      changed_files: 0,
+      error_files: 0,
+      errors: [],
+      extraction_counts: {},
+      added_files: [],
+      removed_files: [],
+      duplicates_cleaned: [],
+      pending_removal: [],
+      skipped_files: [],
+      scan_incomplete: true,
+      incomplete_reasons: ["来源根不可用：D:\\课程包"],
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/library"]}>
+        <LibraryPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: /同步文件夹/ }));
+
+    const summary = await screen.findByRole("status");
+    expect(summary.textContent).toContain("本次扫描看不全");
+    expect(summary.textContent).toContain("来源根不可用");
+  });
+
+  // 2026-09-24 用户要求：「我的资料」平铺列表和文件夹树功能重复、还占一栏，去掉了。
+  // 这条钉住"资料库只有一套导航（树）"，以及树里的搜索框仍然在（它原来长在列表里）。
+  it("资料库只有文件夹树这一套导航，没有重复的平铺列表", async () => {
+    vi.mocked(api.knowledgeTree).mockResolvedValue(treeWith([treeFile("第一课.md", "doc-1", "第一课")]) as never);
+    vi.mocked(api.documents).mockResolvedValue([{
+      document_id: "doc-1",
+      source: "course-2/第一课.md",
+      relative_path: "第一课.md",
+      kind: "course_document",
+      title: "第一课",
+      collection: "material",
+      content_role: "content",
+    }] as never);
+
+    render(
+      <MemoryRouter initialEntries={["/library"]}>
+        <LibraryPage />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(document.querySelector(".library-tree-pane")).not.toBeNull());
+    expect(await screen.findByText("第一课.md")).toBeTruthy();
+    expect(screen.getByLabelText("搜索资料")).toBeTruthy(); // 搜索框搬进了树面板
+    expect(document.querySelector(".document-rail")).toBeNull();
+    expect(screen.queryByText("我的资料")).toBeNull();
+
+    // ④：树栏可收起（用户："文件树那一栏占用了很多"）—— 收起后不给 with-tree，
+    // 网格回到单栏，正文拿到全部宽度；选择写进 localStorage，下次照旧。
+    fireEvent.click(screen.getByRole("button", { name: "文件夹" }));
+    await waitFor(() => expect(document.querySelector(".library-tree-pane")).toBeNull());
+    expect(document.querySelector(".library-workspace")!.className).not.toContain("with-tree");
+    expect(window.localStorage.getItem("bobodan:library-tree:collapsed")).toBe("1");
+
+    fireEvent.click(screen.getByRole("button", { name: "文件夹" }));
+    await waitFor(() => expect(document.querySelector(".library-tree-pane")).not.toBeNull());
+  });
+
+  it("打开的资料进标签条，关掉最后一个就收起", async () => {
+    vi.mocked(api.knowledgeTree).mockResolvedValue(treeWith([treeFile("第一课.md", "doc-1", "第一课")]) as never);
+    vi.mocked(api.documents).mockResolvedValue([{
+      document_id: "doc-1",
+      source: "course-2/第一课.md",
+      relative_path: "第一课.md",
+      kind: "course_document",
+      title: "第一课",
+      collection: "material",
+      content_role: "content",
+    }] as never);
+
+    render(
+      <MemoryRouter initialEntries={["/library"]}>
+        <LibraryPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByText("第一课.md"));
+    const tab = await screen.findByRole("tab", { name: "第一课" });
+    expect(tab.getAttribute("aria-selected")).toBe("true");
+
+    fireEvent.click(screen.getByRole("button", { name: "关闭 第一课" }));
+    await waitFor(() => expect(screen.queryByRole("tab", { name: "第一课" })).toBeNull());
+  });
+
+  // ④（E17）待修：资料库页选一份资料，选中→加载→渲染这条链必须跑通。
+  // 2026-09-24 真实动线实测：把 selectDocument 的 material 分支从 navigate 改成就地
+  // 选中之后，URL 与标签条都对了（tabs=1），但 sections=0 且 header 没渲染 ——
+  // 说明 selected 仍为 null（documents 与 selectedId 没接上）。
+  // 去掉 .skip 就是这条链的复现测试；它红了才说明修好了（详见设计文档 §9 执行手册）。
+  it("选中资料后，资料库页的阅读区必须渲染出正文", async () => {
+    vi.mocked(api.knowledgeTree).mockResolvedValue(treeWith([treeFile("第一课.md", "doc-1", "第一课")]) as never);
+    vi.mocked(api.documents).mockResolvedValue([{
+      document_id: "doc-1",
+      source: "course-2/第一课.md",
+      relative_path: "第一课.md",
+      kind: "course_document",
+      title: "第一课",
+      collection: "material",
+      content_role: "content",
+    }] as never);
+    vi.mocked(api.document).mockResolvedValue({
+      ok: true,
+      document: {
+        document_id: "doc-1",
+        source: "course-2/第一课.md",
+        kind: "course_document",
+        title: "第一课",
+        collection: "material",
+        content_role: "content",
+      },
+      sections: [
+        { chunk_id: "c1", text: "第一节正文", heading: "第一节" },
+        { chunk_id: "c2", text: "第二节正文", heading: "第二节" },
+      ],
+    } as never);
+
+    render(
+      <MemoryRouter initialEntries={["/library"]}>
+        <LibraryPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByText("第一课.md"));
+
+    await waitFor(() => expect(document.querySelectorAll(".reader-prose section").length).toBeGreaterThan(0));
+    expect(await screen.findByRole("tab", { name: "第一课" })).toBeTruthy();
+
+    // 目录：2026-09-24 用户反馈"鼠标一放到右边就弹章节，我连滚动条都拖不了" ——
+    // 悬停带已经删掉，只留工具条按钮 / 热键。下面这段同时钉住"没有悬停带"和"按钮能开"。
+    expect(document.querySelector(".chapter-rail-zone")).toBeNull();
+    expect(document.querySelector(".chapter-rail")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "目录" }));
+    const rail = document.querySelector(".chapter-rail");
+    expect(rail).not.toBeNull();
+    const railButtons = () => Array.from(rail!.querySelectorAll("button"));
+    expect(railButtons().map((button) => button.textContent)).toEqual(
+      expect.arrayContaining(["第一节", "第二节"]),
+    );
+    // 点一下真的会跳到那一段（jsdom 没有 scrollIntoView，补个记录落点的桩）。
+    const landed: string[] = [];
+    const originalScrollIntoView = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function recordLanding() {
+      landed.push((this as HTMLElement).dataset.chunkId || "");
+    };
+    fireEvent.click(railButtons().find((button) => button.textContent === "第二节")!);
+    Element.prototype.scrollIntoView = originalScrollIntoView;
+    expect(landed).toContain("c2");
+  });
+
+  it("整理建议：看建议 → 执行 → 再撤销", async () => {
+    // 整理面板只挂在「有资料 + 有文件夹树」的工作区里，所以这里必须有真实列表。
+    vi.mocked(api.knowledgeTree).mockResolvedValue(treeWith([treeFile("第一课.md", "doc-1", "第一课")]) as never);
+    vi.mocked(api.documents).mockResolvedValue([{
+      document_id: "doc-1",
+      source: "散落的一课.md",
+      relative_path: "散落的一课.md",
+      kind: "course_document",
+      title: "散落的一课",
+      collection: "material",
+      content_role: "content",
+    }] as never);
+    vi.mocked(api.organizationProposals).mockResolvedValue({ ok: true, proposals: [{
+      kind: "loose_materials",
+      title: "库根散落的资料",
+      reason: "这些资料直接躺在资料库根目录。",
+      items: ["散落的一课.md"],
+      suggested_folder: "未归类",
+      requires_confirmation: true,
+    }] } as never);
+    vi.mocked(api.applyOrganization).mockResolvedValue({ ok: true, moved: [{ document_id: "d1", from: "散落的一课.md", to: "未归类/散落的一课.md" }] } as never);
+    vi.mocked(api.undoOrganization).mockResolvedValue({ ok: true, restored: ["散落的一课.md"] } as never);
+    // 刷新之后：清单不在前端手里了，界面的"可撤销"必须来自服务端台账。
+    vi.mocked(api.organizationState).mockResolvedValue({ ok: true, pending_undo: {
+      batch_id: "batch-1",
+      created_at: "2026-09-24T12:00:00Z",
+      target_folder: "未归类",
+      moves: [{ document_id: "d1", from: "散落的一课.md", to: "未归类/散落的一课.md" }],
+    } } as never);
+
+    render(
+      <MemoryRouter initialEntries={["/library"]}>
+        <LibraryPage />
+      </MemoryRouter>,
+    );
+
+    // 刷新后（进页面就查一次台账）：复盘"上一步"确实可撤销，而不是靠前端记忆。
+    expect(await screen.findByText("撤销这一步整理")).toBeTruthy();
+    expect(screen.getByText(/上一步：1 份资料收进「未归类」/)).toBeTruthy();
+
+    fireEvent.click(await screen.findByText("看看有什么可以整理的"));
+    expect(await screen.findByText(/库根散落的资料/)).toBeTruthy();
+    // 建议面板在 <details> 里（jsdom 不会展开），点按钮用文本定位
+    fireEvent.click(screen.getByText("收进「未归类」"));
+    await waitFor(() => expect(api.applyOrganization).toHaveBeenCalledWith(["散落的一课.md"], "未归类"));
+    fireEvent.click(await screen.findByText("撤销这一步整理"));
+    // 不带清单：撤销的是服务端记下的那一步。
+    await waitFor(() => expect(api.undoOrganization).toHaveBeenCalledWith());
+  });
+
+  it("AI 归类：界面如实说明这是 AI 提的，而且没确认前一份文件都不动", async () => {
+    vi.mocked(api.knowledgeTree).mockResolvedValue(treeWith([treeFile("第一课.md", "doc-1", "第一课")]) as never);
+    vi.mocked(api.documents).mockResolvedValue([{
+      document_id: "doc-1", source: "散落的一课.md", relative_path: "散落的一课.md",
+      kind: "course_document", title: "散落的一课", collection: "material", content_role: "content",
+    }] as never);
+    vi.mocked(api.aiOrganizationProposals).mockResolvedValue({ ok: true, source: "model", degraded: "", proposals: [{
+      kind: "ai_group",
+      title: "归到「课程笔记」",
+      reason: "看起来是同一门课。",
+      items: ["散落的一课.md"],
+      suggested_folder: "课程笔记",
+      requires_confirmation: true,
+      source: "model",
+    }] } as never);
+
+    render(
+      <MemoryRouter initialEntries={["/library"]}>
+        <LibraryPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByText("让 AI 归类"));
+    expect(await screen.findByText(/AI 提议/)).toBeTruthy();
+    expect(screen.getByText("收进「课程笔记」")).toBeTruthy();
+    expect(api.aiOrganizationProposals).toHaveBeenCalled();
+    expect(api.applyOrganization).not.toHaveBeenCalled(); // 确认之前，一份文件都不许动
+  });
+
+  it("模型不可用时，界面说清楚这次是规则建议", async () => {
+    vi.mocked(api.knowledgeTree).mockResolvedValue(treeWith([treeFile("第一课.md", "doc-1", "第一课")]) as never);
+    vi.mocked(api.documents).mockResolvedValue([{
+      document_id: "doc-1", source: "散落的一课.md", relative_path: "散落的一课.md",
+      kind: "course_document", title: "散落的一课", collection: "material", content_role: "content",
+    }] as never);
+    vi.mocked(api.aiOrganizationProposals).mockResolvedValue({ ok: true, source: "rules", degraded: "model_unavailable", proposals: [{
+      kind: "loose_materials",
+      title: "库根散落的资料",
+      reason: "这些资料直接躺在资料库根目录。",
+      items: ["散落的一课.md"],
+      suggested_folder: "未归类",
+      requires_confirmation: true,
+    }] } as never);
+
+    render(
+      <MemoryRouter initialEntries={["/library"]}>
+        <LibraryPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByText("让 AI 归类"));
+    expect(await screen.findByText(/模型这次没能参与/)).toBeTruthy();
+  });
+
+  // 2026-09-24 用户截图：三栏一起挤，正文只剩四百来像素；随后用户要求把重复的平铺列表去掉。
+  // 现在的规则：进页面是"树 + 提示"，点树里的资料才出现正文；列表那一栏彻底不存在。
+  it("进页面只有树与提示，点树里的资料才出现正文", async () => {
+    vi.mocked(api.knowledgeTree).mockResolvedValue(treeWith([treeFile("散落的一课.md", "doc-1", "散落的一课")]) as never);
+    vi.mocked(api.documents).mockResolvedValue([{
+      document_id: "doc-1", source: "散落的一课.md", relative_path: "散落的一课.md",
+      kind: "course_document", title: "散落的一课", collection: "material", content_role: "content",
+    }] as never);
+    vi.mocked(api.document).mockResolvedValue({
+      ok: true,
+      document: { document_id: "doc-1", source: "散落的一课.md", kind: "course_document", title: "散落的一课", collection: "material", content_role: "content" },
+      sections: [{ chunk_id: "c1", text: "正文", heading: "第一节" }],
+    } as never);
+
+    render(
+      <MemoryRouter initialEntries={["/library"]}>
+        <LibraryPage />
+      </MemoryRouter>,
+    );
+
+    // 进页面：不自动打开第一份资料，右侧是一句"从哪开始"的提示，而不是空白栏。
+    expect(await screen.findByText("从左边选一份资料开始阅读")).toBeTruthy();
+    expect(document.querySelector(".document-reader")).toBeNull();
+    expect(document.querySelector(".document-rail")).toBeNull();
+
+    fireEvent.click(await screen.findByText("散落的一课.md"));
+
+    await waitFor(() => expect(document.querySelector(".document-reader")).not.toBeNull());
+    await waitFor(() => expect(document.querySelectorAll(".reader-tabs .reader-tab").length).toBe(1));
+    expect(document.querySelector(".document-rail")).toBeNull();
+  });
+
+  // 审查 F07：部分失败时服务端的"已经搬走哪几份"会在 HTTP 边界被丢掉，界面因此既看不到
+  // 已搬走的资料，也拿不到撤销入口。这条钉住"当场读回台账 + 当场能撤销"。
+  it("整理部分失败：当场说明搬走了几份，并且当场能撤销", async () => {
+    vi.mocked(api.knowledgeTree).mockResolvedValue(treeWith([treeFile("散落的一课.md", "doc-1", "散落的一课")]) as never);
+    vi.mocked(api.documents).mockResolvedValue([{
+      document_id: "doc-1", source: "散落的一课.md", relative_path: "散落的一课.md",
+      kind: "course_document", title: "散落的一课", collection: "material", content_role: "content",
+    }] as never);
+    vi.mocked(api.organizationProposals).mockResolvedValue({ ok: true, source: "rules", degraded: "", proposals: [{
+      kind: "loose_materials", title: "库根散落的资料", reason: "直接躺在库根。", items: ["散落的一课.md", "另一份.md"],
+      suggested_folder: "未归类", requires_confirmation: true,
+    }] } as never);
+    vi.mocked(api.applyOrganization).mockRejectedValue(new ApiError(
+      "第二份被占用",
+      "organization_move_failed",
+      400,
+      {
+        moved: [{ document_id: "d1", from: "散落的一课.md", to: "未归类/散落的一课.md" }],
+        failed: [{ from: "另一份.md", to: "未归类/另一份.md", error: "file is locked" }],
+        batch_id: "batch-partial",
+      },
+    ));
+    vi.mocked(api.organizationState).mockResolvedValue({ ok: true, pending_undo: {
+      batch_id: "batch-partial", created_at: "2026-09-28T00:00:00Z", target_folder: "未归类", status: "partial",
+      moves: [{ document_id: "d1", from: "散落的一课.md", to: "未归类/散落的一课.md", state: "moved" }],
+    } } as never);
+
+    render(
+      <MemoryRouter initialEntries={["/library"]}>
+        <LibraryPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByText("看看有什么可以整理的"));
+    fireEvent.click(await screen.findByText("收进「未归类」"));
+
+    expect(await screen.findByText(/已搬走 1 份，1 份没搬成/)).toBeTruthy();
+    expect(screen.getByText(/file is locked/)).toBeTruthy();
+    expect(await screen.findByText(/上一次整理未完成/)).toBeTruthy();
+    expect(screen.getByText("撤销这一步整理")).toBeTruthy();
+  });
+
+  // E8：导入结果的**逐文件**清单要真的出现在资料库页（不是只有一句汇总），
+  // 并且"需要处理"的那些能重试。
+  it("导入之后逐文件列清楚，需要处理的能重试", async () => {
+    vi.mocked(api.knowledgeTree).mockResolvedValue(treeWith([]) as never);
+    vi.mocked(api.documents).mockResolvedValue([] as never);
+    const retryFailedImports = vi.fn();
+    hoisted.ctx = {
+      ...buildContext(),
+      documentImportResults: [
+        { filename: "broken.pdf", status: "imported", searchable: false, extraction: "error" },
+        { filename: "good.md", status: "imported", searchable: true },
+      ],
+      documentImportCanRetry: true,
+      retryFailedImports,
+    };
+
+    render(
+      <MemoryRouter initialEntries={["/library"]}>
+        <LibraryPage />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("broken.pdf")).toBeTruthy();
+    expect(screen.getByText("解析失败：没能从这份文件里提取出文本")).toBeTruthy();
+    const rows = screen.getAllByTestId("import-report-row");
+    expect(rows[0].textContent).toContain("broken.pdf");
+
+    fireEvent.click(screen.getByRole("button", { name: /重试这 1 份/ }));
+    expect(retryFailedImports).toHaveBeenCalledTimes(1);
+  });
+
+  // E8 收尾：导入是运行态 —— 运行中要看得见进度，并且当场能取消。
+  it("导入进行中显示进度并当场能取消", async () => {
+    vi.mocked(api.knowledgeTree).mockResolvedValue(treeWith([]) as never);
+    vi.mocked(api.documents).mockResolvedValue([] as never);
+    const cancelDocumentImport = vi.fn();
+    hoisted.ctx = {
+      ...buildContext(),
+      documentImportProgress: {
+        phase: "indexing", filesDone: 2, filesTotal: 2,
+        sourcesDone: 3, sourcesTotal: 6, current: "lesson-3.md",
+      },
+      cancelDocumentImport,
+    };
+
+    render(
+      <MemoryRouter initialEntries={["/library"]}>
+        <LibraryPage />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("正在建立索引")).toBeTruthy();
+    expect(screen.getByText(/3\/6 份资料/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "取消导入" }));
+    expect(cancelDocumentImport).toHaveBeenCalledTimes(1);
+  });
+});

@@ -216,8 +216,12 @@ class TestDocumentCRUD:
     def test_list_documents(self, store):
         _add_test_document(store, "doc1", "course/ch01.md")
         _add_test_document(store, "doc2", "course/ch02.md")
+        _add_test_chunks(store)
         docs = store.list_documents()
         assert len(docs) == 2
+        by_id = {item["id"]: item for item in docs}
+        assert by_id["doc1"]["chunk_count"] == 3
+        assert by_id["doc2"]["chunk_count"] == 0
 
     def test_list_documents_by_course(self, store):
         _add_test_document(store, "doc1", "course/ch01.md")

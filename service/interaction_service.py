@@ -30,6 +30,26 @@ _OPEN_STATUSES = (STATUS_REGISTERED, STATUS_AWAITING)
 # a card is still answerable. This window just stops orphan rows accumulating.
 DEFAULT_TTL_DAYS = 7
 
+# W1 E4：**语义**超时 —— 等这么久还没回答，就别再让"挂起的问题"挡着下一步了。
+# 与上面的数据卫生窗口不同：数据卫生只是别攒垃圾，这个决定"还要不要等"。
+# 用户**迟到的回答仍然算数**（见 answer()）：超时只是让系统不再等，不是禁止作答。
+DEFAULT_ANSWER_TIMEOUT_HOURS = 48
+
+
+def resolve_interaction_timeout_hours(config: dict | None) -> int:
+    """等待回答的时限（小时）；没配或配得不合理就用默认值，不猜。"""
+    section = (config or {}).get("agent") or {}
+    if not isinstance(section, dict):
+        return DEFAULT_ANSWER_TIMEOUT_HOURS
+    raw = section.get("interaction_timeout_hours")
+    if raw is None:
+        return DEFAULT_ANSWER_TIMEOUT_HOURS
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return DEFAULT_ANSWER_TIMEOUT_HOURS
+    return value if value > 0 else DEFAULT_ANSWER_TIMEOUT_HOURS
+
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS interactions (
     interaction_id TEXT PRIMARY KEY,
@@ -57,7 +77,13 @@ def _now_iso() -> str:
 
 
 def _normalize(value: Any) -> str:
-    return " ".join(str(value or "").split()).casefold()
+    # W1 E4：multi_select 的答案是**集合**，顺序不该影响判定；
+    # 也要能吃下数组载荷（前端直接送 ["甲","丙"] 时不该成为陷阱）。
+    if isinstance(value, (list, tuple, set)):
+        parts = [_normalize(item) for item in value]
+        return ",".join(sorted(part for part in parts if part))
+    parts = [part.strip() for part in str(value or "").split(",")]
+    return ",".join(sorted(" ".join(part.split()).casefold() for part in parts if part))
 
 
 def grade_answers(questions: list[dict], answers: list[dict]) -> dict:
@@ -113,9 +139,11 @@ def _row_to_dict(row: Any) -> dict:
 class InteractionService:
     """SQLite-backed lifecycle for agent to user questions."""
 
-    def __init__(self, workspace: str):
+    def __init__(self, workspace: str, *, timeout_hours: int | None = None):
         self.workspace = workspace
         self.db_path = knowledge_path(workspace, DB_FILENAME)
+        # W1 E4：等回答的时限；调用方可以按配置覆盖（resolve_interaction_timeout_hours）。
+        self.timeout_hours = int(timeout_hours or DEFAULT_ANSWER_TIMEOUT_HOURS)
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
 
     def _connect(self):
@@ -194,18 +222,31 @@ class InteractionService:
         record = self.get(interaction_id)
         if not record:
             return None
-        if record["status"] in (STATUS_ANSWERED, STATUS_GRADED):
+        # W1 E4：只有"已经作答过"才幂等返回。超时/跳过/过期的记录**没有答案**，
+        # 用户迟到回来作答必须算数 —— 旧实现把所有 graded 都当成"已作答"，
+        # 于是迟到的答案被静默丢弃（接口 200，答案没了）。
+        already_answered = record["status"] == STATUS_ANSWERED or bool(record.get("answered_at"))
+        if already_answered:
             return record
         now = _now_iso()
+        # 先算好批改结果，再分**两次**落库：answered → graded。
+        # W1 E4：路线里的四态要真的能被观察到；旧实现把两次压成一次，
+        # «answered» 永远不会出现（按路线实现的消费者等不到它）。
+        # 先算后写，保证两次更新之间不会抛异常、不会把记录卡在「已作答未批改」。
         outcome = grade_answers(record["questions"], answers or [])
+        payload = json.dumps(answers or [], ensure_ascii=False)
+        self._update(
+            interaction_id,
+            status=STATUS_ANSWERED,
+            answers=payload,
+            answered_at=now,
+        )
         self._update(
             interaction_id,
             status=STATUS_GRADED,
             closure="answered",
-            answers=json.dumps(answers or [], ensure_ascii=False),
             outcome=json.dumps(outcome, ensure_ascii=False),
-            answered_at=now,
-            graded_at=now,
+            graded_at=_now_iso(),
         )
         return self.get(interaction_id)
 
@@ -256,14 +297,57 @@ class InteractionService:
         finally:
             conn.close()
 
+    def sweep_timeouts(self, chat_session_id: str | None = None) -> int:
+        """W1 E4：把"等太久还没回答"的交互标记为 closure='timeout'；返回条数。
+
+        只标记，**不删**任何东西；用户迟到的回答仍然算数（见 answer()）。
+        """
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=self.timeout_hours)).isoformat()
+        sql = (
+            "UPDATE interactions SET status = ?, closure = 'timeout', graded_at = ?, updated_at = ? "
+            "WHERE status IN (?, ?) AND created_at != '' AND created_at < ?"
+        )
+        params: list[Any] = [STATUS_GRADED, _now_iso(), _now_iso(), _OPEN_STATUSES[0], _OPEN_STATUSES[1], cutoff]
+        if chat_session_id is not None:
+            sql += " AND chat_session_id = ?"
+            params.append(chat_session_id)
+        conn = self._connect()
+        try:
+            cursor = conn.execute(sql, tuple(params))
+            conn.commit()
+            return int(cursor.rowcount or 0)
+        finally:
+            conn.close()
+
     def list_open(self, chat_session_id: str) -> list[dict]:
         self.init_db()
         self.expire_stale(chat_session_id)
+        self.sweep_timeouts(chat_session_id)
         conn = self._connect()
         try:
             rows = conn.execute(
                 "SELECT * FROM interactions WHERE chat_session_id = ? AND status IN (?, ?) ORDER BY created_at",
                 (chat_session_id, _OPEN_STATUSES[0], _OPEN_STATUSES[1]),
+            ).fetchall()
+        finally:
+            conn.close()
+        return [_row_to_dict(row) for row in rows]
+
+    def list_pending(self, limit: int = 1) -> list[dict]:
+        """跨会话的挂起问题（W1 E6 接线：next_objective 要知道"用户还欠一个回答"）。
+
+        «list_open» 按会话取；这里要的是全局最早的几个，顺便清一次过期数据。
+        """
+        self.init_db()
+        self.expire_stale()
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                """SELECT * FROM interactions
+                   WHERE status IN (?, ?)
+                   ORDER BY created_at
+                   LIMIT ?""",
+                (_OPEN_STATUSES[0], _OPEN_STATUSES[1], max(1, int(limit))),
             ).fetchall()
         finally:
             conn.close()

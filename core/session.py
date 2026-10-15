@@ -22,6 +22,10 @@ class Session:
     library_id: str | None = None
     provider_name: str | None = None
     model_name: str | None = None
+    # W1 E14：会话类别。练习/复习的辅导会话也是 chat 会话（同样的流式通道），
+    # 但它们不该出现在主会话列表里 —— 用户会看到一堆自己没开过的会话。
+    # 老会话文件没有这个字段，一律当作 "chat"。
+    kind: str = "chat"
 
     @staticmethod
     def new(cwd: str, max_messages: Optional[int] = None) -> "Session":
@@ -95,6 +99,72 @@ class Session:
         self.last_active = datetime.now().isoformat()
         self._trim_messages()
 
+    def add_failed_message(
+        self,
+        role: str,
+        content: str,
+        error: str,
+        code: str = "run_failed",
+        retry_input: str | None = None,
+    ) -> None:
+        """记下"这一轮失败了"。
+
+        2026-09-28 审查 F06：失败如果只发进 SSE 流、不写进会话，刷新或重开会话后这一轮
+        就像没发生过（用户只看到自己那句提问）。失败也是历史的一部分，要留在会话里。
+        """
+        self.messages.append({
+            "role": role,
+            "content": content,
+            "failed": True,
+            "error": error,
+            "error_code": code,
+            "retry_input": retry_input,
+        })
+        self.last_active = datetime.now().isoformat()
+        self._trim_messages()
+
+    def remove_failed_turn_for_retry(self, user_input: str) -> bool:
+        """Remove the persisted failed turn before replaying its user input.
+
+        A failed run may have left tool-call messages between the user's
+        message and the failure marker. Removing the whole tail keeps the
+        provider context valid and prevents a retry from appending the same
+        user message twice.
+        """
+        target = str(user_input)
+        failed_index = None
+        for index in range(len(self.messages) - 1, -1, -1):
+            message = self.messages[index]
+            if message.get("role") != "assistant" or not message.get("failed"):
+                continue
+            # 独立审查（2026-09-30）：必须是**显式**匹配。原来 `retry_input is None`
+            # 会匹配任意失败标记，再向后找"内容相同"的 user 消息删掉中间整段 —— 任何
+            # 漏传 retry_input 的调用者都会顺手删掉不相干的一轮。记不上就什么都不动。
+            if str(message.get("retry_input") or "") != target:
+                continue
+            failed_index = index
+            break
+        if failed_index is None:
+            return False
+
+        user_index = None
+        for index in range(failed_index - 1, -1, -1):
+            message = self.messages[index]
+            if message.get("role") == "user" and message.get("content") == target:
+                user_index = index
+                break
+        if user_index is None:
+            # A provider can fail before AgentLoop appends the user message.
+            # There is still a retryable failure marker, but no duplicate user
+            # turn to remove.
+            del self.messages[failed_index]
+            self.last_active = datetime.now().isoformat()
+            return True
+
+        del self.messages[user_index:failed_index + 1]
+        self.last_active = datetime.now().isoformat()
+        return True
+
     def add_message_with_tool_calls(self, role: str, content: str, tool_calls: list) -> None:
         msg = {"role": role, "content": content, "tool_calls": tool_calls}
         self.messages.append(msg)
@@ -135,6 +205,8 @@ class Session:
             data["provider_name"] = None
         if "model_name" not in data:
             data["model_name"] = None
+        if not data.get("kind"):
+            data["kind"] = "chat"
         return Session(**data)
 
     @staticmethod
@@ -149,8 +221,13 @@ class Session:
         return sorted(sessions)
 
     @staticmethod
-    def list_session_summaries(save_dir: str) -> list[dict]:
-        """Return session metadata sorted by last_active descending."""
+    def list_session_summaries(save_dir: str, kind: str = "chat") -> list[dict]:
+        """Return session metadata sorted by last_active descending.
+
+        W1 E14: «kind» filters by session category — the default is the main chat
+        list, which must not contain practice/review tutor sessions. Pass
+        «kind="all"» when you really want everything.
+        """
         import os
         if not os.path.exists(save_dir):
             return []
@@ -162,9 +239,13 @@ class Session:
             try:
                 with open(path, "r", encoding="utf-8") as f:
                     data = json.load(f)
+                record_kind = data.get("kind") or "chat"
+                if kind != "all" and record_kind != kind:
+                    continue
                 summaries.append({
                     "session_id": data.get("session_id", file_name[:-5]),
                     "name": data.get("name", ""),
+                    "kind": record_kind,
                     "name_source": data.get(
                         "name_source", "manual" if data.get("name") else "fallback"
                     ),

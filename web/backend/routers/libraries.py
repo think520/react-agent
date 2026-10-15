@@ -35,6 +35,19 @@ def list_libraries() -> dict:
     return get_library_service().list_libraries()
 
 
+@router.get("/defaults")
+def library_defaults() -> dict:
+    """新建资料库的默认值（名称 / 父目录 / 根目录）—— 前端不再自己拼路径（W1 E2）。"""
+    return get_library_service().default_library_defaults()
+
+
+@router.get("/root-preview")
+def library_root_preview(name: str, parent: str) -> dict:
+    """把「父目录 + 名称」翻译成将来真正创建的根目录，供界面预显示。"""
+    service = get_library_service()
+    return {"name": name, "parent_path": parent, "root_path": service.preview_root(name, parent)}
+
+
 @router.post("")
 def create_library(request: CreateLibraryRequest) -> dict:
     try:

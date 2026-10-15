@@ -1,0 +1,178 @@
+
+ RUN  v4.1.10 F:/claude projects/openclaw-main/project_class/web/frontend
+
+ ✓ src/pages/AuditReviewPracticeProbe.test.tsx > PracticePage AI tutor > reuses the same chat session for follow-up questions on one quiz question 185ms
+ × src/pages/AuditReviewPracticeProbe.test.tsx > R11: reuses tutor session after remounting the same practice 101ms
+   → expected undefined to be 'tutor-session-1' // Object.is equality
+ × src/pages/AuditReviewProbe.test.tsx > R02: reopening the same note restores its unsaved revision 227ms
+   → expect(element).toHaveValue(# Note A
+
+Unsaved A must survive)
+
+Expected the element to have value:
+  # Note A
+
+  Unsaved A must survive
+Received:
+  # Note A
+
+  Saved A
+ × src/pages/AuditReviewProbe.test.tsx > R02: editing another note preserves the retained draft 120ms
+   → expect(element).toHaveValue(# Note A
+
+Unsaved A must survive)
+
+Expected the element to have value:
+  # Note A
+
+  Unsaved A must survive
+Received:
+  # Note A
+
+  Saved A
+ × src/pages/AuditReviewProbe.test.tsx > R02: pagehide flushes keystrokes within the debounce window 47ms
+   → expected null not to be null
+ ✓ src/pages/AuditReviewChatProbe.test.tsx > ChatPage initialization > keeps an in-memory draft when settings finish loading 164ms
+ × src/pages/AuditReviewChatProbe.test.tsx > R01: retry after run_failed preserves the allocated chat session 95ms
+   → expected undefined to be 'allocated-session' // Object.is equality
+ × src/pages/AuditReviewProbe.test.tsx > R02: clearing content does not restore stale text 360ms
+   → expect(element).not.toHaveValue(# Note A
+
+Unsaved A must survive)
+
+Expected the element not to have value:
+  # Note A
+
+  Unsaved A must survive
+Received:
+  # Note A
+
+  Unsaved A must survive
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/pages/AuditReviewChatProbe.test.tsx > R01: retry after run_failed preserves the allocated chat session
+AssertionError: expected undefined to be 'allocated-session' // Object.is equality
+
+- Expected:
+"allocated-session"
+
++ Received:
+undefined
+
+ ❯ src/pages/AuditReviewChatProbe.test.tsx:92:50
+     90|   fireEvent.click(screen.getByRole("button", { name: "重新发送本轮" }));
+     91|   await waitFor(() => expect(streamChat).toHaveBeenCalledTimes(2), { t…
+     92|   expect(vi.mocked(streamChat).mock.calls[1][1]).toBe("allocated-sessi…
+       |                                                  ^
+     93| });
+     94|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯
+
+ FAIL  src/pages/AuditReviewPracticeProbe.test.tsx > R11: reuses tutor session after remounting the same practice
+AssertionError: expected undefined to be 'tutor-session-1' // Object.is equality
+
+- Expected:
+"tutor-session-1"
+
++ Received:
+undefined
+
+ ❯ src/pages/AuditReviewPracticeProbe.test.tsx:104:50
+    102|   fireEvent.click(screen.getByRole("button", { name: "发送" }));
+    103|   await waitFor(() => expect(streamChat).toHaveBeenCalledTimes(2));
+    104|   expect(vi.mocked(streamChat).mock.calls[1][1]).toBe("tutor-session-1…
+       |                                                  ^
+    105| });
+    106|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯
+
+ FAIL  src/pages/AuditReviewProbe.test.tsx > R02: reopening the same note restores its unsaved revision
+Error: expect(element).toHaveValue(# Note A
+
+Unsaved A must survive)
+
+Expected the element to have value:
+  # Note A
+
+  Unsaved A must survive
+Received:
+  # Note A
+
+  Saved A
+ ❯ src/pages/AuditReviewProbe.test.tsx:30:57
+     28|   expect(JSON.parse(localStorage.getItem(key)!).markdown).toBe(editedA…
+     29|   fireEvent.click(edit);
+     30|   expect(screen.getByRole("textbox", { name: "笔记正文" })).toHaveValue(ed…
+       |                                                         ^
+     31| });
+     32| it("R02: editing another note preserves the retained draft", async () …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/6]⎯
+
+ FAIL  src/pages/AuditReviewProbe.test.tsx > R02: editing another note preserves the retained draft
+Error: expect(element).toHaveValue(# Note A
+
+Unsaved A must survive)
+
+Expected the element to have value:
+  # Note A
+
+  Unsaved A must survive
+Received:
+  # Note A
+
+  Saved A
+ ❯ src/pages/AuditReviewProbe.test.tsx:44:57
+     42|   await screen.findAllByRole("button", { name: "编辑" });
+     43|   fireEvent.click(screen.getAllByRole("button", { name: "编辑" })[0]);
+     44|   expect(screen.getByRole("textbox", { name: "笔记正文" })).toHaveValue(ed…
+       |                                                         ^
+     45| });
+     46| it("R02: pagehide flushes keystrokes within the debounce window", asyn…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/6]⎯
+
+ FAIL  src/pages/AuditReviewProbe.test.tsx > R02: pagehide flushes keystrokes within the debounce window
+AssertionError: expected null not to be null
+ ❯ src/pages/AuditReviewProbe.test.tsx:52:41
+     50|   fireEvent.change(screen.getByRole("textbox", { name: "笔记正文" }), { ta…
+     51|   fireEvent(window, new Event("pagehide"));
+     52|   expect(localStorage.getItem(key)).not.toBeNull();
+       |                                         ^
+     53| });
+     54| it("R02: clearing content does not restore stale text", async () => {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/6]⎯
+
+ FAIL  src/pages/AuditReviewProbe.test.tsx > R02: clearing content does not restore stale text
+Error: expect(element).not.toHaveValue(# Note A
+
+Unsaved A must survive)
+
+Expected the element not to have value:
+  # Note A
+
+  Unsaved A must survive
+Received:
+  # Note A
+
+  Unsaved A must survive
+ ❯ src/pages/AuditReviewProbe.test.tsx:62:63
+     60|   page.unmount();
+     61|   mount();
+     62|   expect(screen.queryByRole("textbox", { name: "笔记正文" })).not.toHaveVa…
+       |                                                               ^
+     63| });
+     64|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/6]⎯
+
+
+ Test Files  3 failed (3)
+      Tests  6 failed | 2 passed (8)
+   Start at  15:05:29
+   Duration  2.67s (transform 495ms, setup 643ms, import 1.97s, tests 1.30s, environment 2.75s)
+

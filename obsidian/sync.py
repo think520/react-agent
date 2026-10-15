@@ -21,7 +21,11 @@ from knowledge.import_report import ImportReport, save_import_report
 from knowledge.manifest import save_manifest
 from knowledge.paths import knowledge_dir
 from rag.source_section import SourceSection
+from rag.embedding_signature import write_signature
+from rag.index_guard import IndexStalledError, StallGuard, resolve_stall_seconds
 from rag.parsers import parse_document, SUPPORTED_EXTENSIONS
+
+from .scan_policy import is_repo_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +34,9 @@ _COURSE_SKIP_DIRS = {".git", "__pycache__", ".venv", "venv", ".knowledge", ".bob
 # Library-internal structure that must never be indexed as user material.
 # (wiki pages are surfaced through the vault scan / wiki classification.)
 _LIBRARY_INTERNAL_DIRS = _COURSE_SKIP_DIRS | {"wiki"}
+
+#: Repository metadata rule lives in `scan_policy` so the vault scan and the
+#: material scans cannot drift apart (2026-09-24, E17 ①).
 
 
 @dataclass
@@ -44,8 +51,35 @@ class SyncSummary:
     error_files: int = 0
     errors: list = field(default_factory=list)
     extraction_counts: dict = field(default_factory=dict)
+    #: 2026-09-24: repo metadata files that were deliberately not indexed.
+    skipped_files: list = field(default_factory=list)
+    #: Sources that entered the index for the first time in this run.
+    added_files: list = field(default_factory=list)
+    #: Sources whose content changed in this run (excludes removals, so the
+    #: summary can say 更新 N and 移除 N without double counting).
+    changed_files: int = 0
+    #: Sources removed from the index in this run (confirmed missing twice).
+    removed_files: list = field(default_factory=list)
+    #: Removed sources whose content is still indexed under another source
+    #: (a duplicate record — or a rename/move, which ③ will migrate properly).
+    duplicates_cleaned: list = field(default_factory=list)
+    #: True when this scan could not see everything (an unreadable path or a
+    #: registered source root that is currently unavailable). No deletions run.
+    scan_incomplete: bool = False
+    incomplete_reasons: list = field(default_factory=list)
+    #: Sources that were missing this run but still wait for the second
+    #: confirmation (P0-12). Surfaced so the UI can say "待确认移除 N".
+    pending_removal: list = field(default_factory=list)
     #: P1-18: documents whose vectors were written by the backfill pass.
     vectors_backfilled: int = 0
+    #: W2 G3: 向量索引卡住时的可行动说明（空字符串表示没卡）。
+    vector_stall: str = ""
+    #: E8: the run stopped at a cooperative checkpoint (user cancelled the
+    #: import). Unparsed sources keep their previous hash so the next sync
+    #: still sees them as changed, and nothing is deleted on a cancelled run.
+    cancelled: bool = False
+    #: Sources that were scheduled but never processed because of the cancel.
+    cancelled_sources: list = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -59,6 +93,16 @@ class SyncSummary:
             "error_files": self.error_files,
             "errors": self.errors,
             "extraction_counts": dict(self.extraction_counts),
+            "skipped_files": list(self.skipped_files),
+            "changed_files": int(self.changed_files),
+            "scan_incomplete": bool(self.scan_incomplete),
+            "incomplete_reasons": list(self.incomplete_reasons),
+            "added_files": list(self.added_files),
+            "removed_files": list(self.removed_files),
+            "duplicates_cleaned": list(self.duplicates_cleaned),
+            "pending_removal": list(self.pending_removal),
+            "cancelled": bool(self.cancelled),
+            "cancelled_sources": list(self.cancelled_sources),
         }
 
 
@@ -80,13 +124,61 @@ def _load_state(workspace: str) -> dict:
         return json.load(f)
 
 
-def _save_state(workspace: str, files: dict, missing: dict | None = None) -> None:
+def _save_state(
+    workspace: str,
+    files: dict,
+    missing: dict | None = None,
+    retries: dict | None = None,
+) -> None:
     state = {"version": 1, "files": files}
     if missing:
         # P0-12: remember how often a source has been missing so a single
         # failed scan cannot trigger deletion.
         state["missing"] = missing
+    if retries:
+        # 2026-09-30 独立审查：重试次数也要记住，否则失败文件会被无限重解析。
+        state["retries"] = retries
     atomic_write_json(_state_path(workspace), state)
+
+
+# 2026-09-30 独立审查：解析失败后的**自动**重试必须有上限。
+# 一个永久坏掉的文件（例如截断的 PDF）每次同步都会被重解析，代价随文件大小线性增长，
+# 还会一直虚报"本次更新了 N 个文件"。字节一变计数就重新开始，所以用户换掉文件照样会重试。
+MAX_REINDEX_ATTEMPTS = 2
+
+
+def _reindex_attempt_key(source: str, content_hash: str) -> str:
+    return f"{source}|{content_hash}"
+
+
+def _reindex_candidates(workspace: str, retries: dict) -> list[tuple[str, str, int]]:
+    """可见、零 chunk、又不是"本来就没有文本"的文档：(source, hash, 已试次数)。
+
+    Incremental sync normally uses the content hash as its change detector. A
+    failed or interrupted parse can leave the same hash in the state file while
+    the document row has no chunks, so that detector would permanently skip the
+    retry. Empty extraction results are intentional and must not be reparsed.
+    """
+    from rag.sqlite_store import KBSQLiteStore
+
+    db_path = os.path.join(_knowledge_dir(workspace), "knowledge.db")
+    if not os.path.exists(db_path):
+        return []
+    store = KBSQLiteStore(workspace)
+    store.init_db()
+    try:
+        rows = [
+            (str(row["source"]), str(row.get("content_hash") or ""))
+            for row in store.list_documents()
+            if not int(row.get("chunk_count") or 0)
+            and str(row.get("extraction_status") or "") != "empty"
+        ]
+    finally:
+        store.close()
+    return [
+        (source, digest, int(retries.get(_reindex_attempt_key(source, digest), 0) or 0))
+        for source, digest in rows
+    ]
 
 
 # P0-12: consecutive scans that must miss a source before it is deleted.
@@ -110,7 +202,18 @@ def _resolve_deletions(
     """
     deleted: list[str] = []
     pending: dict[str, int] = {}
-    for source in old_state:
+    # 2026-09-24 (E17 ①): `files` is overwritten by every scan, so a source
+    # that goes missing leaves `old_state` after the *first* pass. Iterating
+    # `old_state` alone meant the confirmation counter could never reach
+    # DELETION_CONFIRMATIONS and nothing was ever removed — measured on the real
+    # library: 29 stale records (7 duplicate sources + 17 wiki pages + …)
+    # survived two syncs while `missing` was silently emptied. Previously
+    # missing sources are therefore re-checked until they come back or the
+    # confirmation count is reached.
+    candidates = set(old_state) | {
+        source for source in previous_missing if source not in old_state
+    }
+    for source in sorted(candidates):
         if source in new_state:
             continue
         seen = int(previous_missing.get(source, 0) or 0)
@@ -133,12 +236,20 @@ def _stable_hash(text: str) -> str:
 def _scan_course_files(
     root_dir: str,
     errors: list[str] | None = None,
+    *,
+    skip_roots: frozenset[str] = frozenset(),
+    skipped: list[str] | None = None,
 ) -> list[tuple[str, str, str]]:
     """Return supported course files as (relative source, path, content hash).
 
     P0-12: unreadable directories and files are recorded in `errors` instead of
     being swallowed, because a file that only *looks* absent must never be
     treated as deleted.
+
+    2026-09-24 (E17 ①): `skip_roots` holds absolute paths of directories that
+    another scan root already covers — walking into them would index the same
+    file twice under two sources (two `document_id`s). `skipped` collects repo
+    metadata files that were deliberately ignored so the summary can list them.
     """
     root_dir = os.path.abspath(root_dir)
     files = []
@@ -150,14 +261,18 @@ def _scan_course_files(
     for root, dirs, filenames in os.walk(root_dir, onerror=_on_error):
         dirs[:] = [
             name for name in dirs
-            if name not in _COURSE_SKIP_DIRS and not name.startswith(".")
+            if name not in _COURSE_SKIP_DIRS
+            and not name.startswith(".")
+            and os.path.abspath(os.path.join(root, name)) not in skip_roots
         ]
         for filename in filenames:
             if os.path.splitext(filename)[1].lower() not in SUPPORTED_EXTENSIONS:
                 continue
             path = os.path.join(root, filename)
             relative = os.path.relpath(path, root_dir).replace(os.sep, "/")
-            if os.path.basename(os.path.normpath(root_dir)) == "raw" and relative == "README.md":
+            if is_repo_metadata(filename):
+                if skipped is not None:
+                    skipped.append(relative)
                 continue
             try:
                 with open(path, "rb") as handle:
@@ -178,6 +293,9 @@ def _course_prefix(root_dir: str, default: str) -> str:
 def _scan_library_root(
     root_dir: str,
     errors: list[str] | None = None,
+    *,
+    skip_roots: frozenset[str] = frozenset(),
+    skipped: list[str] | None = None,
 ) -> list[tuple[str, str, str]]:
     """Scan a portable library root for materials of every supported format.
 
@@ -190,7 +308,13 @@ def _scan_library_root(
     - markdown outside `raw/` is handled by the vault scan, so this pass
       skips it (avoids duplicate obsidian/course sources);
     - files under `raw/` keep their legacy relative path (no `raw/` prefix),
-      so existing `course/inbox/...` sources and document ids stay stable.
+      so existing `course/inbox/...` sources and document ids stay stable;
+    - 2026-09-24 (E17 ①) a registered extra source root that happens to live
+      **inside** this folder is skipped: the vault scan already skips such
+      roots (`obsidian/vault.py`), and without the same rule here the same
+      file got two documents (measured: 7 pairs in the real library);
+    - repo metadata files (README / CONTRIBUTING / requirements.txt / …) are
+      skipped at any level and reported through `skipped`.
     """
     root_dir = os.path.abspath(root_dir)
     files: list[tuple[str, str, str]] = []
@@ -202,7 +326,9 @@ def _scan_library_root(
     for root, dirs, filenames in os.walk(root_dir, onerror=_on_error):
         dirs[:] = [
             name for name in dirs
-            if name not in _LIBRARY_INTERNAL_DIRS and not name.startswith(".")
+            if name not in _LIBRARY_INTERNAL_DIRS
+            and not name.startswith(".")
+            and os.path.abspath(os.path.join(root, name)) not in skip_roots
         ]
         for filename in filenames:
             ext = os.path.splitext(filename)[1].lower()
@@ -215,10 +341,12 @@ def _scan_library_root(
                 # Keep legacy course/inbox/... sources (and thus stable
                 # document ids) for everything under raw/.
                 relative = relative[len("raw/"):]
+            if is_repo_metadata(filename):
+                if skipped is not None:
+                    skipped.append(relative)
+                continue
             if ext == ".md" and not from_raw:
                 # Root-level markdown is indexed by the vault scan.
-                continue
-            if relative == "README.md":
                 continue
             try:
                 with open(path, "rb") as handle:
@@ -250,7 +378,7 @@ def _vector_payload(chunk: dict, *, document_id: str, source: str, title: str, c
     }
 
 
-def backfill_vectors(sqlite, qdrant, embedding, embedding_dim) -> int:
+def backfill_vectors(sqlite, qdrant, embedding, embedding_dim, guard: StallGuard | None = None) -> int:
     """Embed documents whose vectors were never written (P1-18).
 
     Importing while the embedding backend is down records `pending`, and the
@@ -260,12 +388,19 @@ def backfill_vectors(sqlite, qdrant, embedding, embedding_dim) -> int:
     """
     if not embedding_dim or not embedding.is_available():
         return 0
+    guard = guard or StallGuard()
     backfilled = 0
     for document in sqlite.get_pending_vector_documents():
         document_id = document["id"]
         chunks = sqlite.get_chunks_by_document(document_id)
         if not chunks:
             continue
+        try:
+            # W2 G3：太久没有进度就别再往下硬试 —— 剩下的仍是 pending，下次同步重试。
+            guard.ensure_progress()
+        except IndexStalledError as exc:
+            logger.warning("Vector backfill stopped: %s", exc)
+            break
         try:
             texts = [chunk.get("embedding_text") or chunk["text"] for chunk in chunks]
             vectors = embedding.embed_texts(texts)
@@ -286,6 +421,7 @@ def backfill_vectors(sqlite, qdrant, embedding, embedding_dim) -> int:
             qdrant.delete_by_filter(document_id)
             qdrant.upsert(chunk_ids, vectors, payloads)
             sqlite.mark_vector_indexed(document_id, document.get("content_hash") or "")
+            guard.beat()
             backfilled += 1
         except Exception as exc:
             logger.warning("Vector backfill failed for %s: %s", document_id, exc)
@@ -300,11 +436,22 @@ def sync_sources(
     vault_path: str,
     course_dir: str | None = None,
     extra_course_dirs: list[str] | None = None,
+    missing_roots: list[str] | None = None,
     mode: str = "incremental",
     config: dict | None = None,
+    cancel_token=None,
+    progress=None,
 ) -> SyncSummary:
-    """Parse source files, rebuild RAG index (SQLite + Qdrant), and sync graph."""
+    """Parse source files, rebuild RAG index (SQLite + Qdrant), and sync graph.
+
+    `cancel_token`（可选，`core/cancellation.py::CancelToken`，E8）：在**文件边界**
+    协作式检查。取消时不删除任何东西，未解析的来源保留旧 hash，下一次同步照样会处理它们。
+    """
     config = config or {}
+    # W2 G3：向量索引的心跳守卫。单次请求有传输超时，但"整体没有进度"（本地 embedding
+    # 黑洞连接、每批都在重试）以前没有任何说法 —— 现在超时就把原因讲清楚并停掉向量腿，
+    # 文本索引照常做完（产品本来就允许降级成 FTS5-only）。
+    stall_guard = StallGuard(timeout_seconds=resolve_stall_seconds(config))
     knowledge_dir = _knowledge_dir(workspace)
     state = _load_state(workspace)
     old_state = state.get("files", {})
@@ -315,20 +462,42 @@ def sync_sources(
     # suppresses deletion for this run (absence is not evidence when the scan
     # itself is incomplete).
     scan_errors: list[str] = []
+    # 2026-09-24 (E17 ①): a registered source root that is not on disk right now
+    # (unmounted drive, offline share) must never look like "the user deleted
+    # these files" — an incomplete scan deletes nothing (P0-12).
+    incomplete_reasons: list[str] = [
+        f"来源根不可用：{root}" for root in (missing_roots or []) if root
+    ]
 
     # ── Step 1: Scan vault ──────────────────────────────────────────────
     from .vault import scan_vault
 
-    notes = scan_vault(vault_path, errors=scan_errors)
+    #: Repo metadata files that were deliberately not indexed (E17 ① summary).
+    skipped_sources: list[str] = []
+    vault_skipped: list[str] = []
+    notes = scan_vault(vault_path, errors=scan_errors, skipped=vault_skipped)
+    skipped_sources.extend(f"obsidian/{relative}" for relative in vault_skipped)
 
     # ── Step 2: Determine which files changed ───────────────────────────
     changed_sources: list[tuple[str, str, str, str]] = []  # (source, abs_path, content_hash, kind)
     deleted_sources: list[str] = []
+    retries = dict(state.get("retries") or {})
+    reindex_candidates = _reindex_candidates(workspace, retries)
+    retry_sources = {
+        source
+        for source, _digest, attempts in reindex_candidates
+        if attempts < MAX_REINDEX_ATTEMPTS
+    }
+    if reindex_candidates and not retry_sources:
+        logger.info(
+            "sync: %d 个零 chunk 文件已用完自动重试预算（%d 次），等字节变化再试",
+            len(reindex_candidates), MAX_REINDEX_ATTEMPTS,
+        )
 
     for scanned in notes:
         source = f"obsidian/{scanned.rel_path}"
         new_state[source] = scanned.content_hash
-        if mode == "full" or old_state.get(source) != scanned.content_hash:
+        if mode == "full" or old_state.get(source) != scanned.content_hash or source in retry_sources:
             changed_sources.append((source, scanned.abs_path, scanned.content_hash, "obsidian_note"))
 
     course_roots: list[tuple[str, str]] = []
@@ -340,27 +509,60 @@ def sync_sources(
         prefix = _course_prefix(extra_dir, f"course-{index + 2}")
         course_roots.append((prefix, extra_dir))
 
+    # 2026-09-24 (E17 ①): an extra source root can live inside another root
+    # (measured in the real library: `ai-agents-from-zero` is both a child of
+    # the library root and a registered course dir, and `raw/notes` likewise).
+    # The vault scan already skips registered roots; without the same skip here
+    # every file under them got a second document with a second id.
+    skip_roots = frozenset(
+        os.path.abspath(path) for path in (extra_course_dirs or []) if path
+    )
+
     for prefix, root_dir in course_roots:
         # A portable library root scans the whole user-facing folder
         # (root-level PDF/DOCX included); plain course dirs keep the
         # markdown-inclusive course scan.
         portable_root = os.path.isfile(os.path.join(root_dir, "BOBODAN_LIBRARY.yaml"))
         scanner = _scan_library_root if portable_root else _scan_course_files
-        for relative_source, path, content_hash in scanner(root_dir, scan_errors):
+        skipped_here: list[str] = []
+        for relative_source, path, content_hash in scanner(
+            root_dir, scan_errors, skip_roots=skip_roots, skipped=skipped_here
+        ):
             source = f"{prefix}/{relative_source}"
             new_state[source] = content_hash
-            if mode == "full" or old_state.get(source) != content_hash:
+            if mode == "full" or old_state.get(source) != content_hash or source in retry_sources:
                 changed_sources.append((source, path, content_hash, "course_document"))
+        skipped_sources.extend(f"{prefix}/{relative}" for relative in skipped_here)
 
-    # P0-12: confirm deletions across scans and never delete on a failed scan.
-    deleted_sources, pending_missing = _resolve_deletions(
-        old_state,
-        new_state,
-        previous_missing,
-        scan_failed=bool(scan_errors),
-    )
+    # 2026-09-24 (E17 ①): self-healing for state drift. A source can drop out
+    # of the scan state while its document stays in SQLite (scanner rule change,
+    # an interrupted run, or the P0-12 counter defect above). Those orphans are
+    # fed back into the same two-confirmation deletion path instead of being
+    # indexed forever — measured on the real library: 29 such documents.
+    # Only sources the scan actually indexed count as known. Repo metadata that
+    # is *skipped* must NOT be treated as known: files indexed under the old
+    # rule (README / requirements.txt / …) have to fall out of the index too.
+    known_sources = set(new_state)
+    from rag.sqlite_store import KBSQLiteStore
+
+    probe = KBSQLiteStore(workspace)
+    probe.init_db()
+    try:
+        indexed_sources = {row["source"] for row in probe.list_documents()}
+    finally:
+        probe.close()
+    orphans = sorted(source for source in indexed_sources if source not in known_sources)
+    if orphans:
+        previous_missing = dict(previous_missing)
+        for source in orphans:
+            previous_missing.setdefault(source, 0)
+
+    # P0-12 的"删不删"判定挪到 Step 4 之后（见下面的 _resolve_deletions 调用）：只有到那一步
+    # 才知道哪些 source 是**解析失败**而不是从磁盘上消失了。这里只登记扫描不完整的原因，
+    # 不再把判定重复算一遍（算了也会被后面覆盖）。
     for scan_error in scan_errors[:5]:
         errors.append({"source": "", "error": f"扫描不完整：{scan_error}"})
+    incomplete_reasons.extend(f"扫描不完整：{item}" for item in scan_errors[:5])
 
     # ── Step 3: Initialize stores ───────────────────────────────────────
     from rag.sqlite_store import KBSQLiteStore
@@ -400,14 +602,39 @@ def sync_sources(
     total_chunks = 0
     doc_records: list[DocumentRecord] = []
     extraction_counts: dict[str, int] = {"complete": 0, "partial": 0, "empty": 0, "error": 0}
+    failed_processing_sources: dict[str, str] = {}
 
-    for source, abs_path, content_hash, kind in changed_sources:
+    def report(event: dict) -> None:
+        """E8：进度事件，监听方出错不影响同步。"""
+        if progress is None:
+            return
+        try:
+            progress(event)
+        except Exception:
+            logger.warning("sync progress listener failed", exc_info=True)
+
+    total_changed = len(changed_sources)
+    cancelled_sources: list[str] = []
+    for index, (source, abs_path, content_hash, kind) in enumerate(changed_sources):
+        report({"phase": "indexing", "done": index, "total": total_changed, "source": source})
+        if cancel_token is not None and cancel_token.is_cancelled():
+            # E8：从这里开始的来源**没有**被解析。绝不能把新 hash 记进 state ——
+            # 那会让下一次增量同步以为它们"没变过"，于是永久跳过、静默不索引。
+            cancelled_sources = [item[0] for item in changed_sources[index:]]
+            for pending_source in cancelled_sources:
+                if pending_source in old_state:
+                    new_state[pending_source] = old_state[pending_source]
+                else:
+                    new_state.pop(pending_source, None)
+            break
         try:
             # Parse document into sections + extraction report
             sections, extraction_report_obj = parse_document(abs_path, workspace)
             extraction_report = extraction_report_obj.to_dict()
-            if not sections:
-                # Fallback: use legacy chunker for simple text
+            if not sections and os.path.splitext(abs_path)[1].lower() in {".md", ".txt"}:
+                # Only plain-text formats may use the legacy text fallback. A
+                # broken PDF/DOCX/PPTX must keep its typed parser error instead
+                # of becoming searchable garbage just because bytes decode.
                 sections = _fallback_parse(source, abs_path, kind)
                 if sections and not extraction_report.get("total_units"):
                     # Text fallback succeeded where the typed parser found
@@ -433,7 +660,12 @@ def sync_sources(
             chunks = chunk_sections(sections, chunk_cfg)
 
             # Derive document metadata
-            document_id = _stable_hash(source)
+            # 2026-09-24 (E17 ③): identity must survive a rename/move. The id is
+            # derived from the source path, so a moved file would mint a new id
+            # and break concept evidence, question sources, note references and
+            # reading progress. Rename/move rewrites source in place *before*
+            # the sync runs, so the row is already there: reuse its id.
+            document_id = sqlite.get_document_id_by_source(source) or _stable_hash(source)
             title = _extract_title(source, sections, kind)
             course = _extract_course(source, sections, kind)
             tags = _extract_tags(sections)
@@ -504,8 +736,11 @@ def sync_sources(
             )
 
             # Qdrant: upsert vectors
-            if embedding.is_available() and embedding_dim:
+            # W2 G3：卡住之后不再逐份硬试（剩下的保持 pending，下次同步重试）；
+            # 文本索引不受影响，这一轮照常做完。
+            if embedding.is_available() and embedding_dim and not stall_guard.stall_message:
                 try:
+                    stall_guard.ensure_progress()
                     texts_to_embed = [c.get("embedding_text", c["text"]) for c in chunks]
                     vectors = embedding.embed_texts(texts_to_embed)
                     if vectors and len(vectors) == len(chunks):
@@ -524,8 +759,12 @@ def sync_sources(
                         qdrant.delete_by_filter(document_id)
                         qdrant.upsert(chunk_ids, vectors, payloads)
                         sqlite.mark_vector_indexed(document_id, content_hash)
+                        stall_guard.beat()
                     else:
                         sqlite.mark_vector_error(document_id, "embedding count mismatch")
+                except IndexStalledError as stall:
+                    # 记一次可行动说明，然后停掉向量腿（不中断文本索引）。
+                    logger.warning("Vector indexing stopped: %s", stall)
                 except Exception as e:
                     logger.warning("Qdrant upsert failed for %s: %s", source, e)
                     sqlite.mark_vector_error(document_id, str(e))
@@ -544,6 +783,11 @@ def sync_sources(
         except Exception as e:
             logger.warning("Failed to process %s: %s", source, e)
             errors.append({"source": source, "error": str(e)})
+            # Do not persist a failed content hash: the next incremental scan
+            # must schedule this visible file again. It is still visible on
+            # disk, so it must not count as a deletion in this run either.
+            failed_processing_sources[source] = content_hash
+            new_state.pop(source, None)
             doc_records.append(DocumentRecord(
                 source=source,
                 kind=kind,
@@ -552,6 +796,23 @@ def sync_sources(
                 error=str(e),
                 content_hash=content_hash,
             ))
+
+    # Parsing failures are different from missing files. Treat failed sources
+    # as visible for deletion confirmation while keeping them out of the saved
+    # hash state so the next incremental run retries them.
+    deletion_state = dict(new_state)
+    deletion_state.update(failed_processing_sources)
+    if cancelled_sources:
+        # E8：被取消的一轮**不做任何删除判定**，也不推进"待确认移除"的计数 ——
+        # 用户只是不想等了，不该因此丢掉任何资料。
+        deleted_sources, pending_missing = [], dict(previous_missing)
+    else:
+        deleted_sources, pending_missing = _resolve_deletions(
+            old_state,
+            deletion_state,
+            previous_missing,
+            scan_failed=bool(scan_errors) or bool(incomplete_reasons),
+        )
 
     # ── Step 5: Delete removed documents ────────────────────────────────
     for source in deleted_sources:
@@ -575,7 +836,12 @@ def sync_sources(
     # Documents imported while the embedding backend was down were marked
     # pending; because their content never changes again, a plain sync would
     # never write their vectors and semantic search stayed silently absent.
-    vectors_backfilled = backfill_vectors(sqlite, qdrant, embedding, embedding_dim)
+    vectors_backfilled = backfill_vectors(sqlite, qdrant, embedding, embedding_dim, guard=stall_guard)
+    if embedding.is_available() and embedding_dim:
+        # G2: record which model these vectors belong to. A later provider or
+        # model switch is then caught by the retriever instead of silently
+        # mixing two vector spaces.
+        write_signature(workspace, embedding.get_model_info())
 
     # ── Step 6: Read reviewed concept-map status ────────────────────────
     # Source sync no longer writes the retired JSON graph. Concepts only
@@ -588,11 +854,37 @@ def sync_sources(
     graph_store_path = None
 
     # ── Step 7: Save state ──────────────────────────────────────────────
-    _save_state(workspace, new_state, pending_missing)
+    # 重试记账：还坏着的 +1，修好的丢掉；只保留当前仍是候选的键
+    # （文件被换掉 -> hash 变 -> 键变 -> 计数自动从 0 开始）。
+    live_keys = {_reindex_attempt_key(source, digest) for source, digest, _attempts in reindex_candidates}
+    retries = {key: value for key, value in retries.items() if key in live_keys}
+    retried_this_run = {source for source, _abs, _digest, _kind in changed_sources} & retry_sources
+    if retried_this_run:
+        chunk_counts = {str(row["source"]): int(row.get("chunk_count") or 0) for row in sqlite.list_documents()}
+        for source, _abs, digest, _kind in changed_sources:
+            if source not in retried_this_run:
+                continue
+            key = _reindex_attempt_key(source, digest)
+            if chunk_counts.get(source, 0) > 0:
+                retries.pop(key, None)
+            else:
+                retries[key] = int(retries.get(key, 0) or 0) + 1
+
+    _save_state(workspace, new_state, pending_missing, retries)
 
     updated_files = len(changed_sources) + len(deleted_sources)
     if mode == "full":
         updated_files = len(new_state)
+
+    # 2026-09-24 (E17 ①): a summary the user can act on — added / updated /
+    # removed / skipped / duplicates / failed, instead of one opaque number.
+    added_sources = sorted(source for source in new_state if source not in old_state)
+    live_hashes = set(new_state.values())
+    duplicates_cleaned = sorted(
+        source
+        for source in deleted_sources
+        if source in old_state and old_state[source] in live_hashes
+    )
 
     # Merge doc_records: keep existing records for unchanged files
     from knowledge.manifest import load_manifest
@@ -639,6 +931,16 @@ def sync_sources(
 
     sqlite.close()
 
+    # E8：终态事件 —— UI 靠它把进度条收起（取消时也要发，并带上 cancelled）。
+    report({
+        "phase": "indexing",
+        "done": total_changed - len(cancelled_sources),
+        "total": total_changed,
+        "source": "",
+        "cancelled": bool(cancelled_sources),
+        "finished": True,
+    })
+
     index_path = os.path.join(knowledge_dir, "knowledge.db")
     return SyncSummary(
         scanned_files=len(new_state),
@@ -651,7 +953,18 @@ def sync_sources(
         error_files=len(errors),
         errors=errors,
         extraction_counts=dict(extraction_counts),
+        skipped_files=sorted(set(skipped_sources)),
+        changed_files=len(changed_sources),
+        added_files=added_sources,
+        scan_incomplete=bool(incomplete_reasons),
+        incomplete_reasons=incomplete_reasons,
+        removed_files=list(deleted_sources),
+        duplicates_cleaned=duplicates_cleaned,
+        pending_removal=sorted(pending_missing),
         vectors_backfilled=vectors_backfilled,
+        vector_stall=stall_guard.stall_message,
+        cancelled=bool(cancelled_sources),
+        cancelled_sources=cancelled_sources,
     )
 
 
@@ -663,6 +976,10 @@ def _fallback_parse(source: str, abs_path: str, kind: str) -> list[SourceSection
     except (UnicodeDecodeError, FileNotFoundError):
         return []
 
+    text = text.strip()
+    if not text:
+        return []
+
     doc_title = os.path.splitext(os.path.basename(abs_path))[0]
     return [SourceSection(
         source=source,
@@ -670,7 +987,7 @@ def _fallback_parse(source: str, abs_path: str, kind: str) -> list[SourceSection
         unit_type="paragraph",
         unit_range="",
         heading_path=[],
-        text=text.strip(),
+        text=text,
         metadata={"file_type": "txt"},
     )]
 

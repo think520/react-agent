@@ -105,6 +105,10 @@ export interface DocumentSummary {
   content_hash?: string;
   managed?: boolean;
   origin?: "managed" | "workspace" | "legacy_index" | string;
+  /** 后端判定有没有原件，用于决定页内原文视图（不泄露路径）。 */
+  has_original?: boolean;
+  /** 资料库内的真实相对路径（显示层与文件夹树用；不含盘符）。 */
+  relative_path?: string;
   chunk_count?: number;
   collection: "material" | "wiki";
   wiki_type?: "source" | "entity" | "concept" | "analysis" | "question" | "note" | null;
@@ -178,6 +182,9 @@ export interface PracticeSession {
     answered: number;
     total: number;
     correct: number;
+    /** W1 E15：三态分开数 —— partial 既不算答对，也不进错题本（老数据可能没有）。 */
+    partial?: number;
+    wrong?: number;
     current_index: number;
     completed: boolean;
   };
@@ -253,7 +260,15 @@ export interface ReviewQueue {
   /** The bank's true wrong-answer count; wrong_answers is only a window of it. */
   wrong_total?: number;
   weaknesses: Array<Record<string, unknown>>;
+  next_review?: { concept: string; status: string; next_review: string } | null;
   personalization?: PersonalizationRef[];
+  /** W1 E6：引擎给的"今天下一件该做的事"（挂起问题 > 到期复习 > 第一个未掌握点）。 */
+  next_objective?: {
+    kind: "pending_question" | "due_review" | "unseen_concept" | string;
+    concept?: string;
+    prompt?: string;
+    interaction_id?: string;
+  } | null;
 }
 
 export interface ProviderModel {

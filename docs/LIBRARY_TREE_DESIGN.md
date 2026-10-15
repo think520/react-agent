@@ -1,0 +1,186 @@
+# 资料库文件树与分栏阅读（设计真相源，2026-09-24 定稿）
+
+> **状态**：已与用户逐条对齐（2026-09-24 grill 轮，共 22 项决定）；实施按 ①→⑤ 推进。
+> **权威**：本功能的设计真相源。与 [`ROADMAP.md`](ROADMAP.md) 的 E17 记录冲突时以本文为准；**排期与门禁仍以 ROADMAP 为准**。
+> **前置阅读**：[`PROJECT_GUIDE.md`](PROJECT_GUIDE.md)（产品边界）、[`DESIGN.md`](DESIGN.md)（视觉硬约束）、[`REFERENCE_PROJECTS.md`](REFERENCE_PROJECTS.md)（三家同构做法，案例 2）。
+
+## 0. 一句话
+
+**资料库文件夹是唯一真相源**；Bobodan 在它之上叠一层"索引徽章"，用「文件夹树 + 标签页阅读区」呈现，并保证用户与 AI 的整理动作**永远可撤销、引用与证据自动跟随**。
+
+## 1. 问题（2026-09-24 实测，不是推测）
+
+| 现象 | 证据 |
+|---|---|
+| 平铺列表看不出层级 | 79 份资料摊成 50 行；`DocumentSummary` 不返回路径字段，前端只能拍平 |
+| **重复索引（真 bug）** | `.bobodan/source_roots.json` 把 `ai-agents-from-zero` 登记成独立来源根，而它是**库根的子目录**；库根扫描 `obsidian/sync.py:203`（`_scan_library_root`）**没有**像 vault 扫描 `obsidian/vault.py:64` 那样跳过已登记的来源根 → 同一份文件两条记录、两个 `document_id`。实测 7 组：`alibaba-java.docx` / `alibaba-more.docx` / `Doc21.docx` / `sample.pdf` / `sample.txt` / `textsplit/rag.txt` / `requirements.txt`；另有 `course/notes/…` 与 `course-3/…` 是同一文件 |
+| **App 里没有同步入口（真 bug）** | `web/frontend/src/lib/api.ts:117` 有 `syncLibrary()`，全前端**零调用**；资料页那个「刷新资料」只重读列表。用户把文件剪进资料库文件夹后，界面里没有任何办法发现它们 |
+| 生成页混排 | 17 份 `obsidian/wiki/**` 生成页与 57 份 `course_document` 同列（E17 2026-09-10 记录已点明会被误读成重复索引） |
+| 来源标签不可读 | 标签按扫描根**下标**生成（`obsidian/sync.py:337,341`）：`course`(9) / `course-2`(47) / `course-3`(1) / `obsidian`(19)；47 份课程正文全被标成 `course-2` |
+| 非资料噪音 | 用户的 GitHub 包整包解压：1977 个文件 / 496 MB（1540 png、127 py、127 pyc）。扫描器只收白名单扩展名，所以噪音主要来自 `README.md` / `requirements.txt` 这类**元文件被当资料索引** |
+
+## 2. 参考项目（细节与行号见 `REFERENCE_PROJECTS.md` 案例 2）
+
+| 议题 | DeepTutor | openhanako | OpenMAIC | 我们采纳 |
+|---|---|---|---|---|
+| 树的位置 | 主区左栏（220↔44px，折叠态存 localStorage） | **最右栏** 260px（200–600 可拖） | 最左 rail 252px（200–360） | 资料库主区两栏 + **可拖宽 + 记住展开** |
+| 打开文件 | 单击即预览，单栏替换 | 双击开进**标签页**，关最后一个自动收起 | 点课程 = 加 tab + 展开右栏 + push URL | **标签页** |
+| 阅读位置 | 不记 | **每篇记**（滚动比例 / 锚点 / contentHash 校验） | URL 投影 + tab 集合 | 记 |
+| 多选 | 无 | 有，但只用于批量操作与拖拽，**没有范围对象** | 只有消息级附件 | **树里多选 = 资料范围**（做加法） |
+| 搜索 | 树里没有 | 树上方名字搜索（180ms 防抖，点结果展开祖先） | 树上方过滤 + **搜索时打平层级** | 一个框、**两段结果**（名字 + 内容命中） |
+| 文档目录 | 独立一层；明确警告**别复用文件树** | `ChapterRail` 在预览面板内 | 页缩略图侧栏 | 工具条按钮 → 浮层，**每个 tab 一份** |
+| 文件状态 | 文件行零状态 | 文件行零状态 | 逐项失败 + 重试 | 行内状态点 + 悬浮细节 |
+| 破坏性操作 | 无重命名、无撤销 | 删除进系统回收站、**应用内无撤销**，但有版本历史 | **删文件夹默认 ungroup 保留内容**，仅 5 秒 toast 可撤销 | 归档（可恢复）+ **删容器≠删内容** |
+| AI 整理 | 无（只输出只读 Markdown） | 无（但有"草稿卡 → 确认/取消"范式） | 有，但**直接写库、不等确认、无撤销** | **提议 → 预览 → 确认 → 执行 → 一键撤销** |
+
+**明确不照搬**：① 把文件夹当纯装饰（DeepTutor 原话 "Folders are purely organizational and have no effect on indexing or retrieval"）——我们的文件夹参与资料范围；② 破坏性操作无撤销、无重命名；③ 把 AI 整理做成一段不能回写的文本；④ 抽取状态对用户隐身（OpenMAIC 的做法）——「已索引 / 解析中 / 失败」是我们的产品契约。
+
+## 3. 定案（22 项）
+
+### 3.1 资料边界
+
+1. **入口 = 文件系统**：用户自己下载、解压、把文件夹剪切进资料库文件夹。**不做 zip 上传与自动解压。**
+2. 资料白名单：`.md` / `.txt` / `.pdf` / `.docx` / `.pptx`（`.txt` 需要补齐：扫描器收、上传接口 `import_files` 拒收，属既有不一致）。
+3. **跳过仓库元文件**（任意层级）：`README.md` / `CONTRIBUTING.md` / `LICENSE` / `CHANGELOG.md` / `requirements*.txt` / `_sidebar.md` / `_navbar.md`。**保留**"教程目录大纲""全书术语表"这类可能真有用的内容文件。跳过的文件在同步摘要里列出。
+4. 非资料文件（源码、图片、编译产物）**不进索引**；树里在文件夹行标「另有 N 个文件已忽略」，可展开看清单。
+5. **wiki 彻底停用**：不再生成、从资料库与检索里排除、树里隐藏该目录；磁盘文件保留。**概念提取 → 知识地图保留**（那是另一条线）。
+6. 树里隐藏 `.bobodan/`、`wiki/` 与标记文件（`BOBODAN_LIBRARY.yaml`、`WIKI_SCHEMA.md`）；`raw/` 作为历史遗留照常显示。
+7. 上传落点 = **树里当前选中的文件夹**（默认库根），不再固定 `raw/inbox`。
+
+### 3.2 同步与发现
+
+8. 资料库页给明确的「**同步文件夹**」按钮（手动触发）：同步中显示进度状态；完成后给摘要 + 可展开明细——新增 N / 更新 N / 移除 N / 跳过 N（元文件）/ 重复清理 N / 失败 N（点开看每份原因，可重试）。
+9. **修重复索引**：库根扫描跳过已登记的来源根；已产生的多余记录走现有删除流程（连续两次缺失才删）自动消失；同步摘要里列出「清理了 N 条重复」；来源标签只在**显示层**改成真实相对路径（不动 `document_id`）。
+10. 文件找不到时（被移走/删除）：树里灰显「找不到文件」，同步摘要列进「待确认移除」，用户可归档或再同步一次；连续两次缺失才真正移除。
+
+### 3.3 树与阅读
+
+11. 资料库主区两栏：**左文件夹树**（可折叠、可拖宽、记住展开状态）+ **右阅读区**。
+12. 树行信息密度：文件夹行 = 资料数 + 「N 份未提取」；文件行 = 状态点（完成 / 未提取 / 提取中 / 失败 / 待检查）+ 悬浮显示小节数、chunk 数、更新时间。
+13. 阅读区 = **标签页**：双击打开（单击选中/展开）、关掉最后一个自动收起、每篇记住阅读位置、文件被移走显示占位而不是空白。
+14. **深链接不变**：`/library` 与 `/library/read/:id?collection=…&chunk=…` 由**同一套组件两条路由**渲染；聊天引用、搜索结果、笔记引用的落点全部照旧。
+15. 阅读栏工具条**只放「读」**：目录 / 原文·按小节 / 在系统打开 / 折叠树；「改」的动作（编辑、提取概念）收进行尾 `⋯` 菜单。
+16. 目录（章节/页码）= 工具条上的按钮 → 浮层/抽屉，默认收起；**每个标签页各有自己的目录**。
+17. 搜索 = 一个输入框、结果分两段：上「资料名匹配」（就地过滤树），下「内容命中」（片段 + 所属资料，点进去定位并高亮该段，走已有的 `?chunk=` 通道）。
+
+### 3.4 联动
+
+18. 树里 Ctrl/Shift 多选（文件或**整个文件夹**）= **资料范围**；顶部一条 chip 显示「范围：ai-agents-from-zero（47 份）」并可一键清除。
+19. 树上选中后工具条出现「**问 AI**」：跳到聊天并把选中项放成**这条消息**的一次性引用；与 sticky「资料范围」分开显示。
+
+### 3.5 破坏性语义与整理
+
+20. **归档对所有资料生效**：文件移到 `.bobodan/archive/<UTC 时间戳>/<原相对路径>`（保留目录层级），从索引移除，并提供「已归档」列表可一键恢复原位。**不做物理删除**（真要删去资源管理器）。
+21. 树上写操作：**新建文件夹 / 重命名 / 拖拽或菜单移动 / 删除（=归档）**；**删文件夹默认只删容器**，里面的资料移回库根并明说后果；**重命名与移动自动迁移引用与证据**。
+22. **AI 整理**（方向已定，⑤ 阶段细化）：提议 → 预览（含 diff）→ 用户确认 → 执行 → 一键撤销；复用 `wiki/orchestration.py` 的计划 / 预算 / 检查点 / 撤销底座（**所以 wiki 的代码先不删**）。
+
+## 4. 产品边界改写（已获用户确认）
+
+原句：**「原始资料不会被 AI 自动修改、移动或删除」**（`README.md` 核心能力表）。
+
+改写为：**「原始资料不会被 AI 擅自修改、移动或删除；任何移动/重命名都只在用户确认后执行，且永远可一键撤销」**。
+
+配套：`CLAUDE.md` 的「当前产品边界」同步补一条同样的约束。
+
+## 5. 接口与数据影响（实施前先实测枚举，不凭记忆）
+
+**已有、直接复用（不要重做）**：`POST /api/libraries/{id}/sync`、`GET /api/kb/documents`、`DELETE /api/kb/documents/{id}`（归档语义扩展）、`GET /api/kb/documents/{id}/{raw,asset,extraction,content,versions}`、`PUT /api/kb/documents/{id}/content`、`POST /api/kb/import`、`POST /api/kb/search`。
+
+**新增**：
+
+- `GET /api/kb/tree`（只读）：文件夹 / 资料文件 / 忽略计数 / 索引徽章；隐藏内部目录；**不暴露绝对路径**。
+- `GET /api/kb/archive` + `POST /api/kb/archive/{entry}/restore`（已归档列表与恢复）。
+- `POST /api/kb/documents/{id}/rename` 与 `/move`（**含身份迁移**，返回迁移报告）。
+- 同步摘要字段扩展：`skipped`（元文件）/ `duplicates_cleaned` / `pending_removal` / `failed[{source, reason}]`。
+
+**身份迁移的引用面（③ 阶段第一步必须先跑一次实测枚举，本文不预设清单）**，候选包括：`documents(source, path, document_id)`、`chunks`、Qdrant 向量 payload（`document_id`/`source`）、概念证据（含 `chunk_id`）、题目 `source_ids`、笔记 `references`、阅读进度、学习事件。
+
+**前端**：`/library` 与 `/library/read/:id` 同一组件；标签页集合、树展开状态、栏宽、每篇阅读位置持久化（本地 + 后端 workspace UI 状态）。
+
+## 6. 批次 ①→⑤
+
+| 批次 | 范围 | 验收（先写会失败的复现测试） | 风险 |
+|---|---|---|---|
+| **① 扫描规则 + 同步入口 + 重复治理** | 库根扫描跳过已登记来源根；元文件跳过清单；`.txt` 一致性；`syncLibrary` 接线 + 「同步文件夹」按钮 + 摘要明细 | ① 造一个"子目录同时被登记为来源根"的工作区 → 修复前同一文件两条记录、修复后一条（`tests/`）；② 元文件不被索引、且出现在 `skipped` 里；③ 前端测试：点按钮会调 `/sync` 并渲染摘要；④ live：真实库同步后重复记录消失、列表少 17 份生成页 | 低（不改身份） |
+| **② 文件夹树（只读）** | `GET /api/kb/tree`；两栏布局；徽章；忽略计数；搜索两段结果 | 树顺序与折叠状态测试；忽略计数与真实磁盘一致；搜索名字段/内容段各自的落点；live：真实库层级与徽章正确 | 中（新增只读 API） |
+| **③ 树写操作 + 归档 + 身份迁移** | 新建/重命名/移动/删除；删容器≠删内容；归档列表与恢复；**身份迁移** | 迁移前后：引用、概念证据、题目来源、笔记 references 全部指向新身份（一条断言一个面）；归档→恢复回到原位 | **高**（动用户原始数据 + 身份） |
+| **④ 标签页阅读区** | tabs；目录浮层；工具条收口；每篇阅读位置；深链接兼容 | 既有 3 条 live 检查必须继续通过（原文视图 / 引用落点 / 搜索落点）；tab 持久化与"关最后一个收起"；文件被移走的占位 | 中高（重构阅读器） |
+| **⑤ AI 整理** | 提议 → 预览 diff → 确认 → 执行 → 撤销；边界改写落地 | 拒绝提议时零改动；执行后引用不断；撤销后逐字节还原（含索引与证据） | 高（复用 wiki 编排底座） |
+
+每批纪律：先写会失败的复现测试 → 实现 → 全量验证（pytest / `tsc --noEmit` / lint / vitest / build / Playwright）→ 批判性审查 → 一个提交并推送 → 更新 `CHANGELOG.md`。
+
+## 7. 明确不做
+
+- zip 上传 / 自动解压（用户自己解压后剪切进库）。
+- OCR；PDF 自研渲染（原件视图 + 浏览器内置阅读器就是答案；被下载器拦截时用「在系统打开」兜底）。
+- 把资料库文件树复用为文档目录（三家都证明必须分成两层）。
+- 破坏性操作无撤销；把 AI 整理做成不可回写的文本。
+- 移动/重命名**不迁移引用**的"快路径"。
+
+## 8. 小项默认值（用户可否决）
+
+排序＝文件夹优先 + 名称（不做自定义排序）；长列表不分页（库规模小）；「已归档」与版本历史入口放设置页「记忆与数据」旁 + 树底部一个「已归档」节点；标签页不设硬上限（超过 8 个折成下拉）。
+## 9. ④ 合并执行手册（2026-09-24 实测坐标，交给下一轮）
+
+> 这一节是为了让任何人（或下一个 agent 会话）**不必重新推导**就能动手。所有行号来自当日实测，代码变动后以实际为准。
+
+**目标**：资料库页（`/library`）与阅读页（`/library/read/:id`）共用同一套阅读区；`readerTabsStore` 是**唯一**的标签模型；深链接（5 处发送端 + 搜索结果）行为不变。
+
+**必须先写的复现测试（当前会失败）**：
+1. **组件级**（`src/pages/LibraryPage.test.tsx`）：mock `api.documents` 返回一份资料、mock `api.document` 返回 2 个小节 → 点击该资料 → 断言阅读区出现 `.reader-prose section`（至少 1 个）且**没有发生路由跳转**。
+2. **live 级**（`e2e/live.spec.ts`，真实库）：`/library` 点树里的文件 → URL 仍以 `/library` 开头、`.reader-tabs .reader-tab` ≥ 1、阅读区出现正文。
+
+**已查清的事实（别再重查）**：
+- `LibraryPage` 里 `selectDocument`（约 666 行）对 material 分支**直接 `navigate('/library/read/:id')`** —— 这就是标签条与阅读区"够不着"的根因。
+- 阅读区的渲染闸门是 `{selected && <header>…}` 与 `sections.length ? …`（约 1344-1358 行）；`selected` 来自 `documents.find(d => d.document_id === selectedId)`（约 930 行）。
+- 小节加载链已存在：`useEffect`（约 253-257 行）在 `selectedId` 变化时 `api.document(selectedId).then(r => setSections(r.sections))`。
+- **2026-09-24 实测**：把 material 分支改成"就地选中 + `setSearchParams({collection, document})`"后，URL 与标签条都对了（`tabs=1`），**但 `sections=0` 且 header 没渲染** → 说明 `selected` 仍为 null（`documents` 与 `selectedId` 没接上）。**先解决这一条，再动路由。**
+- 现有标签模型：`stores/readerTabsStore.ts`（`openIds`/`open`/`close`/`scrolls`/`setScroll`/`scrollFor`，persist 名 `bobodan:reader-tabs`）；`ReaderPage.tsx:133` 已用它恢复滚动位置。
+- **要删的重复实现**：`lib/readerTabs.ts`、`lib/readerTabs.test.ts`、`hooks/useReaderTabs.ts`（④a/④b 造的第二套，与既有 store 重叠且有 7 条测试）——等 LibraryPage 改用 `readerTabsStore` 之后再删。
+
+**动刀顺序（每步都要能独立验证）**：
+1. 修"选中 → 加载 → 渲染"这条链（先让测试 1 绿）；
+2. 把 LibraryPage 的阅读区改用 `readerTabsStore`（删第二套模型）；
+3. material 分支不再 navigate（保留「在阅读页打开」出口，深链接不动）；
+4. 把阅读页的**原文/按小节切换、PDF 内嵌、章节导航**抽成共享组件，两处复用（这一步最大，做好后再删 `ReaderPage` 的重复壳）。
+
+**纪律（这两轮用血换的）**：长 JSX 改动**只能用带精确 `old_string` 的编辑工具**，禁止按行号程序化切片（已两次切坏文件）；每次改完必须跑**真实动线**（Playwright 对真实库）而不是只看测试绿——两个"全绿但用户看不到"的提交就是这么产生的。
+### 9.1 2026-09-24 更新：卡点已改判（以本节为准）
+
+**原先写在这里的判断（「就地选中后 `selected` 仍为 null」）后来被证伪**，原因是我当时把两次失败混为一谈。现在的正确诊断：
+
+1. **资料列表、点击、标签都没问题**：同文件里另一条用例（「打开的资料进标签条」）用的是**同一份 mock、同一句 `findByText`、同一个 click**，它**通过**。
+2. **真正卡住的是「小节加载」这一步**：`LibraryPage` 约 250-257 行的 effect（`api.document(selectedId).then((r) => setSections(r.sections))`）——失败那条用例唯一的额外断言就是 `.reader-prose section > 0`。
+3. **为什么看不到探针输出**：这个仓库的测试夹具把 `asyncUtilTimeout` 全局设成 5000ms，**任何异步断言（含 `waitFor`/`findBy*`）在 5 秒都会被掐断**；`configure({asyncUtilTimeout})`、`--testTimeout`、`--test-timeout` 三种手段实测都无法改变那个 5 秒。所以探针必须放在**5 秒内能出结果**的位置，或改成同步断言。
+
+**下轮第一步（一次运行即可判定，成本极低）**：在 click 之后立刻断言
+
+```ts
+expect(vi.mocked(api.document).mock.calls.length).toBeGreaterThan(0);
+```
+
+- 为 0 → effect 没跑：查它的依赖与提前 return 的条件；
+- ≥ 1 → effect 跑了但结果没进 `sections`：查 `setSections` 是否被后续渲染/effect 覆盖，或渲染闸门（`{selected && …}` / `sections.length ? …`）。
+
+**纪律（这一阶段用血换的，务必遵守）**：
+
+- 读失败信息**不要过滤输出**（我因此把两个完全不同的失败混成一个，白白推演三轮）；
+- 编辑之后**回读文件确认**（我有两次「改了但没生效」还直接去跑）；
+- 长 JSX 改动只用带精确 `old_string` 的编辑工具，**禁止按行号程序化切片**（切坏过文件两次）；
+- 每次改完跑**真实动线**（Playwright + 真实库），因为「测试绿但用户看不到」的提交这个功能里已经出现过两个。
+### 9.2 ④ 最后一件：两套阅读实现合一（2026-09-24 交接，含行号）
+
+**现状**：
+- `/library`（`LibraryPage`）现在能**就地阅读** material（④v，`1297` 那层 collection 条件已去掉），阅读区类名 `.document-reader`；它具备：标题/提取状态动作、目录浮层（④w）、小节渲染（`.reader-prose section`）、标签条（用 `readerTabsStore`，④x）。
+- `/library/read/:id`（`ReaderPage`，约 800 行）是**第二套实现**，能力更全：原文/按小节切换、PDF 内嵌 `<iframe>`、章节导轨、引用提示条、选区工具条、上一份/下一份。
+- 5 处发送端 + 搜索结果都指向 `/library/read/:id`（**深链接必须不破**，现有 live 2 条在守：`the reader renders the original file…`、`a citation link lands on the cited chunk…`）。
+
+**目标**：一套渲染，两条路由。
+
+**建议顺序（每步都能独立验证）**：
+1. 从 `ReaderPage` 里把**文章主体**抽成 `components/DocumentReader.tsx`（入参 `documentId` / `collection` / `chunkId`，内部自带 sections 加载、原文/按小节、PDF 内嵌、目录、选区）。抽的时候先只搬 JSX 与它直接依赖的 state/派生，**不动数据获取层的调用点**，保证 `ReaderPage` 仍能通过这些 props 工作。
+2. `ReaderPage` 改为薄壳：解析路由参数 → 渲染 `DocumentReader`。跑 live 的 2 条深链接用例 + `the library page reads a material in place`，**三条都必须继续绿**。
+3. `LibraryPage` 的阅读区改为渲染同一个 `DocumentReader`（替换现有的 `.document-reader` 分支），删掉重复的小节渲染与目录浮层代码。跑页面测试 6 条 + live 6 条。
+4. 只在第 3 步绿了之后，才考虑把 `/library/read/:id` 改成"渲染资料库页并选中该资料"（真正的两路由一组件）；若担心首屏（树+列表）开销，可以保留薄壳版本作为深链接入口——**两者都满足"同一套渲染"**，先选改动小的。
+
+**纪律**：① 每一步都先跑上面点名的用例；② 长 JSX 只用带精确 `old_string` 的编辑工具；③ 失败信息写文件再读（`> $env:TEMP\out.txt 2>&1; Get-Content $env:TEMP\out.txt -Tail 40`）；④ 任何一步弄红两条以上用例就立刻 `git checkout` 回滚，不带着半成品往下走。

@@ -3,7 +3,18 @@ from tools.obsidian_tool import obsidian_sync
 from tools.rag_search import rag_search
 
 
-def test_obsidian_sync_rag_search_without_auto_approving_graph(tmp_path):
+def test_obsidian_sync_rag_search_without_auto_approving_graph(tmp_path, monkeypatch):
+    # 这个用例测的是「没有嵌入能力时检索仍然可用」，所以它必须自己声明这个前提：
+    # 开发机的 .env 里可能有真实的 embedding key，那会让 retrieval_mode 变成
+    # hybrid 而把断言弄红（2026-09-23 接入智谱后就是这么红的）。改配置文件不可靠
+    # （整套跑时配置会被缓存/顺序影响），直接安装一个不可用的 provider 才确定。
+    from rag.embedding_provider import UnavailableEmbeddingProvider
+
+    monkeypatch.setattr(
+        "rag.embedding_service.create_embedding_provider",
+        lambda config=None: UnavailableEmbeddingProvider("test isolation"),
+    )
+
     vault = tmp_path / "vault"
     vault.mkdir()
     (vault / "Dijkstra.md").write_text(

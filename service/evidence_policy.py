@@ -143,12 +143,45 @@ class InlineQuestionPolicy:
     max_retries = 1
 
     _OPTION_LINE = re.compile(r"(?m)^\s*(?:[-*]\s*)?([A-Da-dＡ-Ｄａ-ｄ])[.、,，)）:：]\s*\S")
+    _QUESTION_HINT = re.compile(
+        r"下列|以下|以下哪|哪一?个|哪个|哪项|选择|选出|正确|错误|属于|不属于|"
+        r"which|choose|select|following|correct|incorrect",
+        re.IGNORECASE,
+    )
+
+    def __init__(self, *, strict: bool = False) -> None:
+        """W1 E13：«strict» 决定判定灵敏度。
+
+        无条件挂载时用严格判定 —— 它只认「成组的**短**选项出现在**结尾**，且上下文在提问」，
+        不会误伤讲解里并列的「A. 从能量角度……」；用户明确要题时用宽松判定（≥2 个字母选项即算）。
+        """
+        self._strict = strict
 
     @classmethod
-    def looks_like_inline_question(cls, response_text: str) -> bool:
-        """True when the text presents at least two lettered options."""
+    def looks_like_inline_question(cls, response_text: str, *, strict: bool = False) -> bool:
+        """True when the text presents at least two lettered options.
+
+        «strict=True» adds the structural requirements described in «__init__».
+        """
         labels = {match.group(1) for match in cls._OPTION_LINE.finditer(response_text)}
-        return len(labels) >= 2
+        if len(labels) < 2:
+            return False
+        if not strict:
+            return True
+
+        lines = [line for line in response_text.strip().splitlines() if line.strip()]
+        if len(lines) < 3:
+            # 只有选项、没有题干 —— 不像一道题。
+            return False
+        tail = lines[-6:]
+        option_lines = [line for line in tail if cls._OPTION_LINE.match(line)]
+        if len(option_lines) < 2:
+            return False
+        if any(len(line.strip()) > 48 for line in option_lines):
+            # 真正的选项是短的；长句是解释里的并列说法。
+            return False
+        head = "\n".join(lines[: -len(option_lines)] or lines)
+        return bool(cls._QUESTION_HINT.search(head)) or "？" in head or "?" in head
 
     def validate(
         self,
@@ -156,7 +189,7 @@ class InlineQuestionPolicy:
         response_text: str,
         retry_count: int,
     ) -> EvidenceDecision:
-        if not self.looks_like_inline_question(response_text):
+        if not self.looks_like_inline_question(response_text, strict=self._strict):
             return EvidenceDecision(allow=True)
         if any(
             record.get("name") == "question_generate" and record.get("ok")

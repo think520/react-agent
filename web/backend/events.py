@@ -65,7 +65,12 @@ def to_web_events(event: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
     event_type = canonical_type(event.get("type"))
 
     if event_type == MESSAGE_DELTA:
-        return [("message_delta", {"content": event.get("content", "")})]
+        payload = {"content": event.get("content", "")}
+        # W1 E11 / D4：narration（调工具前的过渡说明）与 finish（最终答案）分开，
+        # 界面据此把过渡说明放进"过程"而不是答案正文。
+        if event.get("call_role"):
+            payload["call_role"] = str(event["call_role"])
+        return [("message_delta", payload)]
 
     if event_type == TOOL_START:
         tool_name = str(event.get("tool_name", ""))
@@ -97,5 +102,20 @@ def to_web_events(event: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
 
     if event_type == SPECIALIST_EVENT:
         return []
+
+    # W1 E11：被输出上限截断 / 续写中 —— 界面要能说清楚"这次没写完"，
+    # 并在续写用尽后给一个"接着写"的入口。
+    if event_type == "assistant_truncated":
+        return [("answer_truncated", {
+            "continuing": bool(event.get("continuing")),
+            "continues": int(event.get("continues") or 0),
+        })]
+
+    # W1 E11 / D4：探索预算用尽、进入收尾 —— 复用既有 status 通道。
+    if event_type == "settlement_started":
+        return [("status", {
+            "phase": "running",
+            "message": "探索预算已用完，正在收尾（不再开新的检索）",
+        })]
 
     return []

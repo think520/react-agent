@@ -1,0 +1,13 @@
+
+> bobodan-web@0.1.0 test
+> vitest run
+
+
+ RUN  v4.1.10 F:/claude projects/openclaw-main/project_class/web/frontend
+
+
+ Test Files  24 passed (24)
+      Tests  127 passed (127)
+   Start at  15:06:15
+   Duration  6.62s (transform 4.91s, setup 9.71s, import 11.61s, tests 7.48s, environment 48.75s)
+

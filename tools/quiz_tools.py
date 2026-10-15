@@ -13,6 +13,7 @@ def question_generate(
     document_ids: list[str] | None = None,
     web_research_id: str | None = None,
     workspace: str = ".",
+    pipeline: bool = False,
 ) -> ToolResult:
     """Generate quiz questions from knowledge base content based on a topic or query."""
     try:
@@ -24,6 +25,9 @@ def question_generate(
             count=count,
             document_ids=document_ids,
             web_research_id=web_research_id,
+            # W1 E5：三阶段管线（Explore→Plan→逐题），逐题就绪即入库。
+            # 默认仍是单发：逐题要多次模型调用，等流式界面做好再考虑默认开启。
+            pipeline=pipeline,
         )
 
         if not result["ok"]:
@@ -179,6 +183,15 @@ register_tool(
                 "type": "array",
                 "items": {"type": "string"},
                 "description": "Optional active study document IDs",
+            },
+            "pipeline": {
+                "type": "boolean",
+                "description": (
+                    "Set true when the user wants questions one at a time (逐题/边出边看). "
+                    "Runs the three-phase pipeline (explore -> plan -> per question) and keeps "
+                    "each question as soon as it is ready. Costs one model call per question; "
+                    "leave false for a single batch call."
+                ),
             },
         },
         "required": ["query"],

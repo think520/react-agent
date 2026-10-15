@@ -107,11 +107,9 @@ class QuizEvaluator:
                     break
         correct = normalized == question.answer.strip().upper()
         if correct:
-            feedback = f"正确！{question.explanation}" if question.explanation else "正确！"
+            feedback = "正确！"
         else:
             feedback = f"错误。正确答案是 {question.answer}。"
-            if question.explanation:
-                feedback += f" {question.explanation}"
         return correct, feedback
 
     def _evaluate_true_false(self, question: Question, user_answer: str) -> tuple[bool, str]:
@@ -119,11 +117,9 @@ class QuizEvaluator:
         normalized = _normalize_bool_answer(user_answer)
         correct = normalized == _normalize_bool_answer(question.answer)
         if correct:
-            feedback = f"正确！{question.explanation}" if question.explanation else "正确！"
+            feedback = "正确！"
         else:
             feedback = f"错误。正确答案是 {question.answer}。"
-            if question.explanation:
-                feedback += f" {question.explanation}"
         return correct, feedback
 
     def _evaluate_short_answer(
@@ -142,7 +138,9 @@ class QuizEvaluator:
             if expected == actual:
                 return True, "正确！", "correct"
             if expected in actual or actual in expected:
-                return True, "基本正确。", "correct"
+                # W1 E15：守三态约定（partial ⇒ is_correct=False，与 _parse_grading_response 一致）。
+                # 旧代码在这里返回 True + "correct"，同一句"基本正确"在两条路径下被判成不同状态。
+                return False, "基本正确。", "partial"
             return False, f"参考答案：{question.answer}", "incorrect"
 
         prompt = GRADING_PROMPT.format(

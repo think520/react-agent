@@ -81,6 +81,21 @@ describe("DESIGN.md 与 styles.css 的 token 契约", () => {
     const undocumented = OWNED.filter((name) => cssTokens.has(name) && !docTokens.has(name));
     expect(undocumented).toEqual([]);
   });
+
+  // 2026-09-24：吸顶标签栏写了 `background: var(--bg)`，而 --bg 这个 token 从来不存在，
+  // 声明被浏览器整条丢掉 —— 于是滚动时正文从标签栏下面透出来（用户截图："透明条挡视野"）。
+  // 同样的问题还有 3 处 var(--ink-blue)。这条门禁把"用了一个没定义的 token 且没有 fallback"
+  // 直接变红：写错名字当场发现，而不是等用户看到透明的东西。
+  it("没有 fallback 的 var(--x) 必须在样式里真的定义过", () => {
+    const defined = new Set(
+      Array.from(cssText.matchAll(/(--[a-z0-9-]+)\s*:/g)).map((match: RegExpMatchArray) => match[1]),
+    );
+    const usedWithoutFallback = Array.from(
+      cssText.matchAll(/var\(\s*(--[a-z0-9-]+)\s*\)/g),
+    ).map((match: RegExpMatchArray) => match[1]);
+    const missing = Array.from(new Set(usedWithoutFallback)).filter((name: string) => !defined.has(name));
+    expect(missing).toEqual([]);
+  });
 });
 
 describe("漂移棘轮（只允许变小）", () => {

@@ -75,6 +75,7 @@ class QuizService:
         jina_fallback: bool = True,
         memory_enabled: bool = True,
         mode: str = "generate",
+        pipeline: bool = False,
     ) -> dict[str, Any]:
         """``mode="generate"`` authors new questions; ``mode="search"`` extracts the
         questions a page already contains (S6 / D9). Search has no local branch —
@@ -103,9 +104,40 @@ class QuizService:
                 )
             return generator.generate_from_web_evidence(evidence_content, sources, count=count)
 
+        pipeline_used = False
+        if pipeline and not searching and not web_research_id:
+            # W1 E5：三阶段管线（Explore → Plan → 逐题生成），逐题就绪即入库。
+            # 默认关闭：它每道题一次模型调用，等逐题流式界面做好再谈默认开启。
+            from quiz.pipeline import run_question_pipeline
+
+            outcome = run_question_pipeline(
+                workspace=self.workspace,
+                topic=query,
+                count=count,
+                llm=llm,
+                config=self.config,
+                document_ids=document_ids,
+                course=course,
+                personalization=generator.personalization_context or "",
+            )
+            if not outcome.get("ok"):
+                return _err(
+                    outcome.get("error") or "没有找到可用于出题的资料。",
+                    code=outcome.get("code") or "no_evidence",
+                )
+            questions = [
+                question
+                for question in (store.get_question(qid) for qid in outcome["question_ids"])
+                if question is not None
+            ]
+            pipeline_used = True
+
         web_attempted = False
         active_web_research_id = web_research_id
-        if active_web_research_id:
+        if pipeline_used:
+            # 管线已经逐题生成并入库 —— 别再走单发分支把它覆盖掉。
+            pass
+        elif active_web_research_id:
             from service.research_service import ResearchService
             try:
                 evidence = ResearchService(self.workspace).evidence(active_web_research_id)
@@ -173,6 +205,11 @@ class QuizService:
 
         saved_ids = []
         for q in questions:
+            if pipeline_used and q.id:
+                # 三阶段管线**逐题就绪即入库**；这里只是把它已经落库的结果收拢，
+                # 不能重复入库（否则同一道题会出现两次）。
+                saved_ids.append(q.id)
+                continue
             qid = store.add_question(q)
             q.id = qid
             saved_ids.append(qid)
@@ -331,6 +368,8 @@ class QuizService:
                     "question_id": question_id,
                     "origin": session.origin,
                     "is_correct": is_correct,
+                    # W1 E15：学习轨迹也要能分清三态（partial 不算错、也不是答对）。
+                    "verdict": verdict,
                     "concepts": question.concepts,
                 },
                 dedupe_key=f"quiz_answered:{attempt_id}",
@@ -425,7 +464,17 @@ class QuizService:
             latest_attempts[attempt.question_id] = attempt
 
         answered_count = len(latest_attempts)
-        correct_count = sum(1 for attempt in latest_attempts.values() if attempt.is_correct)
+        # W1 E15：三态要分开数 —— partial 既不是"答对"，也不进错题本（错题谓词排除 partial）。
+        # 只给一个 correct 时，界面上的"答对 X/Y"与"错题已加入复习队列"两句话必然有一句在撒谎。
+        correct_count = sum(
+            1 for attempt in latest_attempts.values()
+            if attempt.is_correct and attempt.verdict != "partial"
+        )
+        partial_count = sum(1 for attempt in latest_attempts.values() if attempt.verdict == "partial")
+        wrong_count = sum(
+            1 for attempt in latest_attempts.values()
+            if not attempt.is_correct and attempt.verdict != "partial"
+        )
         total = len(session.question_ids)
         current_index = total
         for index, question_id in enumerate(session.question_ids):
@@ -459,6 +508,8 @@ class QuizService:
                 "answered": answered_count,
                 "total": total,
                 "correct": correct_count,
+                "partial": partial_count,
+                "wrong": wrong_count,
                 "current_index": current_index,
                 "completed": session.status == "completed",
             },
@@ -529,12 +580,21 @@ class QuizService:
         try:
             llm = _get_llm_provider(self.config)
         except Exception as exc:
+            # W1 E3：**没有模型不是死路**。回退链的最后一级（原题重练）不需要模型，
+            # 必须先走到它 —— 旧代码在这里直接 return，错题这一轮就再也进不了复习。
+            # 归因也如实：mode=replay + reason=no_provider（界面据此说"未配置模型"）。
             logger.warning("No LLM provider for wrong-answer variant: %s", exc)
-            return _err("AI 模型未配置，无法生成变式题，请在设置中完成配置。", code="provider_unconfigured")
+            return _ok(
+                question_id=entry["question_id"],
+                question=self._question_for_practice(original),
+                mode="replay",
+                reason="no_provider",
+            )
 
         # 回退链：优先用原文 chunk 生成变式；证据缺失（联网题、旧题、重同步后
         # chunk 失效）时按原题概念重新出题；仍失败则原题重练，避免错题永远
-        # 无法进入复习。
+        # 无法进入复习。每级的「为什么走了这条路」用 reason 如实带出去 ——
+        # 旧实现把异常吞掉后静默降级，界面一律说"原题证据已失效"，与事实不符。
         if chunks:
             try:
                 variant = QuestionGenerator(self.workspace, llm).generate_wrong_answer_variant(
@@ -544,7 +604,12 @@ class QuizService:
                 )
                 if variant:
                     variant.id = store.add_question(variant)
-                    return _ok(question_id=variant.id, question=self._question_for_practice(variant), mode="variant")
+                    return _ok(
+                        question_id=variant.id,
+                        question=self._question_for_practice(variant),
+                        mode="variant",
+                        reason="evidence_used",
+                    )
             except Exception as exc:
                 logger.warning("Could not generate wrong-answer variant: %s", exc)
 
@@ -558,12 +623,23 @@ class QuizService:
                 if fallback:
                     question = fallback[0]
                     question.id = store.add_question(question)
-                    return _ok(question_id=question.id, question=self._question_for_practice(question), mode="concept_fallback")
+                    return _ok(
+                        question_id=question.id,
+                        question=self._question_for_practice(question),
+                        mode="concept_fallback",
+                        # 有证据却降级 = 生成失败；没证据 = 证据缺失。两种归因不能混。
+                        reason="variant_failed" if chunks else "evidence_missing",
+                    )
             except Exception as exc:
                 logger.warning("Could not generate concept fallback question: %s", exc)
 
         # 最后回退：原题重练（前端可据此标注"复习原题"）。
-        return _ok(question_id=entry["question_id"], question=self._question_for_practice(original), mode="replay")
+        return _ok(
+            question_id=entry["question_id"],
+            question=self._question_for_practice(original),
+            mode="replay",
+            reason="generation_failed" if (chunks or concepts) else "no_evidence",
+        )
 
     def get_weakness_analysis(self) -> dict[str, Any]:
         from quiz.review import QuizReviewer

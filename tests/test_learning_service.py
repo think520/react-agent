@@ -120,7 +120,33 @@ def test_get_review_queue_aggregates_learning_and_quiz_data(store, svc, monkeypa
     assert result["due_concepts"][0]["concept"] == "A"
     assert result["due_concepts"][0]["question_ids"] == [question_id]
     assert result["wrong_answers"] == [{"question_id": 1}]
-    assert result["weaknesses"] == [{"concept": "A", "question_ids": [question_id]}]
+    # W1 E9：队列要带上"最近一次答错是哪次"（这里没有作答历史 → None）。
+    # W1 E6：还要带上推导出来的掌握度，并说明来源（这里是存量分数 → stored）。
+    assert result["weaknesses"] == [
+        {
+            "concept": "A", "question_ids": [question_id], "last_attempt_id": None,
+            "mastery": 0.0, "evidence": 0, "mastery_source": "stored",
+        },
+    ]
+    assert result["due_concepts"][0]["last_attempt_id"] is None
+    assert result["due_concepts"][0]["mastery_source"] == "stored"
+
+
+def test_review_queue_reports_the_next_future_review(store, svc):
+    from datetime import datetime, timezone, timedelta
+
+    next_review = (datetime.now(timezone.utc) + timedelta(days=2)).isoformat()
+    store.upsert_mastery(Mastery(
+        concept="未来知识点",
+        status="learning",
+        score=0.5,
+        next_review=next_review,
+    ))
+
+    result = svc.get_review_queue()
+
+    assert result["next_review"]["concept"] == "未来知识点"
+    assert result["next_review"]["next_review"] == next_review
 
 
 def test_review_queue_wrong_answers_match_the_bank(store, svc):
@@ -368,7 +394,42 @@ def test_all_results_have_ok_field(svc, store):
         svc.get_today_tasks(),
         svc.get_plan_progress(1),
         svc.complete_task(1, 1, 0),
-        svc.complete_step(1, 2),
     ]
     for r in methods:
         assert "ok" in r, f"Missing 'ok' in {r}"
+
+def test_due_concept_carries_the_last_wrong_attempt_for_variants(store, svc):
+    """W1 E9：到期复习要走 **E3 已交付的变式通道**，而不是把原题重放一遍。
+
+    变式通道（generate_wrong_answer_variant）只认 attempt_id，所以队列必须把
+    "这个概念最近一次答错是哪次"带出去；没有作答历史的新概念照旧按概念出题。
+    """
+    from datetime import datetime, timezone, timedelta
+    from quiz.schema import Question, QuizAttempt
+    from quiz.store import QuizStore
+
+    store.upsert_mastery(Mastery(
+        concept="最短路径",
+        status="learning",
+        score=0.4,
+        next_review=(datetime.now(timezone.utc) - timedelta(hours=2)).isoformat(),
+    ))
+    quiz_store = QuizStore(svc.workspace)
+    question_id = quiz_store.add_question(
+        Question(question="为什么需要松弛操作？", answer="答案", concepts=["最短路径"]),
+    )
+    session = quiz_store.create_session([question_id])
+    wrong_id = quiz_store.record_attempt(QuizAttempt(
+        session_id=session.id, question_id=question_id,
+        user_answer="B", is_correct=False, verdict="incorrect", feedback="wrong",
+    ))
+    # 后来又答对一次：最近一次答错仍是上面那次（变式针对的是那个误区）。
+    quiz_store.record_attempt(QuizAttempt(
+        session_id=session.id, question_id=question_id,
+        user_answer="A", is_correct=True, verdict="correct", feedback="ok",
+    ))
+
+    due = svc.get_review_queue()["due_concepts"]
+    item = next(entry for entry in due if entry["concept"] == "最短路径")
+
+    assert item["last_attempt_id"] == wrong_id, item

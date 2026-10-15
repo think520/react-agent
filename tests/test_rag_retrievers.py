@@ -178,7 +178,13 @@ def test_retrieval_pipeline_is_cached_per_workspace(tmp_path, monkeypatch):
 
     class Embedding:
         def __init__(self, _config):
-            self.client = object()
+            # B2: the retrieval pipeline takes the provider, not a client.
+            self.provider = object()
+
+        def get_model_info(self):
+            # G2: the pipeline asks for a signature. An unknown dimension means
+            # there is nothing to contradict, so the guard stays quiet.
+            return {"name": "test-double", "model": "test-double", "dim": None}
 
     monkeypatch.setattr("rag.sqlite_store.KBSQLiteStore", SQLite)
     monkeypatch.setattr("rag.qdrant_store.QdrantStore", lambda *_args: Qdrant())
@@ -221,7 +227,13 @@ def test_acquire_release_refcount_and_deferred_close(tmp_path, monkeypatch):
 
     class Embedding:
         def __init__(self, _config):
-            self.client = object()
+            # B2: the retrieval pipeline takes the provider, not a client.
+            self.provider = object()
+
+        def get_model_info(self):
+            # G2: the pipeline asks for a signature. An unknown dimension means
+            # there is nothing to contradict, so the guard stays quiet.
+            return {"name": "test-double", "model": "test-double", "dim": None}
 
     monkeypatch.setattr("rag.sqlite_store.KBSQLiteStore", SQLite)
     monkeypatch.setattr("rag.qdrant_store.QdrantStore", lambda *_args: Qdrant())

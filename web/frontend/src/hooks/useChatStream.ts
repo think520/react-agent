@@ -27,6 +27,8 @@ export function useChatStream() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [status, setStatus] = useState("");
   const [brandState, setBrandState] = useState<ProcessBrandState>("thinking");
+  // W1 E11：这次回答有没有被输出上限截断（续写中 / 续写用尽）。
+  const [truncated, setTruncated] = useState<{ continuing: boolean } | null>(null);
 
   const bufferRef = useRef<StreamBuffer | null>(null);
 
@@ -79,7 +81,20 @@ export function useChatStream() {
     if (streamEvent.event === "message_delta") {
       setStatus("正在组织回答");
       setBrandState("writing");
+      if (streamEvent.data.call_role === "narration") {
+        // W1 E11 / D4：调工具前的过渡说明进"过程"，不进最终答案正文。
+        updateLastMessage((item) => ({
+          ...item,
+          process: [...(item.process || []), { phase: "narration", message: streamEvent.data.content }],
+        }));
+        return;
+      }
       enqueueDelta(streamEvent.data.content);
+    }
+    if (streamEvent.event === "answer_truncated") {
+      // 续写中不打断用户；只有"续写用尽仍被截断"才提示，并给一个接着写的入口。
+      setTruncated({ continuing: Boolean(streamEvent.data.continuing) });
+      setStatus(streamEvent.data.continuing ? "回答被长度上限截断，正在接着写" : "回答被长度上限截断");
     }
     if (streamEvent.event === "citation") {
       setStatus("已找到相关资料，正在整理");
@@ -131,5 +146,7 @@ export function useChatStream() {
     setBrandState,
     handleStreamEvent,
     settleLastMessage,
+    truncated,
+    clearTruncated: () => setTruncated(null),
   };
 }

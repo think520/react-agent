@@ -533,7 +533,7 @@ def test_wiki_plan_requires_confirmation_before_writing(svc, workspace, monkeypa
         def to_dict(self):
             return {"updated_files": 1, "errors": []}
 
-    monkeypatch.setattr(svc, "_sync_registered_sources", lambda mode, config: Summary())
+    monkeypatch.setattr(svc, "_sync_registered_sources", lambda mode, config, **kwargs: Summary())
     applied = svc.apply_wiki_plan(planned["plan_id"])
 
     assert applied["ok"]
@@ -607,7 +607,7 @@ def test_applied_wiki_plan_remains_successful_when_resync_is_deferred(svc, monke
     monkeypatch.setattr(
         svc,
         "_sync_registered_sources",
-        lambda mode, config: (_ for _ in ()).throw(RuntimeError("index busy")),
+        lambda mode, config, **kwargs: (_ for _ in ()).throw(RuntimeError("index busy")),
     )
 
     result = svc.apply_wiki_plan("a" * 32)
@@ -707,7 +707,7 @@ def test_delete_managed_document_removes_source_and_resyncs(svc, workspace, monk
         def to_dict(self):
             return {"updated_files": 1, "errors": []}
 
-    monkeypatch.setattr(svc, "_sync_registered_sources", lambda mode, config: Summary())
+    monkeypatch.setattr(svc, "_sync_registered_sources", lambda mode, config, **kwargs: Summary())
 
     result = svc.delete_document("doc-1")
 
@@ -819,23 +819,66 @@ def test_import_files_uses_managed_sources_and_preserves_registered_roots(
         def to_dict(self):
             return {"scanned_files": 1, "errors": []}
 
-    def fake_sync(mode, config):
+    def fake_sync(mode, config, **kwargs):
+        # E8：导入路径现在多传取消 token 与进度回调；用 **kwargs 兜住，行为不变。
         captured["roots"] = svc._registered_roots()
         return Summary()
 
     monkeypatch.setattr(svc, "_sync_registered_sources", fake_sync)
     result = svc.import_files([
         ("../lesson.md", b"# Lesson"),
+        ("notes.txt", b"plain text notes"),
         ("malware.exe", b"no"),
     ])
 
     assert result["ok"]
-    assert result["imported"] == ["lesson.md"]
+    assert result["imported"] == ["lesson.md", "notes.txt"]
     assert result["rejected"][0]["reason"] == "unsupported_file_type"
     assert os.path.exists(os.path.join(svc.managed_sources_dir, "lesson.md"))
+    assert os.path.exists(os.path.join(svc.managed_sources_dir, "notes.txt"))
     _, roots = captured["roots"]
     assert os.path.abspath(course) in roots
     assert os.path.abspath(svc.managed_sources_dir) in roots
+
+
+def test_import_files_reindexes_identical_content_that_was_never_indexed(
+    svc, workspace, monkeypatch
+):
+    """盘上有同字节的文件、但它**从未建过索引**：不能判成"重复已完成"，要补做索引。
+
+    2026-09-28 审查 F04 之前，这里断言的是"duplicate-only 不许同步"——那条契约正是 bug：
+    上一次同步失败留下的文件会被永久跳过，界面上写着"重复文件已保留已有版本"，而它永远检索不到。
+    现在：不新写副本，但把它送进同步，并如实报成 pending。
+    """
+    os.makedirs(svc.managed_sources_dir, exist_ok=True)
+    existing = os.path.join(svc.managed_sources_dir, "lesson.md")
+    with open(existing, "wb") as handle:
+        handle.write(b"# Same lesson")
+
+    synced: list[str] = []
+
+    class _Summary:
+        def to_dict(self):
+            return {"extraction_counts": {"complete": 1}, "error_files": 0}
+
+    monkeypatch.setattr(
+        svc,
+        "_sync_registered_sources",
+        lambda mode, config, **kwargs: (synced.append(mode), _Summary())[1],
+    )
+
+    result = svc.import_files([("lesson-copy.md", b"# Same lesson")])
+
+    assert result["ok"]
+    assert result["imported"] == [], "不该再写一份副本"
+    assert result["duplicates"] == [], "没建过索引就谈不上'重复已完成'"
+    assert result["pending"] == [{
+        "filename": "lesson-copy.md",
+        "existing": "lesson.md",
+        "reason": "awaiting_index",
+    }]
+    assert synced == ["incremental"], "重试必须真的去补索引（F04）"
+    assert not os.path.exists(os.path.join(svc.managed_sources_dir, "lesson-copy.md"))
 
 
 def test_portable_library_upload_uses_raw_inbox_without_creating_wiki_pages(tmp_path, monkeypatch):
@@ -850,7 +893,7 @@ def test_portable_library_upload_uses_raw_inbox_without_creating_wiki_pages(tmp_
         def to_dict(self):
             return {"scanned_files": 1, "errors": []}
 
-    monkeypatch.setattr(portable, "_sync_registered_sources", lambda mode, config: Summary())
+    monkeypatch.setattr(portable, "_sync_registered_sources", lambda mode, config, **kwargs: Summary())
     before = sorted(str(path.relative_to(root / "wiki")) for path in (root / "wiki").rglob("*.md"))
 
     result = portable.import_files([("lesson.md", b"# Lesson")])
@@ -888,12 +931,15 @@ def test_portable_library_delete_archives_raw_and_marks_wiki_stale(tmp_path, mon
         def to_dict(self):
             return {"updated_files": 1, "errors": []}
 
-    monkeypatch.setattr(portable, "_sync_registered_sources", lambda mode, config: Summary())
+    monkeypatch.setattr(portable, "_sync_registered_sources", lambda mode, config, **kwargs: Summary())
     result = portable.delete_document("doc-1")
 
     assert result["ok"]
     assert not source.exists()
-    assert list((root / ".bobodan" / "archive" / "raw").rglob("lesson.md"))
+    # E17 ③：归档路径保留**原目录层级**（旧实现是 archive/raw/<时间戳>/<文件名>，
+    # 文件名冲突时会互相覆盖），并记一条可恢复条目。
+    assert list((root / ".bobodan" / "archive").rglob("raw/inbox/lesson.md"))
+    assert result["archive"]["original_path"] == "raw/inbox/lesson.md"
     assert "status: needs_update" in wiki_page.read_text(encoding="utf-8")
 
 
@@ -955,6 +1001,41 @@ def test_get_document_extraction_returns_stored_report(svc, workspace):
     assert "scanned_or_empty_pages" in result["report"]["warnings"]
 
 
+def test_public_document_says_whether_an_original_file_exists(svc, workspace):
+    """原文视图按"有没有原件"决定，而不是按类型白名单；但路径绝不能泄露。"""
+    import os
+
+    from rag.sqlite_store import KBSQLiteStore
+
+    note = os.path.join(str(workspace), "vault", "note.md")
+    os.makedirs(os.path.dirname(note), exist_ok=True)
+    with open(note, "w", encoding="utf-8") as handle:
+        handle.write("# 标题\n")
+
+    store = KBSQLiteStore(workspace)
+    store.init_db()
+    try:
+        store.upsert_document(
+            document_id="doc-alive", source="vault/note.md", content_hash="h1", title="Alive", path=note
+        )
+        store.upsert_document(
+            document_id="doc-gone",
+            source="vault/gone.md",
+            content_hash="h2",
+            title="Gone",
+            path=os.path.join(str(workspace), "vault", "gone.md"),
+        )
+    finally:
+        store.close()
+
+    result = svc.list_documents()
+    docs = {item["document_id"]: item for item in result["documents"]}
+
+    assert docs["doc-alive"]["has_original"] is True
+    assert docs["doc-gone"]["has_original"] is False
+    assert "path" not in docs["doc-alive"], "路径不能出现在公开文档里"
+
+
 def test_public_document_includes_extraction_status(svc, workspace):
     from rag.sqlite_store import KBSQLiteStore
 
@@ -986,3 +1067,22 @@ def test_public_document_includes_extraction_status(svc, workspace):
     assert doc["extraction_status"] == "partial"
     assert doc["extraction_total_units"] == 4
     assert doc["extraction_empty_units"] == 1
+
+def test_missing_declared_roots_are_detected(workspace):
+    """①（E17）的来源根掉线检测：登记里在、磁盘上不在的根必须被认出来。
+
+    自愈机制会把「索引里有、扫描里没有」的记录当删除候选，所以服务层要先
+    知道有根不见了，才能按 P0-12 的「扫描不完整就绝不删除」处理。
+    """
+    library_root = os.path.join(workspace, "library")
+    pack = os.path.join(library_root, "course-pack")
+    os.makedirs(pack)
+    service = KBService(library_root)
+    service._save_source_roots({"vault_path": library_root, "course_dirs": [pack]})
+
+    assert service._missing_declared_roots() == []
+
+    import shutil
+
+    shutil.rmtree(pack)
+    assert service._missing_declared_roots() == [pack]

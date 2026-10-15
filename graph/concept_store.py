@@ -497,6 +497,23 @@ class ConceptStore:
                 "excerpt": excerpt, "location_type": location_type,
                 "location_value": location_value, "location_stale": False}
 
+    def remap_evidence_chunk_ids(self, mapping: dict[str, str]) -> int:
+        """E17 ③：资料改名后，把证据里的 chunk_id 迁到新身份上。
+
+        没有这一步，改个文件名就会让所有带 chunk_id 的证据变成定位失效。
+        """
+        if not mapping:
+            return 0
+        updated = 0
+        with self._connect() as con:
+            for old_id, new_id in mapping.items():
+                cursor = con.execute(
+                    "UPDATE evidence SET chunk_id = ? WHERE chunk_id = ?",
+                    (new_id, old_id),
+                )
+                updated += cursor.rowcount or 0
+        return updated
+
     def evidence_for_relationship(self, rel_id: str) -> list[dict[str, Any]]:
         with self._connect() as con:
             rows = con.execute(

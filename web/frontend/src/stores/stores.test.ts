@@ -74,6 +74,36 @@ describe("chat stream reducer", () => {
     expect(result.current.brandState).toBe("ready");
   });
 
+  // W1 E11 / D4：过渡说明（narration）进"过程"，不进答案正文。
+  it("keeps narration out of the answer body", () => {
+    const { result } = renderHook(() => useChatStream());
+    act(() => result.current.setMessages([{ role: "assistant", content: "", pending: true }]));
+
+    act(() => result.current.handleStreamEvent({
+      event: "message_delta",
+      data: { content: "我先查一下资料。", call_role: "narration" },
+    }));
+    act(() => result.current.handleStreamEvent({
+      event: "message_delta",
+      data: { content: "极限的定义是……", call_role: "finish" },
+    }));
+    act(() => result.current.settleLastMessage());
+
+    expect(result.current.messages[0].process?.at(-1)?.message).toBe("我先查一下资料。");
+    expect(result.current.messages[0].content).not.toContain("我先查一下资料。");
+    expect(result.current.messages[0].content).toContain("极限的定义是");
+  });
+
+  it("still appends a delta that carries no role", () => {
+    const { result } = renderHook(() => useChatStream());
+    act(() => result.current.setMessages([{ role: "assistant", content: "", pending: true }]));
+
+    act(() => result.current.handleStreamEvent({ event: "message_delta", data: { content: "老路径" } }));
+    act(() => result.current.settleLastMessage());
+
+    expect(result.current.messages[0].content).toContain("老路径");
+  });
+
   it("attaches the active session id to a practice artifact", () => {
     const { result } = renderHook(() => useChatStream());
     act(() => result.current.setMessages([{ role: "assistant", content: "", pending: true }]));

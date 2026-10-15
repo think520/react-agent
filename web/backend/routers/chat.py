@@ -15,6 +15,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
 from core.session import Session
+from core.exploration_budget import resolve_exploration_budget
 from core.session_compactor import resolve_context_window
 from core.agent_events import canonicalize_event
 from core.event_bus import get_default_bus
@@ -96,6 +97,9 @@ _WEB_TOOL_NAMES = frozenset({
     "learning_path",
     "learning_progress",
     "learning_review",
+    # W1 E6/D1: read the mastery engine (next objective + derived scores) before
+    # deciding what to do next. Read-only, so it cannot become a bypass.
+    "learning_status",
     "request_memory_confirmation",
     "ask_user",
     # P1-16: the three specialists the CLI always had. Registered for the web
@@ -133,6 +137,7 @@ def _load_or_create_session(
     config: dict[str, Any],
     workspace: str,
     library_id: str | None,
+    kind: str = "chat",
 ) -> Session:
     save_dir = get_session_save_dir(config, workspace)
     if chat_session_id:
@@ -148,13 +153,21 @@ def _load_or_create_session(
     max_messages = config.get("session", {}).get("max_messages")
     session = Session.new(workspace, max_messages=max_messages)
     session.library_id = library_id
+    # W1 E14：类别只在**新建**时落库；已存在的会话保留自己的类别 ——
+    # 否则同一会话被另一个入口碰一下就换了类别（练习会话会突然冒进主列表）。
+    session.kind = kind if kind in SESSION_KINDS else "chat"
     return session
+
+
+# W1 E14：会话类别白名单（chat = 主聊天，practice/review = 学习闭环里的辅导会话）。
+SESSION_KINDS = ("chat", "practice", "review")
 
 
 def _session_summary(summary: dict[str, Any]) -> dict[str, Any]:
     return {
         "chat_session_id": summary.get("session_id", ""),
         "name": summary.get("name", ""),
+        "kind": summary.get("kind", "chat"),
         "name_source": summary.get("name_source", "fallback"),
         "created_at": summary.get("created_at", ""),
         "last_active": summary.get("last_active", ""),
@@ -171,12 +184,41 @@ CONTINUE_DIRECTIVE = (
 )
 
 
+def _interaction_service(workspace: str, config: dict | None = None) -> "InteractionService":
+    """W1 E4：交互服务统一构造入口 —— 等待时限可由 «agent.interaction_timeout_hours» 覆盖。"""
+    from service.interaction_service import InteractionService, resolve_interaction_timeout_hours
+
+    return InteractionService(
+        workspace, timeout_hours=resolve_interaction_timeout_hours(config or get_config()),
+    )
+
+
 def _resume_content(record: dict[str, Any]) -> str:
     """Render the user's answers as the ask_user tool result (E4)."""
     prompts = {
         str(question.get("id") or ""): str(question.get("prompt") or "").strip()
         for question in record.get("questions") or []
     }
+    # W1 E4：用户**没有回答**就结束了这次选择（跳过 / 超时 / 过期）—— 工具结果必须
+    # 如实说清楚是哪种，不能编一个答案，也不能让模型以为"用户什么都没说"而干等。
+    no_answer = {
+        "skipped": "[用户跳过了这个选择]",
+        "timeout": "[用户没有在时限内回答]",
+        "expired": "[这个问题已经过期（太久没有回答）]",
+    }
+    closure = str(record.get("closure") or "")
+    if closure in no_answer:
+        asked = [str(q.get("prompt") or "").strip() for q in record.get("questions") or []]
+        lines = [no_answer[closure]]
+        if asked:
+            lines.append("- 没有回答的问题是：" + "；".join(item for item in asked if item))
+        lines.append("")
+        lines.append(
+            "不要再等这个回答：要么用现有信息继续用户原来的请求，"
+            "要么说明还需要什么才能继续。"
+        )
+        return "\n".join(lines)
+
     lines = ["[用户回答]"]
     for answer in record.get("answers") or []:
         question_id = str(answer.get("id") or "")
@@ -196,7 +238,7 @@ def _close_open_interactions(session: Session, workspace: str) -> list[str]:
     message must fill that call in, otherwise the next provider request carries
     an assistant(tool_calls) with no matching tool message and is rejected.
     """
-    service = InteractionService(workspace)
+    service = _interaction_service(workspace)
     closed: list[str] = []
     for record in service.list_open(session.session_id):
         tool_call_id = str(record.get("tool_call_id") or "")
@@ -241,6 +283,12 @@ def _session_detail(session: Session, workspace: str | None = None) -> dict[str,
             messages.append(item)
         elif role == "assistant" and not message.get("tool_calls") and content:
             item = {"role": "assistant", "content": content}
+            # F06：失败标记必须一起出去，否则刷新后这一轮看起来像正常回答过。
+            for flag in ("failed", "stopped"):
+                if message.get(flag):
+                    item[flag] = True
+            if message.get("failed") and message.get("error"):
+                item["error"] = message["error"]
             attribution = _public_attribution(message.get("attribution"))
             if attribution:
                 item["attribution"] = attribution
@@ -252,7 +300,7 @@ def _session_detail(session: Session, workspace: str | None = None) -> dict[str,
     if workspace:
         # E4 recovery: overlay the persisted lifecycle onto the cards already in
         # the transcript, so a reload shows answered/graded state in place.
-        interactions = InteractionService(workspace)
+        interactions = _interaction_service(workspace)
         for message in messages:
             for artifact in message.get("artifacts") or []:
                 if artifact.get("type") == "ask_user":
@@ -486,18 +534,95 @@ def _requests_practice(message: str) -> bool:
         "道题",
         "出几道",
         "练几道",
-        "练习",
+        "来点题",
+        "来几道",
+        "给点题",
         "做题",
+        "刷题",
+        "刷几道",
+        "练习",
+        "练一练",
+        "练练",
         "测验",
         "小测",
+        "自测",
         "考考我",
+        "考我",
         "测测我",
+        "测一测",
+        "检验一下",
+        "检查一下我",
         "quiz",
         "practice",
+        "exercise",
+        "drill me",
         "test me",
+        "test my",
         "generate questions",
+        "some questions",
     )
     return any(phrase in normalized for phrase in practice_phrases)
+
+
+def _wants_kb_seed(message: str, *, has_document_scope: bool) -> bool:
+    """W1 E12：哪些轮次值得"进循环前先检索一次"（冷启动）。
+
+    出题轮不塞（练习走服务端绑定的卡片）；其余"像在问知识"的轮次才预检索。
+    """
+    if _requests_practice(message):
+        return False
+    if _requires_local_evidence(message, has_document_scope=has_document_scope):
+        return True
+    text = (message or "").strip()
+    if len(text) < 4:
+        return False
+    if "?" in text or "？" in text:
+        return True
+    return any(
+        word in text
+        for word in ("什么", "为什么", "怎么", "如何", "解释", "区别", "讲讲", "对比", "原理")
+    )
+
+
+def _kb_seed_for(
+    message: str,
+    *,
+    workspace: str,
+    config: dict,
+    has_document_scope: bool,
+    top_k: int = 4,
+) -> str:
+    """W1 E12 / D13：进循环前的预检索。**失败就当作没有**（绝不拖垮这一轮）。"""
+    from core.prompt_blocks import build_kb_seed_block
+
+    if not _wants_kb_seed(message, has_document_scope=has_document_scope):
+        return ""
+    try:
+        from rag.retriever import search_index
+
+        hits = search_index(workspace, message, top_k=top_k, config=config)
+    except Exception as exc:  # pragma: no cover - 具体异常类型依检索实现而定
+        logger.warning("KB seed retrieval failed: %s", exc)
+        return ""
+    return build_kb_seed_block(hits or [])
+
+
+def _build_response_policies(message: str, *, has_document_scope: bool) -> list:
+    """组装这一轮要挂的响应策略（W1 E13）。
+
+    - 本地证据 / 概念地图策略仍按语义触发（它们问的是"这一轮该不该用资料或图谱"）。
+    - **出题卡防绕过（防线②）无条件挂载**：它检测的是**模型输出**（纯文本 A/B/C 收尾），
+      而旧实现把挂载挂在用户措辞上 —— 措辞表漏了就能绕过。现在措辞只决定**灵敏度**：
+      明确要题时用宽松判定，否则用严格判定（成组短选项在结尾且上下文在提问）。
+    """
+    policies: list = []
+    if _requires_local_evidence(message, has_document_scope=has_document_scope):
+        policies.append(LocalEvidencePolicy())
+    policies.append(InlineQuestionPolicy(strict=not _requests_practice(message)))
+    operation = _required_concept_map_operation(message)
+    if operation:
+        policies.append(ConceptMapPolicy(operation))
+    return policies
 
 
 def _required_concept_map_operation(message: str) -> str | None:
@@ -759,7 +884,8 @@ def _clean_generated_title(text: str) -> str:
 
 def migrate_unnamed_sessions(save_dir: str) -> int:
     migrated = 0
-    for summary in Session.list_session_summaries(save_dir):
+    # W1 E14：命名迁移要覆盖**所有**类别（练习辅导会话也需要名字），不是只做主列表。
+    for summary in Session.list_session_summaries(save_dir, kind="all"):
         if summary.get("name") not in _UNTITLED_NAMES:
             continue
         result = AgentService.load_session(summary["session_id"], save_dir)
@@ -777,9 +903,16 @@ def migrate_unnamed_sessions(save_dir: str) -> int:
 
 
 @router.get("/sessions")
-def list_sessions(request: Request) -> dict:
+def list_sessions(request: Request, kind: str = "chat") -> dict:
+    """主会话列表默认**只列 chat**（W1 E14）。
+
+    练习/复习的辅导会话走的是同一条流式通道，但它们不是用户"开的会话"；
+    默认过滤掉，需要看全部时显式传 «kind=all»。
+    """
+    if kind not in (*SESSION_KINDS, "all"):
+        raise APIError(422, "invalid_request", "kind 只能是 chat、practice、review 或 all。")
     workspace = get_request_workspace(request)
-    result = AgentService.list_sessions(get_session_save_dir(get_config(), workspace))
+    result = AgentService.list_sessions(get_session_save_dir(get_config(), workspace), kind=kind)
     return {"sessions": [_session_summary(item) for item in result["sessions"]]}
 
 
@@ -957,10 +1090,34 @@ def answer_interaction(
 ) -> dict:
     """Record the user's answers to an ask_user card and complete its lifecycle."""
     workspace = get_request_workspace(request)
-    record = InteractionService(workspace).answer(
+    record = _interaction_service(workspace).answer(
         interaction_id,
         [item.model_dump() for item in body.answers],
     )
+    if not record:
+        raise APIError(404, "interaction_not_found", "这个交互已经不存在了，请重新提问。")
+    return {
+        "chat_session_id": body.chat_session_id,
+        "artifact": _public_interaction(record),
+    }
+
+
+@router.post("/interactions/{interaction_id}/skip")
+def skip_interaction(
+    interaction_id: str,
+    body: InteractionAnswerRequest,
+    request: Request,
+) -> dict:
+    """W1 E4：用户选择**跳过**这个 ask_user 卡片。
+
+    跳过 = 关闭交互（closure=skipped）。客户端随即用同一条 resume_interaction_id
+    调 /runs —— 暂停的那一轮会带着「用户跳过了」这个工具结果继续，而不是永远停在那里。
+    """
+    workspace = get_request_workspace(request)
+    service = _interaction_service(workspace)
+    if service.get(interaction_id) is None:
+        raise APIError(404, "interaction_not_found", "这个交互已经不存在了，请重新提问。")
+    record = service.close(interaction_id, closure="skipped")
     if not record:
         raise APIError(404, "interaction_not_found", "这个交互已经不存在了，请重新提问。")
     return {
@@ -1459,17 +1616,27 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
     preferences = _preferences(config)
     search_preferences = preferences.get("search") or {}
     search_permission = search_preferences.get("permission", "ask")
-    session = _load_or_create_session(body.chat_session_id, config, workspace, library_id)
+    # W1 E14：调用方声明这次会话的类别（练习辅导传 practice），只在新建时落库。
+    session = _load_or_create_session(
+        body.chat_session_id, config, workspace, library_id, kind=body.kind,
+    )
     # E4: a resume continues a paused ask_user turn; a fresh message must first
     # close any pending question so the provider never sees a dangling tool_call.
     resume_record: dict[str, Any] | None = None
     if body.resume_interaction_id:
-        resume_record = InteractionService(workspace).get(body.resume_interaction_id)
+        resume_record = _interaction_service(workspace).get(body.resume_interaction_id)
         if not resume_record or resume_record.get("chat_session_id") != session.session_id:
             raise APIError(404, "interaction_not_found", "这个交互已经不存在了，请重新提问。")
         if not resume_record.get("tool_call_id"):
             raise APIError(409, "interaction_not_resumable", "这次交互没有可续跑的工具调用。")
     else:
+        if body.retry_failed:
+            # 复审修正（F05）：这个标志的意思是"顺手把上一轮的失败尾部清掉"，不是前置条件。
+            # 清不到（用户重试的是**被停止**的那一轮、或历史里本来就没有失败标记）就按普通
+            # 一轮继续跑 —— 否则界面上的「重新发送本轮」会直接报错，点了什么都发不出去。
+            removed = bool(body.chat_session_id) and session.remove_failed_turn_for_retry(body.message)
+            if not removed:
+                logger.info("retry_failed requested without a matching failed turn; running normally")
         _close_open_interactions(session, workspace)
     provider_name, preference_model = parse_provider_ref(
         body.provider
@@ -1574,17 +1741,18 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
     # run that is still producing: the log is that run's transport now.
     stream_store.prune(exempt=live_stream_ids())
     emitter = StreamEmitter(stream_store, stream_id)
-    response_policies = []
-    if _requires_local_evidence(
+    has_document_scope = bool(document_ids or preferred_document_ids)
+    response_policies = _build_response_policies(
         body.message,
-        has_document_scope=bool(document_ids or preferred_document_ids),
-    ):
-        response_policies.append(LocalEvidencePolicy())
-    if _requests_practice(body.message):
-        response_policies.append(InlineQuestionPolicy())
-    required_graph_operation = _required_concept_map_operation(body.message)
-    if required_graph_operation:
-        response_policies.append(ConceptMapPolicy(required_graph_operation))
+        has_document_scope=has_document_scope,
+    )
+    # W1 E12 / D13：先检索一次再进循环（拼到末尾 user 消息，明示"不完整、可继续检索"）。
+    kb_seed = _kb_seed_for(
+        body.message,
+        workspace=workspace,
+        config=config,
+        has_document_scope=has_document_scope,
+    )
     response_guard = CombinedResponsePolicy(*response_policies) if response_policies else None
 
     def event_stream():
@@ -1643,9 +1811,13 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
                 tools_schema=_web_tools_schema(allowed_tool_names),
                 allowed_tool_names=allowed_tool_names,
                 request_prompt=request_prompt,
+                kb_seed=kb_seed,
                 response_guard=response_guard,
                 memory_injector=memory_injector,
                 context_window=resolve_context_window(config),
+                # W1 E11 / D4：探索预算可由配置覆盖（«agent.exploration_budget»）；
+                # 没配就是 None，AgentLoop 用自己的默认（max_iterations − 结算期）。
+                exploration_budget=resolve_exploration_budget(config),
                 resume_tool_call_id=(resume_record or {}).get("tool_call_id") or None,
                 resume_tool_content=_resume_content(resume_record) if resume_record else "",
                 cancel_token=handle.token,
@@ -1664,7 +1836,7 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
                     pause = event.get("pause") or {}
                     if pause.get("interaction_id") and pause.get("tool_call_id"):
                         # E4: bind the paused call so the answer can resume it.
-                        InteractionService(workspace).attach_tool_call(
+                        _interaction_service(workspace).attach_tool_call(
                             str(pause["interaction_id"]), str(pause["tool_call_id"])
                         )
                     for usage_record in event.get("usage_records") or []:
@@ -1712,12 +1884,25 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
             })
         except Exception as exc:
             logger.exception("Web chat run failed: %s", exc)
+            failure = {
+                "code": "run_failed",
+                "message": "The AI run failed. Please try again.",
+            }
+            # F06：失败也要写进会话（下面 finally 会保存）—— 否则刷新之后这一轮凭空消失，
+            # 用户只看见自己那句提问，也不知道刚才到底发生了什么。
+            try:
+                session.add_failed_message(
+                    "assistant",
+                    failure["message"],
+                    failure["message"],
+                    failure["code"],
+                    retry_input=body.message,
+                )
+            except Exception:  # 记不上失败也不能影响 run_failed 事件本身
+                logger.warning("Could not record the failed turn in the session", exc_info=True)
             yield emitter.emit("run_failed", {
                 "run_id": run_id,
-                "error": {
-                    "code": "run_failed",
-                    "message": "The AI run failed. Please try again.",
-                },
+                "error": failure,
             })
         finally:
             # A4 batch 3: the pump owns this generator, so a dropped client no

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from service.interaction_service import (
+    STATUS_ANSWERED,
     STATUS_AWAITING,
     STATUS_GRADED,
     STATUS_REGISTERED,
@@ -151,3 +152,76 @@ def test_expiry_window_closes_orphan_rows_without_touching_open_ones(tmp_path):
     assert service.get("old")["closure"] == "expired"
     # The fresh one is untouched and still answerable.
     assert [row["interaction_id"] for row in service.list_open("c1")] == ["new"]
+
+
+def test_lifecycle_really_passes_through_answered(tmp_path, monkeypatch):
+    """W1 E4：路线里的四态（registered → awaiting_input → answered → graded）要真的能被观察到。
+
+    旧实现把「已作答」和「已批改」压成一次更新（status=graded + closure=answered），
+    于是 «answered» 这个状态**永远不会出现** —— 任何按路线实现的消费者、
+    或"一次只推进一格"的投影都等不到它。
+    """
+    service = InteractionService(str(tmp_path))
+    service.register("i1", chat_session_id="c1", questions=[{"id": "q1", "prompt": "?"}])
+    assert service.get("i1")["status"] == STATUS_REGISTERED
+    assert service.mark_awaiting("i1")["status"] == STATUS_AWAITING
+
+    seen: list[str] = []
+    original = service._update
+
+    def spy(interaction_id, **fields):
+        result = original(interaction_id, **fields)
+        if "status" in fields:
+            seen.append(service.get(interaction_id)["status"])
+        return result
+
+    monkeypatch.setattr(service, "_update", spy)
+    record = service.answer("i1", [{"id": "q1", "answer": "甲"}])
+
+    assert record["status"] == STATUS_GRADED
+    assert seen == [STATUS_ANSWERED, STATUS_GRADED], seen
+    # 中间态也要留下时间戳证据：answered_at 不晚于 graded_at。
+    assert record["answered_at"] and record["graded_at"]
+    assert record["answered_at"] <= record["graded_at"]
+
+
+def test_multi_select_answers_are_graded_as_a_set(tmp_path):
+    """W1 E4：multi_select 是路线里的承诺 —— 判分要按集合比，顺序不同不该判错。"""
+    service = InteractionService(str(tmp_path))
+    service.register("i1", chat_session_id="c1", questions=[{
+        "id": "q1", "prompt": "选出两个正确的", "options": ["甲", "乙", "丙"],
+        "answer": "甲, 丙", "multi_select": True,
+    }])
+
+    outcome = service.answer("i1", [{"id": "q1", "answer": "丙, 甲"}])["outcome"]
+
+    assert outcome["graded"] is True, outcome
+    assert outcome["correct"] == 1, outcome
+
+
+def test_multi_select_partial_selection_is_not_correct(tmp_path):
+    """只选对一半不是答对（多选不能因为"沾边"就给分）。"""
+    service = InteractionService(str(tmp_path))
+    service.register("i1", chat_session_id="c1", questions=[{
+        "id": "q1", "prompt": "选出两个正确的", "options": ["甲", "乙", "丙"],
+        "answer": "甲, 丙", "multi_select": True,
+    }])
+
+    outcome = service.answer("i1", [{"id": "q1", "answer": "甲"}])["outcome"]
+
+    assert outcome["graded"] is True, outcome
+    assert outcome["correct"] == 0, outcome
+
+
+def test_multi_select_accepts_a_list_payload(tmp_path):
+    """前端即使直接送数组（而不是逗号串）也要判对 —— 接口形状不该成为陷阱。"""
+    service = InteractionService(str(tmp_path))
+    service.register("i1", chat_session_id="c1", questions=[{
+        "id": "q1", "prompt": "选出两个正确的", "options": ["甲", "乙", "丙"],
+        "answer": ["甲", "丙"], "multi_select": True,
+    }])
+
+    outcome = service.answer("i1", [{"id": "q1", "answer": ["丙", "甲"]}])["outcome"]
+
+    assert outcome["graded"] is True, outcome
+    assert outcome["correct"] == 1, outcome

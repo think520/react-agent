@@ -306,6 +306,9 @@ def test_session_state_and_abandon(store, svc):
         "answered": 1,
         "total": 2,
         "correct": 1,
+        # W1 E15：三态分开数（partial 既不算答对、也不进错题本）。
+        "partial": 0,
+        "wrong": 0,
         "current_index": 1,
         "completed": False,
     }
@@ -381,6 +384,7 @@ def test_wrong_answer_variant_uses_original_question_and_user_answer(store, svc,
     result = svc.generate_wrong_answer_variant(attempt_id)
 
     assert result["ok"] is True
+    assert result["reason"] == "evidence_used", result
     assert result["question"]["question"] != question.question
     assert "用户错误答案：A" in llm.prompt
     assert "Dijkstra 使用哪种策略" in llm.prompt
@@ -431,6 +435,9 @@ def test_wrong_answer_variant_falls_back_to_concept_regen_without_chunks(store, 
 
     assert result["ok"] is True
     assert result["mode"] == "concept_fallback"
+    # W1 E3：这一条的归因是**证据缺失**（原题来源是网页快照、没有 chunk_id），
+    # 与"有证据但生成失败"必须区分开。
+    assert result["reason"] == "evidence_missing", result
     assert result["question"]["question"] != question.question
 
 
@@ -466,6 +473,90 @@ def test_wrong_answer_variant_replays_original_as_last_resort(store, svc, worksp
     assert result["question_id"] == question.id
 
 
+def test_wrong_answer_variant_replays_when_no_provider_is_configured(store, svc, monkeypatch):
+    """W1 E3：**没有配置模型时也不能死路** —— 三级回退的最后一级（原题重练）必须先跑到。
+
+    旧代码在进入回退链**之前**就 return «provider_unconfigured»，于是那句注释
+    "仍失败则原题重练，避免错题永远无法进入复习"在未配置模型时根本不成立：
+    用户点"生成变式题"只会看到一句错误，这一轮复习就此断头。
+    """
+    question = Question(
+        type="short_answer",
+        question="为什么负权边会破坏 Dijkstra？",
+        answer="贪心选择失效",
+        concepts=["Dijkstra"],
+        sources=[],
+    )
+    question.id = store.add_question(question)
+    session = store.create_session([question.id])
+    attempt_id = store.record_attempt(QuizAttempt(
+        session_id=session.id, question_id=question.id,
+        user_answer="不知道", is_correct=False, verdict="incorrect",
+    ))
+
+    def no_provider(config=None):
+        raise RuntimeError("no provider configured")
+
+    monkeypatch.setattr("service.quiz_service._get_llm_provider", no_provider)
+
+    result = svc.generate_wrong_answer_variant(attempt_id)
+
+    assert result["ok"] is True, result
+    assert result["mode"] == "replay", result
+    assert result["reason"] == "no_provider", result
+    assert result["question_id"] == question.id, result
+
+
+def test_variant_failure_is_not_reported_as_missing_evidence(store, svc, workspace, monkeypatch):
+    """W1 E3：归因不能撒谎 —— 有 chunk 证据但**生成失败**，不能说成"证据已失效"。
+
+    旧实现把变式生成的异常吞掉后静默降级到 concept_fallback，界面于是显示
+    "原题证据已失效，已按同一概念重新出题" —— 真正的原因是模型输出不可用。
+    """
+    kb = KBSQLiteStore(workspace)
+    kb.init_db()
+    kb.upsert_document("doc1", "lesson.md", "hash", title="算法课")
+    kb.insert_chunks([make_chunk_row(
+        "chunk1", "doc1", "lesson.md", 0,
+        "Dijkstra 算法每次选择当前距离最小的未访问节点，属于贪心策略。",
+    )])
+    kb.close()
+
+    question = Question(
+        type="single_choice",
+        question="Dijkstra 使用哪种策略？",
+        options=["A. 分治", "B. 贪心"],
+        answer="B",
+        concepts=["Dijkstra"],
+        sources=[{
+            "source_type": "local", "source_id": "chunk1", "title": "算法课",
+            "document_id": "doc1", "chunk_id": "chunk1",
+        }],
+    )
+    question.id = store.add_question(question)
+    session = store.create_session([question.id])
+    attempt_id = store.record_attempt(QuizAttempt(
+        session_id=session.id, question_id=question.id,
+        user_answer="A", is_correct=False, verdict="incorrect",
+    ))
+
+    class LLM:
+        def complete(self, messages):
+            return type("Response", (), {"content": '[{"type":"true_false","question":"Dijkstra 适合负权图吗？","options":[],"answer":"错误","explanation":"负权会破坏贪心选择。","concepts":["Dijkstra"]}]'})()
+
+    monkeypatch.setattr("service.quiz_service._get_llm_provider", lambda config=None: LLM())
+    monkeypatch.setattr(
+        "service.quiz_service.QuestionGenerator.generate_wrong_answer_variant",
+        lambda self, *args, **kwargs: (_ for _ in ()).throw(RuntimeError("model output unusable")),
+    )
+
+    result = svc.generate_wrong_answer_variant(attempt_id)
+
+    assert result["ok"] is True, result
+    assert result["mode"] == "concept_fallback", result
+    assert result["reason"] == "variant_failed", result
+
+
 # --- get_weakness_analysis ---
 
 def test_get_weakness_analysis_empty(svc):
@@ -488,6 +579,49 @@ def test_get_weakness_analysis_with_data(store, svc):
     assert len(result["analysis"]) >= 1
 
 
+
+def test_weakness_analysis_excludes_concepts_answered_correctly_every_time(store, svc):
+    """W1 E9：**全答对**的概念不该出现在「当前薄弱点」里。
+
+    核对实测：旧 SQL **没有 WHERE**，于是每个被作答过的概念都被列出来，前端再配一句固定的
+    兜底说明 —— "薄弱点"里混着从来没答错过的概念。它同时让顶部统计跟着虚高。
+    """
+    good = _make_question(store, qtype="single_choice", concepts=["全对的概念"])
+    session = store.create_session([good.id])
+    for _ in range(3):
+        store.record_attempt(QuizAttempt(
+            session_id=session.id, question_id=good.id,
+            user_answer="A", is_correct=True, verdict="correct", feedback="ok",
+        ))
+
+    result = svc.get_weakness_analysis()
+
+    assert result["ok"], result
+    assert [item["concept"] for item in result["analysis"]] == [], result["analysis"]
+
+
+def test_weakness_analysis_gives_a_real_reason_from_the_backend(store, svc):
+    """薄弱原因必须**由后端算出来** —— 以前 UI 读的字段根本不存在，只能永远显示兜底句。"""
+    weak = _make_question(store, qtype="single_choice", concepts=["真的薄弱"])
+    session = store.create_session([weak.id])
+    for _ in range(3):
+        store.record_attempt(QuizAttempt(
+            session_id=session.id, question_id=weak.id,
+            user_answer="B", is_correct=False, verdict="incorrect", feedback="wrong",
+        ))
+    for _ in range(2):
+        store.record_attempt(QuizAttempt(
+            session_id=session.id, question_id=weak.id,
+            user_answer="A", is_correct=True, verdict="correct", feedback="ok",
+        ))
+
+    analysis = svc.get_weakness_analysis()["analysis"]
+    item = next(entry for entry in analysis if entry["concept"] == "真的薄弱")
+
+    assert item["total_attempts"] == 5, item
+    assert item["wrong_count"] == 3, item
+    assert item["error_rate"] == 0.6, item
+    assert "5 次" in item["reason"] and "3 次" in item["reason"], item
 # --- get_stats ---
 
 def test_get_stats_empty(svc):

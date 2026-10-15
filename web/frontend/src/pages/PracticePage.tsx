@@ -5,9 +5,16 @@ import { useNavigate, useOutletContext, useParams } from "react-router-dom";
 import type { AppOutletContext } from "../components/AppShell";
 import { AttributionBadges, BrandIllustration, ErrorNotice, LoadingState, formatRelativeDate } from "../components/common";
 import { api, streamChat } from "../lib/api";
+import { useQuestionPipeline } from "../hooks/useQuestionPipeline";
+import {
+  difficultyLabel as sharedDifficultyLabel,
+  questionTypeLabel as sharedQuestionTypeLabel,
+} from "../lib/practiceCards";
+import { practiceSummaryLine } from "../lib/practiceSummary";
 import { prefersReducedMotion } from "../lib/motion";
 import { StreamBuffer } from "../lib/streamBuffer";
 import { toErrorMessage } from "../lib/errors";
+import { distinctExplanation } from "../lib/practiceFeedback";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useHandoffStore } from "../stores/handoffStore";
@@ -46,24 +53,71 @@ interface WebPracticeConsent {
   suggestedQuery?: string;
 }
 
+// W1 E5：标签逻辑收敛到 lib/practiceCards（有单测），页面只保留自己的兜底口径。
 function questionTypeLabel(type: string, fallback: string) {
-  if (type === "true_false") return "判断题";
-  if (type === "single_choice") return "单选题";
-  if (type === "short_answer") return "简答题";
-  return fallback;
+  return sharedQuestionTypeLabel(type) || fallback;
 }
 
+// 页面历史文案带"难度"二字（简单难度 / 中等难度 / 较难难度），保持原样；
+// 不认识的取值仍然**如实显示原值**，不硬拼成"xxx难度"。
+const KNOWN_DIFFICULTIES = new Set(["easy", "medium", "hard"]);
+
 function difficultyLabel(value?: string) {
-  if (value === "easy") return "简单难度";
-  if (value === "hard") return "较难难度";
-  if (value === "medium") return "中等难度";
-  return value || "自适应难度";
+  if (!value) return "自适应难度";
+  if (!KNOWN_DIFFICULTIES.has(value)) return value;
+  return `${sharedDifficultyLabel(value)}难度`;
+}
+
+const TUTOR_SESSION_PREFIX = "bobodan:practice-tutor:";
+
+/** 辅导会话按"练习题 + 题目"记在 sessionStorage 里（R11/F10）。
+
+2026-09-28 审查：关联原来只存在组件 ref 里，重新挂载/刷新就没了，同一个问题会另开一个
+会话，上一轮追问的上下文接不上。题目 id 跟着练习走，练习结束（关标签页）就该清掉，
+所以用 sessionStorage 而不是 localStorage。
+*/
+function tutorStorageKey(libraryId: string | undefined, practiceSessionId: number): string {
+  return `${TUTOR_SESSION_PREFIX}${libraryId || "default"}:${practiceSessionId}`;
+}
+
+function readTutorSessions(
+  libraryId: string | undefined,
+  practiceSessionId: number | null,
+): Record<number, string> {
+  if (!practiceSessionId) return {};
+  try {
+    const raw = window.sessionStorage.getItem(tutorStorageKey(libraryId, practiceSessionId));
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, string>;
+    return Object.fromEntries(
+      Object.entries(parsed).map(([key, value]) => [Number(key), String(value)]),
+    );
+  } catch {
+    return {};
+  }
+}
+
+function writeTutorSessions(
+  libraryId: string | undefined,
+  practiceSessionId: number | null,
+  sessions: Record<number, string>,
+): void {
+  if (!practiceSessionId) return;
+  try {
+    if (Object.keys(sessions).length) {
+      window.sessionStorage.setItem(tutorStorageKey(libraryId, practiceSessionId), JSON.stringify(sessions));
+    } else {
+      window.sessionStorage.removeItem(tutorStorageKey(libraryId, practiceSessionId));
+    }
+  } catch {
+    // 隐私模式等写不了 sessionStorage：记不住关联不影响提问本身。
+  }
 }
 
 export function PracticePage() {
   const { practiceSessionId } = useParams();
   const navigate = useNavigate();
-  const { refreshSessions, selectedDocumentIds, selectedDocuments } = useOutletContext<AppOutletContext>();
+  const { activeLibrary, refreshSessions, selectedDocumentIds, selectedDocuments } = useOutletContext<AppOutletContext>();
   const id = practiceSessionId ? Number(practiceSessionId) : null;
   const [session, setSession] = useState<PracticeSession | null>(null);
   const [active, setActive] = useState<Array<{ practice_session_id: number; updated_at: string; question_count: number }>>([]);
@@ -79,10 +133,16 @@ export function PracticePage() {
   // S6 / D9: 出题 vs 搜现成的题 are two different promises; the mode travels with
   // every generate call so the server never has to guess.
   const [mode, setMode] = useState<"generate" | "search">("generate");
+  // W1 E5：逐题生成（边出边看）。默认关闭 —— 每道题一次模型调用，用户显式选择才走。
+  const [stepwise, setStepwise] = useState(false);
+  const pipeline = useQuestionPipeline();
   const [resolution, setResolution] = useState<{ original: string; resolved: string } | null>(null);
   const [aiOpen, setAiOpen] = useState(false);
   const [aiQuestion, setAiQuestion] = useState("给我一个不直接揭示答案的提示。");
   const [aiAnswer, setAiAnswer] = useState("");
+  const aiSessionByQuestionRef = useRef<Record<number, string>>(
+    readTutorSessions(activeLibrary?.library_id, id),
+  );
   // 问 AI answers stream through the same 30fps typewriter buffer as Chat so
   // SSE bursts don't appear as raw block dumps.
   const aiBufferRef = useRef<StreamBuffer | null>(null);
@@ -111,6 +171,24 @@ export function PracticePage() {
     }
   }, []);
 
+  // W1 E5：逐题生成跑完（且用户选了这条路）才开练习 —— 用 ref 守卫，避免导航后重复开局。
+  const pipelineStartedRef = useRef(false);
+  useEffect(() => {
+    if (!stepwise || pipeline.status !== "done" || !pipeline.questionIds.length) return;
+    if (pipelineStartedRef.current) return;
+    pipelineStartedRef.current = true;
+    void (async () => {
+      try {
+        const created = await api.startPractice(undefined, pipeline.questionIds, "practice");
+        navigate(`/practice/${created.practice_session_id}`);
+      } catch (reason) {
+        setError(toErrorMessage(reason, "暂时无法创建练习。请先导入相关资料。"));
+      } finally {
+        setWorking(false);
+      }
+    })();
+  }, [stepwise, pipeline.status, pipeline.questionIds, navigate]);
+
   useEffect(() => {
     useHandoffStore.getState().clearPracticeHandoff();
     setAnswer("");
@@ -118,6 +196,7 @@ export function PracticePage() {
     setAiOpen(false);
     setAiAnswer("");
     setAiError("");
+    aiSessionByQuestionRef.current = readTutorSessions(activeLibrary?.library_id, id);
     setWebConsent(null);
     if (id) {
       try { setResolution(JSON.parse(sessionStorage.getItem(`bobodan:practice-resolution:${id}`) || "null")); }
@@ -127,7 +206,7 @@ export function PracticePage() {
     }
     if (id) void loadSession(id);
     else void api.activePractice().then((value) => setActive(value.sessions)).catch(() => setActive([]));
-  }, [id, loadSession]);
+  }, [activeLibrary?.library_id, id, loadSession]);
 
   const currentQuestion = useMemo(() => {
     if (!session) return null;
@@ -144,6 +223,12 @@ export function PracticePage() {
       const query = topic.trim() || scopeTopic;
       if (mode === "search" && !query) {
         setError("搜现成的题需要先写明主题，或者先选一份资料作为范围。");
+        return;
+      }
+      if (stepwise && query && mode === "generate") {
+        // W1 E5：逐题生成 —— 每就绪一道就显示一道，出完再开练习。
+        pipelineStartedRef.current = false;
+        await pipeline.start(query, 5, selectedDocumentIds);
         return;
       }
       const generated = query
@@ -196,6 +281,10 @@ export function PracticePage() {
     if (!id) return;
     setAnswer("");
     setResult(null);
+    setAiOpen(false);
+    setAiAnswer("");
+    setAiError("");
+    setAiStatus("");
     await loadSession(id);
   }
 
@@ -213,7 +302,8 @@ export function PracticePage() {
     aiBufferRef.current?.reset();
     setAiError("");
     setAiStatus("正在理解这道题");
-    let nextSessionId: string | undefined;
+    const previousSessionId = aiSessionByQuestionRef.current[currentQuestion.id];
+    let nextSessionId = previousSessionId;
     try {
       const profile = useUiStore.getState().learningProfile;
       const prompt = [
@@ -222,8 +312,15 @@ export function PracticePage() {
         `我的问题：${aiQuestion.trim()}`,
         "请只围绕当前题目给出分步提示或指出思考方向，不要直接替我完成答案。",
       ].join("\n\n");
-      await streamChat(prompt, undefined, selectedDocumentIds, profile, (streamEvent) => {
-        if (streamEvent.event === "run_started") nextSessionId = streamEvent.data.chat_session_id;
+      // W1 E14：辅导会话声明自己的类别，别让它混进主会话列表。
+      // 复习来源的练习标成 review（练习记录里本来就带 origin，不用猜）。
+      const sessionKind = session?.origin === "review" ? "review" : "practice";
+      await streamChat(prompt, previousSessionId, selectedDocumentIds, { ...profile, sessionKind }, (streamEvent) => {
+        if (streamEvent.event === "run_started") {
+          nextSessionId = streamEvent.data.chat_session_id;
+          aiSessionByQuestionRef.current[currentQuestion.id] = nextSessionId;
+          writeTutorSessions(activeLibrary?.library_id, id, aiSessionByQuestionRef.current);
+        }
         if (streamEvent.event === "status") setAiStatus(streamEvent.data.message);
         if (streamEvent.event === "message_delta") {
           setAiStatus("正在整理提示");
@@ -233,7 +330,7 @@ export function PracticePage() {
         if (streamEvent.event === "run_completed") { ensureAiBuffer().drain(); setAiStatus(""); }
       });
       await refreshSessions();
-      if (nextSessionId) void api.generateSessionTitle(nextSessionId).then(refreshSessions).catch(() => undefined);
+      if (!previousSessionId && nextSessionId) void api.generateSessionTitle(nextSessionId).then(refreshSessions).catch(() => undefined);
     } catch (reason) {
       setAiError(toErrorMessage(reason, "暂时无法获得提示，请稍后重试。"));
       setAiStatus("");
@@ -259,6 +356,54 @@ export function PracticePage() {
             <button type="button" role="tab" aria-selected={mode === "generate"} className={mode === "generate" ? "active" : ""} onClick={() => { setMode("generate"); setWebConsent(null); }}>让 Bobodan 出题</button>
             <button type="button" role="tab" aria-selected={mode === "search"} className={mode === "search" ? "active" : ""} onClick={() => { setMode("search"); setWebConsent(null); }}>搜现成的题</button>
           </div>
+          {mode === "generate" && (
+            <label className="practice-stepwise">
+              <input
+                type="checkbox"
+                checked={stepwise}
+                disabled={working}
+                onChange={(event) => setStepwise(event.target.checked)}
+              />
+              <span>逐题生成（每出一道立刻显示，不等整批）</span>
+            </label>
+          )}
+          {stepwise && pipeline.status !== "idle" && (
+            <section className="practice-stepwise-live" aria-live="polite">
+              <header>
+                <strong>
+                  {pipeline.status === "running"
+                    ? `正在逐题生成… 已就绪 ${pipeline.questions.length} 道`
+                    : pipeline.status === "cancelled"
+                      ? `已停止，保留已就绪的 ${pipeline.questions.length} 道`
+                      : `已就绪 ${pipeline.questions.length} 道，正在开始练习…`}
+                </strong>
+                {pipeline.status === "running" && (
+                  <button type="button" className="quiet-button" onClick={pipeline.cancel}>停止</button>
+                )}
+              </header>
+              {/* W1 E5：每道就绪的题直接渲染成**可读卡片**（题型/难度/选项），
+                  而不是只列一行题干 —— 用户要能看出这道题长什么样。 */}
+              <ol className="practice-stepwise-questions">
+                {pipeline.questions.map((item) => (
+                  <li key={item.id} className="practice-stepwise-card">
+                    <header>
+                      <span className="practice-card-type">{questionTypeLabel(item.type || "", item.type || "")}</span>
+                      {item.difficulty && (
+                        <span className="practice-card-difficulty">{difficultyLabel(item.difficulty)}</span>
+                      )}
+                    </header>
+                    <p className="practice-card-question">{item.question}</p>
+                    {item.options.length > 0 && (
+                      <ul className="practice-card-options">
+                        {item.options.map((option) => <li key={option}>{option}</li>)}
+                      </ul>
+                    )}
+                  </li>
+                ))}
+              </ol>
+              {pipeline.error && <p className="error-hint">{pipeline.error}</p>}
+            </section>
+          )}
           <label htmlFor="practice-topic">想练习什么？</label>
           {working && <BrandIllustration state="writing" size={64} />}
           <div><input id="practice-topic" value={topic} onChange={(event) => { setTopic(event.target.value); setWebConsent(null); }} placeholder="例如：Dijkstra 的贪心证明" /><button className="primary-button" disabled={working}><Play size={16} />{working ? "正在准备" : mode === "search" ? "联网搜题" : "生成 5 题"}</button></div>
@@ -284,11 +429,11 @@ export function PracticePage() {
   if (error && !session) return <section className="page-scroll"><div className="page-container"><ErrorNotice message={error} action={<button className="quiet-button" onClick={() => id && void loadSession(id)}><RotateCcw size={15} />重试</button>} /></div></section>;
 
   if (session && session.progress.completed) {
-    const allCorrect = session.progress.correct === session.progress.total;
     return (
       <section className="page-scroll"><div className="page-container">
         <div className="practice-summary">
-          <header><span>练习小结</span><h2>这一轮练习已完成</h2><p>答对 {session.progress.correct} / {session.progress.total} 题。{allCorrect ? "全部答对，复习队列没有新增错题。" : "错题和薄弱点已经加入复习队列。"}</p></header>
+          {/* W1 E15：小结必须与事实一致（partial 不进错题本，就不能说"错题已入队"）。 */}
+          <header><span>练习小结</span><h2>这一轮练习已完成</h2><p>{practiceSummaryLine(session.progress)}</p></header>
           {session.attempts.length > 0 && <section className="summary-recap"><h3>逐题回顾</h3>{session.questions.map((question) => {
             const attempt = session.attempts.find((item) => item.question_id === question.id);
             // Three-state recap (E15): a partial short answer is not a failure.
@@ -319,6 +464,7 @@ export function PracticePage() {
         marker: String.fromCharCode(65 + index),
         label: option,
       }));
+  const visibleExplanation = result ? distinctExplanation(result.feedback, result.explanation) : "";
   return (
     <section className="page-scroll practice-page">
       {confirmElement}
@@ -333,7 +479,7 @@ export function PracticePage() {
           ))}</div> : <textarea className="short-answer" rows={6} value={answer} disabled={Boolean(result)} onChange={(event) => setAnswer(event.target.value)} placeholder="用自己的话写下答案。可以不完整，Bobodan 会指出缺少的部分。" />}
           <AttributionBadges attribution={currentQuestion.attribution} />
           {error && <ErrorNotice message={error} />}
-          {result && <div className={`answer-feedback ${result.verdict === "partial" ? "partial" : result.is_correct ? "correct" : "review"}`}><div>{result.verdict === "partial" || result.is_correct ? <img className="brand-expression" src="/assets/brand/expressions/bobodan-expression-content.webp" width="42" height="42" alt="" /> : <CheckCircle2 size={19} />}<strong>{verdictLabel(result)}</strong></div><p>{result.feedback}</p>{result.explanation && <p>{result.explanation}</p>}{result.verdict !== "correct" && result.correct_answer && <small>参考答案：{result.correct_answer}</small>}{result.mastery_changes?.length ? <div className="mastery-changes">{result.mastery_changes.map((change, index) => change.concept ? <small key={index}>知识点「{change.concept}」：{masteryStatusText(change.status)}</small> : null)}</div> : null}</div>}
+          {result && <div className={`answer-feedback ${result.verdict === "partial" ? "partial" : result.is_correct ? "correct" : "review"}`}><div>{result.verdict === "partial" || result.is_correct ? <img className="brand-expression" src="/assets/brand/expressions/bobodan-expression-content.webp" width="42" height="42" alt="" /> : <CheckCircle2 size={19} />}<strong>{verdictLabel(result)}</strong></div><p>{result.feedback}</p>{visibleExplanation && <p>{visibleExplanation}</p>}{result.verdict !== "correct" && result.correct_answer && <small>参考答案：{result.correct_answer}</small>}{result.mastery_changes?.length ? <div className="mastery-changes">{result.mastery_changes.map((change, index) => change.concept ? <small key={index}>知识点「{change.concept}」：{masteryStatusText(change.status)}</small> : null)}</div> : null}</div>}
           <footer className="practice-actions">
             <button type="button" className="quiet-button" onClick={() => setAiOpen(true)}><CircleHelp size={16} />问 AI</button>
             {result ? <button type="button" className="primary-button" onClick={() => void nextQuestion()}>{result.session_completed ? "查看小结" : "下一题"}<ArrowRight size={16} /></button>
