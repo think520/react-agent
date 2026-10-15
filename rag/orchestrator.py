@@ -93,6 +93,7 @@ class RetrievalOrchestrator:
             confidence="high" if result.top_chunks else "low",
             debug={
                 "vector_available": result.vector_available,
+                "vector_error": result.vector_error,
                 "vector_count": len(result.vector_hits),
                 "fts_count": len(result.fts_hits),
                 "fused_count": len(result.all_chunk_hits),
@@ -130,6 +131,7 @@ class RetrievalOrchestrator:
             confidence="high" if doc_hits else "low",
             debug={
                 "vector_available": hybrid_result.vector_available,
+                "vector_error": hybrid_result.vector_error,
                 "hybrid_candidates": len(hybrid_result.all_chunk_hits),
                 "documents_found": len(doc_hits),
             },
@@ -166,6 +168,7 @@ class RetrievalOrchestrator:
             confidence=confidence,
             debug={
                 "vector_available": hybrid_result.vector_available,
+                "vector_error": hybrid_result.vector_error,
                 "hybrid_candidates": len(hybrid_result.all_chunk_hits),
                 "documents_checked": len(doc_hits),
                 "grep_matches": len(grep_hits),

@@ -15,6 +15,19 @@ from rag.rrf import rrf_fuse, dedupe_hits
 logger = logging.getLogger(__name__)
 
 
+#: 本地 Qdrant 是单进程存储，被占用时的**唯一**特征串。
+#: 审查 F4：以前只匹配「Storage folder」，会把路径里带这个词的其它错误误诊成占用。
+VECTOR_STORE_LOCK_MARKER = "already accessed by another instance"
+
+
+def classify_vector_error(message: str) -> str:
+    # 把向量腿的异常分类成上层使用的 stable code（见 rag/retrieval_status.py）。
+    text = str(message or "")
+    if VECTOR_STORE_LOCK_MARKER in text:
+        return "vector_store_locked"
+    return "vector_store_error"
+
+
 class HybridRetriever:
     """Combines vector (Qdrant) and FTS5 retrieval via RRF fusion."""
 
@@ -36,6 +49,9 @@ class HybridRetriever:
         self.rrf_weights = ret_cfg.get("rrf", {}).get("weights", {"vector": 1.0, "fts5": 1.0})
         self.vector_top_k = ret_cfg.get("vector_top_k", 30)
         self.fts_top_k = ret_cfg.get("fts_top_k", 30)
+        #: 最近一次向量腿失败的种类 / 原始信息（给上层做"如实说明"用）。
+        self.vector_error = ""
+        self.vector_error_detail = ""
 
     def search(
         self,
@@ -55,6 +71,12 @@ class HybridRetriever:
         Returns:
             HybridResult with top_chunks, all_chunk_hits, and raw hits.
         """
+        # 审查 F5：这两个字段是「最近一次失败」的状态，必须**每次查询重置** ——
+        # 管线是缓存的，同一实例会服务很多次查询；不重置就会出现
+        # vector_available=True 却 vector_error=locked 这种自相矛盾的结果。
+        self.vector_error = ""
+        self.vector_error_detail = ""
+
         # Probe once per search so callers can distinguish "no semantic hit"
         # from "semantic retrieval is unavailable".
         embedding_available = self._vector_available()
@@ -83,6 +105,7 @@ class HybridRetriever:
             vector_hits=vector_hits,
             fts_hits=fts_hits,
             vector_available=vector_available,
+            vector_error=self.vector_error,
         )
 
     def _vector_available(self) -> bool:
@@ -101,16 +124,22 @@ class HybridRetriever:
         *,
         vector_available: bool | None = None,
     ) -> tuple[list[RetrievalHit], bool]:
-        """Search Qdrant for semantically similar chunks."""
+        """Search Qdrant for semantically similar chunks.
+
+        失败时**记下种类**（«self.vector_error»）—— 上层要能把原因说清楚：
+        「后端探活失败」和「本地向量库被另一个进程占用」对用户的下一步完全不同。
+        """
         if vector_available is None:
             vector_available = self._vector_available()
         if not vector_available or self.embedding_client is None:
+            self.vector_error = "embedding_provider_unavailable"
             return [], False
 
         try:
             # Get query embedding
             vectors = self.embedding_client.embed([query])
             if not vectors or not vectors[0]:
+                self.vector_error = "embedding_returned_nothing"
                 return [], False
 
             query_vector = vectors[0]
@@ -126,6 +155,13 @@ class HybridRetriever:
 
         except Exception as e:
             logger.warning("Vector search failed: %s", e)
+            message = str(e)
+            # 本地 Qdrant 是单进程存储：服务在跑时，别的进程打开会得到这句话。
+            if "already accessed" in message or "Storage folder" in message:
+                self.vector_error = "vector_store_locked"
+            else:
+                self.vector_error = "vector_store_error"
+            self.vector_error_detail = message
             return [], False
 
     def _fts_search(

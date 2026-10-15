@@ -47,7 +47,17 @@ def rag_search(
             config=config,
         )
         if not result["ok"]:
-            return ToolResult(ok=False, content=result["error"], data={"results": []})
+            # 审查 F6：失败路径也要带"为什么"，否则界面只有"失败"两个字。
+            return ToolResult(
+                ok=False,
+                content=result["error"],
+                data={
+                    "results": [],
+                    "semantic_available": result.get("semantic_available", False),
+                    "semantic_reason": result.get("semantic_reason"),
+                    "retrieval_mode": result.get("retrieval_mode"),
+                },
+            )
 
         results = result["results"]
         data = {
@@ -57,6 +67,8 @@ def rag_search(
             "retrieval_mode": result.get("retrieval_mode"),
             "resolved_mode": result.get("resolved_mode"),
             "semantic_available": result.get("semantic_available"),
+            # W2 降级可见性：把"为什么是纯文本检索 + 下一步"原样带给模型和界面。
+            "semantic_reason": result.get("semantic_reason"),
             "fallback_from": result.get("fallback_from"),
             # P1-22: non-text material cannot be grepped; the count travels with
             # the result so neither the model nor the UI has to guess.

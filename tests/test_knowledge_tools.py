@@ -41,6 +41,10 @@ Dijkstra solves shortest path problems with [[图]] and [[优先队列]]. #algor
     assert search_result.data["results"][0]["source"] == "obsidian/Dijkstra.md"
     assert search_result.data["retrieval_mode"] == "fts_only"
     assert search_result.data["semantic_available"] is False
+    # W2 降级可见性：工具结果要带"为什么 + 下一步"，界面才能说清楚。
+    reason = search_result.data.get("semantic_reason")
+    assert reason and reason.get("code"), search_result.data
+    assert reason.get("title") and reason.get("action"), reason
     assert graph_result.ok
     assert graph_result.data["has_reviewed_graph"] is False
 
@@ -58,3 +62,14 @@ def test_obsidian_sync_denies_outside_workspace(tmp_path):
 
     assert not result.ok
     assert "denied" in result.content.lower()
+
+
+def test_search_without_an_index_still_says_why(tmp_path):
+    """审查 F6：没有索引时 kb_service 走 _err 早退，以前这条 reason 到不了界面 —— 界面上只剩「失败」。"""
+    result = rag_search("任意问题", workspace=str(tmp_path))
+
+    assert result.ok is False
+    assert result.data.get("semantic_available") is False, result.data
+    reason = result.data.get("semantic_reason")
+    assert reason and reason.get("code") == "no_vectors_indexed", result.data
+    assert reason.get("action"), reason

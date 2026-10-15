@@ -13,6 +13,42 @@
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
 ### 变更
+- **审查盲区 A/B 的答复（2026-10-15，分支 fix/retrieval-transparency，未推送）**：
+  - **A：让那个数字可复现**。新增 `rag/recall_eval.py::cases_from_workspace()` + CLI `--generate-cases N`：从**任意工作区**确定性生成用例（标题 + 该资料的一个关键词 → 期望命中它的来源文件），**只读**打开索引，**真实正文不进仓库**。谁都能一条命令重跑：
+    `python -m rag.recall_eval --workspace note/vault --generate-cases 25 --modes hybrid`
+    回归 3 条（两次生成必须一致 / 没有索引要如实报 FileNotFoundError / 生成出来的用例必须真的能命中）。
+  - **A 的诚实边界（重要）**：这套自动生成的用例**区分不开 fts_only 与 hybrid** —— 实测两种配置都是 21/21、hit@5=1.000（因为这些查询是从索引关键词派生的，关键词检索本来就能命中）。它能复现的是**修 FTS 转义前后的差别**（修前 0.720 → 修后 1.000 ✓），**不能**替代语义/换述类的评测集（那种要人工出题，目前不在仓库里）。边界已写进模块说明。
+  - **B：锁库因果已实测验证**。停掉服务后在真实库上跑：`mode=hybrid`、`semantic_available=True`、**reason 为空**、hit@5=1.000（21/21）—— 证明之前那个 `vector_store_locked` 确实是『另一个进程占用本地向量库』，不是配置或索引的问题。验证完已重启服务并重跑 live（7 passed ✓）。
+  - **顺带在真实数据上验证了 F1**：把 embedding 关掉后，状态给的是 `embedding_not_configured`，detail 里**原样带着 provider 自己说的原因**『local embeddings are not bundled by design (rag_design ch10 decision)』，action 是『去「设置 → 模型」配置一个 provider』—— 不再是错误的『探活失败 / 启动该服务』。
+- **审查修复批次一（Codex 审查 F1–F7，2026-10-15，分支 fix/retrieval-transparency，未推送）**：审查指出问题都集中在『降级原因』这一层，逐条核对**全部成立**，已修。
+  - **F1 [P1]『探活失败』不再是万能兜底**：旧实现把「locked/error 之外的一切」都断言成探活失败，而 hybrid 给的其实是 `embedding_provider_unavailable` / `embedding_returned_nothing` —— 前者多为『压根没配』（没有服务可启动，下一步是**去配置**），后者是『有响应但返回空向量』，两者的事实与动作完全不同。现在**以 `vector_error` 为主键**分支出 `embedding_not_configured`（并把 `UnavailableEmbeddingProvider.reason` 原样带上 —— 那条事实以前在 retriever 抄 model_info 时被丢掉）/ `embedding_returned_nothing` / `embedding_provider_unavailable`（真 provider 探活失败 ✓），**兜底永远 UNKNOWN**。
+  - **F2 [P1] 原始报错进载荷前统一脱敏**：新增 `redact_secrets()`（sk-、Bearer、authorization/api_key/x-api-key、secret/token/password 等模式），并在**唯一出口** `build_semantic_status` 外包一层（所有返回分支都过）；审查用『把 Authorization 回显到 401 body 的假 provider』复现的泄露已加**链路回归**（假 qdrant 报错里带 key → 最终 status 里必须没有）。
+  - **F3 [P2]** 用户可见文案里的 markdown 双星号改为「」，并加一条**全分支扫描**断言（任何分支的 title/detail/action 都不许出现双星号）。
+  - **F4 [P2]** 锁库判定收紧：抽出 `classify_vector_error()`，只认 `already accessed by another instance`；新增回归证明『路径里带 Storage folder 的不可写错误』不会被误诊成占用。
+  - **F5 [P3]** `HybridRetriever.vector_error / vector_error_detail` 改为**每次 search 开头重置**（管线是缓存的，旧实现会让后面的成功查询带着上一次的失败原因），并有跨查询回归。
+  - **F6 [P3]** 缺索引这条路径的原因以前到不了界面（`kb_service` 早退 `_err` → `rag_search` 丢掉 payload）：现在错误路径也带 `semantic_reason` + `semantic_available=False`。**这条的回归先用 `git stash` 单独回退两处改动跑红**（拿到的 payload 只有空的 results）。
+  - **F7 [P3]** 小瑕疵：删掉未用的 `import pytest`、把被写弱的纯标点断言收紧为必须返回空串、补 `retrieval_status.py` 末尾换行。
+  - **仍未做**：两个盲区（0.720→1.000 的可复现性、锁库因果的停服验证）留到下一轮。
+- **检索降级可见性 ②（界面一半）：把原因显示出来（2026-10-15，分支 fix/retrieval-transparency，未推送）**：后端已经能给出 `semantic_reason`，但界面只有一处泛泛的「当前仅使用关键词检索」，用户仍然不知道下一步做什么。
+  - **透传**：`tools/rag_search.py` 把 `semantic_reason` 放进工具结果 → `core/agent_loop.py` 的 operation 摘要带上它 → 前端 `RunSummaryOperation.semantic_reason`（新增镜像类型 `RetrievalSemanticReason`）。
+  - **新组件 `components/RetrievalDegradedNotice.tsx`**：一句话结论（用后端的 `title`）+ 展开后是**事实**（`detail`，含原始报错）与**下一步**（`action`）；**没有原因载荷（老会话）时退回原来的文案**，保证不会比以前更含糊。
+  - **DOM 结构修正**：`<details>` 不能嵌在 `<p>` 里（浏览器会把 `<p>` 拆开），所以 operation 列表项改成 `Fragment` 包裹 `<p>` + 提示组件作为**兄弟节点**；样式与设计 token 棘轮同步通过。
+  - **回归**：组件 4 条（结论优先用后端 title / 无原因时保留原文案两种 / 事实与下一步都渲染 / 展开结构）；后端知识工具 1 条（工具结果带 `semantic_reason` 且 title/action 非空）。
+  - **验证**：mock e2e **15 passed**（含「run summary names the material it could not locate」—— 证明这次 DOM 调整没有打破既有选择器）＋ 设计 token 棘轮 13 passed。
+  - **未做**：评测仍不能在服务运行期间测向量腿（本地 Qdrant 单进程），要么停服要么做服务端入口（已记在 §1.1 与 `rag/recall_eval.py` 的说明里）。
+- **检索降级可见性 ②：向量腿不可用时说出**准确**原因（2026-10-15，分支 fix/retrieval-transparency，未推送）**：核对发现签名不匹配与探活失败最终都只变成**一行日志**，对外只有 `retrieval_mode=fts_only` —— 用户分不清「后端没起」「索引是别的模型建的」「本地向量库被占用」，而这三者的下一步完全不同。
+  - **新增 `rag/retrieval_status.py`**：纯函数 `build_semantic_status()` 输出 `code / title / detail / action` 四段（JSON 友好），覆盖 `ok / embedding_signature_mismatch / embedding_provider_unavailable / no_vectors_indexed / vector_store_locked / vector_store_error / unknown`；**信息不足就说 unknown**，仍然给可行动建议。
+  - **接线（原因要准，不能靠猜）**：`HybridRetriever` 失败时记录**种类**（`embedding_provider_unavailable` / `vector_store_locked`（本地 Qdrant 单进程被占用）/ `vector_store_error`）与原始报错 → 进 `HybridResult` → 进编排器 `debug` → `search_index_with_status` 在**不可用**时才组装 `semantic_reason`（正常路径不加查询开销）；缺失索引的早退路径也带原因。
+  - **真实库实测（只读）**：`fts_only` + `code=vector_store_locked`，detail 里带**原始报错**与「索引里有 46 份向量，数据是好的」，action 是「关掉另一个占用该知识库的进程再重试；应用自身的检索不受影响」。
+  - **两处纠正（我上一轮说错了，这里改正）**：① 我说「配置指向 Ollama、与库内签名不一致」—— **错**：配置实际解析成 **openai_compat / embedding-3 / dim 2048**，**与索引签名一致**（我上次把 `rag` 子字典当成整个 config 传给 `EmbeddingService`，是我的脚本错了）；② **探活其实是成功的**，真正让那次搜索降级的是**本地 Qdrant 被另一个进程占用**。所以这条候选的真实内容不是「换后端」，而是「进程互斥 + 让原因可见」。
+  - **回归**：10 条（可用即 ok / 签名不匹配要两边都点名 + 给修法 / 无向量与后端不可用分开 / 信息不足说 unknown / JSON 友好 / **锁库要说 locked 而不是 provider 不可用** / 通用错误保留原文 / 缺索引与有索引两条接线路径 / hybrid 抛锁错时状态说 locked）。
+  - **未做（下一轮）**：前端还没把这个原因显示出来（目前只有 `ChatPage` 里一处 `semantic_available === false` 的泛泛提示）；`semantic_reason` 也还没进 `rag_search` 工具结果/引用载荷。
+- **检索降级可见性 ①：FTS5 查询转义（2026-10-15，分支 fix/retrieval-transparency，未推送）**：G4 评测第一次对真实库跑就报 `FTS5 search failed: fts5: syntax error …` / `no such column: 数学` —— 用户查询里带引号或运算符时，**FTS 腿静默变空**，界面只会显示「检索不到」。
+  - **根因**：`_build_fts_query` 对 `* ( ) :` 的处理是**在 token 内部插引号**（`a*b` → `a"*"b`），外层再包一次引号 → 生成 `"a"*"b"` ✗；FTS5 于是把随后的裸 token 当成**列名**（`no such column: 数学`）或直接报语法错。
+  - **修法**：去掉用户写的引号（那是查询语法、不是内容，FTS 也索引不到标点）→ 每个 token **整体**加一层引号（引号内的 `* ( ) : AND OR NOT NEAR` 全是字面量）→ 完全不含词字符的 token（如 `***`）直接丢掉，不生成残破表达式。
+  - **回归**：6 条（带引号的短语仍是单个被引住的原子 / 运算符留在引号内 / 裸 `OR` 被引住 / 纯标点返回空 / **真 FTS5 表上五种写法都要命中** / 恶意输入不抛异常）。
+  - **A/B 证据（真实库、只读、同一批 25 个用例）**：修前 **hit@5=0.720 / MRR=0.720（18/25）** → 修后 **hit@5=1.000 / MRR=1.000（25/25）**。
+  - **顺带记录**：评测在服务运行时跑不了向量腿 —— 本地 Qdrant 是**单进程**存储，外部进程报 `already accessed by another instance`（已写进 §1.1）。
 - **W2 G4 召回评测：度量 + 入口 + 合成夹具（2026-10-15，已推送至 main）**：先有度量再谈调权重。
   - **新增 `rag/recall_eval.py`**：纯函数度量（`hit_at_k` / `reciprocal_rank` / `evaluate` 按模式聚合）+ `load_cases`（JSONL，**没有期望的用例直接拒绝**，不静默算 0 分）+ `evaluate_workspace` + CLI（`python -m rag.recall_eval --workspace … --cases …`）。报告**必须带 `resolved_modes`** —— 要了 A 实际跑了 B 时一眼可见（与产品「降级必须可见」一致）。命中键用**来源文件名**，因为 chunk id 会随重切变化。
   - **合成夹具**：`tests/eval/sample_corpus/`（3 篇通用算法小笔记，**不含任何真实资料**）+ `tests/eval/recall_cases.jsonl`（5 条）。真实资料内容**不进仓库**。

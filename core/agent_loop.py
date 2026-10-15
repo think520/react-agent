@@ -91,6 +91,8 @@ def _compute_run_metrics(tool_name: str, result: ToolResult) -> dict:
             "evidence_status": data.get("evidence_status"),
             "retrieval_mode": data.get("retrieval_mode"),
             "semantic_available": data.get("semantic_available"),
+            # W2 降级可见性：原因与下一步一起进 operation，界面直接渲染。
+            "semantic_reason": data.get("semantic_reason"),
             "fallback_from": data.get("fallback_from"),
         }
     if tool_name == "concept_map_query":

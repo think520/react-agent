@@ -841,6 +841,23 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 .run-summary q { overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
 .run-summary code { border-radius: var(--radius-sm); padding: 2px var(--space-1); background: rgba(27,54,93,.07); color: var(--blue); }
 .run-summary p small { color: var(--faint); font-size: 12px; }
+
+/* W2 降级可见性：结论一行，展开看事实与下一步（不是 <p> 的子元素，单独立规则）。 */
+.run-summary div > details.retrieval-degraded {
+  margin: 2px 0 6px;
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.run-summary details.retrieval-degraded summary {
+  cursor: pointer;
+}
+
+.run-summary details.retrieval-degraded p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
 .context-source-list, .context-source-group > div { display: grid; gap: 8px; }
 .context-source-group { border: 1px solid var(--border); border-radius: 8px; background: rgba(255,255,255,.38); }
 .context-source-group > summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; cursor: pointer; list-style: none; padding: 9px 10px; }

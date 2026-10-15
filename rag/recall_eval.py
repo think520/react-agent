@@ -2,11 +2,22 @@
 为什么先做度量：路线图要求「RRF 权重由数据决定」，但没有基线之前，「检索变好了」只是感觉。
 设计取舍：度量是纯函数、检索通过回调注入；命中键用来源**文件名**（chunk id 会随重切变化）；
 报告必须带**实际跑的模式**（要了 vector 却只能跑 fts_only 时要看得见）；用例文件没有期望就拒绝。
+**运行时限制（2026-10-15 实测，写在这里免得下次再踩）**：本地 Qdrant 是**单进程**存储。
+
+**自动生成用例的边界（2026-10-15 实测）**：`cases_from_workspace` 生成的是「标题 + 索引关键词」查询，
+**区分不开 fts_only 与 hybrid** —— 实测两种配置都是 21/21（hit@5=1.000），因为关键词检索本来就能命中这些查询。
+它能复现的是**修 FTS 转义前后的差别**（修前 0.720 → 修后 1.000），**不能**替代语义/换述类的评测集（那需要人工出题，目前不在仓库里）。
+服务（或任何别的进程）已经打开该知识库时，外部再跑评测会得到
+`Storage folder … is already accessed by another instance` —— 此时只有 FTS 腿能测，
+向量腿必然报不可用。要测向量腿：**先停掉服务**，或把评测做成服务端入口（未做）。
+另外评测进程要自己 `load_dotenv(.env)` 并传**整个** config 对象（只传 rag 那一段子字典会让
+`EmbeddingService` 解析不出预设，从而把它误判成「没有可用的 embedding 后端」）。
 """
 
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Sequence
 
@@ -114,6 +125,51 @@ def summarize(report: dict[str, dict[str, Any]], *, k: int = DEFAULT_K) -> str:
     return "\n".join(lines)
 
 
+def cases_from_workspace(workspace: str, *, limit: int = 25) -> list[EvalCase]:
+    # 盲区 A：从工作区**确定性**生成用例（标题 + 该资料的一个关键词 → 期望命中这份资料的来源文件）。
+    # 只读打开索引；真实资料正文不会因此进仓库 —— 用例是运行时产物，不进 git。
+    import sqlite3
+
+    from knowledge.paths import knowledge_path
+
+    db_path = os.path.join(knowledge_path(workspace), "knowledge.db")
+    if not os.path.exists(db_path):
+        raise FileNotFoundError(f"没有可评测的索引：{db_path}")
+
+    con = sqlite3.connect("file:" + db_path.replace(chr(92), "/") + "?mode=ro", uri=True)
+    con.row_factory = sqlite3.Row
+    try:
+        # 只要有分段就能评"能不能检索到"（不要求已建向量：fts_only 也是要评的模式之一）。
+        rows = list(con.execute(
+            "SELECT id, source, title FROM documents "
+            "WHERE id IN (SELECT DISTINCT document_id FROM chunks) ORDER BY id LIMIT ?",
+            (max(1, int(limit)),),
+        ))
+        keywords = {
+            row["document_id"]: row["keywords_json"]
+            for row in con.execute("SELECT document_id, keywords_json FROM directory_entries")
+        }
+    finally:
+        con.close()
+
+    cases: list[EvalCase] = []
+    for row in rows:
+        terms: list[str] = []
+        try:
+            terms = [str(item) for item in json.loads(keywords.get(row["id"]) or "[]")]
+        except (TypeError, ValueError):
+            terms = []
+        term = next((item.strip() for item in terms if item and item.strip()), "")
+        if not term:
+            continue
+        title = str(row["title"] or "").strip()
+        cases.append(EvalCase(
+            query=(title + " " + term).strip(),
+            expect_sources=(os.path.basename(str(row["source"] or "")),),
+        ))
+    return cases
+
+
 def evaluate_workspace(
     workspace: str,
     cases: Sequence[EvalCase],
@@ -141,12 +197,21 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     parser = argparse.ArgumentParser(description="Recall evaluation (hit@k / MRR)")
     parser.add_argument("--workspace", required=True)
-    parser.add_argument("--cases", required=True)
+    parser.add_argument("--cases", help="JSONL 用例文件")
+    parser.add_argument(
+        "--generate-cases", type=int, default=0,
+        help="不读文件，直接从工作区确定性生成 N 条用例（正文不进仓库）",
+    )
     parser.add_argument("--modes", default=",".join(DEFAULT_MODES))
     parser.add_argument("--k", type=int, default=DEFAULT_K)
     args = parser.parse_args(argv)
 
-    cases = load_cases(args.cases)
+    if args.generate_cases:
+        cases = cases_from_workspace(args.workspace, limit=args.generate_cases)
+    elif args.cases:
+        cases = load_cases(args.cases)
+    else:
+        parser.error("需要 --cases 或 --generate-cases")
     modes = [mode.strip() for mode in args.modes.split(",") if mode.strip()]
     report = evaluate_workspace(args.workspace, cases, modes=modes, k=args.k)
     print(summarize(report, k=args.k))

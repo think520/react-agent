@@ -87,3 +87,6 @@ class HybridResult:
     vector_hits: list[RetrievalHit] = field(default_factory=list)
     fts_hits: list[RetrievalHit] = field(default_factory=list)
     vector_available: bool = False
+    #: 向量腿不可用时的**种类**（provider 探活失败 / 本地向量库被别的进程占用 / 其他错误），
+    #: 让上层能把原因如实说给用户，而不是统一报一句「降级了」。
+    vector_error: str = ""

@@ -1,5 +1,5 @@
 import { readerLocation } from "../lib/documentLinks";
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUp, BookOpen, Brain, Check, Command, FilePlus2, FileText, FolderOpen, Globe2, Library, MessageCircle, Paperclip, RotateCcw, Square, Sparkles, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -11,6 +11,7 @@ import { WikiPlanCard } from "../components/WikiPlanCard";
 import { ModelSelect } from "../components/ModelSelect";
 import { DropdownSelect } from "../components/DropdownSelect";
 import { AskUserCard } from "../components/artifacts/AskUserCard";
+import { RetrievalDegradedNotice } from "../components/RetrievalDegradedNotice";
 import { KnowledgeContextCard } from "../components/artifacts/KnowledgeContextCard";
 import { MemoryConfirmationCard } from "../components/artifacts/MemoryConfirmationCard";
 import { PracticeReadyCard } from "../components/artifacts/PracticeReadyCard";
@@ -112,15 +113,11 @@ function RunSummary({ artifact }: { artifact?: RunSummaryArtifact }) {
     : "直接回答";
   return <details className={`run-summary ${artifact.status}`}>
     <summary><Check size={14} /><strong>{artifact.status === "completed" ? "处理完成" : "处理未完成"}</strong><span>{summary}</span><small>{formatDuration(artifact.total_elapsed)}</small></summary>
-    {artifact.operations.length > 0 && <div>{artifact.operations.map((operation, index) => <p key={`${operation.tool_name}:${index}`}>
+    {artifact.operations.length > 0 && <div>{artifact.operations.map((operation, index) => <Fragment key={`${operation.tool_name}:${index}`}><p>
       <span>{TOOL_LABELS[operation.tool_name] || "学习工具"}</span>
       {operation.query && <q>{operation.query}</q>}
       {operation.operation && <code>{operation.operation}</code>}
-      {operation.tool_name === "rag_search" && operation.semantic_available === false && (
-        <span className="retrieval-degraded">
-          {operation.hit_count ? "当前仅使用关键词检索" : "关键词检索未命中，向量检索当前不可用"}
-        </span>
-      )}
+
       {/* P1-22: non-text material cannot be grepped, so an empty result must not
           read as “the material does not say it”. */}
       {operation.tool_name === "rag_search" && !!operation.grep_unreadable && (
@@ -131,7 +128,12 @@ function RunSummary({ artifact }: { artifact?: RunSummaryArtifact }) {
         </span>
       )}
       <small>{operation.status === "completed" ? "完成" : "失败"} · {formatDuration(operation.elapsed || 0)}</small>
-    </p>)}</div>}
+    </p>
+      {/* W2 降级可见性：说清"为什么是纯文本检索 + 下一步"（<details> 不能嵌在 <p> 里）。 */}
+      {operation.tool_name === "rag_search" && operation.semantic_available === false && (
+        <RetrievalDegradedNotice reason={operation.semantic_reason} hitCount={operation.hit_count} />
+      )}
+    </Fragment>)}</div>}
   </details>;
 }
 

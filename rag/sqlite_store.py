@@ -644,35 +644,36 @@ def _search_text(*values: str | None) -> str:
     return " ".join(dict.fromkeys([base, *_cjk_bigrams(base)]))
 
 
-def _build_fts_query(query: str) -> str:
-    """Build FTS5 query from user input.
+#: 含至少一个词字符（\w 含 CJK）才算能匹配的 token；纯标点丢掉。
+_HAS_WORD_CHAR = re.compile(r"\w", re.UNICODE)
 
-    Multi-word queries become OR queries for broader recall.
-    Special FTS5 characters are escaped.
+
+def _build_fts_query(query: str) -> str:
+    """把用户输入变成合法的 FTS5 表达式（多词用 OR 提升召回）。
+
+    修法要点（2026-10-15）：旧实现对 `* ( ) :` 的处理是**在 token 内部插引号**
+    （`a*b` → `a"*"b`），外层再包一次引号，生成 `"a"*"b"` 这种不合法表达式 ——
+    FTS5 会把随后的裸 token 当成**列名**（`no such column: 数学`）或直接报语法错，
+    结果是 FTS 腿**静默返回空**。正确做法很简单：
+      - 先把用户写的引号去掉（那是查询语法，不是内容；FTS 也索引不到标点）；
+      - 每个 token 整体加一层引号，引号内的 `* ( ) : AND OR NOT NEAR` 全是字面量；
+      - 完全不含词字符的 token（例如 `***`）直接丢掉，不生成残破表达式。
     """
-    # Tokenize: split on whitespace, escape FTS5 special chars
     normalized = unicodedata.normalize("NFKC", query).casefold().strip()
     tokens = list(dict.fromkeys([*normalized.split(), *_cjk_bigrams(normalized)]))
-    if not tokens:
+    atoms: list[str] = []
+    for token in tokens:
+        # 用户写的引号是查询语法，不是内容；去掉它，避免生成 """…""" 这种边界形态。
+        cleaned = token.replace('"', "").strip()
+        if not cleaned or not _HAS_WORD_CHAR.search(cleaned):
+            continue
+        # 引号内的一切都是字面量：这里只需把内部的 " 再翻倍（上面已去掉，属于防御）。
+        atoms.append('"' + cleaned.replace('"', '""') + '"')
+
+    if not atoms:
         return ""
 
-    escaped = []
-    for t in tokens:
-        # Escape FTS5 special characters: " * ( ) AND OR NOT NEAR :
-        t = t.replace('"', '""')
-        for ch in ("*", "(", ")", ":", "AND", "OR", "NOT", "NEAR"):
-            if ch in ("AND", "OR", "NOT", "NEAR"):
-                continue  # handle below
-            t = t.replace(ch, f'"{ch}"')
-        if t:
-            escaped.append(f'"{t}"')
-
-    if not escaped:
-        return ""
-
-    # OR for broader recall
-    return " OR ".join(escaped)
-
+    return " OR ".join(atoms)
 
 def make_chunk_row(
     chunk_id: str,
