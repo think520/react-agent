@@ -12,6 +12,12 @@
 > 从 2026-10-15 起时间戳已正确（`177fbc2` / `c9e9b52` / `0a767bb` / `d123b43` 均为当日）。
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
+- **W3 FE-P0 ②F14：字体契约（2026-10-15，分支 feat/stream-correctness，未推送）**：把 DESIGN.md 的「字体气质 / 字体 Token」变成**可执行**约束，并修掉实测出的一处退化。
+  - **核对结论（先说好消息）**：字体**已是本地打包**（`public/assets/fonts/` 下 kami-reading 的仓耳今楷 W04/W05 + noto-serif-sc 的 woff2 全集），CSS 里**没有**任何公共 CDN，`@font-face` 全是本地 URL；品牌字体只用在标题（正文不碰 Luo）—— 这三条本来就对。
+  - **实测出一处真缺口**：全局继承规则只写了 `button, input, textarea { font: inherit }`，**漏了 `select`** —— select 默认用系统 UI 字体，Windows 上中文选项会跟着变脸。已补进同一条规则。
+  - **新增契约 5 条**（`designTokens.test.ts`）：① 每个字体栈都以通用族收尾（ui→sans-serif / reading·article·brand→serif / mono→monospace）② UI·阅读·文章字体都**显式点名 CJK 字族** ③ 长文正文（`.answer-prose` / `.reader-prose`）用阅读/文章字体且**不碰品牌字体** ④ 字体本地打包、CSS 不引公共 CDN、`@font-face` 不许远程地址 ⑤ 存在一条把 button/input/textarea/**select** 一起设为 `font: inherit` 的规则。
+  - **过程中修掉自己两处断言缺陷**：① `tokensIn` 会去掉空白 → 我拿 ‘PingFang SC’ 去比已去空格的栈，误报失败；② select 那条一开始用『选择器文本里包含 select』判定，太松（能被无关规则蒙混过关），改成**精确要求同一条规则覆盖四个控件**。
+  - **验证**：token 契约 18 passed ｜ 前端 43 文件 / 253 passed ｜ tsc / lint / build 0 ｜ mock e2e 5 passed ｜ live 7 passed。
 - **W3 FE-P0 ①F3：SSE 订阅对账（2026-10-15，分支 feat/stream-correctness，未推送）**：核对发现事件名**只存在于类型 union 里**（类型运行时不存在 → 没人能枚举它），而 hook 的 if 链只覆盖其中一部分 —— **`practice` 与 `learning_update` 两个事件没有任何消费者**，正是路线图说的「漏订阅＝静默丢帧」。
   - **运行时常量成为唯一来源**：新增 `lib/chatStreamEvents.ts`（`CHAT_STREAM_EVENT_KINDS` + `isChatStreamEventKind`）。
   - **类型级对账**：`api.ts` 新增 `ChatStreamEventKindMatchesUnion` —— union 与常量表必须互相覆盖，**往 union 加成员却忘了更新常量就会编译不过**（不是等用户发现丢帧）。

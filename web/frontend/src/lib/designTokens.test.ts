@@ -208,3 +208,72 @@ describe("纸张阶梯（可辨但不突兀）", () => {
   }
 });
 
+/**
+ * W3 F14：字体契约（把 DESIGN.md 的字体气质/字体 Token 一节变成可执行约束）。
+ *
+ * 为什么值得单列：CJK 字体在 Windows 上很容易「看起来能显示、其实用了系统兜底」——
+ * 显式点名 + 通用兜底 + 本地打包 + 表单控件继承，四条缺一条就会在用户机器上悄悄退化。
+ */
+describe("字体契约（W3 F14）", () => {
+  const tokens = tokensIn(rootBlock(cssText));
+
+  it("每个字体栈都以通用族收尾", () => {
+    const generics: Record<string, string> = {
+      "--font-ui": "sans-serif",
+      "--font-reading": "serif",
+      "--font-article": "serif",
+      "--font-brand": "serif",
+      "--font-mono": "monospace",
+    };
+    for (const [token, generic] of Object.entries(generics)) {
+      const stack = tokens.get(token);
+      expect(stack, `${token} 未定义`).toBeTruthy();
+      expect(stack!.endsWith(generic), `${token} 应以 ${generic} 收尾`).toBe(true);
+    }
+  });
+
+  it("UI 与阅读字体都显式点名了 CJK 字族", () => {
+    // tokensIn 会去掉空白，所以这里也按去空白后的字族名比较。
+    const cjk = ["PingFangSC", "MicrosoftYaHei", "NotoSerifSC", "SourceHanSerifSC", "SongtiSC", "SimSun"];
+    for (const token of ["--font-ui", "--font-reading", "--font-article"]) {
+      const stack = tokens.get(token) || "";
+      expect(cjk.some((family) => stack.includes(family)), `${token} 没有点名任何 CJK 字族`).toBe(true);
+    }
+  });
+
+  it("长文正文用阅读/文章字体，不把品牌字体当长文唯一字体", () => {
+    const prose = [".answer-prose", ".reader-prose"];
+    for (const selector of prose) {
+      const start = cssText.indexOf(selector + " {");
+      if (start < 0) continue;
+      const rule = cssText.slice(start, cssText.indexOf("}", start));
+      expect(rule.includes("--font-brand"), `${selector} 不应用品牌字体（Luo 不是完整中文字库）`).toBe(false);
+    }
+    expect(cssText.includes(".answer-prose {") && cssText.includes("--font-reading")).toBe(true);
+    expect(cssText.includes(".reader-prose {") && cssText.includes("--font-article")).toBe(true);
+  });
+
+  it("字体本地打包，CSS 不引公共 CDN", () => {
+    for (const banned of ["fonts.googleapis.com", "fonts.gstatic.com", "jsdelivr", "unpkg"]) {
+      expect(cssText.includes(banned), `styles.css 不该引用 ${banned}`).toBe(false);
+    }
+    const faces = [...cssText.matchAll(/@font-face\s*\{[^}]*\}/g)].map((match) => match[0]);
+    expect(faces.length).toBeGreaterThan(0);
+    for (const face of faces) {
+      expect(/url\(\s*["']?https?:/i.test(face), `@font-face 不该用远程地址`).toBe(false);
+    }
+  });
+
+  it("表单控件（含 select）都继承页面字体", () => {
+    // F14 实测出的真缺口：button/input/textarea 有 font: inherit，select 没有，
+    // Windows 上 select 会用系统 UI 字体渲染中文选项。
+    const inheritSelectors = [...cssText.matchAll(/(^|\n)([^{}\n]*)\{([^}]*)\}/g)]
+      .filter((match) => /font:\s*inherit/.test(match[3]))
+      .map((match) => match[2].split(",").map((part) => part.trim()));
+    const coversAll = inheritSelectors.some((parts) =>
+      ["button", "input", "textarea", "select"].every((control) => parts.includes(control)),
+    );
+    expect(coversAll, "没有一条规则把 button/input/textarea/select 一起设为 font: inherit").toBe(true);
+  });
+});
+

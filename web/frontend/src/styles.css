@@ -655,7 +655,8 @@ body { margin: 0; overflow: hidden; background: var(--paper); }
 @supports not selector(::-webkit-scrollbar) {
   * { scrollbar-width: thin; scrollbar-color: rgba(122,112,101,.45) transparent; }
 }
-button, input, textarea { color: inherit; font: inherit; }
+/* W3 F14：select 也要继承页面字体 —— 它默认用系统 UI 字体，Windows 上中文选项会跟着变脸。 */
+button, input, textarea, select { color: inherit; font: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: 0.55; }

@@ -189,7 +189,7 @@ E1–E16 逐条核对并交付后（截至 2026-10-02）：**16 条全部交付*
 | F1 | useChatStream 重构为纯 foldEvent reducer（lib/，seq 幂等），store 只暴露 applyEvent | hooks/useChatStream.ts |
 | F3 | SSE 帧订阅表从事件常量派生 + 对账测试（漏订阅=静默丢帧） | lib/api.ts |
 | F7 | 自动滚动升级：单写者 + overflow-anchor:none + MutationObserver 合帧 + 手势释放 + 「用户消息才回底」 | useStickyBottomScroll.ts |
-| F14 | CJK 字体栈显式点名 + 语义 token 契约测试 + serif 正文 prose | globals.css / tailwind |
+| F14 | **已完成（2026-10-15，分支 feat/stream-correctness）** CJK 字体栈显式点名 + **契约测试 5 条**（通用族收尾 / 点名 CJK / 长文正文不碰品牌字体 / 本地打包且无公共 CDN / 表单控件含 **select** 都 font: inherit）+ 修掉实测缺口（select 未继承字体）。注：字体本地打包与无 CDN 本来就对，本轮把它变成**可执行**约束 | globals.css / styles.css + lib/designTokens.test.ts |
 
 **FE-P1（体验质感）**
 
