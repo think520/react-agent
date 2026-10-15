@@ -13,6 +13,13 @@
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
 ### 变更
+- **检索降级可见性 ②（界面一半）：把原因显示出来（2026-10-15，分支 fix/retrieval-transparency，未推送）**：后端已经能给出 `semantic_reason`，但界面只有一处泛泛的「当前仅使用关键词检索」，用户仍然不知道下一步做什么。
+  - **透传**：`tools/rag_search.py` 把 `semantic_reason` 放进工具结果 → `core/agent_loop.py` 的 operation 摘要带上它 → 前端 `RunSummaryOperation.semantic_reason`（新增镜像类型 `RetrievalSemanticReason`）。
+  - **新组件 `components/RetrievalDegradedNotice.tsx`**：一句话结论（用后端的 `title`）+ 展开后是**事实**（`detail`，含原始报错）与**下一步**（`action`）；**没有原因载荷（老会话）时退回原来的文案**，保证不会比以前更含糊。
+  - **DOM 结构修正**：`<details>` 不能嵌在 `<p>` 里（浏览器会把 `<p>` 拆开），所以 operation 列表项改成 `Fragment` 包裹 `<p>` + 提示组件作为**兄弟节点**；样式与设计 token 棘轮同步通过。
+  - **回归**：组件 4 条（结论优先用后端 title / 无原因时保留原文案两种 / 事实与下一步都渲染 / 展开结构）；后端知识工具 1 条（工具结果带 `semantic_reason` 且 title/action 非空）。
+  - **验证**：mock e2e **15 passed**（含「run summary names the material it could not locate」—— 证明这次 DOM 调整没有打破既有选择器）＋ 设计 token 棘轮 13 passed。
+  - **未做**：评测仍不能在服务运行期间测向量腿（本地 Qdrant 单进程），要么停服要么做服务端入口（已记在 §1.1 与 `rag/recall_eval.py` 的说明里）。
 - **检索降级可见性 ②：向量腿不可用时说出**准确**原因（2026-10-15，分支 fix/retrieval-transparency，未推送）**：核对发现签名不匹配与探活失败最终都只变成**一行日志**，对外只有 `retrieval_mode=fts_only` —— 用户分不清「后端没起」「索引是别的模型建的」「本地向量库被占用」，而这三者的下一步完全不同。
   - **新增 `rag/retrieval_status.py`**：纯函数 `build_semantic_status()` 输出 `code / title / detail / action` 四段（JSON 友好），覆盖 `ok / embedding_signature_mismatch / embedding_provider_unavailable / no_vectors_indexed / vector_store_locked / vector_store_error / unknown`；**信息不足就说 unknown**，仍然给可行动建议。
   - **接线（原因要准，不能靠猜）**：`HybridRetriever` 失败时记录**种类**（`embedding_provider_unavailable` / `vector_store_locked`（本地 Qdrant 单进程被占用）/ `vector_store_error`）与原始报错 → 进 `HybridResult` → 进编排器 `debug` → `search_index_with_status` 在**不可用**时才组装 `semantic_reason`（正常路径不加查询开销）；缺失索引的早退路径也带原因。

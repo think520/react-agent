@@ -41,6 +41,10 @@ Dijkstra solves shortest path problems with [[图]] and [[优先队列]]. #algor
     assert search_result.data["results"][0]["source"] == "obsidian/Dijkstra.md"
     assert search_result.data["retrieval_mode"] == "fts_only"
     assert search_result.data["semantic_available"] is False
+    # W2 降级可见性：工具结果要带"为什么 + 下一步"，界面才能说清楚。
+    reason = search_result.data.get("semantic_reason")
+    assert reason and reason.get("code"), search_result.data
+    assert reason.get("title") and reason.get("action"), reason
     assert graph_result.ok
     assert graph_result.data["has_reviewed_graph"] is False
 

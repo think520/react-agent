@@ -776,10 +776,20 @@ export interface RunSummaryOperation {
   relationship_count?: number;
   retrieval_mode?: string;
   semantic_available?: boolean;
+  /** W2 降级可见性：为什么现在是纯文本检索 + 下一步（后端语义见 rag/retrieval_status.py）。 */
+  semantic_reason?: RetrievalSemanticReason;
   fallback_from?: string;
   /** P1-22: documents exact-source lookup could not read (PDF/Word/PPT). */
   grep_unreadable?: number;
   grep_unreadable_sources?: string[];
+}
+
+/** 检索降级的原因（后端 rag/retrieval_status.py::SemanticStatus 的镜像）。 */
+export interface RetrievalSemanticReason {
+  code?: string;
+  title?: string;
+  detail?: string;
+  action?: string;
 }
 
 export interface RunSummaryArtifact {
