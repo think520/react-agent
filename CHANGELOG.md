@@ -12,6 +12,38 @@
 > 从 2026-10-15 起时间戳已正确（`177fbc2` / `c9e9b52` / `0a767bb` / `d123b43` 均为当日）。
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
+- **合并前的自我审查（2026-10-15，分支 feat/stream-correctness）**：审查了 F1/F7 两个风险最高的改动，结论与修复如下。
+  - **F1 的 seq 语义核对（重要，且要如实说明）**：后端确有 seq 与重放端点（`/api/chat/streams/{id}/replay?after_seq=`，注释写明是给断线重连用的），`stream_id` 是每轮 `uuid4()`、seq 从 1 单调递增 ✓，所以按 stream_id 计数的语义正确、**不会误丢合法帧** ✓。同时发现：**前端传输层 `lib/api.ts` 本来就有 seq 去重**（`consumedSeqs` + `lastSeq`，且与重连在同一个闭包内）—— 也就是说我在 hook 级测试里复现的『回答写两遍』，在生产路径上被传输层挡住了；F1 这层是**第二道防线**（覆盖绕过传输层的调用方，并把 reducer 的契约写清楚）。**不夸大成『修了一个线上双写 bug』。**
+  - **F7 审查出一个真问题并修掉**：`endGesture` 会把 `pinned` 清掉 —— 用户刚点发送时若正好有一次滚轮余波，回底就被吞了。改成**一次性消费**（`step` 真正执行后再清），并加回归（先红：只跑 3 帧时值停在 258，是我帧数不够而不是逻辑错，跑到收敛即 600）。
+  - **其余核对**：15 个改动文件逐个过了一遍，`ChatPage` 只多了一处 `pinToBottom()` 调用、`styles.css` 只多一条 `overflow-anchor` + `select` 继承，没有顺手改的无关代码；工作区干净、真实资料库 `note/` 无改动。
+- **W3 FE-P0 ④F1：流式归约搬进纯函数 + seq 幂等（2026-10-15，分支 feat/stream-correctness，未推送）**：归约逻辑以前埋在 `useChatStream` 的 if 链里，只能通过渲染间接测；而**断线重连会把帧重放一次**，重放会把回答写两遍。
+  - **新增 `lib/chatFold.ts`（纯函数）**：`foldChatStream(state, input)` 承担全部状态过渡（delta / narration / status / citation / personalization / artifact / 截断 / 完成 / settle），`streamEffects(event)` 把副作用（会话 id、知识上下文）**读出来**交给 hook 执行，`isStaleSeq` / `rememberSeq` 是导出的序号守卫。
+  - **seq 幂等**：按 `stream_id` 记已应用到的序号，重复或回退的帧**原样丢弃**（连状态对象都不换 → 不会有多余渲染）；换 `stream_id`（新一轮）序号重新开始；没有 `seq` 的帧不去重（兼容老服务端与夹具）。
+  - **去重必须在入缓冲之前**：delta 是经打字机缓冲（`delta-flush`）进正文的，如果只在 reducer 里去重，重放会先被缓冲一遍、稍后照样追加 —— 所以 hook 用**同一份** `isStaleSeq` 在入缓冲前就丢掉。
+  - **hook 变薄**：状态改由 `useReducer(foldChatStream, …)` 持有，**唯一改状态的入口**是 `applyEvent`（`handleStreamEvent` 保留为同义别名，已有调用方零改动）；对外 API 一字未改。
+  - **先红后绿**：新增 hook 级重放测试，第一版**真的把正文写成了『只此一份只此一份』**；纯函数 15 条 + hook 3 条，修完全绿。既有 46 个前端测试文件 / 282 条全部通过 —— 这就是行为对齐的证据。
+  - **顺带**：修掉纯函数里一处「未知事件也会换状态对象」（无条件展开序号表）→ 改为序号表没变就不换对象。
+  - **我自己造成并修回的一处**：重写 seq 那组测试时用了「从某行替换到文件尾」，把**后面那组 `streamEffects` 测试一起删了**；是 lint 报「导入未使用」才暴露出来 —— 已补回（并要求自己以后替换到文件尾前先确认后面还有什么）。
+- **W3 FE-P0 ③F7：自动滚动升级（2026-10-15，分支 feat/stream-correctness，未推送）**：核对出三个真问题 —— **多个写者**（rAF 动画 / scroll 事件 / ResizeObserver 各自直接写 `scrollTop` ✗）、**内容变长但容器盒子不变时收不到通知**（ResizeObserver 看的是容器自己的盒子 ✗）、**手势期间没有任何保护**（动画会跟手指抢滚动 ✗）。
+  - **决策抽成纯函数**（新增 `lib/scrollFollow.ts`）：`distanceFromBottom` / `shouldFollow({metrics, interacting, pinned})` / `shouldJump`。jsdom 没有布局，滚不滚的判断必须离开 DOM 才测得了。
+  - **hook 重写**（`useStickyBottomScroll`）：① **单写者** —— 所有触发都进 `schedule()`，一帧只排一次，`scrollTop` 只在 `step()` 一处被写；② **MutationObserver**（childList+subtree+characterData）管内容变长，与 rAF 合帧；③ **手势释放** —— touchstart/touchmove/wheel 期间绝不写，touchend/touchcancel（滚轮用 `WHEEL_RELEASE_MS`=140ms 空闲）之后按用户现在停在哪决定；④ **用户消息才回底** —— 新增 `pinToBottom()`，由 ChatPage 在**用户发消息**时调用，助手流式输出不会把视图拽回去。
+  - **过程中发现并修掉一个经典陷阱（重要）**：第一版我在 `step()` 里每次重新判定离底部多远 —— 而**内容变长时 `scrollTop` 不变、距离会瞬间变成几百像素**，于是「内容长出来了」被误读成「用户滚走了」而停止跟随 ✗。改成：跟随状态**只由用户意图决定**（滚动/手势/发消息），并用「最后一次是不是我们自己写的」（`lastWrittenRef`）把动画造成的 scroll 事件与用户滚动区分开。
+  - **CSS**：`.chat-scroll` 加 `overflow-anchor: none`（浏览器自带的滚动锚定会和我们的跟随逻辑打架）。
+  - **回归 4 条**（真元素 + 假测量 + 手动帧队列）：内容变长跟随且**一帧只写一次** / 手势期间**零写入**、松手尊重用户位置、滚回底部后恢复 / 滚上去不再跟随但 `pinToBottom` 能重新跟随 / `.chat-scroll` 确实关掉了滚动锚定。
+  - **顺带修掉自己三处测试夹具缺陷**：用 `replaceWith` 换掉 React 管理的节点（NotFoundError）→ 改成在真元素上装假测量；缓动是渐进的，断言要跑到收敛而不是一帧；「一帧一次写」要只走一帧再断言。lint 也报了一处重复实现（内联了一份 `refreshFollow`）→ 改为通过 ref 复用同一份。
+- **W3 FE-P0 ②F14：字体契约（2026-10-15，分支 feat/stream-correctness，未推送）**：把 DESIGN.md 的「字体气质 / 字体 Token」变成**可执行**约束，并修掉实测出的一处退化。
+  - **核对结论（先说好消息）**：字体**已是本地打包**（`public/assets/fonts/` 下 kami-reading 的仓耳今楷 W04/W05 + noto-serif-sc 的 woff2 全集），CSS 里**没有**任何公共 CDN，`@font-face` 全是本地 URL；品牌字体只用在标题（正文不碰 Luo）—— 这三条本来就对。
+  - **实测出一处真缺口**：全局继承规则只写了 `button, input, textarea { font: inherit }`，**漏了 `select`** —— select 默认用系统 UI 字体，Windows 上中文选项会跟着变脸。已补进同一条规则。
+  - **新增契约 5 条**（`designTokens.test.ts`）：① 每个字体栈都以通用族收尾（ui→sans-serif / reading·article·brand→serif / mono→monospace）② UI·阅读·文章字体都**显式点名 CJK 字族** ③ 长文正文（`.answer-prose` / `.reader-prose`）用阅读/文章字体且**不碰品牌字体** ④ 字体本地打包、CSS 不引公共 CDN、`@font-face` 不许远程地址 ⑤ 存在一条把 button/input/textarea/**select** 一起设为 `font: inherit` 的规则。
+  - **过程中修掉自己两处断言缺陷**：① `tokensIn` 会去掉空白 → 我拿 ‘PingFang SC’ 去比已去空格的栈，误报失败；② select 那条一开始用『选择器文本里包含 select』判定，太松（能被无关规则蒙混过关），改成**精确要求同一条规则覆盖四个控件**。
+  - **验证**：token 契约 18 passed ｜ 前端 43 文件 / 253 passed ｜ tsc / lint / build 0 ｜ mock e2e 5 passed ｜ live 7 passed。
+- **W3 FE-P0 ①F3：SSE 订阅对账（2026-10-15，分支 feat/stream-correctness，未推送）**：核对发现事件名**只存在于类型 union 里**（类型运行时不存在 → 没人能枚举它），而 hook 的 if 链只覆盖其中一部分 —— **`practice` 与 `learning_update` 两个事件没有任何消费者**，正是路线图说的「漏订阅＝静默丢帧」。
+  - **运行时常量成为唯一来源**：新增 `lib/chatStreamEvents.ts`（`CHAT_STREAM_EVENT_KINDS` + `isChatStreamEventKind`）。
+  - **类型级对账**：`api.ts` 新增 `ChatStreamEventKindMatchesUnion` —— union 与常量表必须互相覆盖，**往 union 加成员却忘了更新常量就会编译不过**（不是等用户发现丢帧）。
+  - **行为级对账**：新增 `hooks/useChatStream.test.ts` —— 对**每个**事件名喂一帧最小样本，断言它要么**真的改变状态/触发回调**，要么被明确列进 `IGNORED_STREAM_EVENTS`（且理由非空）。`practice` / `learning_update` 被显式登记为「暂无消费者」并写明原因（练习卡走 `chat_artifact(practice_ready)`，掌握度由复习页拉队列）；要不要消费或删掉服务端这两类帧，是**单独的决定**（未做）。
+  - **过程中修掉自己两个测试缺陷**：① 基线快照取在 `settleLastMessage()` 之前 → settle 自身的变化让**每个**事件都显得『已处理』，测试等于白测；② `run_started` 的效果是**回调**而非内部状态，漏算它会造成误报。两处都改了，现在这条测试真的会咬人。
+  - **顺带**：修掉 W5 门禁那行的过期内容（还写着 `G3 ❌`，而 G3 已在 `fbac192` 合入 main ✓）。
+  - **验证**：后端 1845 passed ｜ 前端 43 文件 / 248 passed ｜ tsc / lint / build 0 ｜ mock e2e 15 passed。
 ### 变更
 - **审查盲区 A/B 的答复（2026-10-15，分支 fix/retrieval-transparency，未推送）**：
   - **A：让那个数字可复现**。新增 `rag/recall_eval.py::cases_from_workspace()` + CLI `--generate-cases N`：从**任意工作区**确定性生成用例（标题 + 该资料的一个关键词 → 期望命中它的来源文件），**只读**打开索引，**真实正文不进仓库**。谁都能一条命令重跑：

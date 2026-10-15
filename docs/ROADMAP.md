@@ -186,10 +186,10 @@ E1–E16 逐条核对并交付后（截至 2026-10-02）：**16 条全部交付*
 
 | # | 事项 | 动哪里 |
 |---|---|---|
-| F1 | useChatStream 重构为纯 foldEvent reducer（lib/，seq 幂等），store 只暴露 applyEvent | hooks/useChatStream.ts |
+| F1 | **已完成（2026-10-15，分支 feat/stream-correctness）** 归约搬进纯函数 `lib/chatFold.ts`（`foldChatStream` / `streamEffects` / `isStaleSeq`），hook 用 `useReducer` 持有状态、**唯一入口** `applyEvent`（`handleStreamEvent` 为同义别名，调用方零改动）；**seq 幂等**（重复/回退帧丢弃、换 stream_id 重新开始、无 seq 不去重），且**去重发生在入打字机缓冲之前**。回归：纯函数 15 条 + hook 3 条（先红：重放会写成两遍） | hooks/useChatStream.ts → lib/chatFold.ts |
 | F3 | SSE 帧订阅表从事件常量派生 + 对账测试（漏订阅=静默丢帧） | lib/api.ts |
-| F7 | 自动滚动升级：单写者 + overflow-anchor:none + MutationObserver 合帧 + 手势释放 + 「用户消息才回底」 | useStickyBottomScroll.ts |
-| F14 | CJK 字体栈显式点名 + 语义 token 契约测试 + serif 正文 prose | globals.css / tailwind |
+| F7 | **已完成（2026-10-15，分支 feat/stream-correctness）** 单写者（所有触发进 `schedule()`、一帧一次写、`scrollTop` 只在一处写）+ MutationObserver 内容变长与 rAF 合帧 + 手势释放（触摸/滚轮期间零写入）+ `pinToBottom()`（只有用户发消息才回底）+ `.chat-scroll` 关掉 `overflow-anchor`。决策抽成纯函数 `lib/scrollFollow.ts`；回归 4 条。**修掉一个经典陷阱**：内容变长会让距离失真，不能据此判断用户是否滚走 | useStickyBottomScroll.ts + lib/scrollFollow.ts |
+| F14 | **已完成（2026-10-15，分支 feat/stream-correctness）** CJK 字体栈显式点名 + **契约测试 5 条**（通用族收尾 / 点名 CJK / 长文正文不碰品牌字体 / 本地打包且无公共 CDN / 表单控件含 **select** 都 font: inherit）+ 修掉实测缺口（select 未继承字体）。注：字体本地打包与无 CDN 本来就对，本轮把它变成**可执行**约束 | globals.css / styles.css + lib/designTokens.test.ts |
 
 **FE-P1（体验质感）**
 
@@ -229,7 +229,7 @@ E1–E16 逐条核对并交付后（截至 2026-10-02）：**16 条全部交付*
 
 ### W5 发布通道（P5G.2 / P5G.3）
 
-**门禁（2026-10-02 复测）**：W1 的 E1–E7 ✅ **已完成**；W2 的 G1 ✅ / G2 ✅ / **G3 ❌**（心跳守卫未做）；W3 FE-P0 ❌（F1/F3/F7/F14 未做）。桌面版调试测试难题已由 R0（契约测试替代浏览器 e2e、dev.py、diagnose）正面解决，启动时再吸收 openhanako 三条结论：
+**门禁（2026-10-15 复测）**：W1 的 E1–E7 ✅ **已完成**；W2 的 G1 ✅ / G2 ✅ / **G3 ✅**（心跳守卫已交付并合入 main `fbac192`）；W3 FE-P0 **✅ 全部完成**（F3 ✅ 订阅对账 / F14 ✅ 字体契约 / F7 ✅ 自动滚动 / F1 ✅ 纯 fold + seq 幂等，均在分支 `feat/stream-correctness`，待用户验收）。桌面版调试测试难题已由 R0（契约测试替代浏览器 e2e、dev.py、diagnose）正面解决，启动时再吸收 openhanako 三条结论：
 
 1. **sidecar 范式**：服务端独立进程 + stock runtime spawn（零 ABI 地狱）+ 启动心跳 + 崩溃诊断（契约测试保护）。
 2. **release digest 生成器**：双语结构化发布说明作为数据（现在就可给 CHANGELOG 用，将来喂给更新 UI）。
@@ -246,7 +246,7 @@ P5G.3 的产品能力不再整体等待 Electron：Roadmap、复习提醒和部�
 | ~~**FTS5 查询转义**~~ | ✅ **已完成（2026-10-15，分支 fix/retrieval-transparency）** | 用户查询带引号/运算符时 FTS 腿会静默变空（真库同批用例 **18/25 → 25/25**）。修法：token 整体加引号、内部运算符当字面量、纯标点丢弃 | 回归 6 条 |
 | **本地向量库进程互斥 + 原因可见**（原写「向量腿不可用」，2026-10-15 复测改正） | ✅ **已完成（2026-10-15，分支 fix/retrieval-transparency）** | 复测结论：配置是 **openai_compat / embedding-3 / 2048**、**与索引签名一致**，探活**成功**；让「另一个进程里的检索」降级的真正原因是**本地 Qdrant 单进程**（`already accessed by another instance`）—— **停服实测**：`mode=hybrid`、reason 为空、hit@5=1.000。**后端**如实报 `vector_store_locked` + 原始报错（脱敏后）；**界面**用 `RetrievalDegradedNotice` 显示「结论 + 事实 + 下一步」。**评测可复现**：`--generate-cases N` 从任意工作区确定性生成用例（正文不进仓库；但**区分不开 fts_only 与 hybrid**，见模块说明）。**未做**：服务运行期间的向量腿评测（要么停服要么服务端入口）；语义/换述类人工评测集 | 回归 25 条 + mock e2e 15 |
 | **W2 G4 召回评测集（剩余）** | 🟡 度量与入口已交付 | 真实库三模式基线与 RRF 权重由数据决定；**本地 Qdrant 单进程**，服务在跑时外部进程打不开 → 评测要停服或走服务端入口 | 上一个候选 |
-| **W3 FE-P0（F1/F3/F7/F14）** | ❌ 未做 | W5 门禁之一；F1（fold reducer）同时是流式正确性的根 | 无 |
+| ~~**W3 FE-P0（F1/F3/F7/F14）**~~ | ✅ **已完成（2026-10-15，分支 feat/stream-correctness）** | W5 门禁的最后一项。F3 订阅对账（类型级 + 逐事件行为级 + 明确忽略清单，当场抓出 `practice`/`learning_update` 漏订阅）／F14 字体契约 5 条（并修掉 `select` 不继承字体）／F7 单写者 + 合帧 + 手势释放 + 用户消息才回底（修掉「内容变长被误读成用户滚走」）／F1 纯 `foldEvent` + **seq 幂等**（去重发生在入缓冲之前）| — |
 | **W1 残留三处** | 🟡 见 §0.1 收口表 | 都小、都可见：练习页课程选择器 / 掌握度调度仍是 SM-2 / 划线只能同步进正在编辑的笔记 | 无 |
 | **W2 G5 PDF 四级降级链** | 🟡 扫描页判定与首行标题启发式已有 | 收益取决于是否导入 PDF —— 真实库现在没有 PDF | 有 PDF 数据再谈 |
 
