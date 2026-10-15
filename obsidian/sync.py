@@ -22,6 +22,7 @@ from knowledge.manifest import save_manifest
 from knowledge.paths import knowledge_dir
 from rag.source_section import SourceSection
 from rag.embedding_signature import write_signature
+from rag.index_guard import IndexStalledError, StallGuard, resolve_stall_seconds
 from rag.parsers import parse_document, SUPPORTED_EXTENSIONS
 
 from .scan_policy import is_repo_metadata
@@ -71,6 +72,8 @@ class SyncSummary:
     pending_removal: list = field(default_factory=list)
     #: P1-18: documents whose vectors were written by the backfill pass.
     vectors_backfilled: int = 0
+    #: W2 G3: 向量索引卡住时的可行动说明（空字符串表示没卡）。
+    vector_stall: str = ""
     #: E8: the run stopped at a cooperative checkpoint (user cancelled the
     #: import). Unparsed sources keep their previous hash so the next sync
     #: still sees them as changed, and nothing is deleted on a cancelled run.
@@ -375,7 +378,7 @@ def _vector_payload(chunk: dict, *, document_id: str, source: str, title: str, c
     }
 
 
-def backfill_vectors(sqlite, qdrant, embedding, embedding_dim) -> int:
+def backfill_vectors(sqlite, qdrant, embedding, embedding_dim, guard: StallGuard | None = None) -> int:
     """Embed documents whose vectors were never written (P1-18).
 
     Importing while the embedding backend is down records `pending`, and the
@@ -385,12 +388,19 @@ def backfill_vectors(sqlite, qdrant, embedding, embedding_dim) -> int:
     """
     if not embedding_dim or not embedding.is_available():
         return 0
+    guard = guard or StallGuard()
     backfilled = 0
     for document in sqlite.get_pending_vector_documents():
         document_id = document["id"]
         chunks = sqlite.get_chunks_by_document(document_id)
         if not chunks:
             continue
+        try:
+            # W2 G3：太久没有进度就别再往下硬试 —— 剩下的仍是 pending，下次同步重试。
+            guard.ensure_progress()
+        except IndexStalledError as exc:
+            logger.warning("Vector backfill stopped: %s", exc)
+            break
         try:
             texts = [chunk.get("embedding_text") or chunk["text"] for chunk in chunks]
             vectors = embedding.embed_texts(texts)
@@ -411,6 +421,7 @@ def backfill_vectors(sqlite, qdrant, embedding, embedding_dim) -> int:
             qdrant.delete_by_filter(document_id)
             qdrant.upsert(chunk_ids, vectors, payloads)
             sqlite.mark_vector_indexed(document_id, document.get("content_hash") or "")
+            guard.beat()
             backfilled += 1
         except Exception as exc:
             logger.warning("Vector backfill failed for %s: %s", document_id, exc)
@@ -437,6 +448,10 @@ def sync_sources(
     协作式检查。取消时不删除任何东西，未解析的来源保留旧 hash，下一次同步照样会处理它们。
     """
     config = config or {}
+    # W2 G3：向量索引的心跳守卫。单次请求有传输超时，但"整体没有进度"（本地 embedding
+    # 黑洞连接、每批都在重试）以前没有任何说法 —— 现在超时就把原因讲清楚并停掉向量腿，
+    # 文本索引照常做完（产品本来就允许降级成 FTS5-only）。
+    stall_guard = StallGuard(timeout_seconds=resolve_stall_seconds(config))
     knowledge_dir = _knowledge_dir(workspace)
     state = _load_state(workspace)
     old_state = state.get("files", {})
@@ -721,8 +736,11 @@ def sync_sources(
             )
 
             # Qdrant: upsert vectors
-            if embedding.is_available() and embedding_dim:
+            # W2 G3：卡住之后不再逐份硬试（剩下的保持 pending，下次同步重试）；
+            # 文本索引不受影响，这一轮照常做完。
+            if embedding.is_available() and embedding_dim and not stall_guard.stall_message:
                 try:
+                    stall_guard.ensure_progress()
                     texts_to_embed = [c.get("embedding_text", c["text"]) for c in chunks]
                     vectors = embedding.embed_texts(texts_to_embed)
                     if vectors and len(vectors) == len(chunks):
@@ -741,8 +759,12 @@ def sync_sources(
                         qdrant.delete_by_filter(document_id)
                         qdrant.upsert(chunk_ids, vectors, payloads)
                         sqlite.mark_vector_indexed(document_id, content_hash)
+                        stall_guard.beat()
                     else:
                         sqlite.mark_vector_error(document_id, "embedding count mismatch")
+                except IndexStalledError as stall:
+                    # 记一次可行动说明，然后停掉向量腿（不中断文本索引）。
+                    logger.warning("Vector indexing stopped: %s", stall)
                 except Exception as e:
                     logger.warning("Qdrant upsert failed for %s: %s", source, e)
                     sqlite.mark_vector_error(document_id, str(e))
@@ -814,7 +836,7 @@ def sync_sources(
     # Documents imported while the embedding backend was down were marked
     # pending; because their content never changes again, a plain sync would
     # never write their vectors and semantic search stayed silently absent.
-    vectors_backfilled = backfill_vectors(sqlite, qdrant, embedding, embedding_dim)
+    vectors_backfilled = backfill_vectors(sqlite, qdrant, embedding, embedding_dim, guard=stall_guard)
     if embedding.is_available() and embedding_dim:
         # G2: record which model these vectors belong to. A later provider or
         # model switch is then caught by the retriever instead of silently
@@ -940,6 +962,7 @@ def sync_sources(
         duplicates_cleaned=duplicates_cleaned,
         pending_removal=sorted(pending_missing),
         vectors_backfilled=vectors_backfilled,
+        vector_stall=stall_guard.stall_message,
         cancelled=bool(cancelled_sources),
         cancelled_sources=cancelled_sources,
     )

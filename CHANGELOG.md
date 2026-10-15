@@ -7,6 +7,12 @@
 ## [未发布]
 
 ### 变更
+- **W2 G3 索引心跳守卫（2026-10-02，本地未推送）**：核对确认 `rag/` 里**没有任何无进度守卫** —— 单次请求有 10s 传输超时与有界重试，但「整体没有进度」（本地 embedding 黑洞连接、每批都在重试）以前既没有说法也不收场，用户只看到索引停住。
+  - **新增 `rag/index_guard.py`**：`StallGuard`（时钟可注入 → 纯函数可测，不用真等 600 秒）；默认阈值 **600s**，可由 `rag.index_stall_seconds` 覆盖（配得不合理回默认，不猜）；卡住时抛 `IndexStalledError`，消息**可行动** —— 说清多久没进度、常见原因（embedding 连上却不回数据 / 每批都在重试）、**已完成保持 indexed、没做完的仍是 pending、下次同步自动重试（不用重来）**，以及可以检查服务或换 provider。
+  - **接线**：`sync_sources` 的**两条**向量腿（主循环 + `backfill_vectors`）共用同一个守卫，之前进过度的资料才会 `beat()`；一旦判定卡住就**只停向量腿**（文本索引照常做完 —— 产品本来就允许降级成 FTS5-only），并把说明放进 `SyncSummary.vector_stall`。配置链路是真的：`sync_sources(config=…)` 由 `KBService` 透传，Web 路由用 `get_config()`。
+  - **边界（如实）**：单次请求的阻塞仍由 provider 的 10s 传输超时兜底；这个守卫管的是「整体无进度」，两者互补。
+  - **回归**：纯函数 5 条（进度重置 / 超时报可行动错误 / 边界 600 算卡住 / 记得原因 / 阈值可配且配错回默认）+ 接线 1 条（第一份 indexed、第二份仍 pending、**没有**被误记成 error、两份资料的文本索引都完成）。
+  - **验证时遇到的两处环境问题（如实记，都不是代码问题）**：① 门禁首跑时 8000 端口的服务**已经不在跑**，live 7 条全部 `ECONNREFUSED` → 重启服务后 **7 passed**（顺带证明新模块的 import 不影响启动）；② vitest 的 `App.test.tsx > shows the real study navigation and Today state` 在**并发负载**下超时（本会话早先记录过的已知 flake），单独跑 **4 passed**。
 - **以旧描述为账 → 全量对账 W1/W2/W3/W5（2026-10-02，本地未推送）**：起因是用户发现 CHANGELOG/ROADMAP 的日期与内容对不上。核对后确认**三处会误导排期的过期结论**，全部用**实测**改准：
   - **W2「向量腿从未运行」是错的**：只读打开真实库实测 —— **47 份资料 / 1694 chunk，46 份 `indexed`、1 份 pending**；`.bobodan/qdrant` 存在（40.1 MB）；`embedding_signature.json` = openai_compat / embedding-3 / dim 2048；`retrieval_runs` 最近三条都是 **`mode=hybrid`**。旧文字（70 份 / 1857 chunk / 全 pending / qdrant 不存在 / 实际 FTS5-only）逐项都错。
   - **W2 逐条复测**：G1 已完成 ✓；**G2 基本完成**（签名版本化 + 429 退避带 Retry-After + 维度不匹配被拒绝，都有测试）—— 而 CHANGELOG 里 09-23 的「仍未做」还把它列为缺项；**G3 心跳守卫未做** ✗；**G4 评测集未做** ✗；**G5 部分完成**（扫描页判定 ✓ + 首行标题启发式 ✓，四级降级链未做 ✗）。

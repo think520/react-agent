@@ -166,13 +166,13 @@ E1–E16 逐条核对并交付后（截至 2026-10-02）：**16 条全部交付*
 > 
 > 复测方式（只读，不写库）：用 sqlite 以 `mode=ro` 打开 `note/vault/.bobodan/knowledge.db`，看 `documents.vector_status` 分组计数与 `retrieval_runs` 最新一条的 `mode`。
 > 
-> 逐条状态（2026-10-02，附代码证据）：**G1 已完成**（`rag/embedding_provider.py` 协议 + 预设含 zhipu dim=2048）｜**G2 基本完成**（签名版本化 `rag/embedding_signature.py` + 测试；429 退避带 Retry-After；维度不匹配被拒绝）｜**G3 未做**（`rag/` 内无心跳/600s 守卫）｜**G4 未做**（无 `tests/eval`、无 hit@5/MRR 评测）｜**G5 部分完成**（扫描页判定 `needs_ocr` ✓、第一行标题启发式 ✓；四级降级链 outline→heading→印刷目录→粗体 未做）。
+> 逐条状态（2026-10-02，附代码证据）：**G1 已完成**（`rag/embedding_provider.py` 协议 + 预设含 zhipu dim=2048）｜**G2 基本完成**（签名版本化 `rag/embedding_signature.py` + 测试；429 退避带 Retry-After；维度不匹配被拒绝）｜**G3 已完成（2026-10-02）**（`rag/index_guard.py` + 两条向量腿接线）｜**G4 未做**（无 `tests/eval`、无 hit@5/MRR 评测）｜**G5 部分完成**（扫描页判定 `needs_ocr` ✓、第一行标题启发式 ✓；四级降级链 outline→heading→印刷目录→粗体 未做）。
 
 | # | 事项 | 动哪里 | 来源 |
 |---|---|---|---|
 | G1 | `EmbeddingProvider` 协议泛化（OpenAI 兼容适配器 + 保留 Ollama 为注册表一项）+ 预置模板（SiliconFlow bge-m3 免费标推荐 / DashScope / OpenAI）+ 设置页「向量模型」+ Library 状态卡升级为开通引导 | rag/embedding_service.py、config、设置页 | ch10 决策 3/5/6 |
 | G2 | 防护三件：嵌入签名版本化（provider+model+dim 三元组，不匹配提示重建）+ 批次维度一致性校验 + 429 退避与断点续传 | rag/ | ch10 决策 4；D12 |
-| G3 | 索引心跳守卫：600s 无进度报可行动错误（本地 embedding 黑洞连接是常态） | rag/ 索引管线 | ch10；D12；报告 P0-5 |
+| G3 | **已完成（2026-10-02）** 索引心跳守卫：`rag/index_guard.py::StallGuard`（默认 600s，可配 `rag.index_stall_seconds`）；`sync_sources` 的**两条**向量腿（主循环 + backfill）共用它 —— 卡住就报**可行动**错误（多久没进度 / 常见原因 / **没丢东西、剩下的仍是 pending、下次同步重试**），并**只停向量腿**，文本索引照常做完（产品本来就允许降级 FTS5-only）；说明进 `SyncSummary.vector_stall`。**边界（如实）**：单次请求仍有 provider 的 10s 传输超时，守卫管的是「整体无进度」。回归：纯函数 5 + 接线 1 | rag/index_guard.py + obsidian/sync.py | ch10；D12；报告 P0-5 |
 | G4 | 召回评测集（20–50 对问题→期望 chunk）跑 fts_only/vector/hybrid 三模式 hit@5+MRR，RRF 权重由数据决定，结果落 retrieval_runs | tests/eval + rag_design retrieval_runs | ch10 决策 7；O9 部分 |
 | G5 | PDF 目录四级降级链（outline→heading→印刷目录文本匹配→粗体段）+ 扫描页判定 | rag/ PDF 导入 | Q4/Q6 |
 
@@ -241,7 +241,6 @@ P5G.3 的产品能力不再整体等待 Electron：Roadmap、复习提醒和部�
 
 | 候选 | 现状 | 为什么是现在 | 依赖 |
 |---|---|---|---|
-| **W2 G3 索引心跳守卫** | ❌ 未做（`rag/` 无 600s 无进度报错） | 向量腿**真的在跑**（46/47 indexed、hybrid 检索），本地 embedding 卡死时会静默无进度 —— 现在正是最需要护栏的时候 | 无 |
 | **W2 G4 召回评测集** | ❌ 未做（无 `tests/eval`） | 换模型/调 RRF 权重之前先有 hit@5 + MRR 基线，否则「检索变好了」无法证明 | 无 |
 | **W3 FE-P0（F1/F3/F7/F14）** | ❌ 未做 | W5 门禁之一；F1（fold reducer）同时是流式正确性的根 | 无 |
 | **W1 残留三处** | 🟡 见 §0.1 收口表 | 都小、都可见：练习页课程选择器 / 掌握度调度仍是 SM-2 / 划线只能同步进正在编辑的笔记 | 无 |
@@ -285,7 +284,7 @@ P5G.3 的产品能力不再整体等待 Electron：Roadmap、复习提醒和部�
 | E7 | 未开始 | Reader / Library 仅有跳转用 `highlightedChunk`，无用户划线锚存储与笔记同步 | 全量实施 |
 | G1 | 未开始 | `rag/embedding_service.py` 仅为 Ollama 薄封装，无协议或适配器 | 全量实施 |
 | G2 | 未开始 | `rag/` 无签名、维度校验或 429 退避 | 全量实施 |
-| G3 | 未开始 | `rag/` 无心跳 / 无进度守卫 | 全量实施 |
+| G3 | **已完成（2026-10-02）** | `rag/index_guard.py` + `sync_sources` 两条向量腿接线，卡住即报可行动错误并只停向量腿 | rag/ + obsidian/sync.py |
 | F1 | 未开始 | 无 `foldEvent`；归约逻辑仍在 `useChatStream` hook 内 | 全量实施 |
 | F3 | 部分存在 | `lib/api.ts` 的 `ChatStreamEvent` union 是事件名唯一起源；`api.test.ts` 已覆盖解析、去重与坏帧 | 补「订阅表派生 + 漏订阅对账测试」 |
 | F7 | 部分存在 | `useStickyBottomScroll.ts` 已有 rAF τ=85ms、>720px 瞬移、用户干预取消、ResizeObserver | 补单写者、`overflow-anchor:none`、MutationObserver 合帧、手势释放、「用户消息才回底」 |
