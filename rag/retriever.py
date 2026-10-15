@@ -7,10 +7,11 @@ import json
 import logging
 import threading
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 from knowledge.paths import knowledge_path
 from rag.embedding_signature import mismatch_reason
+from rag.retrieval_status import build_semantic_status
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,8 @@ class _CachedPipeline:
     #: Set by clear_retrieval_cache when the pipeline should be evicted as soon
     #: as the last pinned search releases it (deferred close).
     _closed: bool = False
+    #: 降级时要能说出原因（provider/model/dim + 签名检查结论），构造时记录一次。
+    semantic_context: dict = field(default_factory=dict)
 
 
 _PIPELINE_CACHE: OrderedDict[tuple[str, str], _CachedPipeline] = OrderedDict()
@@ -92,10 +95,19 @@ def _retrieval_pipeline_unlocked(workspace: str, config: dict) -> _CachedPipelin
     # G2: vectors only mean something next to the model that produced them. On a
     # signature mismatch the vector leg is dropped entirely, so the answer is an
     # honest FTS5-only one instead of a confident answer built on foreign vectors.
-    reason = mismatch_reason(workspace, embedding.get_model_info())
+    model_info = embedding.get_model_info()
+    reason = mismatch_reason(workspace, model_info)
     if reason:
         logger.warning("Semantic search disabled for %s: %s", workspace, reason)
         provider = None
+    # 降级原因要能**对外说清**（不只是日志）：把已知事实记在流水线上，
+    # 搜索判定为不可用时由 _search_v2_with_status 组装成 code/detail/action。
+    semantic_context = {
+        "provider": str((model_info or {}).get("name") or ""),
+        "model": str((model_info or {}).get("model") or ""),
+        "dim": (model_info or {}).get("dim"),
+        "signature_mismatch": reason or "",
+    }
     orchestrator = RetrievalOrchestrator(
         # B2: the provider contract (is_available + embed) is all the hybrid
         # retriever needs, so it takes the provider rather than a client.
@@ -104,7 +116,9 @@ def _retrieval_pipeline_unlocked(workspace: str, config: dict) -> _CachedPipelin
         GrepRetriever(workspace, config),
         config,
     )
-    pipeline = _CachedPipeline(orchestrator, sqlite, qdrant, threading.RLock())
+    pipeline = _CachedPipeline(
+        orchestrator, sqlite, qdrant, threading.RLock(), semantic_context=semantic_context,
+    )
     _PIPELINE_CACHE[key] = pipeline
     while len(_PIPELINE_CACHE) > _PIPELINE_CACHE_LIMIT:
         _old_key, old_pipeline = _PIPELINE_CACHE.popitem(last=False)
@@ -198,6 +212,8 @@ def search_index_with_status(
         "semantic_available": False,
         "fallback_from": "missing_index",
         "confidence": "low",
+        # 没有索引时也说得清：原因就是"还没建向量"，下一步是同步资料。
+        "semantic_reason": build_semantic_status(available=False, indexed_documents=0).to_dict(),
     }
 
 
@@ -266,10 +282,32 @@ def _search_v2_with_status(
             })
 
     semantic_available = bool(result.debug.get("vector_available"))
+    # 只有在**不可用**时才组装原因（正常路径不加查询开销）。
+    semantic_reason = None
+    if not semantic_available:
+        context = dict(getattr(pipeline, "semantic_context", {}) or {})
+        indexed: int | None = 0
+        try:
+            indexed = int(pipeline.sqlite.get_stats().get("vector_indexed") or 0)
+        except Exception:  # pragma: no cover - 统计失败不该让检索失败
+            indexed = None
+        semantic_reason = build_semantic_status(
+            available=False,
+            provider=str(context.get("provider") or ""),
+            model=str(context.get("model") or ""),
+            dim=context.get("dim"),
+            signature_mismatch=str(context.get("signature_mismatch") or ""),
+            indexed_documents=indexed,
+            # 向量腿自己报的种类最准（例如本地向量库被别的进程占用）。
+            vector_error=str(result.debug.get("vector_error") or ""),
+            vector_error_detail=str(getattr(pipeline.orchestrator.hybrid, "vector_error_detail", "") or ""),
+        ).to_dict()
     return output, {
         "retrieval_mode": result.mode if semantic_available else "fts_only",
         "resolved_mode": result.mode,
         "semantic_available": semantic_available,
+        # 不可用时带上"为什么 + 下一步"（可用时为 None）。
+        "semantic_reason": semantic_reason,
         "fallback_from": result.fallback_from,
         "confidence": result.confidence,
         # P1-22: “原文定位” is a no-op on non-text material; say so instead of

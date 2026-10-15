@@ -13,6 +13,13 @@
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
 ### 变更
+- **检索降级可见性 ②：向量腿不可用时说出**准确**原因（2026-10-15，分支 fix/retrieval-transparency，未推送）**：核对发现签名不匹配与探活失败最终都只变成**一行日志**，对外只有 `retrieval_mode=fts_only` —— 用户分不清「后端没起」「索引是别的模型建的」「本地向量库被占用」，而这三者的下一步完全不同。
+  - **新增 `rag/retrieval_status.py`**：纯函数 `build_semantic_status()` 输出 `code / title / detail / action` 四段（JSON 友好），覆盖 `ok / embedding_signature_mismatch / embedding_provider_unavailable / no_vectors_indexed / vector_store_locked / vector_store_error / unknown`；**信息不足就说 unknown**，仍然给可行动建议。
+  - **接线（原因要准，不能靠猜）**：`HybridRetriever` 失败时记录**种类**（`embedding_provider_unavailable` / `vector_store_locked`（本地 Qdrant 单进程被占用）/ `vector_store_error`）与原始报错 → 进 `HybridResult` → 进编排器 `debug` → `search_index_with_status` 在**不可用**时才组装 `semantic_reason`（正常路径不加查询开销）；缺失索引的早退路径也带原因。
+  - **真实库实测（只读）**：`fts_only` + `code=vector_store_locked`，detail 里带**原始报错**与「索引里有 46 份向量，数据是好的」，action 是「关掉另一个占用该知识库的进程再重试；应用自身的检索不受影响」。
+  - **两处纠正（我上一轮说错了，这里改正）**：① 我说「配置指向 Ollama、与库内签名不一致」—— **错**：配置实际解析成 **openai_compat / embedding-3 / dim 2048**，**与索引签名一致**（我上次把 `rag` 子字典当成整个 config 传给 `EmbeddingService`，是我的脚本错了）；② **探活其实是成功的**，真正让那次搜索降级的是**本地 Qdrant 被另一个进程占用**。所以这条候选的真实内容不是「换后端」，而是「进程互斥 + 让原因可见」。
+  - **回归**：10 条（可用即 ok / 签名不匹配要两边都点名 + 给修法 / 无向量与后端不可用分开 / 信息不足说 unknown / JSON 友好 / **锁库要说 locked 而不是 provider 不可用** / 通用错误保留原文 / 缺索引与有索引两条接线路径 / hybrid 抛锁错时状态说 locked）。
+  - **未做（下一轮）**：前端还没把这个原因显示出来（目前只有 `ChatPage` 里一处 `semantic_available === false` 的泛泛提示）；`semantic_reason` 也还没进 `rag_search` 工具结果/引用载荷。
 - **检索降级可见性 ①：FTS5 查询转义（2026-10-15，分支 fix/retrieval-transparency，未推送）**：G4 评测第一次对真实库跑就报 `FTS5 search failed: fts5: syntax error …` / `no such column: 数学` —— 用户查询里带引号或运算符时，**FTS 腿静默变空**，界面只会显示「检索不到」。
   - **根因**：`_build_fts_query` 对 `* ( ) :` 的处理是**在 token 内部插引号**（`a*b` → `a"*"b`），外层再包一次引号 → 生成 `"a"*"b"` ✗；FTS5 于是把随后的裸 token 当成**列名**（`no such column: 数学`）或直接报语法错。
   - **修法**：去掉用户写的引号（那是查询语法、不是内容，FTS 也索引不到标点）→ 每个 token **整体**加一层引号（引号内的 `* ( ) : AND OR NOT NEAR` 全是字面量）→ 完全不含词字符的 token（如 `***`）直接丢掉，不生成残破表达式。
