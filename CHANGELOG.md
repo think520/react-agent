@@ -7,6 +7,13 @@
 ## [未发布]
 
 ### 变更
+- **W2 G4 召回评测：度量 + 入口 + 合成夹具（2026-10-02，本地未推送）**：先有度量再谈调权重。
+  - **新增 `rag/recall_eval.py`**：纯函数度量（`hit_at_k` / `reciprocal_rank` / `evaluate` 按模式聚合）+ `load_cases`（JSONL，**没有期望的用例直接拒绝**，不静默算 0 分）+ `evaluate_workspace` + CLI（`python -m rag.recall_eval --workspace … --cases …`）。报告**必须带 `resolved_modes`** —— 要了 A 实际跑了 B 时一眼可见（与产品「降级必须可见」一致）。命中键用**来源文件名**，因为 chunk id 会随重切变化。
+  - **合成夹具**：`tests/eval/sample_corpus/`（3 篇通用算法小笔记，**不含任何真实资料**）+ `tests/eval/recall_cases.jsonl`（5 条）。真实资料内容**不进仓库**。
+  - **回归**：8 条（hit@k 截断 / RR 位置与缺席 / 聚合 / **降级要在报告里看得见** / 摘要可读 / JSONL 读取 / 缺期望即报错 / **合成语料端到端**：fts_only hit@5=1.0、MRR=1.0，hybrid 不差于它且实际模式如实）。
+  - **真实库基线：跑了，但**没能拿到可信数字（如实记账）** —— 逐项查清后是**环境**问题，不是评测器问题：① 当前配置的 embedding 后端是 **Ollama / qwen3-embedding**，`is_available()` 返回 **False**（探活失败），而库里索引签名是 `openai_compat / embedding-3 / 2048` —— **两者不一致**；② 本地 Qdrant 是**单进程**存储，**开发服务在跑时外部进程根本打不开它**（`Storage folder … already accessed by another instance`）；③ 我第一版用例的关键词含引号/运算符，触发 **FTS5 语法错误**（见下）。
+  - **顺带查出的两个真问题（下一批候选）**：① **FTS5 查询不做转义** —— 标题/关键词里带引号或 OR 之类就会 `syntax error`，FTS 腿静默变空（用户查询里带引号同样会中招）；② **单进程 Qdrant + 外部评测**互斥，评测要么服务停着跑，要么走服务端入口。
+  - **同时纠正我上一轮的说法（重要）**：上一轮我据 `retrieval_runs` 里的 `mode=hybrid` 说「向量腿已经在跑、检索是 hybrid」——**说重了**。准确说法是：**索引建好了**（46/47 `indexed`），但**按当前配置检索时向量腿不可用**（探活失败 + 签名与索引不一致），因此「上报模式」是 `fts_only`。ROADMAP 的 W2 现状行已按此改正。
 - **W2 G3 索引心跳守卫（2026-10-02，本地未推送）**：核对确认 `rag/` 里**没有任何无进度守卫** —— 单次请求有 10s 传输超时与有界重试，但「整体没有进度」（本地 embedding 黑洞连接、每批都在重试）以前既没有说法也不收场，用户只看到索引停住。
   - **新增 `rag/index_guard.py`**：`StallGuard`（时钟可注入 → 纯函数可测，不用真等 600 秒）；默认阈值 **600s**，可由 `rag.index_stall_seconds` 覆盖（配得不合理回默认，不猜）；卡住时抛 `IndexStalledError`，消息**可行动** —— 说清多久没进度、常见原因（embedding 连上却不回数据 / 每批都在重试）、**已完成保持 indexed、没做完的仍是 pending、下次同步自动重试（不用重来）**，以及可以检查服务或换 provider。
   - **接线**：`sync_sources` 的**两条**向量腿（主循环 + `backfill_vectors`）共用同一个守卫，之前进过度的资料才会 `beat()`；一旦判定卡住就**只停向量腿**（文本索引照常做完 —— 产品本来就允许降级成 FTS5-only），并把说明放进 `SyncSummary.vector_stall`。配置链路是真的：`sync_sources(config=…)` 由 `KBService` 透传，Web 路由用 `get_config()`。

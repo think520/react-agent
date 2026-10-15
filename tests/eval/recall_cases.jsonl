@@ -1,0 +1,5 @@
+{"query":"贪心策略 局部最优","expect_sources":["greedy.md"]}
+{"query":"动态规划 重叠子问题","expect_sources":["dp.md"]}
+{"query":"Dijkstra 单源最短路","expect_sources":["graph.md"]}
+{"query":"Bellman-Ford 负权边","expect_sources":["graph.md"]}
+{"query":"背包问题 最长公共子序列","expect_sources":["dp.md"]}

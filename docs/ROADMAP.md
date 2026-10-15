@@ -162,7 +162,7 @@ E1–E16 逐条核对并交付后（截至 2026-10-02）：**16 条全部交付*
 
 ### W2 检索与 RAG（第十章决策落地）
 
-> **现状（2026-10-02 复测 —— 替换 2026-09-23 的旧结论）**：向量腿**已经在跑**；旧文字（「从未运行 / 1857 chunk 全 pending / qdrant 不存在 / 实际是 FTS5-only」）**已全部过期，别再当现状**。实测真实工作区：**47 份资料 / 1694 chunk，其中 46 份 `vector_status=indexed`、1 份 pending**；`.bobodan/qdrant` 存在（40.1 MB）；`.bobodan/embedding_signature.json` = provider `openai_compat` / model `embedding-3` / dim `2048`；`retrieval_runs` 最近三条都是 `mode=hybrid`。
+> **现状（2026-10-02 复测 —— 替换 2026-09-23 的旧结论）**：**索引已经在建**（46/47 `indexed`）—— 但**检索时向量腿不可用**（当前配置探活失败 + 索引签名与配置不一致 → 上报模式是 `fts_only`，见 G4 复测）；旧文字（「从未运行 / 1857 chunk 全 pending / qdrant 不存在 / 实际是 FTS5-only」）**已全部过期，别再当现状**。实测真实工作区：**47 份资料 / 1694 chunk，其中 46 份 `vector_status=indexed`、1 份 pending**；`.bobodan/qdrant` 存在（40.1 MB）；`.bobodan/embedding_signature.json` = provider `openai_compat` / model `embedding-3` / dim `2048`；`retrieval_runs` 最近三条都**请求**了 `mode=hybrid` —— 但那只是**请求**词表；**上报**的 `retrieval_mode` 实际是 `fts_only`（原因见 G4 的复测：探活失败 + 索引签名与当前配置不一致）。
 > 
 > 复测方式（只读，不写库）：用 sqlite 以 `mode=ro` 打开 `note/vault/.bobodan/knowledge.db`，看 `documents.vector_status` 分组计数与 `retrieval_runs` 最新一条的 `mode`。
 > 
@@ -173,7 +173,7 @@ E1–E16 逐条核对并交付后（截至 2026-10-02）：**16 条全部交付*
 | G1 | `EmbeddingProvider` 协议泛化（OpenAI 兼容适配器 + 保留 Ollama 为注册表一项）+ 预置模板（SiliconFlow bge-m3 免费标推荐 / DashScope / OpenAI）+ 设置页「向量模型」+ Library 状态卡升级为开通引导 | rag/embedding_service.py、config、设置页 | ch10 决策 3/5/6 |
 | G2 | 防护三件：嵌入签名版本化（provider+model+dim 三元组，不匹配提示重建）+ 批次维度一致性校验 + 429 退避与断点续传 | rag/ | ch10 决策 4；D12 |
 | G3 | **已完成（2026-10-02）** 索引心跳守卫：`rag/index_guard.py::StallGuard`（默认 600s，可配 `rag.index_stall_seconds`）；`sync_sources` 的**两条**向量腿（主循环 + backfill）共用它 —— 卡住就报**可行动**错误（多久没进度 / 常见原因 / **没丢东西、剩下的仍是 pending、下次同步重试**），并**只停向量腿**，文本索引照常做完（产品本来就允许降级 FTS5-only）；说明进 `SyncSummary.vector_stall`。**边界（如实）**：单次请求仍有 provider 的 10s 传输超时，守卫管的是「整体无进度」。回归：纯函数 5 + 接线 1 | rag/index_guard.py + obsidian/sync.py | ch10；D12；报告 P0-5 |
-| G4 | 召回评测集（20–50 对问题→期望 chunk）跑 fts_only/vector/hybrid 三模式 hit@5+MRR，RRF 权重由数据决定，结果落 retrieval_runs | tests/eval + rag_design retrieval_runs | ch10 决策 7；O9 部分 |
+| G4 | **部分完成（2026-10-02）** 召回评测：① **度量与入口**已交付 —— `rag/recall_eval.py`（hit@k / MRR 纯函数 + JSONL 用例 + CLI + `resolved_modes` 如实报告），合成夹具 `tests/eval/`（**真实资料不进仓库**），8 条回归（含端到端：fts_only hit@5=1.0）② **真实库基线未取得**：当前配置的 embedding 后端（Ollama）探活失败、且与库内索引签名（openai_compat/embedding-3/2048）不一致；本地 Qdrant 单进程，服务在跑时外部进程打不开 ③ **未做**：三模式对比数字、RRF 权重由数据决定、结果落 `retrieval_runs` | rag/recall_eval.py + tests/eval | ch10 决策 4；D8/D9 |
 | G5 | PDF 目录四级降级链（outline→heading→印刷目录文本匹配→粗体段）+ 扫描页判定 | rag/ PDF 导入 | Q4/Q6 |
 
 ### W3 前端体验第二批
@@ -241,7 +241,9 @@ P5G.3 的产品能力不再整体等待 Electron：Roadmap、复习提醒和部�
 
 | 候选 | 现状 | 为什么是现在 | 依赖 |
 |---|---|---|---|
-| **W2 G4 召回评测集** | ❌ 未做（无 `tests/eval`） | 换模型/调 RRF 权重之前先有 hit@5 + MRR 基线，否则「检索变好了」无法证明 | 无 |
+| **FTS5 查询转义**（G4 顺带查出） | ❌ 未做 | 查询/标题里带引号或 `OR` 之类就 `syntax error`，**FTS 腿静默变空**（用户查询带引号同样会中招） | 无 |
+| **向量腿在检索时不可用**（G4 复测查出） | ❌ 未做 | 索引 46/47 已建，但当前配置（Ollama）探活失败、签名又与索引不一致 → 上报 `fts_only`；要么修好要么在界面把原因说清 | 需要你决定 embedding 后端 |
+| **W2 G4 召回评测集（剩余）** | 🟡 度量与入口已交付 | 真实库三模式基线与 RRF 权重由数据决定；**本地 Qdrant 单进程**，服务在跑时外部进程打不开 → 评测要停服或走服务端入口 | 上一个候选 |
 | **W3 FE-P0（F1/F3/F7/F14）** | ❌ 未做 | W5 门禁之一；F1（fold reducer）同时是流式正确性的根 | 无 |
 | **W1 残留三处** | 🟡 见 §0.1 收口表 | 都小、都可见：练习页课程选择器 / 掌握度调度仍是 SM-2 / 划线只能同步进正在编辑的笔记 | 无 |
 | **W2 G5 PDF 四级降级链** | 🟡 扫描页判定与首行标题启发式已有 | 收益取决于是否导入 PDF —— 真实库现在没有 PDF | 有 PDF 数据再谈 |
