@@ -41,6 +41,7 @@ import type {
   WikiTask,
   WebArtifact,
 } from "../types";
+import type { ChatStreamEventKind } from "./chatStreamEvents";
 
 /**
  * 资料库文件夹同步的摘要（E17 ①）。
@@ -965,6 +966,18 @@ export const api = {
       { method: "POST" },
     ),
 };
+
+/**
+ * W3 F3 对账①（类型级）：union 里出现的每个事件名都必须在运行时常量表里，反之亦然。
+ * 往 union 里加一个成员却忘了更新 `CHAT_STREAM_EVENT_KINDS`，这里会直接**编译不过**，
+ * 而不是等用户发现某一帧丢了。
+ */
+export type ChatStreamEventKindMatchesUnion =
+  ChatStreamEvent["event"] extends ChatStreamEventKind
+    ? ChatStreamEventKind extends ChatStreamEvent["event"]
+      ? true
+      : { missingUnionMember: Exclude<ChatStreamEventKind, ChatStreamEvent["event"]> }
+    : { missingKindConstant: Exclude<ChatStreamEvent["event"], ChatStreamEventKind> };
 
 interface StreamFrameMeta {
   stream_id?: string;

@@ -12,6 +12,13 @@
 > 从 2026-10-15 起时间戳已正确（`177fbc2` / `c9e9b52` / `0a767bb` / `d123b43` 均为当日）。
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
+- **W3 FE-P0 ①F3：SSE 订阅对账（2026-10-15，分支 feat/stream-correctness，未推送）**：核对发现事件名**只存在于类型 union 里**（类型运行时不存在 → 没人能枚举它），而 hook 的 if 链只覆盖其中一部分 —— **`practice` 与 `learning_update` 两个事件没有任何消费者**，正是路线图说的「漏订阅＝静默丢帧」。
+  - **运行时常量成为唯一来源**：新增 `lib/chatStreamEvents.ts`（`CHAT_STREAM_EVENT_KINDS` + `isChatStreamEventKind`）。
+  - **类型级对账**：`api.ts` 新增 `ChatStreamEventKindMatchesUnion` —— union 与常量表必须互相覆盖，**往 union 加成员却忘了更新常量就会编译不过**（不是等用户发现丢帧）。
+  - **行为级对账**：新增 `hooks/useChatStream.test.ts` —— 对**每个**事件名喂一帧最小样本，断言它要么**真的改变状态/触发回调**，要么被明确列进 `IGNORED_STREAM_EVENTS`（且理由非空）。`practice` / `learning_update` 被显式登记为「暂无消费者」并写明原因（练习卡走 `chat_artifact(practice_ready)`，掌握度由复习页拉队列）；要不要消费或删掉服务端这两类帧，是**单独的决定**（未做）。
+  - **过程中修掉自己两个测试缺陷**：① 基线快照取在 `settleLastMessage()` 之前 → settle 自身的变化让**每个**事件都显得『已处理』，测试等于白测；② `run_started` 的效果是**回调**而非内部状态，漏算它会造成误报。两处都改了，现在这条测试真的会咬人。
+  - **顺带**：修掉 W5 门禁那行的过期内容（还写着 `G3 ❌`，而 G3 已在 `fbac192` 合入 main ✓）。
+  - **验证**：后端 1845 passed ｜ 前端 43 文件 / 248 passed ｜ tsc / lint / build 0 ｜ mock e2e 15 passed。
 ### 变更
 - **审查盲区 A/B 的答复（2026-10-15，分支 fix/retrieval-transparency，未推送）**：
   - **A：让那个数字可复现**。新增 `rag/recall_eval.py::cases_from_workspace()` + CLI `--generate-cases N`：从**任意工作区**确定性生成用例（标题 + 该资料的一个关键词 → 期望命中它的来源文件），**只读**打开索引，**真实正文不进仓库**。谁都能一条命令重跑：

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { StreamBuffer } from "../lib/streamBuffer";
 import { prefersReducedMotion } from "../lib/motion";
 import type { ChatStreamEvent } from "../lib/api";
+import type { ChatStreamEventKind } from "../lib/chatStreamEvents";
 import type { ChatMessage, KnowledgeContext } from "../types";
 
 export type ProcessBrandState = "thinking" | "reading" | "writing" | "ready";
@@ -23,6 +24,23 @@ export interface StreamEventHandlers {
  * The backend evidence gate replays a full answer as a burst of deltas; a
  * 30fps StreamBuffer flushes those into a typewriter-like effect (FE-2).
  */
+/**
+ * W3 F3：**明确忽略**的事件。
+ *
+ * 后端在工具结束时会把 `practice` / `learning_update` 这两个 artifact 作为独立帧发出来
+ * （见 web/backend/events.py 的 to_web_events）。它们目前**没有消费者**：练习卡走的是
+ * `chat_artifact`（practice_ready）那条路，掌握度更新由复习页自己拉队列。
+ *
+ * 显式列出来（而不是让它们悄悄落进 if 链的空隙）的理由：
+ * 1) 删掉服务端这两类帧需要一个单独的决定（可能有别的客户端在用）；
+ * 2) 将来若要消费它们，这张表就是入口；
+ * 3) hooks/useChatStream.test.ts 会为**每个**事件名逼问一次：改变了状态，还是被明确忽略？
+ */
+export const IGNORED_STREAM_EVENTS: Partial<Record<ChatStreamEventKind, string>> = {
+  practice: "工具结束时发的 practice artifact 帧；练习卡走 chat_artifact(practice_ready)，这类帧暂无消费者（消费或删掉服务端帧是单独的决定）",
+  learning_update: "同上：learning_update artifact 帧；掌握度由复习页自己拉队列，这类帧暂无消费者",
+};
+
 export function useChatStream() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [status, setStatus] = useState("");
