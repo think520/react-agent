@@ -13,6 +13,13 @@
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
 ### 变更
+- **审查盲区 A/B 的答复（2026-10-15，分支 fix/retrieval-transparency，未推送）**：
+  - **A：让那个数字可复现**。新增 `rag/recall_eval.py::cases_from_workspace()` + CLI `--generate-cases N`：从**任意工作区**确定性生成用例（标题 + 该资料的一个关键词 → 期望命中它的来源文件），**只读**打开索引，**真实正文不进仓库**。谁都能一条命令重跑：
+    `python -m rag.recall_eval --workspace note/vault --generate-cases 25 --modes hybrid`
+    回归 3 条（两次生成必须一致 / 没有索引要如实报 FileNotFoundError / 生成出来的用例必须真的能命中）。
+  - **A 的诚实边界（重要）**：这套自动生成的用例**区分不开 fts_only 与 hybrid** —— 实测两种配置都是 21/21、hit@5=1.000（因为这些查询是从索引关键词派生的，关键词检索本来就能命中）。它能复现的是**修 FTS 转义前后的差别**（修前 0.720 → 修后 1.000 ✓），**不能**替代语义/换述类的评测集（那种要人工出题，目前不在仓库里）。边界已写进模块说明。
+  - **B：锁库因果已实测验证**。停掉服务后在真实库上跑：`mode=hybrid`、`semantic_available=True`、**reason 为空**、hit@5=1.000（21/21）—— 证明之前那个 `vector_store_locked` 确实是『另一个进程占用本地向量库』，不是配置或索引的问题。验证完已重启服务并重跑 live（7 passed ✓）。
+  - **顺带在真实数据上验证了 F1**：把 embedding 关掉后，状态给的是 `embedding_not_configured`，detail 里**原样带着 provider 自己说的原因**『local embeddings are not bundled by design (rag_design ch10 decision)』，action 是『去「设置 → 模型」配置一个 provider』—— 不再是错误的『探活失败 / 启动该服务』。
 - **审查修复批次一（Codex 审查 F1–F7，2026-10-15，分支 fix/retrieval-transparency，未推送）**：审查指出问题都集中在『降级原因』这一层，逐条核对**全部成立**，已修。
   - **F1 [P1]『探活失败』不再是万能兜底**：旧实现把「locked/error 之外的一切」都断言成探活失败，而 hybrid 给的其实是 `embedding_provider_unavailable` / `embedding_returned_nothing` —— 前者多为『压根没配』（没有服务可启动，下一步是**去配置**），后者是『有响应但返回空向量』，两者的事实与动作完全不同。现在**以 `vector_error` 为主键**分支出 `embedding_not_configured`（并把 `UnavailableEmbeddingProvider.reason` 原样带上 —— 那条事实以前在 retriever 抄 model_info 时被丢掉）/ `embedding_returned_nothing` / `embedding_provider_unavailable`（真 provider 探活失败 ✓），**兜底永远 UNKNOWN**。
   - **F2 [P1] 原始报错进载荷前统一脱敏**：新增 `redact_secrets()`（sk-、Bearer、authorization/api_key/x-api-key、secret/token/password 等模式），并在**唯一出口** `build_semantic_status` 外包一层（所有返回分支都过）；审查用『把 Authorization 回显到 401 body 的假 provider』复现的泄露已加**链路回归**（假 qdrant 报错里带 key → 最终 status 里必须没有）。

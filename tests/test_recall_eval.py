@@ -147,3 +147,52 @@ def test_the_sample_corpus_is_retrievable_in_fts_and_hybrid(sample_library, monk
     assert "fts_only" in report["hybrid"]["resolved_modes"], report["hybrid"]
     # vector 单独要的时候，要么真跑，要么如实报告降级 —— 不能假装。
     assert report["vector"]["resolved_modes"], report["vector"]
+
+
+# --- 盲区 A：让「真实库基线」可复现（用例运行时生成，正文不进仓库） -------------
+
+
+def test_cases_can_be_generated_deterministically_from_a_workspace(sample_library):
+    """审查盲区 A：0.720→1.000 这种数字必须能被人重跑，而不是只存在于对话里。"""
+    from rag.recall_eval import cases_from_workspace
+
+    first = cases_from_workspace(str(sample_library), limit=5)
+    second = cases_from_workspace(str(sample_library), limit=5)
+
+    assert first, "样例库里应当能生成用例"
+    assert [(case.query, case.expect_sources) for case in first] == [
+        (case.query, case.expect_sources) for case in second
+    ], "同一个库两次生成必须一致（否则数字不可复现）"
+    # 每条都要有期望，否则没法评分。
+    assert all(case.expect_sources for case in first), first
+
+
+def test_generating_cases_without_an_index_says_so(tmp_path):
+    from rag.recall_eval import cases_from_workspace
+
+    with pytest.raises(FileNotFoundError):
+        cases_from_workspace(str(tmp_path), limit=3)
+
+
+def test_the_generated_cases_are_actually_retrievable(sample_library, monkeypatch):
+    """生成出来的用例要能真的命中 —— 否则这些数字没有意义。"""
+    from unittest.mock import MagicMock
+
+    from rag.recall_eval import cases_from_workspace
+    from rag.retriever import clear_retrieval_cache, search_index_with_status
+
+    monkeypatch.setattr("rag.qdrant_store.QdrantStore", MagicMock())
+    clear_retrieval_cache(str(sample_library))
+
+    def retrieve(query, mode):
+        results, status = search_index_with_status(
+            str(sample_library), query=query, top_k=5, config={}, mode=mode,
+        )
+        return [os.path.basename(str(item.get("source") or "")) for item in results], str(
+            status.get("retrieval_mode") or ""
+        )
+
+    cases = cases_from_workspace(str(sample_library), limit=5)
+    report = evaluate(cases, retrieve, modes=["auto"], k=5)
+
+    assert report["auto"]["hit_at_k"] == 1.0, report["auto"]
