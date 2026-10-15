@@ -107,6 +107,9 @@ def _retrieval_pipeline_unlocked(workspace: str, config: dict) -> _CachedPipelin
         "model": str((model_info or {}).get("model") or ""),
         "dim": (model_info or {}).get("dim"),
         "signature_mismatch": reason or "",
+        # 审查 F1：provider 自己给的原因（UnavailableEmbeddingProvider.reason 等）
+        # 是**能直接告诉用户的事实**，以前在这里被丢掉了。
+        "provider_reason": str((model_info or {}).get("reason") or ""),
     }
     orchestrator = RetrievalOrchestrator(
         # B2: the provider contract (is_available + embed) is all the hybrid
@@ -301,6 +304,7 @@ def _search_v2_with_status(
             # 向量腿自己报的种类最准（例如本地向量库被别的进程占用）。
             vector_error=str(result.debug.get("vector_error") or ""),
             vector_error_detail=str(getattr(pipeline.orchestrator.hybrid, "vector_error_detail", "") or ""),
+            provider_reason=str(context.get("provider_reason") or ""),
         ).to_dict()
     return output, {
         "retrieval_mode": result.mode if semantic_available else "fts_only",

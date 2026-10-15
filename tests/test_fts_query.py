@@ -8,8 +8,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from rag.sqlite_store import KBSQLiteStore, _build_fts_query, make_chunk_row
 
 
@@ -47,7 +45,8 @@ def test_a_bare_operator_word_is_quoted_too():
 
 
 def test_punctuation_only_query_yields_nothing_rather_than_a_broken_expression():
-    assert _build_fts_query("***") in ("", '""""""')  # 允许空串；不允许残破表达式
+    # 纯标点没有词字符 → 必须返回空串（_HAS_WORD_CHAR 过滤），不是残破表达式也不是空引号对。
+    assert _build_fts_query("***") == ""
     assert _build_fts_query("   ") == ""
 
 

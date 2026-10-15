@@ -62,3 +62,14 @@ def test_obsidian_sync_denies_outside_workspace(tmp_path):
 
     assert not result.ok
     assert "denied" in result.content.lower()
+
+
+def test_search_without_an_index_still_says_why(tmp_path):
+    """审查 F6：没有索引时 kb_service 走 _err 早退，以前这条 reason 到不了界面 —— 界面上只剩「失败」。"""
+    result = rag_search("任意问题", workspace=str(tmp_path))
+
+    assert result.ok is False
+    assert result.data.get("semantic_available") is False, result.data
+    reason = result.data.get("semantic_reason")
+    assert reason and reason.get("code") == "no_vectors_indexed", result.data
+    assert reason.get("action"), reason

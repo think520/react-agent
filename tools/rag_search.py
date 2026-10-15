@@ -47,7 +47,17 @@ def rag_search(
             config=config,
         )
         if not result["ok"]:
-            return ToolResult(ok=False, content=result["error"], data={"results": []})
+            # 审查 F6：失败路径也要带"为什么"，否则界面只有"失败"两个字。
+            return ToolResult(
+                ok=False,
+                content=result["error"],
+                data={
+                    "results": [],
+                    "semantic_available": result.get("semantic_available", False),
+                    "semantic_reason": result.get("semantic_reason"),
+                    "retrieval_mode": result.get("retrieval_mode"),
+                },
+            )
 
         results = result["results"]
         data = {

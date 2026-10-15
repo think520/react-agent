@@ -13,6 +13,15 @@
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
 ### 变更
+- **审查修复批次一（Codex 审查 F1–F7，2026-10-15，分支 fix/retrieval-transparency，未推送）**：审查指出问题都集中在『降级原因』这一层，逐条核对**全部成立**，已修。
+  - **F1 [P1]『探活失败』不再是万能兜底**：旧实现把「locked/error 之外的一切」都断言成探活失败，而 hybrid 给的其实是 `embedding_provider_unavailable` / `embedding_returned_nothing` —— 前者多为『压根没配』（没有服务可启动，下一步是**去配置**），后者是『有响应但返回空向量』，两者的事实与动作完全不同。现在**以 `vector_error` 为主键**分支出 `embedding_not_configured`（并把 `UnavailableEmbeddingProvider.reason` 原样带上 —— 那条事实以前在 retriever 抄 model_info 时被丢掉）/ `embedding_returned_nothing` / `embedding_provider_unavailable`（真 provider 探活失败 ✓），**兜底永远 UNKNOWN**。
+  - **F2 [P1] 原始报错进载荷前统一脱敏**：新增 `redact_secrets()`（sk-、Bearer、authorization/api_key/x-api-key、secret/token/password 等模式），并在**唯一出口** `build_semantic_status` 外包一层（所有返回分支都过）；审查用『把 Authorization 回显到 401 body 的假 provider』复现的泄露已加**链路回归**（假 qdrant 报错里带 key → 最终 status 里必须没有）。
+  - **F3 [P2]** 用户可见文案里的 markdown 双星号改为「」，并加一条**全分支扫描**断言（任何分支的 title/detail/action 都不许出现双星号）。
+  - **F4 [P2]** 锁库判定收紧：抽出 `classify_vector_error()`，只认 `already accessed by another instance`；新增回归证明『路径里带 Storage folder 的不可写错误』不会被误诊成占用。
+  - **F5 [P3]** `HybridRetriever.vector_error / vector_error_detail` 改为**每次 search 开头重置**（管线是缓存的，旧实现会让后面的成功查询带着上一次的失败原因），并有跨查询回归。
+  - **F6 [P3]** 缺索引这条路径的原因以前到不了界面（`kb_service` 早退 `_err` → `rag_search` 丢掉 payload）：现在错误路径也带 `semantic_reason` + `semantic_available=False`。**这条的回归先用 `git stash` 单独回退两处改动跑红**（拿到的 payload 只有空的 results）。
+  - **F7 [P3]** 小瑕疵：删掉未用的 `import pytest`、把被写弱的纯标点断言收紧为必须返回空串、补 `retrieval_status.py` 末尾换行。
+  - **仍未做**：两个盲区（0.720→1.000 的可复现性、锁库因果的停服验证）留到下一轮。
 - **检索降级可见性 ②（界面一半）：把原因显示出来（2026-10-15，分支 fix/retrieval-transparency，未推送）**：后端已经能给出 `semantic_reason`，但界面只有一处泛泛的「当前仅使用关键词检索」，用户仍然不知道下一步做什么。
   - **透传**：`tools/rag_search.py` 把 `semantic_reason` 放进工具结果 → `core/agent_loop.py` 的 operation 摘要带上它 → 前端 `RunSummaryOperation.semantic_reason`（新增镜像类型 `RetrievalSemanticReason`）。
   - **新组件 `components/RetrievalDegradedNotice.tsx`**：一句话结论（用后端的 `title`）+ 展开后是**事实**（`detail`，含原始报错）与**下一步**（`action`）；**没有原因载荷（老会话）时退回原来的文案**，保证不会比以前更含糊。

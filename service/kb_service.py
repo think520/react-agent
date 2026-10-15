@@ -2884,7 +2884,14 @@ class KBService:
         storage_dir = knowledge_dir(self.workspace)
         db_path = os.path.join(storage_dir, "knowledge.db")
         if not os.path.exists(db_path):
-            return _err("RAG index not found. Run obsidian_sync first.")
+            # 审查 F6：缺索引这条路径以前只有「原因」没被带出去，
+            # 界面因此看不到"为什么是纯文本检索"。这里补上同一条语义状态。
+            from rag.retrieval_status import build_semantic_status
+
+            return _err(
+                "RAG index not found. Run obsidian_sync first.",
+                semantic_reason=build_semantic_status(available=False, indexed_documents=0).to_dict(),
+            )
 
         from rag.retriever import search_index_with_status
 
