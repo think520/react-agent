@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { useStickyBottomScroll } from "./useStickyBottomScroll";
+import { useStickyBottomScroll, WHEEL_RELEASE_MS } from "./useStickyBottomScroll";
 
 /**
  * W3 F7：自动滚动的**行为**（jsdom 没有布局，所以测量值由我们在真元素上伪造）。
@@ -88,6 +88,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 describe("useStickyBottomScroll（W3 F7）", () => {
@@ -175,6 +176,70 @@ describe("useStickyBottomScroll（W3 F7）", () => {
     expect(start).toBeGreaterThan(-1);
     const rule = css.slice(start, css.indexOf("}", start));
     expect(rule).toContain("overflow-anchor: none");
+  });
+
+  it("用键盘或滚动条回到上次自动写入的底部后，恢复跟随", async () => {
+    const fake = await mount();
+    await act(async () => { flushFrames(40); });
+    expect(fake.top).toBeGreaterThan(595);
+
+    await act(async () => {
+      // 先接收自动滚动自己的事件，再用 Home / End 或滚动条离开并返回底部。
+      fake.element.dispatchEvent(new Event("scroll"));
+      fake.setTop(0);
+      fake.element.dispatchEvent(new Event("scroll"));
+      flushFrames();
+      fake.setTop(600);
+      fake.element.dispatchEvent(new Event("scroll"));
+      flushFrames();
+    });
+    await act(async () => {
+      fake.setHeight(1400);
+      fake.element.appendChild(document.createElement("span"));
+      await Promise.resolve();
+      flushFrames(40);
+    });
+
+    expect(fake.top).toBeGreaterThan(995);
+  });
+
+  it.each([1, 3])("发送后的第 %i 帧遇到滚轮，暂停期间零写入，释放后仍然回底", async (frameCount) => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const fake = await mount();
+    await act(async () => {
+      flushFrames(40);
+      fake.setTop(0);
+      fake.element.dispatchEvent(new Event("scroll"));
+      flushFrames();
+      pinRef.current?.();
+      flushFrames(frameCount);
+    });
+    if (frameCount === 1) expect(fake.top).toBe(0); // 首帧缓动系数为 0。
+    else expect(fake.top).toBeGreaterThan(0);
+    expect(fake.top).toBeLessThan(595);
+    const writesBeforeGesture = fake.writes.length;
+
+    await act(async () => {
+      fake.element.dispatchEvent(new Event("wheel"));
+      flushFrames(5);
+    });
+    expect(fake.writes).toHaveLength(writesBeforeGesture);
+
+    await act(async () => {
+      vi.advanceTimersByTime(WHEEL_RELEASE_MS + 1);
+      flushFrames(40);
+    });
+    expect(fake.top).toBeGreaterThan(595);
+
+    // 回底请求已消费：之后的新手势仍可离开底部，不会被持续拉回。
+    await act(async () => {
+      fake.element.dispatchEvent(new Event("wheel"));
+      fake.setTop(0);
+      fake.element.dispatchEvent(new Event("scroll"));
+      vi.advanceTimersByTime(WHEEL_RELEASE_MS + 1);
+      flushFrames(40);
+    });
+    expect(fake.top).toBe(0);
   });
 });
 

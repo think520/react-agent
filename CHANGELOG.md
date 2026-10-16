@@ -943,6 +943,8 @@
 - **Trace per-run 文件碰撞**: `TraceWriter` 文件名增加微秒时间戳和短 run suffix，同一 session 在同一秒内连续 run 不再写入同一个 JSONL；`list_traces()` 兼容旧秒级文件名。
 - **Workflow 手动掌握度联动**: `ReviewScheduler.mark_manual(..., "mastered")` 后会触发 `PlanWorkflowTracker.check_plan_completion()`，手动标记已掌握后今日任务和计划状态会同步更新。
 - **LearningStore SQLite 文件锁**: `LearningStore._conn()` 改为真正关闭连接的 context manager，避免 Windows 上临时 workspace 或后续 Web runtime 遇到 `bobodan.db` 文件锁。
+- **聊天结束状态（2026-10-17）**：停止或失败后，排空尚未显示的正文不会重新显示“正在组织回答”；正文缓冲也不再覆盖后来收到的工具状态。
+- **聊天滚动跟随（2026-10-17）**：用键盘或滚动条回到底部后恢复跟随；发送后的回底动画遇到滚轮时暂停，释放后继续，抵达底部后仍可自行滚开。
 ### 新增
 - **P5E.6 知识地图产品重置**: 将混合 Wiki 重置为以概念关系和原文定位为核心的知识地图。
   - 新增 `graph/concept_store.py`：SQLite 概念图谱后端（concepts、relationships、evidence、concept_candidates、concept_extraction_runs、concept_positions 六表），支持候选审查、位置持久化和图状态快照。

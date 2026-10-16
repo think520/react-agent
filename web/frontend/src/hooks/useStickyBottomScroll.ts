@@ -87,17 +87,18 @@ export function useStickyBottomScroll<T extends HTMLElement>(deps: unknown[]) {
         animBeginRef.current = null;
         return;
       }
-      // pin 已经生效（这一帧真的会写位置）→ 消费掉，避免它变成长期状态。
-      pinnedRef.current = false;
       const target = element.scrollHeight - element.clientHeight;
       const distance = target - element.scrollTop;
       if (Math.abs(distance) < 1) {
+        // 回到底部才消费 pin；首帧可能零位移，中途也可能被手势暂停。
+        pinnedRef.current = false;
         animBeginRef.current = null;
         return;
       }
       if (shouldJump(distance) || typeof requestAnimationFrame !== "function") {
         element.scrollTop = target;
         lastWrittenRef.current = target;
+        pinnedRef.current = false;
         animBeginRef.current = null;
         return;
       }
@@ -112,6 +113,7 @@ export function useStickyBottomScroll<T extends HTMLElement>(deps: unknown[]) {
           step(next);
         });
       } else {
+        pinnedRef.current = false;
         animBeginRef.current = null;
       }
     }
@@ -135,11 +137,14 @@ export function useStickyBottomScroll<T extends HTMLElement>(deps: unknown[]) {
     const element = scrollRef.current;
     if (!element) return;
     let wheelTimer: ReturnType<typeof setTimeout> | null = null;
-    const beginGesture = () => { interactingRef.current = true; };
+    const beginGesture = () => {
+      interactingRef.current = true;
+      lastWrittenRef.current = null;
+    };
     const endGesture = () => {
       interactingRef.current = false;
       // 注意：这里**不**清 pinned —— 用户刚发消息（pin）时若正好有一次滚轮余波，
-      // 清掉就等于把他的消息吞了。pin 是一次性的，由 step 在真正执行后消费。
+      // 清掉就等于把他的消息吞了。pin 是一次性的，由 step 在回底后消费。
       animBeginRef.current = null;
       // 松手之后按「用户现在停在哪」决定：在底部附近就继续跟随，否则不打扰。
       refreshFollowRef.current?.();
@@ -157,6 +162,8 @@ export function useStickyBottomScroll<T extends HTMLElement>(deps: unknown[]) {
         // 这一跳是我们自己写的（缓动每帧都会触发 scroll）→ 不代表用户意图。
         return;
       }
+      // 用户已离开自动写入的位置；之后返回这里也应视为用户滚动。
+      lastWrittenRef.current = null;
       pinnedRef.current = false;
       // 用户自己滚回底部 → 继续跟随；滚上去 → 停下。
       const nearBottom = shouldFollow({

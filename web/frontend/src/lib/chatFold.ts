@@ -107,7 +107,7 @@ export function foldChatStream(state: ChatStreamState, input: ChatFoldInput): Ch
   if (input.kind === "clear-truncated") return state.truncated === null ? state : { ...state, truncated: null };
   if (input.kind === "delta-flush") {
     return patchLast(
-      { ...state, status: "正在组织回答", brandState: "writing" },
+      state,
       (message) => ({ ...message, content: message.content + input.content }),
     );
   }

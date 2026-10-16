@@ -138,3 +138,26 @@ describe("W3 F1：断线重连重放不会把回答写两遍", () => {
     expect(result.current.brandState).toBe("reading");
   });
 });
+
+describe("缓冲正文的收尾", () => {
+  it.each([
+    { label: "停止", failed: false, stopped: true },
+    { label: "失败", failed: true, stopped: false },
+  ])("$label 后排空缓冲不会重新显示生成状态", ({ failed, stopped }) => {
+    const { result } = renderHook(() => useChatStream());
+    act(() => {
+      result.current.setMessages([{ role: "assistant", content: "", pending: true }]);
+      result.current.applyEvent({ event: "message_delta", data: { content: "尚未刷新的正文" } });
+      if (failed) expect(() => result.current.applyEvent(SAMPLES.run_failed)).toThrow("boom");
+      // 与 ChatPage 的停止 / 失败分支保持相同顺序。
+      result.current.setStatus("");
+      result.current.settleLastMessage(failed, stopped);
+    });
+
+    expect(result.current.messages[0]).toMatchObject({
+      content: "尚未刷新的正文", pending: false,
+      ...(failed ? { failed: true } : { stopped: true }),
+    });
+    expect(result.current.status).toBe("");
+  });
+});

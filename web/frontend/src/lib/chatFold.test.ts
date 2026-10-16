@@ -30,12 +30,25 @@ function frame(event: ChatStreamEvent["event"], data: Record<string, unknown>, m
 }
 
 describe("foldChatStream：基本过渡", () => {
-  it("delta 追加到末尾那条待完成消息", () => {
-    const state = foldChatStream(pending(), { kind: "delta-flush", content: "你好" });
+  it("delta 设置生成状态，缓冲刷新追加到末尾那条待完成消息", () => {
+    const received = foldChatStream(pending(), frame("message_delta", { content: "你好" }));
+    const state = foldChatStream(received, { kind: "delta-flush", content: "你好" });
 
     expect(state.messages[0].content).toBe("你好");
     expect(state.status).toBe("正在组织回答");
     expect(state.brandState).toBe("writing");
+  });
+
+  it("较早收到的正文刷新不覆盖后来的工具状态", () => {
+    const received = foldChatStream(pending(), frame("message_delta", { content: "你好" }));
+    const reading = foldChatStream(received, frame("status", {
+      phase: "tool", message: "正在查找你的资料", tool_name: "rag_search",
+    }));
+    const flushed = foldChatStream(reading, { kind: "delta-flush", content: "你好" });
+
+    expect(flushed.messages[0].content).toBe("你好");
+    expect(flushed.status).toBe(reading.status);
+    expect(flushed.brandState).toBe("reading");
   });
 
   it("narration 进过程，不进正文", () => {
