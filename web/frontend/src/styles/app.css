@@ -783,9 +783,9 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 .starter-actions button:hover { border-color: var(--border); background: var(--paper-soft); color: var(--blue); }
 
 .composer-wrap { position: absolute; z-index: 12; right: 0; bottom: 0; left: 0; padding: 22px max(24px, calc((100% - var(--content-width)) / 2)) 27px; background: linear-gradient(to bottom, rgba(245,244,237,0), var(--paper) 24%); }
-.slash-palette { width: min(100%, var(--content-width)); max-height: 330px; overflow: hidden; border: 1px solid var(--border-strong); border-radius: 8px; margin: 0 auto 8px; background: rgba(247,245,239,.98); box-shadow: var(--shadow-float); backdrop-filter: blur(14px); }
+.slash-palette { width: min(100%, var(--content-width)); max-height: 330px; overflow: hidden; border: 1px solid var(--border-strong); border-radius: var(--radius-md); margin: 0 auto 8px; background: rgba(247,245,239,.98); box-shadow: var(--shadow-float); backdrop-filter: blur(14px); }
 .slash-palette-heading { display: flex; min-height: 38px; align-items: center; gap: 7px; border-bottom: 1px solid var(--border); padding: 0 12px; color: var(--blue); font-size: 12px; font-weight: 650; }.slash-palette-heading small { margin-left: auto; color: var(--faint); font-size: 12px; font-weight: 400; }.slash-palette-list { max-height: 286px; overflow-y: auto; padding: 5px; }.slash-palette-list > button { display: grid; width: 100%; min-height: 48px; grid-template-columns: 30px minmax(0,1fr) auto; align-items: center; gap: 9px; border: 0; border-radius: 6px; padding: 6px 8px; background: transparent; color: var(--muted); text-align: left; }.slash-palette-list > button:hover, .slash-palette-list > button.active { background: var(--blue-wash); color: var(--blue); }.slash-item-icon { display: grid; width: 28px; height: 28px; place-items: center; border: 1px solid var(--border); border-radius: 6px; background: var(--paper-soft); }.slash-palette-list > button > span:nth-child(2) { display: grid; min-width: 0; gap: 2px; }.slash-palette-list strong, .slash-palette-list small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.slash-palette-list strong { font-family: var(--font-mono); font-size: 13px; font-weight: 600; }.slash-palette-list small { color: var(--faint); font-size: 12px; }.slash-palette-list i { color: var(--faint); font-family: var(--font-mono); font-size: 12px; font-style: normal; }
-.composer { border: 1px solid rgba(27,54,93,0.15); border-radius: 8px; background: rgba(250, 248, 242, 0.98); box-shadow: 0 14px 36px rgba(46,43,39,0.08); transition: border-color var(--dur-base) ease, box-shadow var(--dur-base) ease; }
+.composer { border: 1px solid rgba(27,54,93,0.15); border-radius: var(--radius-md); background: rgba(250, 248, 242, 0.98); box-shadow: 0 14px 36px rgba(46,43,39,0.08); transition: border-color var(--dur-base) ease, box-shadow var(--dur-base) ease; }
 .composer-references { display: flex; flex-wrap: wrap; gap: 5px; border-bottom: 1px solid var(--border); padding: 8px 10px 3px; }
 .composer-references > span { display: inline-flex; min-width: 0; max-width: 240px; min-height: 27px; align-items: center; border: 1px solid rgba(27,54,93,.13); border-radius: 6px; background: var(--blue-wash); }
 .composer-references button { display: inline-flex; min-width: 0; min-height: 25px; align-items: center; gap: 5px; border: 0; padding: 0 7px; background: transparent; color: var(--blue); font-size: 12px; }
@@ -838,7 +838,7 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 .send-button.stop:hover { background: #a55f3e; }
 .send-button:active { transform: scale(.96); }
 
-.mention-palette { width: min(100%, var(--content-width)); max-height: 330px; overflow: hidden; border: 1px solid var(--border-strong); border-radius: 8px; margin: 0 auto 8px; background: rgba(247,245,239,.98); box-shadow: var(--shadow-float); transform-origin: bottom left; animation: menu-enter var(--dur-fast) var(--ease-out); }
+.mention-palette { width: min(100%, var(--content-width)); max-height: 330px; overflow: hidden; border: 1px solid var(--border-strong); border-radius: var(--radius-md); margin: 0 auto 8px; background: rgba(247,245,239,.98); box-shadow: var(--shadow-float); transform-origin: bottom left; animation: menu-enter var(--dur-fast) var(--ease-out); }
 .mention-tabs { display: flex; min-height: 39px; align-items: center; border-bottom: 1px solid var(--border); padding: 0 7px; }
 .mention-tabs button { display: inline-flex; min-height: 29px; align-items: center; gap: 5px; border: 0; border-radius: 6px; padding: 0 9px; background: transparent; color: var(--faint); font-size: 13px; }
 .mention-tabs button.active { background: var(--blue-wash); color: var(--blue); font-weight: 650; }
@@ -875,7 +875,7 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 
 /* Backdrop visuals for all dialogs live under .ui-modal-backdrop; this class
    remains as a media-query hook and full-bleed mobile override target. */
-.settings-dialog { display: flex; width: min(1060px, calc(100vw - 56px)); max-height: 84vh; min-height: 620px; flex-direction: column; overflow: hidden; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--paper-soft); box-shadow: var(--shadow-dialog); }
+.settings-dialog { display: flex; width: min(1060px, calc(100vw - 56px)); max-height: 84vh; min-height: 620px; flex-direction: column; overflow: hidden; border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--paper-soft); box-shadow: var(--shadow-dialog); }
 .settings-dialog:focus { outline: 0; }
 .settings-dialog-header { display: grid; min-height: 64px; grid-template-columns: 38px 178px minmax(0,1fr) 38px; align-items: center; gap: 8px; border-bottom: 1px solid var(--border); padding: 0 14px; }
 .settings-dialog-header > strong { color: var(--blue); font-family: var(--font-brand); font-size: 18px; font-weight: 400; }
@@ -883,7 +883,7 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 .settings-back { display: none; width: 36px; height: 36px; place-items: center; border: 0; border-radius: 7px; background: transparent; color: var(--muted); }
 .settings-dialog-body { display: grid; min-height: 0; flex: 1; grid-template-columns: 190px minmax(0,1fr); }
 .settings-nav { display: flex; min-height: 0; flex-direction: column; gap: 3px; border-right: 1px solid var(--border); padding: 14px 10px; overflow-y: auto; }
-.settings-search { display: flex; min-height: 36px; align-items: center; gap: 7px; border: 1px solid transparent; border-radius: 7px; margin-bottom: 8px; padding: 0 8px; background: rgba(46,43,39,.035); color: var(--faint); }
+.settings-search { display: flex; min-height: 36px; align-items: center; gap: 7px; border: 1px solid transparent; border-radius: var(--radius-md); margin-bottom: 8px; padding: 0 8px; background: rgba(46,43,39,.035); color: var(--faint); }
 .settings-search:focus-within { border-color: rgba(27,54,93,.18); background: var(--paper); color: var(--blue); }
 .settings-search input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; font-size: 13px; }
 .settings-search button { display: grid; width: 22px; height: 22px; place-items: center; border: 0; background: transparent; color: var(--faint); }
@@ -1106,7 +1106,7 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 /* App-level notice surface (E1): an operation that fails inside a chat card,
    dialog or side panel stays visible wherever the user is looking. */
 .notice-center { position: fixed; z-index: 130; right: 18px; bottom: 18px; display: grid; gap: 8px; width: min(360px, calc(100vw - 32px)); }
-.notice { display: flex; align-items: flex-start; gap: 10px; border: 1px solid var(--border-strong); border-radius: 8px; padding: 10px 12px; background: var(--paper); box-shadow: var(--shadow-float); color: var(--muted); font-size: 12.5px; line-height: 1.6; animation: notice-in var(--dur-base) var(--ease-out) both; }
+.notice { display: flex; align-items: flex-start; gap: 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); padding: 10px 12px; background: var(--paper); box-shadow: var(--shadow-float); color: var(--muted); font-size: 12.5px; line-height: 1.6; animation: notice-in var(--dur-base) var(--ease-out) both; }
 .notice span { min-width: 0; flex: 1; overflow-wrap: anywhere; }
 .notice-error { border-color: rgba(147,77,67,0.3); color: var(--danger); }
 .notice-info { border-color: rgba(27,54,93,0.22); color: var(--blue); }
@@ -1245,7 +1245,7 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 .library-workspace { display: grid; min-height: 620px; grid-template-columns: 270px minmax(0, 1fr); border-top: 1px solid var(--border); }
 .document-rail { border-right: 1px solid var(--border); padding: var(--space-4) var(--space-3) var(--space-4) 0; }
 .rail-label { display: flex; align-items: center; gap: var(--space-2); padding: 0 var(--space-2) var(--space-3); color: var(--blue); font-size: 12px; font-weight: 700; }.rail-label span { margin-left: auto; color: var(--faint); }
-.document-search { display: flex; min-height: 34px; align-items: center; gap: 7px; border: 1px solid transparent; border-radius: 7px; margin: 0 3px 9px; padding: 0 8px; background: rgba(46,43,39,0.035); color: var(--faint); }
+.document-search { display: flex; min-height: 34px; align-items: center; gap: 7px; border: 1px solid transparent; border-radius: var(--radius-md); margin: 0 3px 9px; padding: 0 8px; background: rgba(46,43,39,0.035); color: var(--faint); }
 .document-search:focus-within { border-color: rgba(27,54,93,0.18); background: var(--paper-soft); color: var(--blue); }
 .document-search input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; font-size: 12px; }
 .document-search input::placeholder { color: var(--faint); }
@@ -2207,3 +2207,41 @@ mark.reader-anchor-mark {
 .providers-item.dim { opacity: .72; }
 .providers-detail { min-height: 220px; }
 .providers-presets { display: flex; flex-direction: column; gap: 2px; padding-top: 2px; }
+
+/* ── M3 · 浮层：发丝边 + 外环（DESIGN.md §4.5）──
+   用 --ring 取代硬 rgba 描边；阴影仍用既有档位，不新增概念。 */
+.ui-modal-panel { box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-dialog); }
+.slash-palette, .mention-palette { border: 0; box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-lift); }
+.library-more-menu > div { border: 0; box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-float); }
+.notice { border: 0; box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-float); }
+
+/* ── M3 · 表面阶梯落位（DESIGN.md §4.4）──
+   0 = 停靠栏（纸沉） / 1 = 画布（纸） / 2 = 卡片（纸软 + 发丝边） / 3 = 浮层（纸软 + 外环）。
+   只给关键表面换令牌，不批量替换旧色值。 */
+.page-scroll, .settings-main { background: var(--surface-1); }
+.sidebar { background: var(--surface-0); }
+.context-panel { background: var(--surface-0); }
+.settings-nav { background: var(--surface-0); }
+.library-tree-pane, .document-rail { background: var(--surface-0); }
+.settings-section { border-color: var(--border-subtle); background: var(--surface-2); }
+.ui-modal-panel { background: var(--surface-3); box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-dialog); }
+.slash-palette, .mention-palette { background: var(--surface-3); box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-lift); }
+.library-more-menu > div { background: var(--surface-3); box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-float); }
+.notice { background: var(--surface-3); box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-float); }
+
+
+/* ── M3 · 输入区统一：Surface 3 + 发丝边 + 外环（DESIGN.md §4.4 / §4.5）──
+   输入区（composer / 设置字段 / 搜索框）统一成「纸软表面 + ring」，焦点不再用裸 rgba。 */
+.composer { border: 0; background: var(--surface-3); box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-lift); }
+.composer:focus-within { box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-float); }
+.settings-field input, .settings-field textarea { border-color: var(--border-strong); background: var(--surface-3); }
+.settings-field input:focus, .settings-field textarea:focus { border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+.settings-search:focus-within, .document-search:focus-within { border-color: color-mix(in srgb, var(--accent) 18%, transparent); }
+
+/* ── M3 · 长列表滚动遮罩（DESIGN.md §4.5 / W-F3）──
+   只对会滚动的长列表生效；不支持 mask-image 时自动降级为无遮罩。 */
+@supports (mask-image: linear-gradient(black, transparent)) {
+  .settings-nav, .providers-list {
+    mask-image: linear-gradient(to bottom, transparent 0, black 8px, black calc(100% - 16px), transparent 100%);
+  }
+}

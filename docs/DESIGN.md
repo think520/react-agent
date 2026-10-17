@@ -184,6 +184,8 @@ Chat 内的临时展开面板（学习白纸），不是 Figma / Notion / IDE。
 
 ### 4.3 颜色面积预算
 
+**渐变预算（M3）**：每屏背景渐变 ≤ 1 处，且同色相明度差 ≤ 8%；遮罩渐变（`mask-image`）与纸纹不计入。整份样式背景渐变上限由 `designTokens.test.ts` 棘轮看住（当前 2 处，只减不增）。
+
 | 区域 | 预算 |
 |---|---|
 | 背景 / 表面 | ≥ 85% 屏幕面积 |
@@ -192,7 +194,7 @@ Chat 内的临时展开面板（学习白纸），不是 Figma / Notion / IDE。
 | 橘棕系 | ≤ 5% |
 | 花瓣粉 | ≤ 1%（仅 wash） |
 
-### 4.4 表面阶梯（Surface 0–3）🟡 计划中（M3）
+### 4.4 表面阶梯（Surface 0–3）✅ 已实施（M3，2026-10-17）
 
 参考 CDS 的四层微对比，但**不新增色值**，用现有三档纸面色 + 抬升组合表达：
 
@@ -205,7 +207,9 @@ Chat 内的临时展开面板（学习白纸），不是 Figma / Notion / IDE。
 
 **规则**：相邻两层必须能区分（明度差 ≥ 2/255，或靠发丝边区分）；同一屏最多 4 层，超过就是「卡片套卡片」。
 
-### 4.5 发丝边与外环 🟡 计划中（M3）
+**表面落位清单（M3 ✓）**：Surface 0 = `.sidebar` / `.context-panel` / `.settings-nav` / `.library-tree-pane` / `.document-rail`；Surface 1 = `.page-scroll` / `.settings-main`；Surface 2 = `.settings-section`（+ `--border-subtle` 发丝边）；Surface 3 = `.ui-modal-panel` / `.slash-palette` / `.mention-palette` / `.library-more-menu > div` / `.notice`（+ `--ring` 外环 + 阴影档位）；**输入区**（`.composer` / `.settings-field input` / `.settings-search` / `.document-search`）同样走 Surface 3 + ring，焦点色用 `color-mix(in srgb, var(--accent) 35%, transparent)`，不再写裸 rgba。契约测试：`designTokens.test.ts` 的「M3 表面阶梯落位」。
+
+### 4.5 发丝边与外环 ✅ 已实施（M3，2026-10-17）
 
 硬边框在暖纸底上会显得脏。规则：
 
@@ -214,7 +218,9 @@ Chat 内的临时展开面板（学习白纸），不是 Figma / Notion / IDE。
 - 只有输入框与强强调元素使用 `--border-strong`；正文分隔用 `--border-subtle`。
 - 禁止用纯黑或纯 HTML 默认边框色。
 
-> 说明：`--hairline` / `--ring` 目前**不在** `:root` 里（🟡），实施时同步加入 §16.3 契约。
+> 说明：`--hairline` / `--ring` 已加入 `:root` 与 §4.6 表（M3 ✓），契约测试见 §16.3 第 8–10 条。2dppx 下 `--hairline` 减半为 `0.5px`（`@media (min-resolution: 2dppx)`）。
+
+**浮层落地清单（M3 ✓）**：`.ui-modal-panel`（所有弹窗）、`.slash-palette` / `.mention-palette`（输入区浮层）、`.library-more-menu > div`（更多菜单）、`.notice`（通知卡片）—— 全部改为 `box-shadow: 0 0 0 var(--hairline) var(--ring), <既有阴影档位>`，不再使用 `border: 1px solid rgba(...)`。契约测试在 `designTokens.test.ts` 的「M3 浮层发丝边/外环」用例里。
 
 ### CSS Tokens
 
@@ -280,6 +286,19 @@ Chat 内的临时展开面板（学习白纸），不是 Figma / Notion / IDE。
   --spring-micro: linear(0, 0.52 14%, 0.94 36%, 1);
   --spring-base: linear(0, 0.26 11%, 0.72 31%, 1.01 54%, 1);
   --spring-macro: linear(0, 0.16 8%, 0.5 24%, 0.85 44%, 1.01 68%, 1);
+  --surface-0: var(--paper-sunken);
+  --surface-1: var(--paper);
+  --surface-2: var(--paper-soft);
+  --surface-3: var(--paper-soft);
+  --hairline: 1px;
+  --ring: color-mix(in srgb, var(--ink) 12%, transparent);
+  --radius-xs: 2px;
+  --radius-control: 10px;
+  --radius-panel: 18px;
+  --radius-pill: 999px;
+  --h-control-sm: 28px;
+  --h-control: 36px;
+  --h-control-lg: 44px;
 ```
 
 ### 4.7 Tailwind / shadcn 语义 token
@@ -679,22 +698,24 @@ TUI 只服务开发与诊断，不做装饰。
 
 ### 16.2 组件规格表
 
-| 组件 | 表面 | 边框 | 圆角 | 内距 | 字号 | 高度 |
-|---|---|---|---|---|---|---|
-| 页面容器 | `--paper` | 无 | — | `--space-6` 40px `--space-7` | — | — |
-| 停靠栏（侧栏/右栏） | `--paper-sunken` | `--border` 竖线 | — | `--space-4` 起 | 标签 ≥12px | — |
-| 顶栏 | `--paper` + blur ≤16px | `--border-subtle` 下边 | — | 横向 `--space-4` | 标题 17px | 68px |
-| 卡片 | `--paper-soft` | `--border` 或发丝边 | `--radius-lg` | `--space-4` | 正文 ≥13.5px | — |
-| 列表行 | 停靠面透明行 | `--border-subtle` 分隔 | `--radius-md` | `--space-2` `--space-3` | ≥13px | ≥44px |
-| 主按钮 | `--blue` | 同色 | `--radius-md` | 0 13px | 13px/650 | ≥40px |
-| 次要按钮 | 透明 → hover `--blue-wash` | `--border-strong` | `--radius-md` | 0 13px | 13px/650 | ≥40px |
-| 图标按钮 | 透明 → hover `--blue-wash` | hover `--border-subtle` | `--radius-md` | — | — | 36–40px |
-| 输入框 | `--paper-soft` | `--border-strong` | `--radius-md` | 0 `--space-3` | ≥13px | ≥36px |
-| chip / 标签 | `*-wash` 或 ink 5% | 无 | `--radius-sm` | 0 `--space-2` | ≥12px | ≥24px |
-| 状态块 | `*-wash` | 左边框 3px 同色 | 0 `--radius-sm` `--radius-sm` 0 | `--space-3` `--space-4` | ≥13.5px | — |
-| 浮层 | `--paper-soft` | `--hairline` 外环 | `--radius-lg` | `--space-2` | ≥12.5px | — |
-| 弹窗/抽屉 | `--paper-soft` | `--border` 或发丝边 | `--radius-xl` | `--space-5` | — | — |
-| 用户消息气泡 | `--blue-wash` | 无 | `--radius-bubble` | `--space-3` `--space-4` | 正文 | — |
+> §16.2 校准（M3 ✓）：表内关键组件的圆角已**全部令牌化**（`.composer` / `.settings-dialog` / `.notice` / 输入区浮层 / 两个搜索框 → `var(--radius-md)`；7px 的旧值对齐到刻度 8）。契约测试：`designTokens.test.ts` 的「M3 组件规格校准」。
+
+| 组件 | 表面 | 边框 | 圆角 | 内距 | 字号 | 高度 | 四态 |
+|---|---|---|---|---|---|---|---|
+| 页面容器 | `--paper` | 无 | — | `--space-6` 40px `--space-7` | — | — | §16.1 |
+| 停靠栏（侧栏/右栏） | `--paper-sunken` | `--border` 竖线 | — | `--space-4` 起 | 标签 ≥12px | — | §16.1 |
+| 顶栏 | `--paper` + blur ≤16px | `--border-subtle` 下边 | — | 横向 `--space-4` | 标题 17px | 68px | §16.1 |
+| 卡片 | `--paper-soft` | `--border` 或发丝边 | `--radius-lg` | `--space-4` | 正文 ≥13.5px | — | §16.1 |
+| 列表行 | 停靠面透明行 | `--border-subtle` 分隔 | `--radius-md` | `--space-2` `--space-3` | ≥13px | ≥44px | §16.1 |
+| 主按钮 | `--blue` | 同色 | `--radius-md` | 0 13px | 13px/650 | ≥40px | §16.1 |
+| 次要按钮 | 透明 → hover `--blue-wash` | `--border-strong` | `--radius-md` | 0 13px | 13px/650 | ≥40px | §16.1 |
+| 图标按钮 | 透明 → hover `--blue-wash` | hover `--border-subtle` | `--radius-md` | — | — | 36–40px | §16.1 |
+| 输入框 | `--paper-soft` | `--border-strong` | `--radius-md` | 0 `--space-3` | ≥13px | ≥36px | §16.1 |
+| chip / 标签 | `*-wash` 或 ink 5% | 无 | `--radius-sm` | 0 `--space-2` | ≥12px | ≥24px | §16.1 |
+| 状态块 | `*-wash` | 左边框 3px 同色 | 0 `--radius-sm` `--radius-sm` 0 | `--space-3` `--space-4` | ≥13.5px | — | §16.1 |
+| 浮层 | `--paper-soft` | `--hairline` 外环 | `--radius-lg` | `--space-2` | ≥12.5px | — | §16.1 |
+| 弹窗/抽屉 | `--paper-soft` | `--border` 或发丝边 | `--radius-xl` | `--space-5` | — | — | §16.1 |
+| 用户消息气泡 | `--blue-wash` | 无 | `--radius-bubble` | `--space-3` `--space-4` | 正文 | — | §16.1 |
 
 ### 16.3 契约测试（`web/frontend/src/lib/designTokens.test.ts`）
 
@@ -709,7 +730,9 @@ TUI 只服务开发与诊断，不做装饰。
 | 5 | 裸毫秒值数量 ≤ 预算，只减不增 | ✅（预算 4） |
 | 6 | 字体栈以通用族收尾；UI/阅读/文章字体显式点名 CJK；长文正文不用品牌字体；无公共 CDN；`@font-face` 只用本地 URL | ✅ |
 | 7 | 存在一条把 button/input/textarea/select 一起设为 `font: inherit` 的规则 | ✅ |
-| 8 | 表面阶梯、高度阶梯、发丝边、遮罩令牌一旦加入 `:root`，必须同时进入 §4.6 表 | 🟡（M3/M4 实施时补） |
+| 8 | 表面阶梯（`--surface-0..3`）必须是既有纸面色的**别名**，不得引入新色值 | ✅（M3，`designTokens.test.ts`） |
+| 9 | `--hairline` / `--ring` 必须入 `:root` 与 §4.6 表；2dppx 下 `--hairline` 减半 | ✅（M3） |
+| 10 | 高度阶梯（`--h-control-*`）与圆角补充令牌（`--radius-xs/control/panel/pill`）入表；§7 圆角棘轮不受影响 | ✅（M3） |
 
 **棘轮规则**：预算只允许下调；每完成一批收敛就调低预算，直到归零。
 

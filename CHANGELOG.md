@@ -12,6 +12,34 @@
 > 从 2026-10-15 起时间戳已正确（`177fbc2` / `c9e9b52` / `0a767bb` / `d123b43` 均为当日）。
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
+- **M3（W-F3）· 第 5 步 ✅ 规格校准 + 关键页实拍验收（2026-10-17，feat/frontend-m3，未推送）**
+  - **组件规格校准**：关键组件圆角**全部令牌化** ✓ —— `.composer` / `.settings-dialog` / `.notice` / `.slash-palette` / `.mention-palette` 的 8px → `var(--radius-md)` ✓；两个搜索框的 **7px（不在 §7 刻度上 ✗）** → 对齐到 8px 令牌 ✓；新增契约测试：这些组件不得再出现 `border-radius: Npx` 字面量 ✓。
+  - **关键页实拍验收**（Playwright，1440×900，真实后端）：Chat 首页 / Library 资料页 / 设置·AI 与模型 / 设置·界面与阅读 ✓ —— 四个页面的表面阶梯、发丝边、开关键盘、输入区外环都符合设计稿 ✓；图存 `web/frontend/test-results/m3/`（临时产物，未入库 ✓）。
+  - 验收观察：设置·AI 页显示「7 个供应商 · 3 已配置」而模板区有 17 个 —— 这是**正确行为** ✓：既有安装的 `provider.json` 有 7 条，catalog 以文件为准 ✓；新增的 10 个以「从模板添加」列出 ✓（不是 bug ✗）。
+  - 门禁：tsc / lint **0** ✓、vitest **47 文件 / 309 passed**（+1 规格契约 ✓）、build **0** ✓、mock e2e **15** ✓。
+- **M3（W-F3）· 第 4 步 ✅ 输入区统一 + 滚动遮罩 + 渐变预算（2026-10-17，feat/frontend-m3，未推送）**
+  - **输入区统一**：`.composer` 从「裸 rgba 描边 + 自定义阴影」改成 `Surface 3 + --hairline + --ring + --shadow-lift` ✓（焦点态换 `--shadow-float` ✓）；设置字段背景改 `var(--surface-3)` ✓；设置字段/两个搜索框的焦点色从裸 rgba 改成 `color-mix(in srgb, var(--accent) 35%/18%, transparent)` ✓。
+  - **滚动遮罩**：`.settings-nav` / `.providers-list` 加 `mask-image` 上下渐隐 ✓，包在 `@supports (mask-image: linear-gradient(black, transparent))` 里，不支持时**自动降级为无遮罩** ✓。
+  - **渐变预算**：DESIGN §4.3 补规则「每屏背景渐变 ≤1，遮罩/纸纹不计」，并由棘轮测试看住（当前 2 处，只减不增 ✓）。
+  - **契约测试 +4**：composer 必须是 surface-3 + hairline + ring 且无裸 rgba 描边 ✓；设置字段背景 surface-3、焦点用 token ✓；遮罩规则存在且可降级 ✓；背景渐变 ≤2 ✓。
+  - 过程记录：改测试时手写正则转义两次写坏（`\\"` 把字符串提前闭合 ✗）→ 改成逐字符转义 + 行级修复 ✓，教训已写进本轮记录。
+  - 门禁：tsc / lint **0** ✓、vitest **47 文件 / 308 passed** ✓、build **0** ✓、mock e2e **15** ✓。
+- **M3（W-F3）· 第 3 步 ✅ 表面阶梯落位（2026-10-17，feat/frontend-m3，未推送）**：把 §4.4 的四层阶梯真正挂到关键表面上，只换令牌、不批量替换旧色值 ✓。
+  - **Surface 0（纸沉）**：`.sidebar` / `.context-panel` / `.settings-nav` / `.library-tree-pane` / `.document-rail` ✓ —— 停靠栏从「透明叠在画布上」变成可辨识的沉一级表面 ✓。
+  - **Surface 1（画布）**：`.page-scroll` / `.settings-main` ✓；**Surface 2（卡片）**：`.settings-section` + `--border-subtle` 发丝边 ✓；**Surface 3（浮层）**：弹窗 / 输入区浮层 / 菜单 / 通知 ✓（同时保留 ring + 阴影档位 ✓）。
+  - 新增 2 条契约测试：① 11 个关键表面必须使用对应 `var(--surface-N)` ✓；② 四层表面都必须在样式里**真实使用**（防「定义了不用」✓）。过程中的一次失败很典型：第一版把 surface 规则追加在 ring 规则之后 ✗ → 「浮层必须含 hairline/ring」的旧契约立刻失败 ✓ —— 于是把 ring/阴影合并进同一规则 ✓，两条契约同时满足 ✓。
+  - DESIGN §4.4 补「表面落位清单」✓；方案 §6 M3 进度更新 ✓。
+  - 门禁：tsc / lint **0** ✓、vitest **47 文件 / 304 passed**（296+4+2+2 ✓）、build **0** ✓、mock e2e **15** ✓。
+- **M3（W-F3）· 第 2 步 ✅ 浮层发丝边/外环（2026-10-17，feat/frontend-m3，未推送）**：把 §4.5 的规则真正落到浮层上。
+  - 覆盖 5 个浮层类：``.ui-modal-panel``（所有弹窗）、``.slash-palette`` / ``.mention-palette``（输入区浮层）、``.library-more-menu > div``（更多菜单）、``.notice``（通知卡片）—— 统一改为 `box-shadow: 0 0 0 var(--hairline) var(--ring), <既有阴影档位>` ✓，**删掉硬 rgba 描边** ✓（阴影档位沿用 shadow-dialog / shadow-lift / shadow-float，不新增概念 ✓）。
+  - 新增 2 条契约测试：① 五个浮层类必须同时含 `var(--hairline)` 与 `var(--ring)` ✓；② 菜单/通知不得再用 `border: 1px solid rgba(...)` ✓（`lastRuleBody` 取每类最后一条规则，避免被旧规则骗过 ✓）。
+  - DESIGN §4.5 补「浮层落地清单」✓；方案 §6 M3 进度更新 ✓。
+  - 门禁：tsc / lint **0** ✓、vitest **47 文件 / 302 passed**（296+4+2 ✓）、build **0** ✓、mock e2e **15** ✓。
+- **M3（W-F3 视觉融合）· 第 1 步 ✅ 令牌层（2026-10-17，分支 feat/frontend-m3，未推送）**：把方案 §4.4/§4.5 的技法**变成 `:root` 里的真实令牌**，并且**文档、契约测试、样式同源**。
+  - `styles/tokens.css` 新增：**表面阶梯** `--surface-0..3`（分别是 `--paper-sunken/--paper/--paper-soft/--paper-soft`，**只做别名、不新增色值** ✓）、**发丝边** `--hairline: 1px`（2dppx 下 `@media (min-resolution: 2dppx)` 减半为 0.5px ✓）、**外环** `--ring: color-mix(in srgb, var(--ink) 12%, transparent)` ✓、**圆角补充** `--radius-xs/control/panel/pill`（2/10/18/999 ✓ 不动 §7 的 6/8/12/16 棘轮 ✓）、**高度阶梯** `--h-control-sm/–/lg`（28/36/44 ✓）。
+  - `docs/DESIGN.md`：§4.4 表面阶梯、§4.5 发丝边从 🟡 → **✅ 已实施** ✓；§4.6 token 表**逐条同步**（契约测试强制 ✓）；§16.2 组件规格表补上**「四态」列**（W-F3 验收要求 100% 列齐 ✓）；§16.3 契约表第 8 条改写 + 新增第 9/10 条 ✓。
+  - `designTokens.test.ts` **+4 条**：表面阶梯必须是既有纸面色别名（不许新色值 ✓）、发丝边/外环入 root 且 retina 减半 ✓、高度与圆角补充令牌齐全且不动 §7 棘轮 ✓、§4.6 文档表包含全部 M3 令牌 ✓。
+  - 门禁：tsc / lint **0** ✓、vitest **47 文件 / 300 passed**（296 + 4 ✓）、build **0** ✓、mock e2e **15** ✓。
 - **设置区 v2 · 排版收紧 + 模板列表化（2026-10-17，main 本地提交 ✓ 未推送）**：按用户反馈「字体排版太大、供应商页挤在一起一屏显示不全」调整。
   - **模板 chips → 紧凑行**：供应商左列底部「从模板添加」原来是 17 个长文案按钮（如「本地 vLLM（免 key；别和 Bobodan 的 8000 端口冲突）」）✗ → 改为**一行一个紧凑条目**（`providers-item dim`：状态点 + 名称 + 本地标记 ✓，完整说明放 title），并且**只列还没添加的模板** ✓；左列限高 **430px 滚动** ✓、详情面板 min-height 220 ✓ —— 一屏能看全 ✓。
   - **排版整体收紧**：`.settings-main` 内边距 34/68→20/40、`.settings-page-heading h2` 29→**22px**、分节标题 15→**14px**、说明 12.5→**12px**、`.setting-row` 62→**46px**、字段内边距 15→10、分节内边距 16/20→10/16、导航项 34px/12.5px、搜索框 32px ✓；所有字号仍 ≥ §5 的 12px 硬下限 ✓、圆角未增（棘轮不破 ✓）。

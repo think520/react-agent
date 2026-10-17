@@ -291,3 +291,158 @@ describe("字体契约（W3 F14）", () => {
   });
 });
 
+
+
+describe("M3 视觉技法令牌（DESIGN.md §4.4 / §4.5）", () => {
+  it("表面阶梯是既有纸面色的别名，不引入新色值", () => {
+    const root = tokensIn(rootBlock(tokensText));
+    expect(root.get("--surface-0")).toBe("var(--paper-sunken)");
+    expect(root.get("--surface-1")).toBe("var(--paper)");
+    expect(root.get("--surface-2")).toBe("var(--paper-soft)");
+    expect(root.get("--surface-3")).toBe("var(--paper-soft)");
+    const tones = ["--surface-0", "--surface-1", "--surface-2", "--surface-3"]
+      .map((name) => (root.get(name) ?? "").replace(/var\(|\)/g, ""));
+    expect(new Set(tones)).toEqual(new Set(["--paper-sunken", "--paper", "--paper-soft"]));
+  });
+
+  it("发丝边与外环已入 :root，并在 2dppx 下减半", () => {
+    const root = tokensIn(rootBlock(tokensText));
+    expect(root.get("--hairline")).toBe("1px");
+    expect(root.get("--ring") ?? "").toContain("color-mix(");
+    expect(tokensText).toMatch(/@media \(min-resolution: 2dppx\)[\s\S]{0,80}--hairline:\s*0\.5px/);
+  });
+
+  it("高度阶梯与圆角补充令牌齐全，且 §7 圆角棘轮不受影响", () => {
+    const root = tokensIn(rootBlock(tokensText));
+    for (const name of [
+      "--radius-xs", "--radius-control", "--radius-panel", "--radius-pill",
+      "--h-control-sm", "--h-control", "--h-control-lg",
+    ]) {
+      expect(root.has(name)).toBe(true);
+    }
+    // §7 四档仍在（棘轮扫描的是 border-radius 字面量，不动这四档）
+    for (const name of ["--radius-sm", "--radius-md", "--radius-lg", "--radius-xl"]) {
+      expect(root.has(name)).toBe(true);
+    }
+  });
+
+  it("§4.6 文档表同步列出所有 M3 令牌", () => {
+    const doc = tokensIn(docTokenBlock(docText));
+    for (const name of [
+      "--surface-0", "--surface-1", "--surface-2", "--surface-3",
+      "--hairline", "--ring",
+      "--radius-xs", "--radius-control", "--radius-panel", "--radius-pill",
+      "--h-control-sm", "--h-control", "--h-control-lg",
+    ]) {
+      expect(doc.has(name)).toBe(true);
+    }
+  });
+});
+
+const APP_CSS = readFileSync(resolve(SRC, "styles", "app.css"), "utf8");
+
+function lastRuleBody(css: string, selector: string): string {
+  const escaped = selector.replace(/[.*+?^{}()|[\]\\$]/g, "\\$&");
+  const re = new RegExp(escaped + "\\s*(?:,[^{]*)?\\{([^}]*)\\}", "g");
+  let last = "";
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(css)) !== null) last = match[1];
+  return last;
+}
+
+describe("M3 浮层发丝边/外环（DESIGN.md §4.5）", () => {
+  const overlays = [".ui-modal-panel", ".slash-palette", ".mention-palette", ".library-more-menu > div", ".notice"];
+
+  it("关键浮层都使用 --hairline + --ring 外环", () => {
+    for (const selector of overlays) {
+      const body = lastRuleBody(APP_CSS, selector);
+      expect(body, selector).toContain("var(--hairline)");
+      expect(body, selector).toContain("var(--ring)");
+    }
+  });
+
+  it("菜单与通知不再使用硬 rgba 描边", () => {
+    for (const selector of [".slash-palette", ".mention-palette", ".library-more-menu > div", ".notice"]) {
+      expect(lastRuleBody(APP_CSS, selector), selector).not.toMatch(/border:\s*1px solid rgba\(/);
+    }
+  });
+});
+
+describe("M3 表面阶梯落位（DESIGN.md §4.4）", () => {
+  const mapping: Array<[string, string]> = [
+    [".sidebar", "--surface-0"],
+    [".context-panel", "--surface-0"],
+    [".settings-nav", "--surface-0"],
+    [".library-tree-pane", "--surface-0"],
+    [".document-rail", "--surface-0"],
+    [".settings-section", "--surface-2"],
+    [".ui-modal-panel", "--surface-3"],
+    [".slash-palette", "--surface-3"],
+    [".mention-palette", "--surface-3"],
+    [".library-more-menu > div", "--surface-3"],
+    [".notice", "--surface-3"],
+  ];
+
+  it("关键表面按阶梯使用 --surface-N", () => {
+    const escapeSelector = (selector: string) =>
+      selector.split("").map((ch) => ".[]{}()*+?^$|\\".includes(ch) ? "\\" + ch : ch).join("");
+    for (const [selector, token] of mapping) {
+      const re = new RegExp(escapeSelector(selector) + "\\s*(?:,[^{]*)?\\{([^}]*)\\}", "g");
+      const bodies: string[] = [];
+      let match: RegExpExecArray | null;
+      while ((match = re.exec(APP_CSS)) !== null) bodies.push(match[1]);
+      expect(bodies.some((body) => body.includes("var(" + token + ")")), selector).toBe(true);
+    }
+  });
+
+  it("四个表面层都在样式里真实使用（不是只定义不用）", () => {
+    for (const token of ["--surface-0", "--surface-1", "--surface-2", "--surface-3"]) {
+      expect(APP_CSS.includes("var(" + token + ")"), token).toBe(true);
+    }
+  });
+});
+
+describe("M3 输入区与遮罩统一（DESIGN.md §4.4 / §4.5）", () => {
+  it("composer 使用 surface-3 + 发丝边 + 外环，不再用裸 rgba 描边", () => {
+    const body = lastRuleBody(APP_CSS, ".composer");
+    expect(body).toContain("var(--surface-3)");
+    expect(body).toContain("var(--hairline)");
+    expect(body).toContain("var(--ring)");
+    expect(body).not.toMatch(/border:\s*1px solid rgba\(/);
+  });
+
+  it("设置字段背景走 surface-3，焦点色走 token", () => {
+    const field = lastRuleBody(APP_CSS, ".settings-field input");
+    expect(field).toContain("var(--surface-3)");
+    const focus = lastRuleBody(APP_CSS, ".settings-field input:focus");
+    expect(focus).toContain("color-mix(");
+  });
+
+  it("长列表滚动遮罩存在且可降级", () => {
+    expect(APP_CSS).toMatch(/@supports \(mask-image:[\s\S]{0,200}\.settings-nav[\s\S]{0,120}\.providers-list/);
+  });
+
+  it("每屏渐变预算：背景渐变最多 2 处（遮罩渐变不计；只减不增）", () => {
+    const gradients = (APP_CSS.match(/background[^;{]*linear-gradient\(/g) ?? []).length;
+    expect(gradients).toBeLessThanOrEqual(2);
+  });
+});
+
+describe("M3 组件规格校准（DESIGN.md §16.2）", () => {
+  it("关键组件圆角走令牌，不再写字面量", () => {
+    for (const selector of [".composer", ".settings-dialog", ".notice", ".slash-palette", ".mention-palette", ".settings-search", ".document-search"]) {
+      const bodies: string[] = [];
+      let from = 0;
+      while (true) {
+        const at = APP_CSS.indexOf(selector + " {", from);
+        if (at < 0) break;
+        const close = APP_CSS.indexOf("}", at);
+        bodies.push(APP_CSS.slice(at, close));
+        from = close + 1;
+      }
+      const joined = bodies.join(" ");
+      expect(joined, selector).toContain("border-radius: var(--radius-md)");
+      expect(joined, selector).not.toMatch(/border-radius: \d+px/);
+    }
+  });
+});
