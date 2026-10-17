@@ -27,8 +27,8 @@ export default function App() {
         <Routes>
           <Route element={<AppShell />}>
             <Route index element={<Navigate to="/chat" replace />} />
-            <Route path="chat" element={page(<ChatPage />)} />
-            <Route path="chat/:sessionId" element={page(<ChatPage />)} />
+          {/* /chat 与 /chat/:id 合并成一条可选参数路由：流式结束写 URL 不再重挂载（否则闪一下像刷新）。 */}
+          <Route path="chat/:sessionId?" element={page(<ChatPage />)} />
             <Route path="practice" element={page(<PracticePage />)} />
             {/* Static segment first: the bank is a Practice view, not a session. */}
             <Route path="practice/bank" element={page(<QuestionBankPage />)} />

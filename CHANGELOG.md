@@ -12,6 +12,11 @@
 > 从 2026-10-15 起时间戳已正确（`177fbc2` / `c9e9b52` / `0a767bb` / `d123b43` 均为当日）。
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
+- **修复「流式输出结束后页面闪一下（像刷新）」（2026-10-17 用户反馈，main 本地提交 ✓ 未推送）**
+  - **根因**：`/chat` 与 `/chat/:sessionId` 是**两条不同路由** ✗。流式结束收尾时 `chatActions` 会 `navigate(`/chat/${id}`, { replace: true })` 写 URL ✓，于是 React Router 切换路由 → `ChatPage` **重新挂载** → `page()` 的 `FadeIn` 入场动画重放 + 会话拉取的 loading 态闪一下 = 用户看到的「闪一下像刷新」✓。
+  - **修法**：① 路由合并为一条可选参数路由 `<Route path="chat/:sessionId?" …>` ✓ —— URL 变化只更新 `useParams`，组件实例保持 ✓；② `ChatPage` 拉取会话时 `setLoading(messagesLatestRef.current.length === 0)` ✓ —— 流式刚结束（消息已在本地）不再进 loading 态 ✓。
+  - **验证（真实浏览器）**：在 `.chat-page` 上打 `data-marker` 再触发 `/chat → /chat/:id` 导航，实测 **marker=alive（未重挂载）** ✓、**loading=0（无 loading 闪烁）** ✓、URL 正确 ✓；mock **15** / live **7** e2e 全绿 ✓。
+  - 门禁：tsc / lint **0** ✓、vitest **49 文件 / 322 passed** ✓、build **0** ✓。
 - **视觉返工第 2 轮（2026-10-17 用户反馈，main 本地提交 ✓ 未推送）**：用户指出「练习卡片右侧大片空白很突兀」「复习页蓝色背景块不好看」。
   - **练习出题卡**：之前卡片拉满整页（约 1010px）✗，内容全挤在左上、右边一大片空；改为 `max-width: 720px` ✓ + 内边距 18/20 ✓，卡片宽度贴合内容，右侧留白变成页面呼吸而不是卡内空洞 ✓（1440 与 1920 两档实拍验证 ✓）。
   - **复习「下一步」提示**：之前是整条 `border-left: 3px solid var(--blue)` + `--blue-wash` 亮蓝底 ✗（太抢眼、也不符合「蓝色只用于动作/导航」的用色规则）；改为**中性小卡**：`--surface-2` 底 + `--border-subtle` 细边 + 2px `--clay-wash` 左侧暖色发丝条 ✓，文字用 `--muted` ✓ —— 安静、仍是「下一步」的位置提示 ✓。

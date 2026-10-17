@@ -37,7 +37,7 @@ import {
 } from "../stores/chatStore";
 import { notifyError } from "../stores/noticeStore";
 import { useUiStore } from "../stores/uiStore";
-import type { ChatArtifact, KnowledgeContextArtifact, WikiPlanArtifact } from "../types";
+import type { ChatArtifact, ChatMessage, KnowledgeContextArtifact, WikiPlanArtifact } from "../types";
 
 import { initialDraft } from "./chat/chatPrimitives";
 import { ChatTranscript } from "../components/chat/ChatTranscript";
@@ -100,6 +100,9 @@ export function ChatPage() {
     clearTruncated,
   } = useChatStream();
   const ime = useCompositionGuard();
+  // 流式刚结束时 URL 会从 /chat 变成 /chat/:id；此时消息已在本地，不要再闪 loading。
+  const messagesLatestRef = useRef<ChatMessage[]>([]);
+  useEffect(() => { messagesLatestRef.current = messages; }, [messages]);
   const [draft, setDraft] = useState(() => initialDraft(sessionId, true));
   const [loading, setLoading] = useState(Boolean(sessionId));
   const sending = useChatUiStore((state) => state.sending);
@@ -159,7 +162,7 @@ export function ChatPage() {
       setLoading(false);
       return;
     }
-    setLoading(true);
+    setLoading(messagesLatestRef.current.length === 0);
     void api.session(sessionId)
       .then((session) => {
         if (cancelled) return;
