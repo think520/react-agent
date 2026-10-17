@@ -2,6 +2,10 @@
  * 字体声明（本地打包，无公共 CDN）。
  * 由 main.tsx **动态加载**：字体不参与首屏关键 CSS，首帧用系统回退，
  * 字体就位后由 font-display: swap 接上（阅读长文前会完成）。
+ *
+ * M5 子集化（2026-10-17）：楷体两套 TTF（36.1MB）→ GB2312 子集 woff2（3.83MB，−89%），
+ * 字符集 = 6763 汉字 + 常用标点 + ASCII；生僻字回退到 Noto Serif SC 分片（回退链保留）。
+ * 楷体只在「阅读字体 = 今楷」时被使用，浏览器按需请求，首屏不加载。
  */
 @import "../noto-serif-sc.css";
 
@@ -15,7 +19,7 @@
 
 @font-face {
   font-family: "TsangerJinKai02";
-  src: url("/assets/fonts/kami-reading/TsangerJinKai02-W04.ttf") format("truetype");
+  src: url("/assets/fonts/kami-reading/TsangerJinKai02-W04.woff2") format("woff2");
   font-style: normal;
   font-weight: 400;
   font-display: swap;
@@ -23,7 +27,7 @@
 
 @font-face {
   font-family: "TsangerJinKai02";
-  src: url("/assets/fonts/kami-reading/TsangerJinKai02-W05.ttf") format("truetype");
+  src: url("/assets/fonts/kami-reading/TsangerJinKai02-W05.woff2") format("woff2");
   font-style: normal;
   font-weight: 500;
   font-display: swap;

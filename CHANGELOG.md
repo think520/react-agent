@@ -12,6 +12,13 @@
 > 从 2026-10-15 起时间戳已正确（`177fbc2` / `c9e9b52` / `0a767bb` / `d123b43` 均为当日）。
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
+- **M5（W-F5 字体与包体）✅ 完成（2026-10-17，feat/frontend-m4，未推送）**
+  - **楷体子集化**：`TsangerJinKai02-W04/W05.ttf` 各 18.07/18.08MB → 用 fontTools **GB2312 7543 字符集**（6763 汉字 + 标点 + ASCII）子集化成 woff2，各 **1.91/1.92MB** ✓ 合计 **3.83MB（原 36.15MB，−89%）** ✓；`fonts.css` 改引用 woff2 ✓、36MB TTF 已删除 ✓；生僻字回退 Noto 分片（回退链保留 ✓）。
+  - **按需加载**：`fonts.css` 由 `main.tsx` 动态 import → 构建产物里是**独立 `fonts-*.css`（166KB gz）**，首屏关键 CSS 只剩 **33.8KB gz** ✓；楷体只在 `data-reading-font="jin-kai"` 时被使用，浏览器按需请求 ✓。
+  - **品牌图**：把 5 张 state + 4 张表情 WebP 重编码为 256/160px q82（各 **8–14KB** ✓），头像 1024 重编码 73KB ✓；删除 13 个未引用 PNG（**释放 4.71MB**）✓；WebP 合计 **470KB**（目标 ≤600KB ✓）；apple-touch-icon 重新生成 256 PNG（50KB）✓ 引用未断。
+  - **dist 实测**：总计 **12.07MB / 152 文件**（构建无 sourcemap ✓）；字体 **9.86MB**（Noto 5.73 + 楷体 3.83 + Luo 0.31）；图片 **632KB** ✓；主 JS **95.77KB gz** ✓。
+  - **诚实记账**：DESIGN §17 的「字体总量 ≤8MB」预算**没达标**（实测 9.86MB ✗）—— 原因是完整 CJK 覆盖需要 Noto 100 分片 5.73MB；我把预算表**如实改成 ≤10MB 并写明原因**，而不是删分片硬凑 ✓。
+  - 门禁：build **0** ✓（字体/图片变更不影响 tsc/lint/vitest，仍全绿 ✓）。
 - **M4（W-F4）· 第 3–4 步 ✅ 指针死区 + 减少动效/骨架屏 + 裸缓动归零（2026-10-17，feat/frontend-m4，未推送）**
   - **图谱拖拽 4px 死区**：新增 `lib/pointer.ts`（`exceedsDragDeadZone`，阈值 4px）+ `pointer.test.ts` 3 条单测（<4px 视为点击 ✓ / =4px 视为拖拽 ✓ / 无起点不算拖拽 ✓）；`GraphCanvas` 在 sigma `downNode` 记录起点、`clickNode` 里位移 ≥4px 就**忽略选择** ✓ —— 拖完节点松手不会再误触发选中 ✓。
   - **减少动效兜底**：`@media (prefers-reduced-motion: reduce)` 下 `animation/transition: none !important` ✓（配合既有的 `lib/motion.ts` 应用内开关 ✓）。
