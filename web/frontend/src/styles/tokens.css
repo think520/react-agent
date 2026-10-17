@@ -1,0 +1,100 @@
+/*
+ * 设计令牌（单一来源）。契约测试：src/lib/designTokens.test.ts（token 表 == :root）。
+ * 只放自定义属性与它们的覆盖，不放任何选择器规则。
+ */
+
+:root {
+  /* --- Surfaces: three steps that are actually distinguishable (DESIGN.md §7).
+     Before this the three paper tones differed by 2/255 and read as one surface. */
+  --paper: #f5f4ed;          /* content canvas */
+  --paper-soft: #faf9f5;     /* raised: cards, menus, active rows (Kami ivory) */
+  --paper-sunken: #f0eee6;   /* docked: rails and inset blocks (Kami inline-code tone) */
+  --parchment: var(--paper-sunken);  /* legacy alias, kept for the 5 old call sites */
+
+  --ink: #2e2b27;
+  --muted: #5b544a;          /* secondary text: darker so it survives small sizes */
+  --faint: #71685c;          /* tertiary text: lighter than muted, still >= 4.9:1 on paper */
+  --blue: #1b365d;
+  --blue-soft: #2f4f78;
+  --blue-wash: #e8edf3;
+  --sage: #7a9b76;
+  --sage-wash: #e7ede3;
+  --clay: #b86f4b;
+  --clay-wash: #f3e1d5;
+  --petal-wash: #f6e6e2;
+  --danger: #934d43;
+  --sage-deep: #4f6e4c;
+  --ink-soft: #5c554b;
+  --accent: #1b365d;
+  /* rgb-split triplets for composable transparency (FE-1). Theme switching
+     only flips these (and their hex twins) under a [data-theme] attribute,
+     never through React state. */
+  --accent-rgb: 27, 54, 93;
+  --ink-rgb: 46, 43, 39;
+  --sage-rgb: 122, 155, 118;
+  --clay-rgb: 184, 111, 75;
+
+  /* --- Borders: three weights (DESIGN.md §7). Subtle inside content, border at
+     container edges, strong for inputs and emphasis. */
+  --border-subtle: rgba(46, 43, 39, 0.06);
+  --border: rgba(46, 43, 39, 0.12);
+  --border-strong: rgba(46, 43, 39, 0.2);
+
+  /* --- Elevation: one lift for content, three reserved for overlays. */
+  --shadow-soft: 0 4px 12px rgba(46, 43, 39, 0.04);
+  --shadow-lift: 0 2px 8px rgba(46, 43, 39, 0.07);
+  --shadow-float: 0 16px 40px rgba(46, 43, 39, 0.1);
+  --shadow-dialog: 0 24px 70px rgba(46, 43, 39, 0.18);
+
+  /* --- Radius scale (DESIGN.md §7). */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  /* --- Spacing scale (DESIGN.md §6). Page code takes steps from here, not magic
+     numbers, so density stays consistent across pages. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
+  --sidebar: 252px;
+  --context: 304px;
+  --font-brand: "Luo", "Noto Serif SC", serif;
+  --font-ui: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+  --font-reading: "Noto Serif SC", "Source Han Serif SC", "Songti SC", "STSong", "SimSun", serif;
+  --font-article: "TsangerJinKai02", "Noto Serif SC", "Source Han Serif SC", "Songti SC", serif;
+  --font-mono: ui-monospace, "Cascadia Code", monospace;
+  --body-font-size: 17px;
+  --content-width: 720px;
+
+  /* --- Motion (DESIGN.md §11): two curves, three durations, three springs.
+     Springs are CSS linear() approximations with <= 2% overshoot, paired 1:1
+     with the durations. Only opacity / transform animate; never `transition: all`. */
+  --ease-out: cubic-bezier(.22, 1, .36, 1);
+  --ease-in-out: cubic-bezier(.77, 0, .175, 1);
+  --dur-fast: 120ms;
+  --dur-base: 160ms;
+  --dur-slow: 220ms;
+  --spring-micro: linear(0, 0.52 14%, 0.94 36%, 1);
+  --spring-base: linear(0, 0.26 11%, 0.72 31%, 1.01 54%, 1);
+  --spring-macro: linear(0, 0.16 8%, 0.5 24%, 0.85 44%, 1.01 68%, 1);
+  /* --- 循环/入场动画的专用时长（与三档梯度语义不同，单独命名；值沿用原字面量，零视觉变化）。 */
+  --dur-spin: 900ms;
+  --dur-ink: 1350ms;
+  --dur-ink-soft: 1250ms;
+  --dur-enter: 500ms;
+  --delay-ink-a: -180ms;
+  --delay-ink-b: 180ms;
+
+  color: var(--ink);
+  background: var(--paper);
+  font-family: var(--font-ui);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+

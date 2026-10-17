@@ -11,11 +11,23 @@ import { describe, expect, it } from "vitest";
  */
 
 // vitest 跑在 jsdom 里，import.meta.url 不是 file:，所以用 cwd 定位源码文本。
-const CSS_PATH = resolve(process.cwd(), "src", "styles.css");
+//
+// M1 分层（2026-10-17）后：入口 styles.css 只做 @import 编排，令牌在 styles/tokens.css，
+// 规则在 styles/app.css。契约测试必须读**全部**样式 —— 否则「规则搬了家」会让棘轮静默失效。
+const SRC = resolve(process.cwd(), "src");
+const ENTRY_PATH = resolve(SRC, "styles.css");
+const TOKENS_PATH = resolve(SRC, "styles", "tokens.css");
 const DOC_PATH = resolve(process.cwd(), "..", "..", "docs", "DESIGN.md");
-if (!existsSync(CSS_PATH)) throw new Error("找不到 styles.css");
+if (!existsSync(ENTRY_PATH)) throw new Error("找不到 styles.css");
+if (!existsSync(TOKENS_PATH)) throw new Error("找不到 styles/tokens.css");
 if (!existsSync(DOC_PATH)) throw new Error("找不到 DESIGN.md");
-const cssText = readFileSync(CSS_PATH, "utf8");
+const tokensText = readFileSync(TOKENS_PATH, "utf8");
+const cssText = [
+  readFileSync(ENTRY_PATH, "utf8"),
+  readFileSync(resolve(SRC, "styles", "tokens.css"), "utf8"),
+  readFileSync(resolve(SRC, "styles", "app.css"), "utf8"),
+  readFileSync(resolve(SRC, "styles", "fonts.css"), "utf8"),
+].join("\n");
 const docText = readFileSync(DOC_PATH, "utf8");
 
 function normalize(value: string) {
@@ -62,7 +74,7 @@ const OWNED = [
   "--spring-micro", "--spring-base", "--spring-macro",
 ];
 
-const cssTokens = tokensIn(rootBlock(cssText));
+const cssTokens = tokensIn(rootBlock(tokensText));
 const docTokens = tokensIn(docTokenBlock(docText));
 
 describe("DESIGN.md 与 styles.css 的 token 契约", () => {
@@ -132,12 +144,14 @@ describe("漂移棘轮（只允许变小）", () => {
     expect(offScale).toBeLessThanOrEqual(BUDGET);
   });
 
-  it("过渡里的裸毫秒值数量不超过预算", () => {
-    // 2026-09-14：5；Chat 页批次后：4。时长必须走 var(--dur-*)。
-    const BUDGET = 4;
-    const rootEnd = cssText.indexOf("\n}", cssText.indexOf(":root {"));
-    const body = cssText.slice(rootEnd);
-    const bare = body.split(/\r?\n/).filter(
+  it("过渡/动画里的裸毫秒值必须是 0（时长只能走 var(--dur-*)）", () => {
+    // 2026-09-14：5；Chat 页批次后：4；2026-10-17 M1：**归零**。
+    //
+    // 旧实现用「:root 之后」切片 ✗ —— 把 :root 之前的动画规则漏掉了，棘轮一直是**偏松**的：
+    // 真实裸毫秒是 6 条，预算却只有 4。M1 拆层时暴露出来，已给 6 处动画时长上 token
+    // （--dur-spin / --dur-ink / --dur-ink-soft / --dur-enter，值完全不变）并改为扫描**全部**样式。
+    const BUDGET = 0;
+    const bare = cssText.split(/\r?\n/).filter(
       (line: string) => /transition\s*:|animation\s*:/.test(line) && /\b[0-9]+m?s\b/.test(line),
     ).length;
     expect(bare).toBeLessThanOrEqual(BUDGET);
@@ -170,7 +184,7 @@ function luminance([r, g, b]: [number, number, number]) {
 }
 
 function pendingThemes() {
-  const themes = [{ name: ":root", block: rootBlock(cssText) }];
+  const themes = [{ name: ":root", block: rootBlock(tokensText) }];
   for (const match of cssText.matchAll(/\[data-paper-texture="[a-z]+"\]\s*\{[^}]*\}/g)) {
     themes.push({ name: match[0].split("{")[0].trim(), block: match[0] });
   }
@@ -215,7 +229,7 @@ describe("纸张阶梯（可辨但不突兀）", () => {
  * 显式点名 + 通用兜底 + 本地打包 + 表单控件继承，四条缺一条就会在用户机器上悄悄退化。
  */
 describe("字体契约（W3 F14）", () => {
-  const tokens = tokensIn(rootBlock(cssText));
+  const tokens = tokensIn(rootBlock(tokensText));
 
   it("每个字体栈都以通用族收尾", () => {
     const generics: Record<string, string> = {

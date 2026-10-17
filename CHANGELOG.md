@@ -12,6 +12,13 @@
 > 从 2026-10-15 起时间戳已正确（`177fbc2` / `c9e9b52` / `0a767bb` / `d123b43` 均为当日）。
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
+- **M1 CSS 分层 + 字体延迟加载（2026-10-17，分支 refactor/prepackaging-m1，未推送）**：
+  - `styles.css`（2,229 行）拆为 **入口 6 行** + `styles/tokens.css`（令牌单一来源）+ `styles/app.css`（规则，**保持原相对顺序**）+ `styles/fonts.css`（3 个 @font-face + Noto 分片声明）；规则顺序不变 → **视觉零变化**。
+  - 字体改为**动态 import**（`void import("./styles/fonts.css")`）：打包器切成独立异步 CSS chunk，不参与首屏关键 CSS；首帧用系统回退，字体就位后 `font-display: swap` 接上。
+  - **实测收益**：主 CSS 656.59 kB / **197.77 kB gz → 188.63 kB / 31.64 kB gz（-166 kB gz，-84%）** ✓（预算 ≤120 kB gz ✓）；字体独立 chunk 468.23 kB / 166.01 kB gz（异步 ✓）；主 JS 298.11 kB / 91.76 kB gz 不变（预算 ≤110 ✓）。
+  - **契约测试**：新增 `lib/cssLayers.test.ts`（入口 ≤120 行 / 字体只在 fonts.css 且全本地 URL / 字体必须异步加载 / `:root` 只有一份）；`designTokens.test.ts` 改为读**全部**样式 —— 否则规则搬层会让棘轮静默失效 ✓。同时修掉 F7 的 `.chat-scroll` 断言（改读 app.css ✓）。
+  - **顺手修掉一个旧棘轮欠账**：裸毫秒棘轮用「:root 之后」切片，把 :root 之前的规则漏掉了 —— 真实裸值 **6 条 vs 预算 4 条**，旧测试一直偏松 ✗。已给 6 处动画时长 + 2 处延迟上 token（值完全不变）→ 裸值 **归零** ✓，预算从 4 降到 **0** ✓。
+  - 前端全绿：**47 文件 / 296 passed**、tsc / lint / build 0、mock e2e 15、**live 7**。
 - **SSE 死代码清理（2026-10-17，分支 refactor/prepackaging-m1，未推送）**：`practice` / `learning_update` 两个帧**全仓库没有生产者**（grep 不到任何工具产出这两种 artifact），前端也从未消费 → 删除。
   - 后端 `web/backend/events.py`：artifact 分支只保留 `citation`（有真实生产者：`rag_search` / `web_research`）。
   - 前端：`CHAT_STREAM_EVENT_KINDS` 与 `ChatStreamEvent` union 删除两个成员（F3 的类型级对账强制同步 ✓）；`IGNORED_STREAM_EVENTS` 清空但保留机制（以后真有「收到但不处理」的事件仍必须写明理由）。

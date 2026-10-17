@@ -273,6 +273,7 @@ Chat 内的临时展开面板（学习白纸），不是 Figma / Notion / IDE。
   --content-width: 720px;
   --ease-out: cubic-bezier(.22, 1, .36, 1);
   --ease-in-out: cubic-bezier(.77, 0, .175, 1);
+
   --dur-fast: 120ms;
   --dur-base: 160ms;
   --dur-slow: 220ms;
@@ -554,6 +555,7 @@ TUI 只服务开发与诊断，不做装饰。
 | `--dur-slow` | 220ms | 弹窗、浮层入场 |
 | `--ease-out` | cubic-bezier(.22, 1, .36, 1) | 进入、出现 |
 | `--ease-in-out` | cubic-bezier(.77, 0, .175, 1) | 持续移动 |
+| `--dur-spin` / `--dur-ink` / `--dur-ink-soft` / `--dur-enter` | 900 / 1350 / 1250 / 500ms | 循环与入场动画的专用时长（与三档梯度语义不同，单独命名）；`--delay-ink-a/b` = ∓180ms 用于墨点错峰 |
 
 规则：不写裸 ms、不写第三条贝塞尔、不用起步迟缓的 ease-in。
 
