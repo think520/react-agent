@@ -12,6 +12,11 @@
 > 从 2026-10-15 起时间戳已正确（`177fbc2` / `c9e9b52` / `0a767bb` / `d123b43` 均为当日）。
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
+- **M2 store-lift · 第 4 步（2026-10-17，分支 refactor/prepackaging-m1，未推送）**：`LibraryPage.tsx` **1,201 → 976 行**（累计 1,526 → 976 ✓）。
+  - 抽出 `pages/library/libraryActions.ts`（344 行）：**19 个材料族处理器**（选择 / 概念提取与续跑 / 文件夹增删移动 / 归档恢复 / 整理建议 apply+undo / 文件夹同步 / 提取状态 ✓）整体搬出 ✓，同一套单一 ctx 边界 ✓。
+  - 把 `matchesWikiView` / `wikiViewForType` 两个纯谓词提到 `pages/library/wikiView.ts` ✓（页面与动作层共用 ✓，避免复制 ✗）。
+  - 一遍「提取过界」的返工：首次提取把**派生值 + 一个 useEffect** 也卷进了动作文件 ✗（工厂里不能有 hook ✗）→ 人工剪回组件 ✓；`OrganizationProposal` / `KnowledgeSyncSummary` 的导入位置也逐个校正 ✓。
+  - 验证：前端 **47 文件 / 296 passed** ✓、tsc / lint **0** ✓（含一处同款 react-hooks/refs 误报的局部 disable ✓）。
 - **M2 store-lift · 第 3 步（2026-10-17，分支 refactor/prepackaging-m1，未推送）**：`LibraryPage.tsx` **1,526 → 1,201 行**（−325 ✓，目标 ≤600，还需搬材料族处理器 + 视图层）。
   - 抽出 `pages/library/libraryWikiActions.ts`（447 行）：**19 个 wiki 处理器**（checkWiki / organizeWiki / planWiki / startEstimatedWiki / resumeWikiPlan / continueWikiBatch / applyWikiPlan / recoverWikiPlan / undoWikiPlan / wikiEditor 三件套 / repairPlan 两件套 / 任务重试取消 …）整体搬出 ✓，沿用 ChatPage 验证过的**单一 ctx 边界**（`LibraryWikiContext`，40 字段 ✓），组件解构调用 ✓。
   - 借 openhanako 的 store 语义：ctx 里带 `confirm`（确认对话框）与各 setter ✓；处理器本体原样搬 ✓，只把闭包捕获改成 ctx 字段 ✓。
