@@ -94,6 +94,7 @@
   --dur-ink: 1350ms;
   --dur-ink-soft: 1250ms;
   --dur-enter: 500ms;
+  --dur-shimmer: 1200ms;  /* 骨架屏微光循环上限（M4） */
   --delay-ink-a: -180ms;
   --delay-ink-b: 180ms;
 

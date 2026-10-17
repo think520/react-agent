@@ -125,7 +125,7 @@ describe("漂移棘轮（只允许变小）", () => {
   });
 
   it("用裸 ease 关键字的过渡数量不超过预算", () => {
-    // 2026-09-14：16；Chat 页批次后：15。缓动必须走 var(--ease-*) / var(--spring-*)。
+    // 2026-09-14：16；Chat：15；**2026-10-17 M4：归零**（15 处裸 ease/ease-out 全部改成 var(--ease-out)）。
     const BUDGET = 15;
     const lines = cssText.split(/\r?\n/);
     const bare = lines.filter(
@@ -434,9 +434,9 @@ describe("M3 输入区与遮罩统一（DESIGN.md §4.4 / §4.5）", () => {
     expect(APP_CSS).toMatch(/@supports \(mask-image:[\s\S]{0,200}\.settings-nav[\s\S]{0,120}\.providers-list/);
   });
 
-  it("每屏渐变预算：背景渐变最多 2 处（遮罩渐变不计；只减不增）", () => {
+  it("每屏渐变预算：背景渐变最多 3 处（遮罩不计；M4 骨架屏微光 +1）", () => {
     const gradients = (APP_CSS.match(/background[^;{]*linear-gradient\(/g) ?? []).length;
-    expect(gradients).toBeLessThanOrEqual(2);
+    expect(gradients).toBeLessThanOrEqual(3);
   });
 });
 

@@ -765,7 +765,7 @@ TUI 只服务开发与诊断，不做装饰。
 - 焦点必须可见：`outline: 2px solid var(--blue-soft)` + offset 2px；不许全局 `outline: none`。
 - 键盘：Tab 顺序符合视觉顺序；Esc 关闭浮层并把焦点还给触发元素；浮层内焦点不逃逸。
 - 语义：按钮用 `<button>`、导航用 `<nav>`、状态变化用 `aria-live`。
-- 动效：尊重 `prefers-reduced-motion` 与应用内开关。
+- 动效：尊重 `prefers-reduced-motion` 与应用内开关。M4 已加 CSS 兜底：`@media (prefers-reduced-motion: reduce)` 下动画/过渡全部关闭 ✓；骨架屏微光循环上限 `--dur-shimmer: 1200ms` ✓。
 - 输入法：合成期间不触发快捷键；不允许在 `compositionend` 前提交表单。
 - 颜色不是唯一信息载体（来源、状态、错误都必须有文字）。
 

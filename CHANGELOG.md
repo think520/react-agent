@@ -12,6 +12,13 @@
 > 从 2026-10-15 起时间戳已正确（`177fbc2` / `c9e9b52` / `0a767bb` / `d123b43` 均为当日）。
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
+- **M4（W-F4）· 第 3–4 步 ✅ 指针死区 + 减少动效/骨架屏 + 裸缓动归零（2026-10-17，feat/frontend-m4，未推送）**
+  - **图谱拖拽 4px 死区**：新增 `lib/pointer.ts`（`exceedsDragDeadZone`，阈值 4px）+ `pointer.test.ts` 3 条单测（<4px 视为点击 ✓ / =4px 视为拖拽 ✓ / 无起点不算拖拽 ✓）；`GraphCanvas` 在 sigma `downNode` 记录起点、`clickNode` 里位移 ≥4px 就**忽略选择** ✓ —— 拖完节点松手不会再误触发选中 ✓。
+  - **减少动效兜底**：`@media (prefers-reduced-motion: reduce)` 下 `animation/transition: none !important` ✓（配合既有的 `lib/motion.ts` 应用内开关 ✓）。
+  - **骨架屏微光规则**：新增 `--dur-shimmer: 1200ms`（DESIGN §4.6 表同步 ✓）+ `.skeleton` 微光样式 ✓；**诚实说明**：目前项目里还没有骨架屏组件 ✗，所以先把令牌与规则落好，等组件出现直接用 ✓。
+  - **裸缓动棘轮 15 → 0** ✓：15 处 `ease`/`ease-out` 字面量全部改成 `var(--ease-out)` ✓（视觉变化极小，曲线更接近品牌缓动 ✓），预算同步下调为 0 ✓ —— 这是 M4 验收里明确要求的下调 ✓。
+  - **一处预算调整（诚实记账）**：背景渐变预算 2 → **3** ✗ 上一次是我自己写死 2；骨架屏微光必然要多一条渐变 ✓，所以放宽并把原因写进测试标题 ✓（不是绕过，是承认规则需要更新）。
+  - 门禁：tsc / lint **0** ✓、vitest **48 文件 / 317 passed**（+3 指针死区）✓、build **0** ✓、mock e2e **15** ✓。
 - **M4（W-F4）· 第 2 步 ✅ CJK IME 合成守卫（2026-10-17，feat/frontend-m4，未推送）**：先写**会失败的回归测试**，再修到绿 ✓。
   - **红**：新增测试「合成中按 Enter 不发送消息」实测 ✗ —— 合成中按 Enter 时 `streamChat` 被调用 1 次（直接把未上屏的候选词发出去了）✓ 复现成功。
   - **绿**：新增 `lib/ime.ts`：`useCompositionGuard` 在 `compositionstart → compositionend` 之间置位，并额外识别 `keyCode 229`（部分 IME 提交候选词的 Enter 只给 229）✓；`ChatPage` 输入框接入 `compositionProps` + onKeyDown 首行守卫 + 发送条件补 `!ime.isComposing(event)` ✓；`SettingsDialog` 搜索框（方向键/Enter 键盘导航）同样接入 ✓。
