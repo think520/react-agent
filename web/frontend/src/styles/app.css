@@ -2214,3 +2214,17 @@ mark.reader-anchor-mark {
 .slash-palette, .mention-palette { border: 0; box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-lift); }
 .library-more-menu > div { border: 0; box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-float); }
 .notice { border: 0; box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-float); }
+
+/* ── M3 · 表面阶梯落位（DESIGN.md §4.4）──
+   0 = 停靠栏（纸沉） / 1 = 画布（纸） / 2 = 卡片（纸软 + 发丝边） / 3 = 浮层（纸软 + 外环）。
+   只给关键表面换令牌，不批量替换旧色值。 */
+.page-scroll, .settings-main { background: var(--surface-1); }
+.sidebar { background: var(--surface-0); }
+.context-panel { background: var(--surface-0); }
+.settings-nav { background: var(--surface-0); }
+.library-tree-pane, .document-rail { background: var(--surface-0); }
+.settings-section { border-color: var(--border-subtle); background: var(--surface-2); }
+.ui-modal-panel { background: var(--surface-3); box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-dialog); }
+.slash-palette, .mention-palette { background: var(--surface-3); box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-lift); }
+.library-more-menu > div { background: var(--surface-3); box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-float); }
+.notice { background: var(--surface-3); box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-float); }

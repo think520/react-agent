@@ -367,3 +367,31 @@ describe("M3 浮层发丝边/外环（DESIGN.md §4.5）", () => {
     }
   });
 });
+
+describe("M3 表面阶梯落位（DESIGN.md §4.4）", () => {
+  const mapping: Array<[string, string]> = [
+    [".sidebar", "--surface-0"],
+    [".context-panel", "--surface-0"],
+    [".settings-nav", "--surface-0"],
+    [".library-tree-pane", "--surface-0"],
+    [".document-rail", "--surface-0"],
+    [".settings-section", "--surface-2"],
+    [".ui-modal-panel", "--surface-3"],
+    [".slash-palette", "--surface-3"],
+    [".mention-palette", "--surface-3"],
+    [".library-more-menu > div", "--surface-3"],
+    [".notice", "--surface-3"],
+  ];
+
+  it("关键表面按阶梯使用 --surface-N", () => {
+    for (const [selector, token] of mapping) {
+      expect(lastRuleBody(APP_CSS, selector), selector).toContain("var(" + token + ")");
+    }
+  });
+
+  it("四个表面层都在样式里真实使用（不是只定义不用）", () => {
+    for (const token of ["--surface-0", "--surface-1", "--surface-2", "--surface-3"]) {
+      expect(APP_CSS.includes("var(" + token + ")"), token).toBe(true);
+    }
+  });
+});

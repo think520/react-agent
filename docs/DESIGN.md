@@ -205,6 +205,8 @@ Chat 内的临时展开面板（学习白纸），不是 Figma / Notion / IDE。
 
 **规则**：相邻两层必须能区分（明度差 ≥ 2/255，或靠发丝边区分）；同一屏最多 4 层，超过就是「卡片套卡片」。
 
+**表面落位清单（M3 ✓）**：Surface 0 = `.sidebar` / `.context-panel` / `.settings-nav` / `.library-tree-pane` / `.document-rail`；Surface 1 = `.page-scroll` / `.settings-main`；Surface 2 = `.settings-section`（+ `--border-subtle` 发丝边）；Surface 3 = `.ui-modal-panel` / `.slash-palette` / `.mention-palette` / `.library-more-menu > div` / `.notice`（+ `--ring` 外环 + 阴影档位）。契约测试：`designTokens.test.ts` 的「M3 表面阶梯落位」。
+
 ### 4.5 发丝边与外环 ✅ 已实施（M3，2026-10-17）
 
 硬边框在暖纸底上会显得脏。规则：

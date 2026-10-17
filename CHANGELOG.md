@@ -12,6 +12,12 @@
 > 从 2026-10-15 起时间戳已正确（`177fbc2` / `c9e9b52` / `0a767bb` / `d123b43` 均为当日）。
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
+- **M3（W-F3）· 第 3 步 ✅ 表面阶梯落位（2026-10-17，feat/frontend-m3，未推送）**：把 §4.4 的四层阶梯真正挂到关键表面上，只换令牌、不批量替换旧色值 ✓。
+  - **Surface 0（纸沉）**：`.sidebar` / `.context-panel` / `.settings-nav` / `.library-tree-pane` / `.document-rail` ✓ —— 停靠栏从「透明叠在画布上」变成可辨识的沉一级表面 ✓。
+  - **Surface 1（画布）**：`.page-scroll` / `.settings-main` ✓；**Surface 2（卡片）**：`.settings-section` + `--border-subtle` 发丝边 ✓；**Surface 3（浮层）**：弹窗 / 输入区浮层 / 菜单 / 通知 ✓（同时保留 ring + 阴影档位 ✓）。
+  - 新增 2 条契约测试：① 11 个关键表面必须使用对应 `var(--surface-N)` ✓；② 四层表面都必须在样式里**真实使用**（防「定义了不用」✓）。过程中的一次失败很典型：第一版把 surface 规则追加在 ring 规则之后 ✗ → 「浮层必须含 hairline/ring」的旧契约立刻失败 ✓ —— 于是把 ring/阴影合并进同一规则 ✓，两条契约同时满足 ✓。
+  - DESIGN §4.4 补「表面落位清单」✓；方案 §6 M3 进度更新 ✓。
+  - 门禁：tsc / lint **0** ✓、vitest **47 文件 / 304 passed**（296+4+2+2 ✓）、build **0** ✓、mock e2e **15** ✓。
 - **M3（W-F3）· 第 2 步 ✅ 浮层发丝边/外环（2026-10-17，feat/frontend-m3，未推送）**：把 §4.5 的规则真正落到浮层上。
   - 覆盖 5 个浮层类：``.ui-modal-panel``（所有弹窗）、``.slash-palette`` / ``.mention-palette``（输入区浮层）、``.library-more-menu > div``（更多菜单）、``.notice``（通知卡片）—— 统一改为 `box-shadow: 0 0 0 var(--hairline) var(--ring), <既有阴影档位>` ✓，**删掉硬 rgba 描边** ✓（阴影档位沿用 shadow-dialog / shadow-lift / shadow-float，不新增概念 ✓）。
   - 新增 2 条契约测试：① 五个浮层类必须同时含 `var(--hairline)` 与 `var(--ring)` ✓；② 菜单/通知不得再用 `border: 1px solid rgba(...)` ✓（`lastRuleBody` 取每类最后一条规则，避免被旧规则骗过 ✓）。
