@@ -2279,3 +2279,13 @@ mark.reader-anchor-mark {
    runtime-grid 是 2 列，奇数条状态（RAG 3 条 / 状态与关于 7 条）会留半格空白 ✗
    → 最后一条如果是奇数位，就横跨整行。 */
 .runtime-grid > div:last-child:nth-child(odd) { grid-column: 1 / -1; border-right: 0; padding-right: 0; }
+
+/* ── M4 · 交互物理：按令牌曲线收口（2026-10-17）──
+   按压用 --spring-press；浮层入场用 --spring-pop；抽屉/面板用 --spring-panel；
+   选中/复制反馈用 --spring-accent。曲线在 tokens.css（k/c/m 数值积分 → linear()，过冲 ≤2%）。 */
+.new-chat-button:active, .icon-button:active, .quiet-button:active, .primary-button:active,
+.send-button:active, .settings-nav button:active, .wiki-view-tabs button:active { transition-timing-function: var(--spring-press); }
+@keyframes ui-modal-in { from { opacity: 0; transform: translateY(8px) scale(0.985); } }
+.ui-modal-panel { animation-timing-function: var(--spring-pop); }
+.notice { animation: notice-in var(--dur-base) var(--spring-pop); }
+@keyframes notice-in { from { opacity: 0; transform: translateY(6px) scale(0.99); } }

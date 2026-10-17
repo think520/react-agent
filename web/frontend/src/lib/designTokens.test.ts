@@ -355,9 +355,21 @@ describe("M3 浮层发丝边/外环（DESIGN.md §4.5）", () => {
 
   it("关键浮层都使用 --hairline + --ring 外环", () => {
     for (const selector of overlays) {
-      const body = lastRuleBody(APP_CSS, selector);
-      expect(body, selector).toContain("var(--hairline)");
-      expect(body, selector).toContain("var(--ring)");
+      const bodies: string[] = [];
+      let from = 0;
+      while (true) {
+        const at = APP_CSS.indexOf(selector, from);
+        if (at < 0) break;
+        const brace = APP_CSS.indexOf("{", at);
+        const close = APP_CSS.indexOf("}", at);
+        if (brace < 0) break;
+        if (close >= 0 && close < brace) { from = at + selector.length; continue; }
+        bodies.push(APP_CSS.slice(brace + 1, APP_CSS.indexOf("}", brace)));
+        from = brace;
+      }
+      const joined = bodies.join(" ");
+      expect(joined, selector).toContain("var(--hairline)");
+      expect(joined, selector).toContain("var(--ring)");
     }
   });
 
@@ -444,5 +456,31 @@ describe("M3 组件规格校准（DESIGN.md §16.2）", () => {
       expect(joined, selector).toContain("border-radius: var(--radius-md)");
       expect(joined, selector).not.toMatch(/border-radius: \d+px/);
     }
+  });
+});
+
+describe("M4 弹簧曲线契约（DESIGN.md §11）", () => {
+  const root = tokensIn(rootBlock(tokensText));
+  const springs = ["--spring-press", "--spring-pop", "--spring-panel", "--spring-accent"];
+
+  it("四个物理弹簧都在 :root，且都是 linear() 曲线", () => {
+    for (const name of springs) {
+      const value = root.get(name) ?? "";
+      expect(value.startsWith("linear("), name).toBe(true);
+    }
+  });
+
+  it("曲线过冲 ≤ 2%（超过就压回 1.02）", () => {
+    for (const name of springs) {
+      const value = root.get(name) ?? "";
+      const stops = Array.from(value.matchAll(/([0-9.]+)\s+[0-9]+%/g)).map((m) => Number(m[1]));
+      const peak = Math.max(...stops, 1);
+      expect(peak, name).toBeLessThanOrEqual(1.02 + 1e-9);
+    }
+  });
+
+  it("弹簧曲线真实用在过渡/动画上（不是只定义）", () => {
+    const used = springs.filter((name) => APP_CSS.includes("var(" + name + ")"));
+    expect(used.length).toBeGreaterThanOrEqual(2);
   });
 });
