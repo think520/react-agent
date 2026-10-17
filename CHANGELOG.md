@@ -12,6 +12,10 @@
 > 从 2026-10-15 起时间戳已正确（`177fbc2` / `c9e9b52` / `0a767bb` / `d123b43` 均为当日）。
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
+- **M2 store-lift · 第 3 步（2026-10-17，分支 refactor/prepackaging-m1，未推送）**：`LibraryPage.tsx` **1,526 → 1,201 行**（−325 ✓，目标 ≤600，还需搬材料族处理器 + 视图层）。
+  - 抽出 `pages/library/libraryWikiActions.ts`（447 行）：**19 个 wiki 处理器**（checkWiki / organizeWiki / planWiki / startEstimatedWiki / resumeWikiPlan / continueWikiBatch / applyWikiPlan / recoverWikiPlan / undoWikiPlan / wikiEditor 三件套 / repairPlan 两件套 / 任务重试取消 …）整体搬出 ✓，沿用 ChatPage 验证过的**单一 ctx 边界**（`LibraryWikiContext`，40 字段 ✓），组件解构调用 ✓。
+  - 借 openhanako 的 store 语义：ctx 里带 `confirm`（确认对话框）与各 setter ✓；处理器本体原样搬 ✓，只把闭包捕获改成 ctx 字段 ✓。
+  - 验证：前端 **47 文件 / 296 passed** ✓、tsc / lint **0** ✓。
 - **M2 store-lift · 第 2 步 ✅ ChatPage 达标（2026-10-17，分支 refactor/prepackaging-m1，未推送）**：`ChatPage.tsx` **1,031 → 579 行** ✓（≤600 ✓）。
   - 新增 `pages/chat/chatActions.ts`（663 行）：**「单一 ctx 边界」**的动作层 —— 27 个处理器（send / wiki 族 / web 族 / 练习族 / 设置族 / 交互族 / 引用族）整体搬出组件，依赖折叠成**一个 `ChatActionContext`**（43 个字段，含类型 ✓）✓；组件每帧 `createChatActions(ctx)` 一次并解构 ✓，**调用点一字未改** ✓。
   - 这样绕开了之前两次失败的两个死结：① 不用给每个 hook 写 30+ deps（只有**一个** ctx ✓）；② 不用处理 effect 与处理器的双向依赖（effect 仍留在组件 ✓，actions 是纯函数工厂 ✓）。
