@@ -12,6 +12,11 @@
 > 从 2026-10-15 起时间戳已正确（`177fbc2` / `c9e9b52` / `0a767bb` / `d123b43` 均为当日）。
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
+- **M2 页面拆分 · 第一步：AppShell（2026-10-17，分支 refactor/prepackaging-m1，未推送）**：`AppShell.tsx` 790 → **666 行**（目标 ≤600，还差 66 行，下一步继续）。
+  - `components/shell/LearningContext.tsx`（103 行）：把「学习书桌」右栏内容（回答边界 / 资料范围 / 本轮来源 / 相关知识 / 学习回流）整体抽出，自包含 ✓。
+  - `components/shell/nav.ts`（17 行）：一级导航与页面标题常量。
+  - 只搬代码、不改行为：前端 **47 文件 / 296 passed** ✓、mock e2e **15** ✓、tsc / lint 0 ✓。
+  - **M2 顺序调整并记录**：原计划 AppShell → ChatPage → api → LibraryPage → Settings；实测 AppShell 的 JSX 依赖约 60 个状态值，需要先把逻辑抽成 hook 才能进 ≤600，所以后续把**零 JSX 的 `lib/api.ts`（1,364 行）提前**做完再做 AppShell 的 hook 化 —— 风险优先，不改任何行为。
 - **M1 CSS 分层 + 字体延迟加载（2026-10-17，分支 refactor/prepackaging-m1，未推送）**：
   - `styles.css`（2,229 行）拆为 **入口 6 行** + `styles/tokens.css`（令牌单一来源）+ `styles/app.css`（规则，**保持原相对顺序**）+ `styles/fonts.css`（3 个 @font-face + Noto 分片声明）；规则顺序不变 → **视觉零变化**。
   - 字体改为**动态 import**（`void import("./styles/fonts.css")`）：打包器切成独立异步 CSS chunk，不参与首屏关键 CSS；首帧用系统回退，字体就位后 `font-display: swap` 接上。
