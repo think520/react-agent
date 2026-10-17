@@ -12,6 +12,12 @@
 > 从 2026-10-15 起时间戳已正确（`177fbc2` / `c9e9b52` / `0a767bb` / `d123b43` 均为当日）。
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
+- **设置区重构 S1/5 ✅（2026-10-17，分支 feat/settings-v2，未推送）**：按 openhanako 的 settings 骨架交付**设计系统 + 外壳 + 10 节导航**，行为零变化。
+  - 新增 `web/frontend/src/components/settings/SettingsPrimitives.tsx`：`SettingsPage` / `SettingsHeading` / `SettingsSection` / `SettingsStack` / `SettingsRow` / `SettingsField` / `SettingsToggle` / `SettingsSegmented` / `SettingsFooter`（结构原语，视觉走 Bobodan 令牌 ✓）；
+  - 新增结构类（app.css）：`.settings-page / .settings-stack / .settings-section / -head / -body / -footer`（卡片式分节 ✓ 圆角用 §7 刻度 12px ✓ 未破棘轮 ✓）；
+  - `SettingsDialog`：分节 **7 → 10**（新增「检索与 RAG」「安全与隐私」「实验」占位）；`user→me`、`ai→models` 旧 URL `?settings=` 兼容 ✓；内容统一包进 `SettingsPage` + `SettingsHeading` ✓；
+  - 顺带修一个测试教训：新 CSS 的 `border-radius: 10px` 触发「§7 刻度棘轮」（预算 60），改成 12px ✓（棘轮只允许变小 ✓）。
+  - 门禁：**tsc / lint 0** ✓、vitest **47 文件 / 296 passed** ✓、**build 0** ✓、**mock e2e 15 passed** ✓。
 - **全量门禁通过 + 合并推送（2026-10-17，Round 11/12）**：推送前在分支上跑完整门禁 ✓ ——
   - 后端 **1859 passed** ✓（原 1853 + 供应商目录新增 6 条 ✓）；
   - 前端 **47 文件 / 296 passed** ✓；**tsc / lint / build 全 0** ✓（CSS **31.64 kB gz**、字体异步 **166 kB gz**、JS **91.98 kB gz**）；

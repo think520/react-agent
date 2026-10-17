@@ -70,7 +70,7 @@ web/frontend/src/components/settings/
 
 | 步 | 内容 | 验收 |
 |---|---|---|
-| **S1** | 设计系统（primitives + CSS）+ 外壳重排（header 网格 / nav / 搜索盒 / 内容滚动）+ 10 节导航 | 视觉骨架与 openhanako 对齐；旧 7 节内容先原样挂载（行为不变） |
+| **S1** ✅ | 设计系统（primitives + CSS）+ 外壳重排 + 10 节导航 | **已完成 2026-10-17**：`components/settings/SettingsPrimitives.tsx`（Page/Heading/Section/Stack/Row/Field/Toggle/Segmented/Footer）+ `.settings-section` 等结构类；10 节导航（我与学习/Bobodan/界面与阅读/AI 与模型/检索与 RAG/记忆与数据/Skills/安全与隐私/状态与关于/实验）；旧 7 节内容原样挂载（user→me、ai→models 旧 URL 兼容）；检索/RAG、安全与隐私、实验为占位（S4/S5 接入） |
 | **S2** | 迁移 4 个简单节：我与学习 / Bobodan / 界面与阅读 / 状态与关于 → 用新原语重排 | 每节 ≤300 行；功能零变化 |
 | **S3** | AI 与模型：供应商主从 + 模型区 + 用量台账 + 后台任务模型（只读）+ 删除 `ProviderManagerDialog` | 与 openhanako 供应商页同构；模型元数据扩展 |
 | **S4** | 记忆与数据（去 `MemoryManagerDialog` 弹窗）+ 检索与 RAG 新节 | 弹窗清零；RAG 配置可读可改 |

@@ -12,35 +12,29 @@ import { ModelSelect } from "./ModelSelect";
 import { DropdownSelect } from "./DropdownSelect";
 import { ProviderManagerDialog } from "./ProviderManagerDialog";
 import { Modal, ConfirmDialog } from "../ui/Modal";
+import { SettingsHeading, SettingsPage, SettingsSection, SettingsRow, SettingsSegmented, SettingsToggle } from "./settings/SettingsPrimitives";
 
-type SectionId = "assistant" | "user" | "appearance" | "ai" | "memory" | "skills" | "status";
+type SectionId = "assistant" | "me" | "appearance" | "models" | "rag" | "memory" | "skills" | "security" | "status" | "experiments";
 
 const sections: Array<{ id: SectionId; label: string; icon: typeof Bot; aliases: string }> = [
+  { id: "me", label: "我与学习", icon: CircleUserRound, aliases: "用户 称呼 简介 目标 学习" },
   { id: "assistant", label: "Bobodan", icon: Bot, aliases: "助手 人设 教学 回答 反馈 昵称" },
-  { id: "user", label: "我与学习", icon: CircleUserRound, aliases: "用户 称呼 简介 目标 学习" },
   { id: "appearance", label: "界面与阅读", icon: BookOpenText, aliases: "外观 字体 字号 宽度 纸纹 动效 会话密度" },
-  { id: "ai", label: "AI 与模型", icon: Cpu, aliases: "模型 provider 供应商 连接 deepseek minimax openai" },
+  { id: "models", label: "AI 与模型", icon: Cpu, aliases: "模型 provider 供应商 连接 deepseek minimax openai" },
+  { id: "rag", label: "检索与 RAG", icon: Search, aliases: "检索 搜索 向量 嵌入 embedding hybrid fts 原文 降级" },
   { id: "memory", label: "记忆与数据", icon: Brain, aliases: "记忆 隐私 本地 数据 资料库" },
   { id: "skills", label: "Skills", icon: Wrench, aliases: "技能 命令 能力 skill" },
+  { id: "security", label: "安全与隐私", icon: ShieldCheck, aliases: "安全 隐私 密钥 api key 日志 遥测" },
   { id: "status", label: "状态与关于", icon: Activity, aliases: "状态 后端 索引 版本 连接" },
+  { id: "experiments", label: "实验", icon: Sparkles, aliases: "实验 开关 预览" },
 ];
 
-function SettingRow({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
-  return <div className="setting-row"><span><strong>{label}</strong>{hint && <small>{hint}</small>}</span><div>{children}</div></div>;
-}
+/** 旧版 URL/入口的 section id 兼容（?settings=user / ?settings=ai 仍可用）。 */
+const LEGACY_SECTION_IDS: Record<string, SectionId> = { user: "me", ai: "models" };
 
-function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (value: boolean) => void; label: string }) {
-  return <button type="button" className={`setting-toggle ${checked ? "on" : ""}`} role="switch" aria-checked={checked} aria-label={label} onClick={() => onChange(!checked)}><i /></button>;
-}
-
-function Segmented<T extends string | number>({ value, options, onChange, label }: {
-  value: T;
-  options: Array<{ value: T; label: string }>;
-  onChange: (value: T) => void;
-  label: string;
-}) {
-  return <div className="setting-segmented" role="radiogroup" aria-label={label}>{options.map((option) => <button type="button" role="radio" aria-checked={option.value === value} className={option.value === value ? "active" : ""} key={String(option.value)} onClick={() => onChange(option.value)}>{option.label}</button>)}</div>;
-}
+const SettingRow = SettingsRow;
+const Toggle = SettingsToggle;
+const Segmented = SettingsSegmented;
 
 export function SettingsDialog({
   settings,
@@ -57,7 +51,8 @@ export function SettingsDialog({
   onClose: () => void;
   onSettingsChange: (settings: SettingsSummary) => void;
 }) {
-  const active = sections.some((item) => item.id === section) ? section as SectionId : "assistant";
+  const requested = LEGACY_SECTION_IDS[section] ?? (section as SectionId);
+  const active = sections.some((item) => item.id === requested) ? requested : "assistant";
   const [query, setQuery] = useState("");
   const [searchIndex, setSearchIndex] = useState(0);
   const [preferences, setPreferences] = useState(settings.preferences);
@@ -115,7 +110,7 @@ export function SettingsDialog({
   }, [active, activeLibrary, legacyGraph]);
 
   useEffect(() => {
-    if (active !== "ai") return;
+    if (active !== "models") return;
     setUsage(null);
     void api.llmUsage(usageDays).then(setUsage).catch(() => setUsage(null));
   }, [active, usageDays]);
@@ -217,7 +212,7 @@ export function SettingsDialog({
         <footer><button className="primary-button" disabled={saving} onClick={() => void saveAssistant()}><Check size={15} />保存助手设置</button></footer>
       </section>
     </>;
-    if (active === "user") return <section className="settings-group"><header><h3>你的学习资料</h3><p>用于调整讲解起点，不会作为公开资料或自动写入 Wiki。</p></header>
+    if (active === "me") return <section className="settings-group"><header><h3>你的学习资料</h3><p>用于调整讲解起点，不会作为公开资料或自动写入 Wiki。</p></header>
       <label className="settings-field"><span>怎么称呼你</span><input maxLength={60} value={profile.display_name} onChange={(event) => setProfile({ ...profile, display_name: event.target.value })} /></label>
       <label className="settings-field"><span>个人简介</span><textarea rows={5} maxLength={1000} value={profile.profile} onChange={(event) => setProfile({ ...profile, profile: event.target.value })} placeholder="例如：正在学习计算机基础，熟悉 Python。" /></label>
       <label className="settings-field"><span>长期学习目标</span><textarea rows={4} maxLength={500} value={profile.long_term_goal} onChange={(event) => setProfile({ ...profile, long_term_goal: event.target.value })} /></label>
@@ -235,7 +230,7 @@ export function SettingsDialog({
         <SettingRow label="减少动态效果"><Toggle label="减少动态效果" checked={preferences.appearance.motion === "reduced"} onChange={(value) => void patchPreferences({ appearance: { motion: value ? "reduced" : "system" } })} /></SettingRow>
       </section>
     </>;
-    if (active === "ai") return <>
+    if (active === "models") return <>
       <section className="settings-group"><header><h3>模型与连接</h3><p>API key 在供应商管理中填写，密钥明文保存在本地应用数据目录。</p></header>
         <SettingRow label="默认模型" hint="聊天与未指定任务默认使用"><ModelSelect providers={settings.providers} label="默认模型" value={preferences.ai.default_provider || "default"} onChange={(value) => void patchPreferences({ ai: { default_provider: value } })} includeDefault={false} bordered /></SettingRow>
         <div className="provider-row"><span className={`provider-mark ${settings.providers.some((item) => item.configured) ? "ready" : ""}`}><Cpu size={17} /></span><div><strong>{settings.providers.filter((item) => item.configured).length}/{settings.providers.length} 个供应商已配置</strong><small>管理 API key、模型列表、测试连接与删除</small></div><button className="quiet-button" onClick={() => setProviderManagerOpen(true)}>管理供应商</button></div>
@@ -266,6 +261,21 @@ export function SettingsDialog({
       <section className="settings-boundary"><ShieldCheck size={20} /><div><strong>本地数据边界</strong><p>原始资料只读，设置不会把资料上传到 Bobodan 服务。当前资料库：{activeLibrary?.name || "尚未选择"}。</p></div></section>
     </>;
     if (active === "skills") return <section className="settings-group"><header><h3>Web 安全 Skills</h3><p>这里只显示浏览器运行时能够完整执行的学习技能。</p></header>{settings.skills.length ? settings.skills.map((skill) => <SettingRow key={skill.name} label={skill.name} hint={`${skill.description} · 能力：${skill.capabilities.join("、")} · 来源：${skill.source}`}><Toggle label={`${skill.name} 技能`} checked={preferences.skills.enabled_names.includes(skill.name)} onChange={(value) => { const names = value ? [...preferences.skills.enabled_names, skill.name] : preferences.skills.enabled_names.filter((item) => item !== skill.name); void patchPreferences({ skills: { enabled_names: names } }); }} /></SettingRow>) : <p className="settings-empty">当前没有可用于 Web 的 Skills。</p>}</section>;
+    if (active === "rag") return <SettingsPage tab="rag">
+      <SettingsSection title="检索与 RAG" description="检索模式（hybrid / fts_only / directory_grep）、嵌入后端、降级可见性与术语词汇表。">
+        <p className="text-faint">这一页在 S4 接入后端检索配置。</p>
+      </SettingsSection>
+    </SettingsPage>;
+    if (active === "security") return <SettingsPage tab="security">
+      <SettingsSection title="安全与隐私" description="密钥存储位置、日志与遥测开关、本地优先说明。">
+        <p className="text-faint">这一页在 S5 交付。</p>
+      </SettingsSection>
+    </SettingsPage>;
+    if (active === "experiments") return <SettingsPage tab="experiments">
+      <SettingsSection title="实验" description="实验开关默认全部关闭，打开后也随时可以关回去。">
+        <p className="text-faint">这一页在 S5 交付。</p>
+      </SettingsSection>
+    </SettingsPage>;
     return <section className="settings-group"><header><h3>运行状态</h3><p>只展示普通用户能理解并采取行动的状态。</p></header>{runtimeStatus ? <div className="runtime-grid"><div><Activity /><span><strong>后端</strong><small>连接正常</small></span></div><div><Cpu /><span><strong>AI</strong><small>{runtimeStatus.providers.configured}/{runtimeStatus.providers.available} 已配置</small></span></div><div><Search /><span><strong>联网搜索</strong><small>{runtimeStatus.search.permission === "auto" ? "模型自动" : "每次询问"} · {runtimeStatus.search.default} · {runtimeStatus.search.jina_fallback ? "Jina 后备开启" : "仅直接读取"}</small></span></div><div><Database /><span><strong>资料索引</strong><small>{runtimeStatus.knowledge.state === "ready" ? `${runtimeStatus.knowledge.documents} 份资料` : "等待资料"}</small></span></div><div><Brain /><span><strong>记忆</strong><small>{runtimeStatus.memory.enabled ? "已启用" : "已关闭"}</small></span></div><div><Wrench /><span><strong>Skills</strong><small>{runtimeStatus.skills.enabled}/{runtimeStatus.skills.available} 已启用</small></span></div><div><Gauge /><span><strong>版本</strong><small>{runtimeStatus.version}</small></span></div></div> : <p className="settings-empty">正在读取状态…</p>}</section>;
   }
 
@@ -287,7 +297,7 @@ export function SettingsDialog({
     />}
     <section className="settings-dialog">
       <header className="settings-dialog-header"><button className="settings-back" onClick={onClose} aria-label="返回"><ChevronLeft /></button><strong>设置</strong><h2>{sections.find((item) => item.id === active)?.label}</h2><IconButton label="关闭设置" onClick={onClose}><X /></IconButton></header>
-      <div className="settings-dialog-body"><nav className="settings-nav" aria-label="设置分类"><label className="settings-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (!matches.length) return; if (event.key === "ArrowDown") { event.preventDefault(); setSearchIndex((current) => (current + 1) % matches.length); } else if (event.key === "ArrowUp") { event.preventDefault(); setSearchIndex((current) => (current - 1 + matches.length) % matches.length); } else if (event.key === "Enter") { event.preventDefault(); onSectionChange(matches[Math.min(searchIndex, matches.length - 1)].id); } }} placeholder="搜索设置" />{query && <button onClick={() => setQuery("")} aria-label="清空搜索"><X size={13} /></button>}</label>{matches.map(({ id, label, icon: Icon }, index) => <button ref={active === id ? activeNavRef : undefined} className={`${active === id ? "active" : ""} ${query && searchIndex === index ? "search-active" : ""}`} key={id} onClick={() => onSectionChange(id)}><Icon size={17} /><span>{label}</span>{id === "memory" && Boolean(memoryOverview?.pending_candidate_count) && <i className="settings-nav-badge">{memoryOverview?.pending_candidate_count}</i>}</button>)}</nav><main className="settings-main">{error && <div className="settings-error">{error}</div>}{notice && <div className="settings-notice"><Check size={14} />{notice}</div>}<div className="settings-page-heading"><Sparkles size={16} /><span>Bobodan Settings</span><h2>{sections.find((item) => item.id === active)?.label}</h2></div>{sectionContent()}</main></div>
+      <div className="settings-dialog-body"><nav className="settings-nav" aria-label="设置分类"><label className="settings-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (!matches.length) return; if (event.key === "ArrowDown") { event.preventDefault(); setSearchIndex((current) => (current + 1) % matches.length); } else if (event.key === "ArrowUp") { event.preventDefault(); setSearchIndex((current) => (current - 1 + matches.length) % matches.length); } else if (event.key === "Enter") { event.preventDefault(); onSectionChange(matches[Math.min(searchIndex, matches.length - 1)].id); } }} placeholder="搜索设置" />{query && <button onClick={() => setQuery("")} aria-label="清空搜索"><X size={13} /></button>}</label>{matches.map(({ id, label, icon: Icon }, index) => <button ref={active === id ? activeNavRef : undefined} className={`${active === id ? "active" : ""} ${query && searchIndex === index ? "search-active" : ""}`} key={id} onClick={() => onSectionChange(id)}><Icon size={17} /><span>{label}</span>{id === "memory" && Boolean(memoryOverview?.pending_candidate_count) && <i className="settings-nav-badge">{memoryOverview?.pending_candidate_count}</i>}</button>)}</nav><main className="settings-main">{error && <div className="settings-error">{error}</div>}{notice && <div className="settings-notice"><Check size={14} />{notice}</div>}<SettingsHeading eyebrow="Bobodan Settings" title={sections.find((item) => item.id === active)?.label || ""} /><SettingsPage tab={active}>{sectionContent()}</SettingsPage></main></div>
     </section>
   </Modal>;
 }

@@ -2113,3 +2113,14 @@ mark.reader-anchor-mark {
   font-size: 13px;
   color: var(--muted);
 }
+
+/* ── 设置区 v2（2026-10-17 S1）：Page / Section / Stack 结构类 ── */
+.settings-page { display: flex; flex-direction: column; gap: 22px; }
+.settings-stack { display: flex; flex-direction: column; gap: 14px; }
+.settings-section { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 12px; background: var(--paper); overflow: hidden; }
+.settings-section-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--border); padding: 16px 20px 14px; }
+.settings-section-head h3 { margin: 0; color: var(--ink); font-size: 15px; font-weight: 600; }
+.settings-section-head p { margin: 5px 0 0; max-width: 62ch; color: var(--muted); font-size: 12.5px; line-height: 1.6; }
+.settings-section-body { display: flex; flex-direction: column; gap: 12px; padding: 16px 20px; }
+.settings-section-footer { display: flex; justify-content: flex-end; gap: 8px; border-top: 1px solid var(--border); background: color-mix(in oklab, var(--paper-soft) 70%, var(--paper)); padding: 12px 20px; }
+.settings-section-body .setting-row:first-child { padding-top: 0; }
