@@ -2313,3 +2313,11 @@ mark.reader-anchor-mark {
 .practice-create .practice-mode { margin-bottom: 12px; }
 .practice-create .practice-stepwise { margin: 0 0 12px; }
 .review-objective { margin: 0 0 16px; border: 1px solid var(--border-subtle); border-left: 2px solid var(--clay-wash); border-radius: var(--radius-md); padding: 10px 14px; background: var(--surface-2); color: var(--muted); font-size: 13px; }
+
+/* ── 练习页「逐题生成」：原生 checkbox 与全站开关不一致 ✗（2026-10-17）──
+   改成与设置页同一套轨道+滑块开关，并与上方分段控件左边缘对齐。 */
+.practice-stepwise { display: flex; align-items: flex-start; gap: 10px; margin: 0 0 14px; }
+.practice-stepwise > span { display: grid; gap: 2px; }
+.practice-stepwise strong { color: var(--ink); font-size: 13px; font-weight: 650; }
+.practice-stepwise small { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.practice-stepwise .setting-toggle { flex: 0 0 auto; margin-top: 1px; }

@@ -357,15 +357,20 @@ export function PracticePage() {
             <button type="button" role="tab" aria-selected={mode === "search"} className={mode === "search" ? "active" : ""} onClick={() => { setMode("search"); setWebConsent(null); }}>搜现成的题</button>
           </div>
           {mode === "generate" && (
-            <label className="practice-stepwise">
-              <input
-                type="checkbox"
-                checked={stepwise}
+            <div className="practice-stepwise">
+              <button
+                type="button"
+                role="switch"
+                aria-checked={stepwise}
+                aria-label="逐题生成"
+                className={"setting-toggle " + (stepwise ? "on" : "")}
                 disabled={working}
-                onChange={(event) => setStepwise(event.target.checked)}
-              />
-              <span>逐题生成（每出一道立刻显示，不等整批）</span>
-            </label>
+                onClick={() => setStepwise((value) => !value)}
+              >
+                <i />
+              </button>
+              <span><strong>逐题生成</strong><small>每出一道立刻显示，不等整批</small></span>
+            </div>
           )}
           {stepwise && pipeline.status !== "idle" && (
             <section className="practice-stepwise-live" aria-live="polite">
