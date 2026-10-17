@@ -216,6 +216,8 @@ Chat 内的临时展开面板（学习白纸），不是 Figma / Notion / IDE。
 
 > 说明：`--hairline` / `--ring` 已加入 `:root` 与 §4.6 表（M3 ✓），契约测试见 §16.3 第 8–10 条。2dppx 下 `--hairline` 减半为 `0.5px`（`@media (min-resolution: 2dppx)`）。
 
+**浮层落地清单（M3 ✓）**：`.ui-modal-panel`（所有弹窗）、`.slash-palette` / `.mention-palette`（输入区浮层）、`.library-more-menu > div`（更多菜单）、`.notice`（通知卡片）—— 全部改为 `box-shadow: 0 0 0 var(--hairline) var(--ring), <既有阴影档位>`，不再使用 `border: 1px solid rgba(...)`。契约测试在 `designTokens.test.ts` 的「M3 浮层发丝边/外环」用例里。
+
 ### CSS Tokens
 
 以下代码块必须与 `styles.css` 的 `:root` **逐条一致**（契约测试比对，空格不敏感）：

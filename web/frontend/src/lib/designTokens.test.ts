@@ -338,3 +338,32 @@ describe("M3 视觉技法令牌（DESIGN.md §4.4 / §4.5）", () => {
     }
   });
 });
+
+const APP_CSS = readFileSync(resolve(SRC, "styles", "app.css"), "utf8");
+
+function lastRuleBody(css: string, selector: string): string {
+  const escaped = selector.replace(/[.*+?^{}()|[\]\\$]/g, "\\$&");
+  const re = new RegExp(escaped + "\\s*(?:,[^{]*)?\\{([^}]*)\\}", "g");
+  let last = "";
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(css)) !== null) last = match[1];
+  return last;
+}
+
+describe("M3 浮层发丝边/外环（DESIGN.md §4.5）", () => {
+  const overlays = [".ui-modal-panel", ".slash-palette", ".mention-palette", ".library-more-menu > div", ".notice"];
+
+  it("关键浮层都使用 --hairline + --ring 外环", () => {
+    for (const selector of overlays) {
+      const body = lastRuleBody(APP_CSS, selector);
+      expect(body, selector).toContain("var(--hairline)");
+      expect(body, selector).toContain("var(--ring)");
+    }
+  });
+
+  it("菜单与通知不再使用硬 rgba 描边", () => {
+    for (const selector of [".slash-palette", ".mention-palette", ".library-more-menu > div", ".notice"]) {
+      expect(lastRuleBody(APP_CSS, selector), selector).not.toMatch(/border:\s*1px solid rgba\(/);
+    }
+  });
+});

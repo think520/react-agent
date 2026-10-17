@@ -12,6 +12,11 @@
 > 从 2026-10-15 起时间戳已正确（`177fbc2` / `c9e9b52` / `0a767bb` / `d123b43` 均为当日）。
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
+- **M3（W-F3）· 第 2 步 ✅ 浮层发丝边/外环（2026-10-17，feat/frontend-m3，未推送）**：把 §4.5 的规则真正落到浮层上。
+  - 覆盖 5 个浮层类：``.ui-modal-panel``（所有弹窗）、``.slash-palette`` / ``.mention-palette``（输入区浮层）、``.library-more-menu > div``（更多菜单）、``.notice``（通知卡片）—— 统一改为 `box-shadow: 0 0 0 var(--hairline) var(--ring), <既有阴影档位>` ✓，**删掉硬 rgba 描边** ✓（阴影档位沿用 shadow-dialog / shadow-lift / shadow-float，不新增概念 ✓）。
+  - 新增 2 条契约测试：① 五个浮层类必须同时含 `var(--hairline)` 与 `var(--ring)` ✓；② 菜单/通知不得再用 `border: 1px solid rgba(...)` ✓（`lastRuleBody` 取每类最后一条规则，避免被旧规则骗过 ✓）。
+  - DESIGN §4.5 补「浮层落地清单」✓；方案 §6 M3 进度更新 ✓。
+  - 门禁：tsc / lint **0** ✓、vitest **47 文件 / 302 passed**（296+4+2 ✓）、build **0** ✓、mock e2e **15** ✓。
 - **M3（W-F3 视觉融合）· 第 1 步 ✅ 令牌层（2026-10-17，分支 feat/frontend-m3，未推送）**：把方案 §4.4/§4.5 的技法**变成 `:root` 里的真实令牌**，并且**文档、契约测试、样式同源**。
   - `styles/tokens.css` 新增：**表面阶梯** `--surface-0..3`（分别是 `--paper-sunken/--paper/--paper-soft/--paper-soft`，**只做别名、不新增色值** ✓）、**发丝边** `--hairline: 1px`（2dppx 下 `@media (min-resolution: 2dppx)` 减半为 0.5px ✓）、**外环** `--ring: color-mix(in srgb, var(--ink) 12%, transparent)` ✓、**圆角补充** `--radius-xs/control/panel/pill`（2/10/18/999 ✓ 不动 §7 的 6/8/12/16 棘轮 ✓）、**高度阶梯** `--h-control-sm/–/lg`（28/36/44 ✓）。
   - `docs/DESIGN.md`：§4.4 表面阶梯、§4.5 发丝边从 🟡 → **✅ 已实施** ✓；§4.6 token 表**逐条同步**（契约测试强制 ✓）；§16.2 组件规格表补上**「四态」列**（W-F3 验收要求 100% 列齐 ✓）；§16.3 契约表第 8 条改写 + 新增第 9/10 条 ✓。

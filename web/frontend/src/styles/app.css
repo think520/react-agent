@@ -2207,3 +2207,10 @@ mark.reader-anchor-mark {
 .providers-item.dim { opacity: .72; }
 .providers-detail { min-height: 220px; }
 .providers-presets { display: flex; flex-direction: column; gap: 2px; padding-top: 2px; }
+
+/* ── M3 · 浮层：发丝边 + 外环（DESIGN.md §4.5）──
+   用 --ring 取代硬 rgba 描边；阴影仍用既有档位，不新增概念。 */
+.ui-modal-panel { box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-dialog); }
+.slash-palette, .mention-palette { border: 0; box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-lift); }
+.library-more-menu > div { border: 0; box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-float); }
+.notice { border: 0; box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-float); }
