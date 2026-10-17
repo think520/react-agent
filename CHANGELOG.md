@@ -12,6 +12,13 @@
 > 从 2026-10-15 起时间戳已正确（`177fbc2` / `c9e9b52` / `0a767bb` / `d123b43` 均为当日）。
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
+- **M2 页面拆分 · api.ts 第一步（2026-10-17，分支 refactor/prepackaging-m1，未推送）**：`lib/api.ts` **1,407 → 806 行**（目标 ≤600，还差对象拆分，下一步继续）。
+  - 新增 `lib/api/http.ts`（53 行）：`ApiError` / `ErrorEnvelope` / 库作用域头 / `request` / `json` / `setActiveLibraryId` + 只读的 `getActiveLibraryId`（传输层读它，写入口仍唯一）。
+  - 新增 `lib/api/types.ts`（139 行）：全部 HTTP 契约类型 + `ChatStreamEvent` union 与类型级对账。
+  - 新增 `lib/api/transport.ts`（395 行）：SSE 解析、「流式 chat」、「题目管线」、「原文/资源 URL」等。
+  - `lib/api.ts` 保留为**门面**：再导出全部旧符号（`ApiError` / `ChatStreamEvent*` / `streamChat` / `api` 等），调用方 **零改动** ✓。
+  - 验证：前端 **47 文件 / 296 passed** ✓、tsc / lint / build **0** ✓、行为零变化 ✓。
+  - 说明：生成的导入路径需要逐文件校正（`lib/api/` 深层目录 ✗），并且试过两轮自动修剪未用导入 —— 一次误删了定义处的接口名 ✗，靠 tsc 的「Interface must be given a name」当场发现并修回 ✓。下一轮对象拆分改用**逐块搬运 + 一次性定稿导入**，不再事后大扫。
 - **M2 页面拆分 · AppShell 达标（2026-10-17，分支 refactor/prepackaging-m1，未推送）**：`AppShell.tsx` **790 → 599 行** ✓（≤600 ✓，目标达成）。
   - 抽出 4 个模块：`shell/LearningContext.tsx`（103 行，学习书桌右栏）／`shell/ContextPanel.tsx`（69 行，右栏容器 + ConceptSidebar 切换）／`shell/nav.ts`（17 行，导航与页面标题）／`shell/types.ts`（65 行，`AppOutletContext` + `LibrarySetupOptions`，由 AppShell **re-export** 保持页面调用方零改动 ✓）。
   - 验证：前端 **47 文件 / 296 passed** ✓、mock e2e **15** ✓、tsc / lint / build **0** ✓。
