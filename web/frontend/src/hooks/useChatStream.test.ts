@@ -33,8 +33,6 @@ const SAMPLES: Record<ChatStreamEventKind, ChatStreamEvent> = {
     } as never },
   },
   personalization: { event: "personalization", data: { references: [] } },
-  practice: { event: "practice", data: {} },
-  learning_update: { event: "learning_update", data: {} },
   answer_truncated: { event: "answer_truncated", data: { continuing: false, continues: 2 } },
   run_completed: { event: "run_completed", data: { chat_session_id: "s1", termination_reason: "final_answer" } },
   run_failed: { event: "run_failed", data: { error: { code: "provider_error", message: "boom" } } },

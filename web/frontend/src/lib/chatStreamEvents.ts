@@ -14,8 +14,6 @@ export const CHAT_STREAM_EVENT_KINDS = [
   "citation",
   "chat_artifact",
   "personalization",
-  "practice",
-  "learning_update",
   "answer_truncated",
   "run_completed",
   "run_failed",

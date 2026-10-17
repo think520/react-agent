@@ -12,6 +12,10 @@
 > 从 2026-10-15 起时间戳已正确（`177fbc2` / `c9e9b52` / `0a767bb` / `d123b43` 均为当日）。
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
+- **SSE 死代码清理（2026-10-17，分支 refactor/prepackaging-m1，未推送）**：`practice` / `learning_update` 两个帧**全仓库没有生产者**（grep 不到任何工具产出这两种 artifact），前端也从未消费 → 删除。
+  - 后端 `web/backend/events.py`：artifact 分支只保留 `citation`（有真实生产者：`rag_search` / `web_research`）。
+  - 前端：`CHAT_STREAM_EVENT_KINDS` 与 `ChatStreamEvent` union 删除两个成员（F3 的类型级对账强制同步 ✓）；`IGNORED_STREAM_EVENTS` 清空但保留机制（以后真有「收到但不处理」的事件仍必须写明理由）。
+  - 测试：后端 **+4**（两种死类型不再发帧、`practice_ready` 仍映射成 `chat_artifact`、`citation` 仍发帧）；前端移除两个样本，把「归约不处理的事件状态不变」改用 `run_started` 验证。后端 **1853 passed** / 前端 **296 passed**。
 - **RRF 权重对照实验（2026-10-17）**：针对基线里唯一一条「向量腿弄丢」的用例（`sample.md` 投机解码）跑了 vector weight 1.0 / 0.8 / 0.6 三档：降权能把该条找回（排第 5），但换述 MRR 从 0.660 掉到 0.595~0.623、关键词 MRR 从 1.000 掉到 0.900 → **维持 1.0**。同时查明该用例文件是课程示例资产（`course-2/案例与源码-…/10-rag/docloads/assets/sample.md`），不在笔记目录、UI 按标题显示，所以按文件名找不到。结论与数据记入 `docs/RAG_EVAL.md` §7。
 - **召回评测集（L3 真实库）+ 评测器扩展（2026-10-17，未推送）**：
   - **评测器**：`EvalCase` 增加 `kind`（keyword / paraphrase）与 `source`（generated / human）字段（老用例向后兼容 ✓）；`evaluate` 输出 **按 kind 分组**的 hit@k / MRR；`summarize` 打出分组行；新增 `load_eval_config()` + CLI `--embedding-backend`（对照跑 fts_only 用 —— 以前 CLI 传空 config，会把「配了 provider」误判成「没有 embedding 后端」）。回归 +4 条（新字段/非法 kind/分组报告/配置覆盖），`tests/test_recall_eval.py` **15 passed**。
