@@ -2178,4 +2178,4 @@ mark.reader-anchor-mark {
 
 /* ── 设置区 v2 · S5：设置项级搜索 ── */
 .settings-nav button small { color: var(--muted); font-size: 12px; }
-.settings-search-flash { outline: 2px solid var(--clay); outline-offset: 2px; border-radius: 8px; }
+.settings-search-flash { border-radius: 8px; background: var(--blue-wash); box-shadow: inset 0 0 0 1px rgba(27,54,93,0.18); }

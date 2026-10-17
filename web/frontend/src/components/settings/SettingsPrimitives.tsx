@@ -41,7 +41,7 @@ export function SettingsField({ label, hint, children }: { label: string; hint?:
 }
 
 export function SettingsToggle({ checked, onChange, label }: { checked: boolean; onChange: (value: boolean) => void; label: string }) {
-  return <button type="button" className={`setting-toggle ${checked ? "on" : ""}`} role="switch" aria-checked={checked} aria-label={label} onClick={() => onChange(!checked)}><span /></button>;
+  return <button type="button" className={`setting-toggle ${checked ? "on" : ""}`} role="switch" aria-checked={checked} aria-label={label} onClick={() => onChange(!checked)}><i /></button>;
 }
 
 export function SettingsSegmented<T extends string | number>({ value, options, onChange, label }: {

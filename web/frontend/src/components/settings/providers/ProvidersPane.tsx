@@ -16,7 +16,7 @@ export function ProvidersPane({ providers, onChanged }: {
   onChanged: () => Promise<void> | void;
 }) {
   const [presets, setPresets] = useState<ProviderPreset[]>([]);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(() => providers.find((item) => item.configured)?.name ?? providers[0]?.name ?? null);
   const [editing, setEditing] = useState<ProviderForm | null>(null);
   const [editingName, setEditingName] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
@@ -29,6 +29,12 @@ export function ProvidersPane({ providers, onChanged }: {
   useEffect(() => {
     void api.providerPresets().then((result) => setPresets(result.presets)).catch(() => setPresets([]));
   }, []);
+
+  useEffect(() => {
+    if (selected && providers.some((item) => item.name === selected)) return;
+    const fallback = providers.find((item) => item.configured)?.name ?? providers[0]?.name ?? null;
+    if (fallback) setSelected(fallback);
+  }, [providers, selected]);
 
   const configured = providers.filter((item) => item.configured);
   const unconfigured = providers.filter((item) => !item.configured);
