@@ -110,7 +110,7 @@ v2 **新增两项**：
 | 编号 | 内容 | 状态 |
 |---|---|---|
 | W-F1 | CSS 分层 + 字体延迟加载 | ✅ 已完成（主 CSS 197.77 → 31.64 kB gz） |
-| W-F2 | 页面拆分 | 🟡 **改走 store-lift 路线**（本文 §1）；AppShell ✅ / api.ts ✅ / ChatPage+LibraryPage ⏳ |
+| W-F2 | 页面拆分 | ✅ **完成（2026-10-17）**：AppShell 790→599、api.ts 1,407→19、ChatPage 1,031→**579**、LibraryPage 1,526→**544**、SettingsDialog 289 —— 全部 ≤600 ✓ |
 | W-F3 | 视觉语言融合（令牌/发丝边/遮罩） | 🟡 计划中 |
 | W-F4 | 动效与 IME | 🟡 计划中 |
 | W-F5 | 字体与包体 | 🟡 计划中 |

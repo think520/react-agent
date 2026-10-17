@@ -9,7 +9,7 @@ import { DocumentEditor } from "../components/DocumentEditor";
 
 import type { AppOutletContext } from "../components/AppShell";
 import { createLibraryWikiActions } from "./library/libraryWikiActions";
-import { matchesWikiView } from "./library/wikiView";
+import { matchesWikiView, wikiViewForType } from "./library/wikiView";
 import type {} from "./library/wikiView";
 import { LibraryTreePanel } from "./library/LibraryTreePanel";
 import { LibraryHeader } from "./library/LibraryHeader";
@@ -31,21 +31,9 @@ type WikiView = "knowledge" | "sources" | "notes" | "all";
 
 /** 同步明细里的一组来源（新增 / 移除 / 跳过 …），最多列 20 条。 */
 
-function wikiViewForType(type: DocumentSummary["wiki_type"]): WikiView {
-  if (type === "source") return "sources";
-  if (type === "note") return "notes";
-  return "knowledge";
-}
 
 
 /** E8：进度百分比。收下阶段看文件数，建索引阶段看来源数；总量未知时给 0（不假装有进度）。 */
-function progressPercent(progress: { phase: string; filesDone: number; filesTotal: number; sourcesDone: number; sourcesTotal: number }): number {
-  const [done, total] = progress.phase === "indexing"
-    ? [progress.sourcesDone, progress.sourcesTotal]
-    : [progress.filesDone, progress.filesTotal];
-  if (!total) return 0;
-  return Math.max(0, Math.min(100, Math.round((done / total) * 100)));
-}
 
 export function LibraryPage() {
   const {
@@ -497,7 +485,7 @@ export function LibraryPage() {
               wikiEditorPreview={wikiEditorPreview} wikiEditorSaving={wikiEditorSaving} setWikiPlan={setWikiPlan} setWikiPlanOpen={setWikiPlanOpen}
               setWikiScopeMode={setWikiScopeMode} setWikiGenerationMode={setWikiGenerationMode} setWikiTopic={setWikiTopic} setWikiInstruction={setWikiInstruction}
               setWikiEstimate={setWikiEstimate} setWikiEditor={setWikiEditor} setWikiEditorOpen={setWikiEditorOpen} setWikiEditorPreview={setWikiEditorPreview}
-              progressPercent={progressPercent} selectCollection={selectCollection} selectWikiView={selectWikiView} syncLibraryFolder={syncLibraryFolder}
+              selectCollection={selectCollection} selectWikiView={selectWikiView} syncLibraryFolder={syncLibraryFolder}
               checkWiki={checkWiki} organizeWiki={organizeWiki} applyRepairPlan={applyRepairPlan} draftRepairPlan={draftRepairPlan}
               reviewWikiSemantics={reviewWikiSemantics} retryWikiTask={retryWikiTask} cancelWikiTask={cancelWikiTask} planWiki={planWiki}
               startEstimatedWiki={startEstimatedWiki} resumeWikiPlan={resumeWikiPlan} openWikiProviderSettings={openWikiProviderSettings} continueWikiBatch={continueWikiBatch}

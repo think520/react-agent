@@ -114,7 +114,6 @@ export interface LibraryHeaderProps {
   setWikiEditor: Dispatch<SetStateAction<WikiEditablePage | null>>;
   setWikiEditorOpen: Dispatch<SetStateAction<boolean>>;
   setWikiEditorPreview: Dispatch<SetStateAction<boolean>>;
-  progressPercent: (progress: NonNullable<AppOutletContext["documentImportProgress"]>) => number;
   selectCollection: MaterialActions["selectCollection"];
   selectWikiView: MaterialActions["selectWikiView"];
   syncLibraryFolder: MaterialActions["syncLibraryFolder"];

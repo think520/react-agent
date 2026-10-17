@@ -12,6 +12,12 @@
 > 从 2026-10-15 起时间戳已正确（`177fbc2` / `c9e9b52` / `0a767bb` / `d123b43` 均为当日）。
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
+- **M2 · 自我审查（2026-10-17，Round 10/12）**：分支 **21 个提交**逐项检查 ✓。
+  - **重复定义（已修）**：`wikiViewForType` 在页面与 `library/wikiView.ts` 各有一份 ✗ → 页面改为导入 ✓；`progressPercent` 在页面与 `LibraryHeader` 各一份 ✗ → 删除页面副本与 prop（header 自带 ✓）。
+  - **清理后**：tsc / lint **0** ✓、前端 **296 passed** ✓、build ✓（CSS **31.64 kB gz** 未回退 ✓、JS 91.98 kB gz（+0.84 kB，视图/动作拆分的正常代价 ✓）、字体仍异步 166 kB ✓）。
+  - **契约抽查**：`pinToBottom` / `settleLastMessage` 在 `chatActions` 内的调用点与拆分前一致 ✓；`useChatStream` 的改动只有注释与「已删的两个无生产者事件」✓；`isStaleSeq` 仍在 hook 内（未动 ✓）。
+  - **无调试遗留** ✓（新增代码零 console.log / TODO / FIXME ✓）；`eslint-disable` 新增 **3** 处，均为 react-hooks/refs 的**误报**且写明理由 ✓。
+  - 文档同步：`FRONTEND_OPTIMIZATION.md` §6.1 标注已知债已清零 ✓、`FRONTEND_OPTIMIZATION_V2.md` W-F2 标为完成 ✓。
 - **M2 store-lift · 第 5 步 · 阅读区 ✅ + LibraryPage 达标（2026-10-17，分支 refactor/prepackaging-m1，未推送）**：LibraryPage **762 → 544 行** ✓（≤600 ✓）；新增 pages/library/LibraryReadingArea.tsx（249 行，24 个 props）。
   - 阅读区（Wiki 视图侧栏 + 滚动指示 + 阅读列 + DocumentReader 挂载 + 空态），原 612–765 共 154 行整体搬出 ✓；一次收全 22 个名字 ✓、一次补全 props ✓（沿用修正流程 ✓）。
   - 顺手把 header/tree/reading 三个组件的传参**压缩成多属性一行** ✓（83 行 → ~21 行 ✓），这是最后 60 行的关键 ✓。
