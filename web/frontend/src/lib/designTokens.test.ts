@@ -427,3 +427,22 @@ describe("M3 输入区与遮罩统一（DESIGN.md §4.4 / §4.5）", () => {
     expect(gradients).toBeLessThanOrEqual(2);
   });
 });
+
+describe("M3 组件规格校准（DESIGN.md §16.2）", () => {
+  it("关键组件圆角走令牌，不再写字面量", () => {
+    for (const selector of [".composer", ".settings-dialog", ".notice", ".slash-palette", ".mention-palette", ".settings-search", ".document-search"]) {
+      const bodies: string[] = [];
+      let from = 0;
+      while (true) {
+        const at = APP_CSS.indexOf(selector + " {", from);
+        if (at < 0) break;
+        const close = APP_CSS.indexOf("}", at);
+        bodies.push(APP_CSS.slice(at, close));
+        from = close + 1;
+      }
+      const joined = bodies.join(" ");
+      expect(joined, selector).toContain("border-radius: var(--radius-md)");
+      expect(joined, selector).not.toMatch(/border-radius: \d+px/);
+    }
+  });
+});

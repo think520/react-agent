@@ -12,6 +12,11 @@
 > 从 2026-10-15 起时间戳已正确（`177fbc2` / `c9e9b52` / `0a767bb` / `d123b43` 均为当日）。
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
+- **M3（W-F3）· 第 5 步 ✅ 规格校准 + 关键页实拍验收（2026-10-17，feat/frontend-m3，未推送）**
+  - **组件规格校准**：关键组件圆角**全部令牌化** ✓ —— `.composer` / `.settings-dialog` / `.notice` / `.slash-palette` / `.mention-palette` 的 8px → `var(--radius-md)` ✓；两个搜索框的 **7px（不在 §7 刻度上 ✗）** → 对齐到 8px 令牌 ✓；新增契约测试：这些组件不得再出现 `border-radius: Npx` 字面量 ✓。
+  - **关键页实拍验收**（Playwright，1440×900，真实后端）：Chat 首页 / Library 资料页 / 设置·AI 与模型 / 设置·界面与阅读 ✓ —— 四个页面的表面阶梯、发丝边、开关键盘、输入区外环都符合设计稿 ✓；图存 `web/frontend/test-results/m3/`（临时产物，未入库 ✓）。
+  - 验收观察：设置·AI 页显示「7 个供应商 · 3 已配置」而模板区有 17 个 —— 这是**正确行为** ✓：既有安装的 `provider.json` 有 7 条，catalog 以文件为准 ✓；新增的 10 个以「从模板添加」列出 ✓（不是 bug ✗）。
+  - 门禁：tsc / lint **0** ✓、vitest **47 文件 / 309 passed**（+1 规格契约 ✓）、build **0** ✓、mock e2e **15** ✓。
 - **M3（W-F3）· 第 4 步 ✅ 输入区统一 + 滚动遮罩 + 渐变预算（2026-10-17，feat/frontend-m3，未推送）**
   - **输入区统一**：`.composer` 从「裸 rgba 描边 + 自定义阴影」改成 `Surface 3 + --hairline + --ring + --shadow-lift` ✓（焦点态换 `--shadow-float` ✓）；设置字段背景改 `var(--surface-3)` ✓；设置字段/两个搜索框的焦点色从裸 rgba 改成 `color-mix(in srgb, var(--accent) 35%/18%, transparent)` ✓。
   - **滚动遮罩**：`.settings-nav` / `.providers-list` 加 `mask-image` 上下渐隐 ✓，包在 `@supports (mask-image: linear-gradient(black, transparent))` 里，不支持时**自动降级为无遮罩** ✓。
