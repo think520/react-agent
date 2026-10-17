@@ -294,6 +294,12 @@ export interface ProviderPreset {
   provider_name: string;
   base_url: string;
   api_key_env: string;
+  /** 借自 openhanako：api-key（必须）/ optional（可空）/ none（本地免 key）。 */
+  auth_type?: "api-key" | "optional" | "none";
+  keyless?: boolean;
+  note?: string;
+  model_default?: string;
+  models?: ProviderModel[];
 }
 
 export interface SettingsSummary {

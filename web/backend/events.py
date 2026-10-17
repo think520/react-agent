@@ -89,7 +89,10 @@ def to_web_events(event: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
         })]
         for artifact in event.get("artifacts") or []:
             artifact_type = artifact.get("type")
-            if artifact_type in {"citation", "practice", "learning_update"}:
+            # 2026-10-17 死代码清理：practice / learning_update 这两个类型全仓库没有生产者
+            # （grep 不到任何工具产出它们），前端也从未消费 → 不再转成独立 SSE 帧。
+            # citation 例外：rag_search / web_research 真的会产出它，前端也在用。
+            if artifact_type == "citation":
                 web_events.append((artifact_type, artifact))
             elif artifact_type == "knowledge_context":
                 web_events.append(("chat_artifact", {"artifact": artifact}))

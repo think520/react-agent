@@ -28,21 +28,14 @@ export interface StreamEventHandlers {
 }
 
 /**
- * W3 F3：**明确忽略**的事件。
+ * W3 F3 保留的「明确忽略」机制。
  *
- * 后端在工具结束时会把 `practice` / `learning_update` 这两个 artifact 作为独立帧发出来
- * （见 web/backend/events.py 的 to_web_events）。它们目前**没有消费者**：练习卡走的是
- * `chat_artifact`（practice_ready）那条路，掌握度更新由复习页自己拉队列。
- *
- * 显式列出来（而不是让它们悄悄落进 if 链的空隙）的理由：
- * 1) 删掉服务端这两类帧需要一个单独的决定（可能有别的客户端在用）；
- * 2) 将来若要消费它们，这张表就是入口；
- * 3) hooks/useChatStream.test.ts 会为**每个**事件名逼问一次：改变了状态，还是被明确忽略？
+ * 2026-10-17：原来这里登记了 `practice` / `learning_update` —— 后端没有生产者、前端没有消费者，
+ * 已从服务端适配器（`web/backend/events.py`）和前端 union（`lib/chatStreamEvents.ts`）一并删除。
+ * 保留空表，是为了以后真出现「收到了但决定不处理」的事件时，仍有一个**必须写明理由**的位置
+ * （`hooks/useChatStream.test.ts` 会为每个事件名逼问一次：改变了状态，还是被明确忽略？）。
  */
-export const IGNORED_STREAM_EVENTS: Partial<Record<ChatStreamEventKind, string>> = {
-  practice: "工具结束时发的 practice artifact 帧；练习卡走 chat_artifact(practice_ready)，这类帧暂无消费者（消费或删掉服务端帧是单独的决定）",
-  learning_update: "同上：learning_update artifact 帧；掌握度由复习页自己拉队列，这类帧暂无消费者",
-};
+export const IGNORED_STREAM_EVENTS: Partial<Record<ChatStreamEventKind, string>> = {};
 
 /**
  * 流式聊天界面状态的**适配层**（W3 F1）。

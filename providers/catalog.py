@@ -33,40 +33,46 @@ import json
 import os
 from typing import Any
 
-# 内建模板与 config.yaml 的 llm.providers 保持一致，另加本地 Ollama（免 key）。
 BUILTIN_PRESETS: dict[str, dict[str, Any]] = {
     "deepseek": {
         "type": "deepseek",
         "provider_name": "deepseek",
+        "preset": "deepseek",
         "base_url": "https://api.deepseek.com/v1",
         "api_key_env": "DEEPSEEK_API_KEY",
         "model_default": "deepseek-chat",
-        "models": [{"id": "deepseek-chat", "name": "DeepSeek Chat"}],
+        "models": [{"id": "deepseek-chat", "name": "DeepSeek Chat"}, {"id": "deepseek-reasoner", "name": "DeepSeek Reasoner"}],
+        "auth_type": "api-key",
     },
     "minimax": {
         "type": "minimax",
         "provider_name": "minimax",
+        "preset": "minimax",
         "base_url": "https://api.minimaxi.com/v1",
         "api_key_env": "MINIMAX_API_KEY",
         "model_default": "MiniMax-Text-01",
         "models": [{"id": "MiniMax-Text-01", "name": "MiniMax Text"}],
+        "auth_type": "api-key",
     },
     "openai": {
         "type": "openai",
         "provider_name": "openai",
+        "preset": "openai",
         "base_url": "https://api.openai.com/v1",
         "api_key_env": "OPENAI_API_KEY",
-        "model_default": "gpt-4",
-        "models": [{"id": "gpt-4", "name": "GPT-4"}],
+        "model_default": "gpt-4o-mini",
+        "models": [{"id": "gpt-4o-mini", "name": "GPT-4o mini"}, {"id": "gpt-4o", "name": "GPT-4o"}],
+        "auth_type": "api-key",
     },
     "dashscope": {
         "type": "openai_compatible",
         "provider_name": "dashscope",
-        "preset": "qwen",
+        "preset": "dashscope",
         "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
         "api_key_env": "DASHSCOPE_API_KEY",
         "model_default": "qwen-plus",
-        "models": [{"id": "qwen-plus", "name": "Qwen Plus"}],
+        "models": [{"id": "qwen-plus", "name": "Qwen Plus"}, {"id": "qwen-max", "name": "Qwen Max"}],
+        "auth_type": "api-key",
     },
     "siliconflow": {
         "type": "openai_compatible",
@@ -76,6 +82,7 @@ BUILTIN_PRESETS: dict[str, dict[str, Any]] = {
         "api_key_env": "SILICONFLOW_API_KEY",
         "model_default": "deepseek-ai/DeepSeek-V3",
         "models": [{"id": "deepseek-ai/DeepSeek-V3", "name": "DeepSeek V3"}],
+        "auth_type": "api-key",
     },
     "openrouter": {
         "type": "openai_compatible",
@@ -85,6 +92,91 @@ BUILTIN_PRESETS: dict[str, dict[str, Any]] = {
         "api_key_env": "OPENROUTER_API_KEY",
         "model_default": "deepseek/deepseek-chat",
         "models": [{"id": "deepseek/deepseek-chat", "name": "DeepSeek Chat"}],
+        "auth_type": "api-key",
+    },
+    "kimi": {
+        "type": "openai_compatible",
+        "provider_name": "kimi",
+        "preset": "kimi",
+        "base_url": "https://api.moonshot.cn/v1",
+        "api_key_env": "MOONSHOT_API_KEY",
+        "model_default": "moonshot-v1-8k",
+        "models": [{"id": "moonshot-v1-8k", "name": "Moonshot v1 8K"}, {"id": "moonshot-v1-32k", "name": "Moonshot v1 32K"}],
+        "auth_type": "api-key",
+        "note": "Kimi（Moonshot AI）",
+    },
+    "zhipu": {
+        "type": "openai_compatible",
+        "provider_name": "zhipu",
+        "preset": "zhipu",
+        "base_url": "https://open.bigmodel.cn/api/paas/v4",
+        "api_key_env": "ZHIPUAI_API_KEY",
+        "model_default": "glm-4-flash",
+        "models": [{"id": "glm-4-flash", "name": "GLM-4 Flash"}, {"id": "glm-4-plus", "name": "GLM-4 Plus"}],
+        "auth_type": "api-key",
+        "note": "智谱 GLM",
+    },
+    "gemini": {
+        "type": "openai_compatible",
+        "provider_name": "gemini",
+        "preset": "gemini",
+        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+        "api_key_env": "GEMINI_API_KEY",
+        "model_default": "gemini-2.0-flash",
+        "models": [{"id": "gemini-2.0-flash", "name": "Gemini 2.0 Flash"}, {"id": "gemini-1.5-pro", "name": "Gemini 1.5 Pro"}],
+        "auth_type": "api-key",
+        "note": "Google AI Studio 的 OpenAI 兼容端点",
+    },
+    "xai": {
+        "type": "openai_compatible",
+        "provider_name": "xai",
+        "preset": "xai",
+        "base_url": "https://api.x.ai/v1",
+        "api_key_env": "XAI_API_KEY",
+        "model_default": "grok-3",
+        "models": [{"id": "grok-3", "name": "Grok 3"}, {"id": "grok-3-mini", "name": "Grok 3 mini"}],
+        "auth_type": "api-key",
+        "note": "xAI Grok",
+    },
+    "mistral": {
+        "type": "openai_compatible",
+        "provider_name": "mistral",
+        "preset": "mistral",
+        "base_url": "https://api.mistral.ai/v1",
+        "api_key_env": "MISTRAL_API_KEY",
+        "model_default": "mistral-large-latest",
+        "models": [{"id": "mistral-large-latest", "name": "Mistral Large"}, {"id": "mistral-small-latest", "name": "Mistral Small"}],
+        "auth_type": "api-key",
+    },
+    "groq": {
+        "type": "openai_compatible",
+        "provider_name": "groq",
+        "preset": "groq",
+        "base_url": "https://api.groq.com/openai/v1",
+        "api_key_env": "GROQ_API_KEY",
+        "model_default": "llama-3.3-70b-versatile",
+        "models": [{"id": "llama-3.3-70b-versatile", "name": "Llama 3.3 70B"}],
+        "auth_type": "api-key",
+    },
+    "together": {
+        "type": "openai_compatible",
+        "provider_name": "together",
+        "preset": "together",
+        "base_url": "https://api.together.xyz/v1",
+        "api_key_env": "TOGETHER_API_KEY",
+        "model_default": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+        "models": [{"id": "meta-llama/Llama-3.3-70B-Instruct-Turbo", "name": "Llama 3.3 70B Turbo"}],
+        "auth_type": "api-key",
+    },
+    "nvidia": {
+        "type": "openai_compatible",
+        "provider_name": "nvidia",
+        "preset": "nvidia",
+        "base_url": "https://integrate.api.nvidia.com/v1",
+        "api_key_env": "NVIDIA_API_KEY",
+        "model_default": "deepseek-ai/deepseek-r1",
+        "models": [{"id": "deepseek-ai/deepseek-r1", "name": "DeepSeek R1 (NIM)"}],
+        "auth_type": "api-key",
     },
     "ollama": {
         "type": "openai_compatible",
@@ -94,7 +186,33 @@ BUILTIN_PRESETS: dict[str, dict[str, Any]] = {
         "api_key_env": "",
         "model_default": "",
         "models": [],
-        "keyless": True,  # 本地服务免 key，视为已配置
+        "auth_type": "none",
+        "keyless": True,
+        "note": "本地 Ollama（免 key）",
+    },
+    "lmstudio": {
+        "type": "openai_compatible",
+        "provider_name": "lmstudio",
+        "preset": "lmstudio",
+        "base_url": "http://localhost:1234/v1",
+        "api_key_env": "",
+        "model_default": "",
+        "models": [],
+        "auth_type": "none",
+        "keyless": True,
+        "note": "本地 LM Studio（免 key）",
+    },
+    "vllm": {
+        "type": "openai_compatible",
+        "provider_name": "vllm",
+        "preset": "vllm",
+        "base_url": "http://localhost:8000/v1",
+        "api_key_env": "",
+        "model_default": "",
+        "models": [],
+        "auth_type": "none",
+        "keyless": True,
+        "note": "本地 vLLM（免 key；别和 Bobodan 的 8000 端口冲突）",
     },
 }
 
@@ -123,7 +241,13 @@ def _normalize_provider(name: str, raw: dict[str, Any]) -> dict[str, Any]:
     models = raw.get("models")
     if not models and model:
         models = [{"id": model, "name": model}]
+    # auth_type 语义借自 openhanako：api-key（必须）/ optional（可空）/ none（本地免 key）。
+    keyless = bool(raw.get("keyless"))
+    auth_type = raw.get("auth_type") or ("none" if keyless else "api-key")
+    if auth_type not in {"api-key", "optional", "none"}:
+        auth_type = "api-key"
     entry = {
+        "auth_type": auth_type,
         "type": raw.get("type", "openai_compatible"),
         "provider_name": raw.get("provider_name") or raw.get("preset") or name,
         "base_url": raw.get("base_url", ""),
@@ -211,6 +335,15 @@ def upsert_provider(name: str, entry: dict[str, Any]) -> None:
     api_key 为空且该供应商已存在时保留原 key（编辑表单留空 = 不改密钥）。
     """
     catalog = _ensure_catalog()
+    # 从模板添加时继承模板的 auth_type / keyless / api_key_env —— 否则本地服务
+    # （ollama / lmstudio / vllm）保存一次就会丢掉「免 key」语义。
+    preset = entry.get("preset") or name
+    preset_entry = BUILTIN_PRESETS.get(preset)
+    if preset_entry:
+        merged = dict(preset_entry)
+        merged.update({key: value for key, value in entry.items() if value not in (None, "")})
+        merged.setdefault("preset", preset)
+        entry = merged
     normalized = _normalize_provider(name, entry)
     existing = catalog["providers"].get(name)
     if existing and not normalized.get("api_key"):

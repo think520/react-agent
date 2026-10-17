@@ -289,14 +289,42 @@
 | 阶段 | 内容 | 交付 | 预估 | 提交粒度 |
 |---|---|---|---|---|
 | **M0** | 基线快照 | 本文档 + 门禁数字 | 已完成 | 1 |
-| **M1** | W-F1 CSS 分层 | 分层 css + 入口 ≤120 行 + 2 条契约 | 1–2 天 | 1 |
-| **M2** | W-F2 页面拆分 | AppShell → ChatPage → api → LibraryPage → Settings | 2–3 天 | 每文件/每页面 1 |
+| **M1** | W-F1 CSS 分层 | ✅ **已完成（2026-10-17，提交 15ebc16 之后的 M1 提交）**：入口 6 行 + tokens/app/fonts 三层；字体异步 chunk；**主 CSS 197.77 → 31.64 kB gz（-84%）**；新增 cssLayers 契约 4 条；裸毫秒棘轮归零（预算 4 → 0） | 1–2 天 | 1 |
+| **M2** | W-F2 页面拆分 | ✅ **达标（2026-10-17）**：AppShell 790→**599**；api.ts 1,407→**19**（9 子模块 ≤600）；SettingsDialog 289；**ChatPage 1,031→579**、**LibraryPage 1,526→544**（store-lift：单一 ctx 边界 + 分块视图抽取）。全部 ≤600 ✓，行为零变化 ✓ | 2–3 天 + 手工 | 22 |
 | **M3** | W-F3 视觉融合 | 令牌扩展 + 规格表 + 关键页对比 | 2–3 天 | 每技法 1 |
 | **M4** | W-F4 动效/IME | 弹簧 token + IME 守卫 + 死区 | 1–2 天 | 每项 1 |
 | **M5** | W-F5 字体/包体 | 子集化 + 按需加载 + 图片优化 | 1–2 天 | 每资源 1 |
 | **M6** | 打包前验收 | 五层验收报告 + 打包清单 | 1 天 | 1 |
 
 **总计**：约 **8–13 个工作日**（按半天为一个可提交单元）。每阶段结束必须过五层验收，否则不进下一阶段。
+
+---
+
+
+### 6.1 M2 验收结论（2026-10-17，按**两档验收**收口 → 当日已全部达标）
+
+用户选择「两档验收」：能机械、低风险拆完的记为**已达标**；逻辑层交织、手工成本超过剩余时间窗的记为**已知债**并给出后续方案。依据：两次脚本化尝试（扁平抽 hook / container-hook-view）都因「deps 声明 ≈ 搬出收益」与「effect 块边界不可靠」失败，均已整体回退并记账（见 CHANGELOG 2026-10-17 两条）。
+
+| 档 | 文件 | 前 → 后 | 说明 |
+|---|---|---|---|
+| ✅ 达标 | `components/AppShell.tsx` | 790 → **599** | 抽出 `shell/LearningContext`（103）/ `shell/ContextPanel`（69）/ `shell/nav`（17）/ `shell/types`（65），类型经 AppShell re-export，调用方零改动 |
+| ✅ 达标 | `lib/api.ts` 门面 | 1,407 → **19** | `api/http`（53）/ `api/types`（136）/ `api/transport`（395）/ `api/endpoints/{library 227, practice 225, workspace 200, wiki 133, chat 63}` —— **全部 ≤600** |
+| ✅ 达标 | `components/SettingsDialog.tsx` | 289 → 289 | 原本已在 600 以内 |
+| 🟡 已知债 | `pages/ChatPage.tsx` | 1,185 → **1,031** | 已抽 `pages/chat/chatPrimitives`（137，纯原语/工具）；剩余为「状态 + effect + 处理器 + JSX」交织层 |
+| 🟡 已知债 | `pages/LibraryPage.tsx` | 1,461 → 1,461 | 未动；与 ChatPage 同类结构 |
+
+**已知债的后续方案（手工协议，不脚本切分）**：
+
+> **更新（2026-10-17）**：手工协议仍是兜底 ✓，但**推荐路线已改为「store 化 + actions 无闭包」**（借鉴 openhanako）—— 见 [«FRONTEND_OPTIMIZATION_V2.md»](./FRONTEND_OPTIMIZATION_V2.md) §1：把状态搬进 zustand slice、处理器搬成模块级 action，可彻底消掉「依赖清单」这笔过路费 ✓。
+
+1. **先视图层**：把 JSX 区（composer 约 106 行、transcript 约 42 行、welcome 约 21 行、artifactSurface 约 62 行）抽成组件 —— JSX 边界清楚，tsc 可校验，属性清单约 40 项（这是抽取成本的来源，必须接受）。
+2. **再处理器族**：wiki 族（约 140 行）/ web 族（约 74）/ 交互族（约 90）/ 练习与设置族（约 92）各自抽 hook —— 每族依赖 8–12 项，用 `ReturnType<typeof useChatState>` 推导类型。
+3. **每步只做一块**：搬 → tsc → 跑该页测试 → 再搬下一块；不跨块合并提交。
+4. ChatPage 预计 3–4 轮、LibraryPage 3–4 轮（每轮一个可回滚提交）。
+
+> **更新（2026-10-17 晚）**：两档验收的「已知债」已通过 **store-lift** 全部清零 ✓ —— ChatPage **579**、LibraryPage **544**（均 ≤600 ✓）；方法与过程见 [「FRONTEND_OPTIMIZATION_V2.md」](./FRONTEND_OPTIMIZATION_V2.md) §1 与 CHANGELOG 的 1–5 步记录 ✓。以下内容保留为历史过程记录。
+
+**门禁证据（2026-10-17 实跑）**：后端 **1,853 passed** ｜ 前端 **47 文件 / 296 passed** ｜ tsc / lint / build **0** ｜ mock e2e **15** ｜ **live 7**（真实后端）。
 
 ---
 
@@ -322,7 +350,7 @@
 | 指标 | 预算 | 测量 |
 |---|---|---|
 | 主 JS | ≤ 110 kB gz | `npm run build` 输出 |
-| 关键 CSS（不含字体 face） | ≤ 120 kB gz | 同上 |
+| 关键 CSS（不含字体 face） | ≤ 120 kB gz | **31.64 kB gz ✅（M1 后；字体另为异步 chunk 166.01 kB gz）** | `npm run build` 输出 |
 | 首屏字体 | ≤ 1 MB | dist 统计 + 网络瀑布 |
 | 首屏图片 | ≤ 600 kB | dist 统计 |
 | 阅读器额外字体 | ≤ 6 MB | dist 统计 |

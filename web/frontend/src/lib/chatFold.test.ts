@@ -26,7 +26,8 @@ function pending(): ChatStreamState {
 }
 
 function frame(event: ChatStreamEvent["event"], data: Record<string, unknown>, meta: Record<string, unknown> = {}) {
-  return { kind: "stream" as const, event: { event, data: { ...data, ...meta } } as ChatStreamEvent };
+  // 测试夹具：故意允许任意 payload，所以先过 unknown（union 收紧后不能再直接断言）。
+  return { kind: "stream" as const, event: { event, data: { ...data, ...meta } } as unknown as ChatStreamEvent };
 }
 
 describe("foldChatStream：基本过渡", () => {
@@ -106,9 +107,11 @@ describe("foldChatStream：基本过渡", () => {
     expect(stopped.messages[0].stopped).toBe(true);
   });
 
-  it("明确忽略的事件不改变状态（连对象都不换，避免多余渲染）", () => {
+  it("归约不处理的事件不改状态（连对象都不换，避免多余渲染）", () => {
+    // 2026-10-17：practice / learning_update 已从事件表删除（死代码清理）；
+    // 这里改用另一个「归约本身不改变状态」的事件（run_started 只由调用方处理副作用）。
     const before = pending();
-    const after = foldChatStream(before, frame("learning_update", {}));
+    const after = foldChatStream(before, frame("run_started", { run_id: "r", chat_session_id: "s" }));
 
     expect(after).toBe(before);
   });

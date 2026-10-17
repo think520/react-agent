@@ -171,7 +171,8 @@ describe("useStickyBottomScroll（W3 F7）", () => {
   });
 
   it("聊天滚动容器关掉浏览器自带的滚动锚定", () => {
-    const css = readFileSync(resolve(process.cwd(), "src", "styles.css"), "utf8");
+    // M1 分层后规则在 styles/app.css（styles.css 只剩 @import 编排）。
+    const css = readFileSync(resolve(process.cwd(), "src", "styles", "app.css"), "utf8");
     const start = css.indexOf(".chat-scroll {");
     expect(start).toBeGreaterThan(-1);
     const rule = css.slice(start, css.indexOf("}", start));

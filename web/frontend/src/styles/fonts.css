@@ -1,0 +1,30 @@
+/*
+ * 字体声明（本地打包，无公共 CDN）。
+ * 由 main.tsx **动态加载**：字体不参与首屏关键 CSS，首帧用系统回退，
+ * 字体就位后由 font-display: swap 接上（阅读长文前会完成）。
+ */
+@import "../noto-serif-sc.css";
+
+@font-face {
+  font-family: "Luo";
+  src: url("/assets/fonts/Luo-Regular.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "TsangerJinKai02";
+  src: url("/assets/fonts/kami-reading/TsangerJinKai02-W04.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "TsangerJinKai02";
+  src: url("/assets/fonts/kami-reading/TsangerJinKai02-W05.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+}

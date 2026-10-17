@@ -168,6 +168,11 @@ def provider_presets() -> dict:
                 "provider_name": raw.get("provider_name", name),
                 "base_url": raw.get("base_url", ""),
                 "api_key_env": raw.get("api_key_env", ""),
+                "model_default": raw.get("model_default", ""),
+                "models": raw.get("models", []),
+                "auth_type": raw.get("auth_type", "api-key"),
+                "keyless": bool(raw.get("keyless")),
+                "note": raw.get("note", ""),
             }
             for name, raw in sorted(BUILTIN_PRESETS.items())
         ],

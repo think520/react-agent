@@ -51,3 +51,45 @@ def test_a_plain_delta_is_unchanged():
     assert to_web_events({"type": "assistant_delta", "content": "答案。"}) == [
         ("message_delta", {"content": "答案。"})
     ]
+
+
+# --- 死代码清理（2026-10-17）：practice / learning_update 帧没有生产者，不该再发
+
+def _tool_end_with_artifact(artifact: dict) -> dict:
+    return {
+        "type": "tool_end",
+        "tool_name": "question_generate",
+        "ok": True,
+        "elapsed": 0.1,
+        "artifacts": [artifact],
+    }
+
+
+def test_practice_typed_artifacts_do_not_emit_a_frame():
+    # 全仓库没有任何工具会产出 type=practice 的 artifact；以前这里会把它当独立 SSE 帧发出去，
+    # 前端也没有消费者 → 死代码。现在必须什么都不发（只剩 status 帧）。
+    events = to_web_events(_tool_end_with_artifact({"type": "practice", "artifact_id": "p1"}))
+
+    assert [name for name, _ in events] == ["status"], events
+
+
+def test_learning_update_typed_artifacts_do_not_emit_a_frame():
+    events = to_web_events(_tool_end_with_artifact({"type": "learning_update", "artifact_id": "l1"}))
+
+    assert [name for name, _ in events] == ["status"], events
+
+
+def test_practice_ready_still_arrives_as_a_chat_artifact():
+    # 练习卡走的是这条路（practice_ready → chat_artifact），删掉两个死帧不能碰它。
+    events = to_web_events(_tool_end_with_artifact({"type": "practice_ready", "artifact_id": "ready-1"}))
+
+    assert [name for name, _ in events] == ["status", "chat_artifact"], events
+    assert events[1][1]["artifact"]["artifact_id"] == "ready-1"
+
+
+def test_citation_artifact_still_emits_its_own_frame():
+    # citation 有真实生产者（rag_search / web_research），必须保留。
+    events = to_web_events(_tool_end_with_artifact({"type": "citation", "sources": []}))
+
+    assert [name for name, _ in events] == ["status", "citation"], events
+

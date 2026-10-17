@@ -1,209 +1,29 @@
-import { readerLocation } from "../lib/documentLinks";
 import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  BookOpen,
-  ChevronLeft,
-  FileText,
-  Keyboard,
-  Library,
-  Map,
-  Menu,
-  MessageCircle,
-  NotebookPen,
-  PanelLeft,
-  PanelRight,
-  PenLine,
-  Plus,
-  Settings,
-  Sparkles,
-  X,
-} from "lucide-react";
+import { ChevronLeft, Keyboard, Menu, PanelLeft, PanelRight, Plus, Settings } from "lucide-react";
 import { NavLink, Outlet, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { api, setActiveLibraryId } from "../lib/api";
-import type { ImportBatchResult } from "../lib/api";
 import { clearImportReport, emptyDocumentImport } from "../lib/importState";
 import type { DocumentImportState } from "../lib/importState";
 import { errorCodeOf } from "../lib/errorHints";
 import { useImportRun } from "../hooks/useImportRun";
-import type { ImportRunProgress } from "../hooks/useImportRun";
 import { toErrorMessage } from "../lib/errors";
 import { describeDocumentImport } from "../lib/importSummary";
 import { notifyError } from "../stores/noticeStore";
 import { useUiStore } from "../stores/uiStore";
 import type { Attribution, ChatSessionSummary, DocumentSummary, KnowledgeContext, LibraryMigrationPreview, LibrarySummary, ReviewQueue, SettingsSummary } from "../types";
-import { groupAttributionSources, IconButton, textValue } from "./common";
+import { IconButton } from "./common";
 import { OnboardingDialog } from "./OnboardingDialog";
 import { ShortcutsDialog } from "./ShortcutsDialog";
-import { LibrarySetupDialog, type LibrarySetupMode } from "./LibrarySetupDialog";
+import { LibrarySetupDialog } from "./LibrarySetupDialog";
 import { SettingsDialog, SettingsUnavailableDialog } from "./SettingsDialog";
-import { ConceptSidebar } from "./ConceptSidebar";
 import { SessionRail } from "./SessionRail";
 import { NoticeCenter } from "./NoticeCenter";
+import { navItems, pageMeta } from "./shell/nav";
+import { ContextPanel } from "./shell/ContextPanel";
 
-export interface LibrarySetupOptions {
-  initialMode?: LibrarySetupMode;
-  importCount?: number;
-}
-
-export interface AppOutletContext {
-  sessions: ChatSessionSummary[];
-  settings: SettingsSummary | null;
-  refreshSettings: () => Promise<SettingsSummary | null>;
-  refreshSessions: () => Promise<void>;
-  openContext: () => void;
-  conceptDetailId: string | null;
-  openConceptDetail: (conceptId: string) => void;
-  closeConceptDetail: () => void;
-  showKnowledgeContext: (context: KnowledgeContext) => void;
-  receiveKnowledgeContext: (context: KnowledgeContext) => void;
-  clearKnowledgeContext: () => void;
-  showSourceContext: (attribution: Attribution) => void;
-  documents: DocumentSummary[];
-  selectedDocumentIds: string[];
-  selectedDocuments: DocumentSummary[];
-  toggleDocumentScope: (documentId: string) => void;
-  setDocumentScope: (documentIds: string[]) => void;
-  clearDocumentScope: () => void;
-  libraries: LibrarySummary[];
-  activeLibrary: LibrarySummary | null;
-  openLibrarySetup: (options?: LibrarySetupOptions) => void;
-  createLibrary: (name: string, parentPath: string) => Promise<LibrarySummary>;
-  switchLibrary: (libraryId: string) => Promise<void>;
-  startDocumentImport: () => void;
-  documentImporting: boolean;
-  documentImportNotice: string;
-  documentImportError: string;
-  documentImportDuplicateCount: number;
-  importDuplicatesAsCopies: () => void;
-  documentImportVersion: number;
-  /** E8：本次导入的**逐文件**结果（失败清单 UI 用），null 表示还没有结果。 */
-  documentImportResults: ImportBatchResult[] | null;
-  /** W1 E1：这次导入失败的结构化错误码（界面据此给"下一步"）。 */
-  documentImportErrorCode: string;
-  /** E8：运行中的进度（null = 没有正在跑的导入）。 */
-  documentImportProgress: ImportRunProgress | null;
-  /** E8：取消正在跑的导入（协作式：文件边界生效，已收下的保持收下）。 */
-  cancelDocumentImport: () => void;
-  /** E8：拖拽进来的文件走同一条导入通道（没有资料库时先引导新建并记住文件）。 */
-  importDroppedFiles: (files: File[]) => void;
-  /** 还留着原文件对象时才为 true —— 不给假的"重试"按钮。 */
-  documentImportCanRetry: boolean;
-  retryFailedImports: () => void;
-  dismissImportReport: () => void;
-  libraryReady: boolean;
-}
-
-const navItems = [
-  { to: "/chat", label: "对话", icon: MessageCircle },
-  { to: "/practice", label: "练习", icon: PenLine },
-  { to: "/review", label: "复习", icon: BookOpen },
-  { to: "/knowledge-map", label: "知识地图", icon: Map },
-  { to: "/notes", label: "笔记", icon: NotebookPen },
-  { to: "/library", label: "资料库", icon: Library },
-];
-
-const pageMeta: Record<string, [string, string]> = {
-  chat: ["学习对话", "今天想学什么？"],
-  practice: ["主动练习", "用题目检验理解"],
-  review: ["今日复习", "把薄弱点慢慢练熟"],
-  library: ["本地资料", "你的学习材料"],
-  "knowledge-map": ["知识地图", "概念关系一览"],
-};
-
-function LearningContext({
-  documents,
-  review,
-  selectedDocumentIds,
-  toggleDocumentScope,
-  knowledgeContext,
-  sourceContext,
-  onOpenConcept,
-  onOpenMap,
-}: {
-  documents: DocumentSummary[];
-  review: ReviewQueue | null;
-  selectedDocumentIds: string[];
-  toggleDocumentScope: (documentId: string) => void;
-  knowledgeContext: KnowledgeContext | null;
-  sourceContext: Attribution | null;
-  onOpenConcept: (conceptId: string) => void;
-  onOpenMap: (conceptId: string) => void;
-}) {
-  const [tab, setTab] = useState<"sources" | "learning">("sources");
-  const due = review?.due_concepts.length || 0;
-  const weak = review?.weaknesses.length || 0;
-  return (
-    <div className="context-content">
-      <div className="context-tabs" role="tablist" aria-label="学习书桌视图">
-        <button className={tab === "sources" ? "active" : ""} role="tab" aria-selected={tab === "sources"} onClick={() => setTab("sources")}>资料</button>
-        <button className={tab === "learning" ? "active" : ""} role="tab" aria-selected={tab === "learning"} onClick={() => setTab("learning")}>学习</button>
-      </div>
-      {tab === "sources" ? <>
-        <section className="context-section">
-          <div className="context-heading"><Sparkles size={16} />回答边界</div>
-          <p className="context-copy">优先使用本地资料；网页来源、AI 补充和待核实内容会分别标注。</p>
-        </section>
-        <section className="context-section">
-          <div className="context-heading"><Library size={16} />当前资料范围</div>
-          {documents.length ? <div className="context-list">{documents.slice(0, 5).map((document) => (
-            <button className={`context-document scope-document ${selectedDocumentIds.includes(document.document_id) ? "selected" : ""}`} key={document.document_id} onClick={() => toggleDocumentScope(document.document_id)}>
-              <span className="document-icon"><FileText size={15} /></span>
-              <span><strong>{document.title || document.source}</strong><small>{document.course || document.kind || "本地资料"}</small></span>
-              <i aria-hidden="true" />
-            </button>
-          ))}</div> : <div className="context-empty-action"><p className="context-empty">还没有导入资料。</p><NavLink to="/library" className="text-link">导入第一份资料</NavLink></div>}
-          {documents.length > 5 && <NavLink to="/library" className="text-link context-library-link">在资料库中选择更多</NavLink>}
-        </section>
-        {sourceContext && <section className="context-section response-sources">
-          <div className="context-heading"><FileText size={16} />本轮回答来源</div>
-          <div className="context-source-list">
-            {groupAttributionSources(sourceContext.sources).map((group) => {
-              return <details className="context-source-group" key={group.key}>
-                <summary><strong>{group.title}</strong><small>命中 {group.sources.length} 处</small></summary>
-                <div>{group.sources.map((source, index) => <section key={source.source_id || index}>
-                  <small>{source.heading || (source.page ? `第 ${source.page} 页` : source.slide ? `第 ${source.slide} 页` : "原文片段")}</small>
-                  {source.excerpt && <p>{source.excerpt}</p>}
-                  {source.document_id && <NavLink className="text-link" to={readerLocation(source) ?? "/library"}>打开原文</NavLink>}
-                </section>)}</div>
-              </details>;
-            })}
-            {!sourceContext.sources.length && <p className="context-empty">资料库中没有找到直接依据。</p>}
-          </div>
-        </section>}
-        {knowledgeContext && <section className="context-section related-knowledge">
-          <div className="context-heading"><Map size={16} />相关知识</div>
-          <div className="context-relation-list">
-            {(knowledgeContext.relationships || []).slice(0, 6).map((relation) => <div className="context-relation" key={relation.rel_id}>
-              <button type="button" onClick={() => onOpenConcept(relation.from_id)}>{relation.from_name}</button>
-              <span>{relation.rel_type}</span>
-              <button type="button" onClick={() => onOpenConcept(relation.to_id)}>{relation.to_name}</button>
-              {relation.evidence_status !== "valid" && <small>{relation.evidence_status === "stale" ? "来源已变化" : "暂无原文证据"}</small>}
-            </div>)}
-            {!(knowledgeContext.relationships || []).length && knowledgeContext.concepts.slice(0, 6).map((concept) => <button className="context-concept" type="button" key={concept.concept_id} onClick={() => onOpenConcept(concept.concept_id)}>{concept.name}</button>)}
-          </div>
-          {knowledgeContext.concepts[0] && <button className="text-link" type="button" onClick={() => onOpenMap(knowledgeContext.root?.concept_id || knowledgeContext.concepts[0].concept_id)}>在知识地图查看</button>}
-        </section>}
-      </> : <>
-        <section className="context-section">
-          <div className="context-heading"><BookOpen size={16} />学习回流</div>
-          <div className="context-metrics">
-            <div><strong>{due}</strong><span>到期概念</span></div>
-            <div><strong>{weak}</strong><span>薄弱点</span></div>
-          </div>
-          <NavLink to="/review" className="text-link">查看今日复习</NavLink>
-        </section>
-        <section className="context-section">
-          <div className="context-heading"><PenLine size={16} />接下来</div>
-          <div className="context-next-list">
-            {(review?.due_concepts || []).slice(0, 3).map((item, index) => <div key={index}><span>{index + 1}</span><strong>{textValue(item, ["concept", "title", "name"], "待复习知识点")}</strong></div>)}
-            {!due && <p className="context-empty">今天没有到期内容，可以开始一轮新练习。</p>}
-          </div>
-        </section>
-      </>}
-    </div>
-  );
-}
+import type { AppOutletContext } from "./shell/types";
+export type { AppOutletContext, LibrarySetupOptions } from "./shell/types";
 
 export function AppShell() {
   const location = useLocation();
@@ -665,6 +485,24 @@ export function AppShell() {
     [documents, selectedDocumentIds],
   );
 
+  const contextPanelView = {
+    contextOpen,
+    conceptDetailId,
+    desktop,
+    rightAutoCollapsed,
+    setPreview,
+    setContextOpen,
+    setConceptDetailId,
+    openConceptDetail,
+    documents,
+    review,
+    selectedDocumentIds,
+    toggleDocumentScope,
+    knowledgeContext,
+    sourceContext,
+    openMapForConcept: (conceptId: string) => navigate("/knowledge-map", { state: { focusConceptId: conceptId } }),
+  };
+
   return (
     <div className={`app-shell ${leftOpen ? "" : "left-collapsed"} ${rightOpen ? "" : "right-collapsed"} ${leftPreview ? "left-preview" : ""} ${rightPreview ? "right-preview" : ""}`}>
       <aside className={`sidebar ${sidebarOpen ? "open" : ""}`} aria-label="主导航" onMouseEnter={() => schedulePreview("left", true)} onMouseLeave={() => schedulePreview("left", false)}>
@@ -751,41 +589,7 @@ export function AppShell() {
           libraryReady: initialDataLoaded,
         } satisfies AppOutletContext} />
       </main>
-
-      <aside className={`context-panel ${contextOpen ? "open" : ""}`} aria-label="学习上下文">
-        <div className="context-header">
-          <strong>{conceptDetailId ? "概念详情" : "学习书桌"}</strong>
-          <IconButton
-            label={conceptDetailId ? "返回学习书桌" : "关闭上下文"}
-            onClick={() => conceptDetailId
-              ? setConceptDetailId(null)
-              : desktop && rightAutoCollapsed
-                ? setPreview("right", false)
-                : setContextOpen(false)}
-          ><X /></IconButton>
-        </div>
-        {conceptDetailId ? (
-          <ConceptSidebar
-            embedded
-            conceptId={conceptDetailId}
-            onClose={() => setConceptDetailId(null)}
-            onNavigateConcept={openConceptDetail}
-            onConceptUpdated={() => useUiStore.getState().bumpGraphRevision()}
-          />
-        ) : (
-          <LearningContext
-            documents={documents}
-            review={review}
-            selectedDocumentIds={selectedDocumentIds}
-            toggleDocumentScope={toggleDocumentScope}
-            knowledgeContext={knowledgeContext}
-            sourceContext={sourceContext}
-            onOpenConcept={openConceptDetail}
-            onOpenMap={(conceptId) => navigate("/knowledge-map", { state: { focusConceptId: conceptId } })}
-          />
-        )}
-      </aside>
-
+      <ContextPanel view={contextPanelView} />
       {!leftOpen && <div className="panel-hover-edge left" onMouseEnter={() => schedulePreview("left", true)} onMouseLeave={() => schedulePreview("left", false)} />}
 
       <nav className="mobile-nav" aria-label="移动端主导航">

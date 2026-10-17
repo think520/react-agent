@@ -12,6 +12,107 @@
 > 从 2026-10-15 起时间戳已正确（`177fbc2` / `c9e9b52` / `0a767bb` / `d123b43` 均为当日）。
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
+- **全量门禁通过 + 合并推送（2026-10-17，Round 11/12）**：推送前在分支上跑完整门禁 ✓ ——
+  - 后端 **1859 passed** ✓（原 1853 + 供应商目录新增 6 条 ✓）；
+  - 前端 **47 文件 / 296 passed** ✓；**tsc / lint / build 全 0** ✓（CSS **31.64 kB gz**、字体异步 **166 kB gz**、JS **91.98 kB gz**）；
+  - **mock e2e 15 passed** ✓、**live e2e 7 passed** ✓（真实后端 ✓）。
+  - 合并方式：`git merge --no-ff` 进 main ✓ + 推送 origin ✓。
+- **M2 · 自我审查（2026-10-17，Round 10/12）**：分支 **21 个提交**逐项检查 ✓。
+  - **重复定义（已修）**：`wikiViewForType` 在页面与 `library/wikiView.ts` 各有一份 ✗ → 页面改为导入 ✓；`progressPercent` 在页面与 `LibraryHeader` 各一份 ✗ → 删除页面副本与 prop（header 自带 ✓）。
+  - **清理后**：tsc / lint **0** ✓、前端 **296 passed** ✓、build ✓（CSS **31.64 kB gz** 未回退 ✓、JS 91.98 kB gz（+0.84 kB，视图/动作拆分的正常代价 ✓）、字体仍异步 166 kB ✓）。
+  - **契约抽查**：`pinToBottom` / `settleLastMessage` 在 `chatActions` 内的调用点与拆分前一致 ✓；`useChatStream` 的改动只有注释与「已删的两个无生产者事件」✓；`isStaleSeq` 仍在 hook 内（未动 ✓）。
+  - **无调试遗留** ✓（新增代码零 console.log / TODO / FIXME ✓）；`eslint-disable` 新增 **3** 处，均为 react-hooks/refs 的**误报**且写明理由 ✓。
+  - 文档同步：`FRONTEND_OPTIMIZATION.md` §6.1 标注已知债已清零 ✓、`FRONTEND_OPTIMIZATION_V2.md` W-F2 标为完成 ✓。
+- **M2 store-lift · 第 5 步 · 阅读区 ✅ + LibraryPage 达标（2026-10-17，分支 refactor/prepackaging-m1，未推送）**：LibraryPage **762 → 544 行** ✓（≤600 ✓）；新增 pages/library/LibraryReadingArea.tsx（249 行，24 个 props）。
+  - 阅读区（Wiki 视图侧栏 + 滚动指示 + 阅读列 + DocumentReader 挂载 + 空态），原 612–765 共 154 行整体搬出 ✓；一次收全 22 个名字 ✓、一次补全 props ✓（沿用修正流程 ✓）。
+  - 顺手把 header/tree/reading 三个组件的传参**压缩成多属性一行** ✓（83 行 → ~21 行 ✓），这是最后 60 行的关键 ✓。
+  - **M2 至此两页全部达标**：ChatPage 579 ✓、LibraryPage 544 ✓；tsc / lint **0** ✓、前端 **47 文件 / 296 passed** ✓。
+- **M2 store-lift · 第 5 步 · 头部区 ✅（2026-10-17，分支 refactor/prepackaging-m1，未推送）**：LibraryPage **893 → 762 行**；新增 pages/library/LibraryHeader.tsx（426 行，83 个 props）。
+  - 头部区（工具栏 / 更多菜单 / 同步行 / Wiki 计划卡 / 健康摘要 / 页面编辑器 / 导入进度与报告，原 495–698 共 204 行）整块搬出 ✓；修正流程一次成功 ✓：先修导入（路径 + 多行去重）→ 一次 tsc 收全 82 个名字 → 一次补全 props → 收尾 ✓。
+  - 两个小类型按真实来源修正 ✓：DocumentImportProgress 用 AppOutletContext 的字段类型 ✓、progressPercent 用 NonNullable ✓；SyncSourceList / progressPercent 两个小工具复制进面板 ✓。
+  - 验证：前端 **47 文件 / 296 passed** ✓、tsc / lint **0** ✓。
+- **M2 store-lift · 第 5 步 · 头部区提取：回退（2026-10-17）**：尝试把 LibraryPage 头部区（495–698，204 行：工具栏/同步行/Wiki 计划卡/健康摘要/编辑器/导入进度）搬成 `LibraryHeader` ✗ —— 首次边界检测错误（`end=0` 把文件切坏 ✗，已回退重来 ✓），重来后依赖面暴露为 **60+ 个名字** ✗，而逐轮 tsc 补 props 的方式**不收敛** ✗（每修一批导入又露出下一批 ✗）。已整体回退 ✓：LibraryPage **893 行**、tsc 0、页面测试 13 passed ✓、工作区干净 ✓。
+  - **流程修正（下轮执行）**：像树栏那样 → ① 先一次性修好**导入路径 + 去重** ✓；② 一次 tsc **收全**缺失名（而不是边补边看 ✗）；③ 一次补全 props **接口 + 解构 + 页面传参** ✓；④ 再跑一次 tsc/lint/测试 ✓。头部分块预计还需 1 轮、剩余视图区 1–2 轮。
+- **M2 store-lift · 第 5 步 · 视图层第一块（2026-10-17，分支 refactor/prepackaging-m1，未推送）**：`LibraryPage.tsx` **978 → 893 行**；新增 `pages/library/LibraryTreePanel.tsx`（183 行）。
+  - 左侧文件树栏（文件夹树 / 原文命中 / 整理建议入口，原 712–824 行 113 行）整块搬出 ✓；面板**只渲染**，24 个 props（树、查询、命中、选中、5 个文件夹动作、整理建议状态与动作、归档）由页面传入 ✓。
+  - 采用**分块搬**（上一轮整块 JSX 失败的修正 ✓）：每块独立编译 + 测试 + 一个提交 ✓。
+  - 验证：前端 **47 文件 / 296 passed** ✓、tsc / lint **0** ✓。
+- **M2 store-lift · 第 5 步尝试（LibraryPage 视图层）：回退（2026-10-17）**：尝试把 LibraryPage 的整块 JSX（516 行）一次搬成 `LibraryPageBody` —— 目标是 976 → ~530 ✓，但**两轮文件手术都切坏了** ✗（先取错 `return (§ 边界（抓到辅助组件的），再在补 props 阶段被「重复导入 / 缺动作族 / 多一个 `}`」连环绊倒 ✗）。已**整体回退** ✓：LibraryPage 978 行、tsc 0、页面测试 13 passed ✓、工作区干净 ✓。
+  - **教训（与 ChatPage 的对比）**：ChatPage 成功是因为处理器是**连续块** ✓、且边界多次核对 ✓；整块 JSX 提取要一次性搬 500+ 行 + 60 个 props ✗，中间任何一步错都要重来 ✗ → 下一轮改为**分块手工搬**（先文件树栏 ~130 行 ✓ → Wiki 面板 ✓ → 整理/归档面板 ✓），每块独立编译 + 测试 ✓，不再一次搬整块。
+- **M2 store-lift · 第 4 步（2026-10-17，分支 refactor/prepackaging-m1，未推送）**：`LibraryPage.tsx` **1,201 → 976 行**（累计 1,526 → 976 ✓）。
+  - 抽出 `pages/library/libraryActions.ts`（344 行）：**19 个材料族处理器**（选择 / 概念提取与续跑 / 文件夹增删移动 / 归档恢复 / 整理建议 apply+undo / 文件夹同步 / 提取状态 ✓）整体搬出 ✓，同一套单一 ctx 边界 ✓。
+  - 把 `matchesWikiView` / `wikiViewForType` 两个纯谓词提到 `pages/library/wikiView.ts` ✓（页面与动作层共用 ✓，避免复制 ✗）。
+  - 一遍「提取过界」的返工：首次提取把**派生值 + 一个 useEffect** 也卷进了动作文件 ✗（工厂里不能有 hook ✗）→ 人工剪回组件 ✓；`OrganizationProposal` / `KnowledgeSyncSummary` 的导入位置也逐个校正 ✓。
+  - 验证：前端 **47 文件 / 296 passed** ✓、tsc / lint **0** ✓（含一处同款 react-hooks/refs 误报的局部 disable ✓）。
+- **M2 store-lift · 第 3 步（2026-10-17，分支 refactor/prepackaging-m1，未推送）**：`LibraryPage.tsx` **1,526 → 1,201 行**（−325 ✓，目标 ≤600，还需搬材料族处理器 + 视图层）。
+  - 抽出 `pages/library/libraryWikiActions.ts`（447 行）：**19 个 wiki 处理器**（checkWiki / organizeWiki / planWiki / startEstimatedWiki / resumeWikiPlan / continueWikiBatch / applyWikiPlan / recoverWikiPlan / undoWikiPlan / wikiEditor 三件套 / repairPlan 两件套 / 任务重试取消 …）整体搬出 ✓，沿用 ChatPage 验证过的**单一 ctx 边界**（`LibraryWikiContext`，40 字段 ✓），组件解构调用 ✓。
+  - 借 openhanako 的 store 语义：ctx 里带 `confirm`（确认对话框）与各 setter ✓；处理器本体原样搬 ✓，只把闭包捕获改成 ctx 字段 ✓。
+  - 验证：前端 **47 文件 / 296 passed** ✓、tsc / lint **0** ✓。
+- **M2 store-lift · 第 2 步 ✅ ChatPage 达标（2026-10-17，分支 refactor/prepackaging-m1，未推送）**：`ChatPage.tsx` **1,031 → 579 行** ✓（≤600 ✓）。
+  - 新增 `pages/chat/chatActions.ts`（663 行）：**「单一 ctx 边界」**的动作层 —— 27 个处理器（send / wiki 族 / web 族 / 练习族 / 设置族 / 交互族 / 引用族）整体搬出组件，依赖折叠成**一个 `ChatActionContext`**（43 个字段，含类型 ✓）✓；组件每帧 `createChatActions(ctx)` 一次并解构 ✓，**调用点一字未改** ✓。
+  - 这样绕开了之前两次失败的两个死结：① 不用给每个 hook 写 30+ deps（只有**一个** ctx ✓）；② 不用处理 effect 与处理器的双向依赖（effect 仍留在组件 ✓，actions 是纯函数工厂 ✓）。
+  - 一个**误报**：react-hooks v7 的 `refs` 规则把「把 ref 对象交给纯工厂」判成 render 期访问 ✗ —— 加了一行带理由的局部 disable ✓（`factory only stores the refs; .current is read inside handlers` ✓）。
+  - 验证：前端 **47 文件 / 296 passed** ✓、tsc / lint **0** ✓、ChatPage 5 条测试 ✓。
+- **M2 store-lift · 第 1 步（2026-10-17，分支 refactor/prepackaging-m1，未推送）**：新建 `web/frontend/src/stores/chatStore.ts`（69 行）—— 借鉴 openhanako 的 store 约定：状态放 zustand ✓、读写用**模块级 setter** ✓（`setSending` / `setReferences` / `setWebSelections` … 12 个），组件只订阅字段 ✓。
+  - ChatPage 的 **12 个 UI 字段**从 `useState` 迁到 store（sending / practiceStarting / error / paletteIndex / paletteDismissed / wikiPlanLoading / references / webOnce / webSelections / mentionTab / mentionIndex / mentionDismissed ✓），调用点**一字未改** ✓。
+  - 为「actions 无闭包」铺路：后续 `chatActions` 直接 `useChatStore.getState()/setState()`，不再往 hook 里传 30+ 依赖 ✓（这是 v2 方案对 M2 两次失败的根因修正 ✓）。
+  - 测试：**+1 处 setup 修复** —— zustand 是模块级状态，前一个测试的 `sending: true` 会泄漏到下一个 ✗（ChatPage 等一个永远不会来的流 ⏳）→ 在 `src/test/setup.ts` 加 `beforeEach(resetChatUiState)` ✓。前端 **47 文件 / 296 passed** ✓、tsc/lint **0** ✓。
+- **供应商目录扩容（参照 openhanako，2026-10-17，分支 refactor/prepackaging-m1，未推送）**：内置模板 **7 → 17 个** ✓ —— 新增 kimi（Moonshot）/ zhipu（GLM）/ gemini（Google AI Studio 兼容端点）/ xai（Grok）/ mistral / groq / together / nvidia（NIM）/ lmstudio / vllm；保留 deepseek / minimax / openai / dashscope / siliconflow / openrouter / ollama ✓。
+  - **借 openhanako 的 `auth_type` 语义**：`api-key`（必须）/ `optional`（可空）/ `none`（本地免 key）✓ —— 由 `_normalize_provider` 推导（keyless → none ✓，未知值回落 api-key ✓）；`upsert_provider` 从模板继承 auth_type/keyless/api_key_env（本地服务保存一次不会丢「免 key」✓）。
+  - **UI**：模板行显示备注（如「本地 Ollama（免 key）」✓）、从模板添加时带入默认模型与模型列表 ✓、本地服务显示「API Key（本地服务可留空）」✓、保存时保留模板的 `type`（deepseek/minimax/openai 不再退化成 openai_compatible ✓）。
+  - **测试**：`tests/test_provider_catalog.py` **+6 条**（预设覆盖 ✓ / auth_type 声明 ✓ / 规整推导 ✓ / 模板继承 ✓ / 显式 key 覆盖 ✓ / presets 端点暴露 auth 元数据 ✓）→ 该文件 **20 passed** ✓；`-k "provider or settings"` **100 passed** ✓；前端 **296 passed**、tsc/lint **0** ✓。
+- **前端优化借鉴方案 v2（2026-10-17，docs-only，未推送）**：新增 `docs/FRONTEND_OPTIMIZATION_V2.md` —— 结合两个参考仓库给出下一版方案，并**回答 M2 未解决的问题**。
+  - 参考仓库已更新：`openhanako-reference` 从 `1d3ef308` 拉到 **`9a6cabf8`**（新增提交是 CI/docs ✓ 不影响前端结构结论）。
+  - **分工结论**：openhanako = **架构范式**（826 文件 / 146,282 行；`zustand slices + actions` 约 50 个 store 文件；`components/chat/` 40+ 区域组件；`data-theme` 主题系统；暖纸主题）；open-claude-ui = **视觉技法**（令牌矩阵/弹簧常数/四态，v1 已吸收）。
+  - **关键发现（解我上一轮卡点）**：openhanako **自己也用 2,209 行的 `InputArea.tsx`** ✗ —— 它不靠「切小文件」，而靠`store 化 + actions 无闭包`：它的 `session-actions.ts` 头部写明「所有函数直接操作 Zustand store，不依赖 ctx 注入，不持有闭包状态」✓。这样处理器**不再需要依赖清单** ✓、也没有双向依赖 ✓ → 正是 ChatPage 两次失败（34 个 deps / effect 反向调用）的解法 ✓。
+  - 方案给出 ChatPage/LibraryPage 的**迁移路线**：`chatSlice → chatActions（按族搬：web/wiki/交互/练习设置/send）→ effect 迁移 → 组件改 selector`，每步一个提交 + 该页测试 + tsc ✓；目标 **ChatPage 1,031→≤400、LibraryPage 1,461→≤400** ✓。另列 7 项可借鉴项与 3 项不借鉴项（超大文件/超大 CSS module/store 里显式 any ✗）。
+- **M2 验收收口（两档，2026-10-17，分支 refactor/prepackaging-m1，未推送）**：按用户选择的**两档验收**记录 M2 结论（详见 `docs/FRONTEND_OPTIMIZATION.md` §6.1）。
+  - **✅ 达标**：`AppShell` **790 → 599**；`lib/api.ts` 门面 **1,407 → 19**（http 53 / types 136 / transport 395 / endpoints 共 848，**全部 ≤600**）；`SettingsDialog` 289（原本已达标）。
+  - **🟡 已知债**：`ChatPage` **1,185 → 1,031**（已抽 `chatPrimitives` 137 行）；`LibraryPage` 1,461 未动。两页是「状态+effect+处理器+JSX」交织结构，抽取成本（约 40 项依赖声明）≈ 收益，且脚本切分两次失败（effect 块边界不可靠）→ 改为**手工逐块协议**，预计每页 3–4 轮，已写进方案 §6.1。
+  - **门禁证据（实跑）**：后端 **1,853 passed** ｜ 前端 **47 文件 / 296 passed** ｜ tsc / lint / build **0** ｜ mock e2e **15** ｜ **live 7**。
+  - **分支**：`refactor/prepackaging-m1` 共 **9 个提交**，工作区干净，未推送 ✓。
+- **M2 · ChatPage 三层拆分：第二次失败与结论（2026-10-17，分支 refactor/prepackaging-m1，未推送）**：按修正后的 container/hook/view 重做，仍败在**脚本切分边界** —— 用括号平衡找 `useEffect` 块时，回调里嵌套的 `setState(...)` 与 `[deps]` 数组让 8 个 effect 的边界错位 ✗，两次生成都出现「缺 `}` / 多 `}`」✗（tsc 当场拦下 ✓，均已整体回退 ✓，工作区干净、ChatPage 1,031 行、tsc 0、5 条 ChatPage 测试通过 ✓）。
+  - **结论（重要）**：ChatPage / LibraryPage 这类「状态 + effect + 处理器 + JSX 高度交织」的组件**不能用脚本做行级切分** ✗ —— 必须**手工、逐块**重构（搬一块 → tsc → 跑该页测试 → 再搬下一块）。
+  - 已把 M2 的剩余部分标为「需要手工重构」，并把验收口径写成两条可选路径（见本轮报告）：① 按手工协议做完 ≤600；② 先做「视图层抽取」把能机械拆的 JSX 拆出去，逻辑层保留并记录为已知债。
+- **M2 · ChatPage 第二步：方案调整（2026-10-17，分支 refactor/prepackaging-m1，未推送）**：原计划把动作处理器整块抽成 `useChatActions(deps)` —— 实测**依赖面 34 个**（refs / state setter / 流式回调 / 导航 / 设置……），deps 的声明 + 传参约 70 行，**大于**搬出后的收益 ✗，而且「deps 未用导入」还触发了一串隐式 any ✗。已**整体回退**（`git checkout`；工作区干净、tsc 0、未提交半成品 ✓），避免一个更差的中间态。
+  - **修正方向（下一轮执行）**：改为 **container / hook / view 三层** —— 把「状态 + 副作用 + 处理器」整体移进 `useChatPage`（用 `ReturnType<typeof useChatState>` 让第二个 hook 的类型**自动推导**，不手写 34 个 deps），ChatPage 只留组合与 JSX（预计 ≤200 行）。
+  - 本轮**没有代码提交**：净效果是「一个错误方向的负结论 + 干净的工作区」，比留一个更难维护的中间态好。
+- **M2 页面拆分 · ChatPage 第一步（2026-10-17，分支 refactor/prepackaging-m1，未推送）**：`ChatPage.tsx` **1,185 → 1,031 行**（目标 ≤600，还需抽动作处理器 hook，下一步继续）。
+  - 新增 `pages/chat/chatPrimitives.tsx`（137 行）：纯展示原语与工具函数（`BobodanProcess` / `PersonalizationChip` / `RunSummary` / `initialDraft` / `SliderItem 与命令表`），只接收 props、不放状态 ✓。
+  - 验证：前端 **47 文件 / 296 passed** ✓、tsc / lint **0** ✓、mock e2e **15** ✓。
+  - 说明：ChatPage 的剩余体积集中在`动作处理器`（约 680 行：发送/流式接线、Web 同意流、Wiki 计划流、练习准备、设置变更、交互回答等）——这些闭包共享大量状态，下一步按「artifact 动作族」整体抽成一个 hook（约 −430 行），并逐项核对 F1 的 `applyEvent` 与 F7 的 `pinToBottom` 契约不被搬坏。
+- **M2 页面拆分 · api.ts 达标（2026-10-17，分支 refactor/prepackaging-m1，未推送）**：`lib/api.ts` **1,407 → 19 行** ✓（门面）。
+  - 161 个方法按领域搬到 `lib/api/endpoints/`：`library.ts` 227 / `practice.ts` 225 / `workspace.ts` 200（设置+记忆+图谱）/ `wiki.ts` 133 / `chat.ts` 63 行 —— **全部 ≤600** ✓。
+  - `lib/api.ts` 只保留 5 个领域对象的展开组合 + `export *`（http / types / transport），调用方 `from "../lib/api"` **零改动** ✓。
+  - 验证：前端 **47 文件 / 296 passed** ✓、tsc / lint / build **0** ✓、mock e2e **15** ✓。
+  - 过程记录：内联类型导入（`import("../types").DocumentProposal` 这种）在搬进深层目录后会解析到错误目标 ✗ —— 靠 tsc 的「has no exported member」逐个发现并改成 `../../../types` ✓；自动修剪这次改成**按 import 语句整体匹配** ✓，两轮归零，没有再伤到定义 ✓。
+- **M2 页面拆分 · api.ts 第一步（2026-10-17，分支 refactor/prepackaging-m1，未推送）**：`lib/api.ts` **1,407 → 806 行**（目标 ≤600，还差对象拆分，下一步继续）。
+  - 新增 `lib/api/http.ts`（53 行）：`ApiError` / `ErrorEnvelope` / 库作用域头 / `request` / `json` / `setActiveLibraryId` + 只读的 `getActiveLibraryId`（传输层读它，写入口仍唯一）。
+  - 新增 `lib/api/types.ts`（139 行）：全部 HTTP 契约类型 + `ChatStreamEvent` union 与类型级对账。
+  - 新增 `lib/api/transport.ts`（395 行）：SSE 解析、「流式 chat」、「题目管线」、「原文/资源 URL」等。
+  - `lib/api.ts` 保留为**门面**：再导出全部旧符号（`ApiError` / `ChatStreamEvent*` / `streamChat` / `api` 等），调用方 **零改动** ✓。
+  - 验证：前端 **47 文件 / 296 passed** ✓、tsc / lint / build **0** ✓、行为零变化 ✓。
+  - 说明：生成的导入路径需要逐文件校正（`lib/api/` 深层目录 ✗），并且试过两轮自动修剪未用导入 —— 一次误删了定义处的接口名 ✗，靠 tsc 的「Interface must be given a name」当场发现并修回 ✓。下一轮对象拆分改用**逐块搬运 + 一次性定稿导入**，不再事后大扫。
+- **M2 页面拆分 · AppShell 达标（2026-10-17，分支 refactor/prepackaging-m1，未推送）**：`AppShell.tsx` **790 → 599 行** ✓（≤600 ✓，目标达成）。
+  - 抽出 4 个模块：`shell/LearningContext.tsx`（103 行，学习书桌右栏）／`shell/ContextPanel.tsx`（69 行，右栏容器 + ConceptSidebar 切换）／`shell/nav.ts`（17 行，导航与页面标题）／`shell/types.ts`（65 行，`AppOutletContext` + `LibrarySetupOptions`，由 AppShell **re-export** 保持页面调用方零改动 ✓）。
+  - 验证：前端 **47 文件 / 296 passed** ✓、mock e2e **15** ✓、tsc / lint / build **0** ✓。
+  - **过程记录（诚实）**：脚本手术时把对象构造和 `return (` 插进了 JSX 中间 ✗，tsc 当场报 14 个语法错 —— 按错误定位重建后才过 ✓。后续这类拆分优先手工定位边界、脚本只做「整段搬运」，不再用行号夹逼。
+- **M2 页面拆分 · 第一步：AppShell（2026-10-17，分支 refactor/prepackaging-m1，未推送）**：`AppShell.tsx` 790 → **666 行**（目标 ≤600，还差 66 行，下一步继续）。
+  - `components/shell/LearningContext.tsx`（103 行）：把「学习书桌」右栏内容（回答边界 / 资料范围 / 本轮来源 / 相关知识 / 学习回流）整体抽出，自包含 ✓。
+  - `components/shell/nav.ts`（17 行）：一级导航与页面标题常量。
+  - 只搬代码、不改行为：前端 **47 文件 / 296 passed** ✓、mock e2e **15** ✓、tsc / lint 0 ✓。
+  - **M2 顺序调整并记录**：原计划 AppShell → ChatPage → api → LibraryPage → Settings；实测 AppShell 的 JSX 依赖约 60 个状态值，需要先把逻辑抽成 hook 才能进 ≤600，所以后续把**零 JSX 的 `lib/api.ts`（1,364 行）提前**做完再做 AppShell 的 hook 化 —— 风险优先，不改任何行为。
+- **M1 CSS 分层 + 字体延迟加载（2026-10-17，分支 refactor/prepackaging-m1，未推送）**：
+  - `styles.css`（2,229 行）拆为 **入口 6 行** + `styles/tokens.css`（令牌单一来源）+ `styles/app.css`（规则，**保持原相对顺序**）+ `styles/fonts.css`（3 个 @font-face + Noto 分片声明）；规则顺序不变 → **视觉零变化**。
+  - 字体改为**动态 import**（`void import("./styles/fonts.css")`）：打包器切成独立异步 CSS chunk，不参与首屏关键 CSS；首帧用系统回退，字体就位后 `font-display: swap` 接上。
+  - **实测收益**：主 CSS 656.59 kB / **197.77 kB gz → 188.63 kB / 31.64 kB gz（-166 kB gz，-84%）** ✓（预算 ≤120 kB gz ✓）；字体独立 chunk 468.23 kB / 166.01 kB gz（异步 ✓）；主 JS 298.11 kB / 91.76 kB gz 不变（预算 ≤110 ✓）。
+  - **契约测试**：新增 `lib/cssLayers.test.ts`（入口 ≤120 行 / 字体只在 fonts.css 且全本地 URL / 字体必须异步加载 / `:root` 只有一份）；`designTokens.test.ts` 改为读**全部**样式 —— 否则规则搬层会让棘轮静默失效 ✓。同时修掉 F7 的 `.chat-scroll` 断言（改读 app.css ✓）。
+  - **顺手修掉一个旧棘轮欠账**：裸毫秒棘轮用「:root 之后」切片，把 :root 之前的规则漏掉了 —— 真实裸值 **6 条 vs 预算 4 条**，旧测试一直偏松 ✗。已给 6 处动画时长 + 2 处延迟上 token（值完全不变）→ 裸值 **归零** ✓，预算从 4 降到 **0** ✓。
+  - 前端全绿：**47 文件 / 296 passed**、tsc / lint / build 0、mock e2e 15、**live 7**。
+- **SSE 死代码清理（2026-10-17，分支 refactor/prepackaging-m1，未推送）**：`practice` / `learning_update` 两个帧**全仓库没有生产者**（grep 不到任何工具产出这两种 artifact），前端也从未消费 → 删除。
+  - 后端 `web/backend/events.py`：artifact 分支只保留 `citation`（有真实生产者：`rag_search` / `web_research`）。
+  - 前端：`CHAT_STREAM_EVENT_KINDS` 与 `ChatStreamEvent` union 删除两个成员（F3 的类型级对账强制同步 ✓）；`IGNORED_STREAM_EVENTS` 清空但保留机制（以后真有「收到但不处理」的事件仍必须写明理由）。
+  - 测试：后端 **+4**（两种死类型不再发帧、`practice_ready` 仍映射成 `chat_artifact`、`citation` 仍发帧）；前端移除两个样本，把「归约不处理的事件状态不变」改用 `run_started` 验证。后端 **1853 passed** / 前端 **296 passed**。
 - **RRF 权重对照实验（2026-10-17）**：针对基线里唯一一条「向量腿弄丢」的用例（`sample.md` 投机解码）跑了 vector weight 1.0 / 0.8 / 0.6 三档：降权能把该条找回（排第 5），但换述 MRR 从 0.660 掉到 0.595~0.623、关键词 MRR 从 1.000 掉到 0.900 → **维持 1.0**。同时查明该用例文件是课程示例资产（`course-2/案例与源码-…/10-rag/docloads/assets/sample.md`），不在笔记目录、UI 按标题显示，所以按文件名找不到。结论与数据记入 `docs/RAG_EVAL.md` §7。
 - **召回评测集（L3 真实库）+ 评测器扩展（2026-10-17，未推送）**：
   - **评测器**：`EvalCase` 增加 `kind`（keyword / paraphrase）与 `source`（generated / human）字段（老用例向后兼容 ✓）；`evaluate` 输出 **按 kind 分组**的 hit@k / MRR；`summarize` 打出分组行；新增 `load_eval_config()` + CLI `--embedding-backend`（对照跑 fts_only 用 —— 以前 CLI 传空 config，会把「配了 provider」误判成「没有 embedding 后端」）。回归 +4 条（新字段/非法 kind/分组报告/配置覆盖），`tests/test_recall_eval.py` **15 passed**。
