@@ -12,6 +12,7 @@ import { DocumentEditor } from "../components/DocumentEditor";
 import type { AppOutletContext } from "../components/AppShell";
 import { createLibraryWikiActions } from "./library/libraryWikiActions";
 import { matchesWikiView } from "./library/wikiView";
+import { LibraryTreePanel } from "./library/LibraryTreePanel";
 import { createLibraryMaterialActions } from "./library/libraryActions";
 import { BrandIllustration, EmptyState, ErrorNotice, IconButton, LoadingState, formatRelativeDate } from "../components/common";
 import { WikiPlanCard } from "../components/WikiPlanCard";
@@ -19,7 +20,7 @@ import { api } from "../lib/api";
 import type { ArchivedEntry, KnowledgeSyncSummary, KnowledgeTree, OrganizationBatch, OrganizationProposal } from "../lib/api";
 import { DocumentReader } from "../components/DocumentReader";
 import { ScrollIndicator } from "../components/ScrollIndicator";
-import { LibraryTree } from "../components/LibraryTree";
+import {} from "../components/LibraryTree";
 import { useReaderTabsStore } from "../stores/readerTabsStore";
 import { Modal, useConfirm } from "../ui/Modal";
 import {} from "../stores/handoffStore";
@@ -709,119 +710,33 @@ export function LibraryPage() {
             }
           >
             {collection === "material" && tree && !treeCollapsed && (
-              <aside className="library-tree-pane" aria-label="资料库文件夹">
-                <div className="rail-label"><FolderOpen size={15} />文件夹 <span>{tree.material_count}</span></div>
-                
-                <label className="document-search"><Search size={14} /><input value={documentQuery} onChange={(event) => setDocumentQuery(event.target.value)} placeholder="搜索资料" aria-label="搜索资料" /></label>
-                {hits.length > 0 && (
-                  <div className="document-hits" aria-label="原文命中">
-                    {hits.map((hit) => (
-                      <button
-                        key={hit.chunk_id}
-                        className="document-hit"
-                        type="button"
-                        title={hit.text || ""}
-                        onClick={() =>
-                          navigate(
-                            readerLocation({
-                              document_id: hit.document_id,
-                              collection: hit.collection ?? collection,
-                              chunk_id: hit.chunk_id,
-                            }) || "/library",
-                          )
-                        }
-                      >
-                        <Search size={13} />
-                        <span>
-                          <strong>{hit.title || hit.source}</strong>
-                          <small>{(hit.text || "").replace(/\s+/g, " ").slice(0, 56)}</small>
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-                <LibraryTree
-                  tree={tree}
-                  query={documentQuery}
-                  selectedFolder={selectedFolder}
-                  onSelectFolder={setSelectedFolder}
-                  activeDocumentId={selectedId}
-                  onOpenDocument={(documentId) => selectDocument(documentId)}
-                  onMoveDocument={(documentId, path) => void moveDocument(documentId, path)}
-                  onArchiveDocument={(documentId, title) => void archiveDocument(documentId, title)}
-                  onCreateFolder={(path) => void createFolder(path)}
-                  onDeleteFolder={(path) => void deleteFolder(path)}
-                />
-                {collection === "material" && (
-                  <details className="library-organize">
-                    <summary>整理建议</summary>
-                    <div>
-                      {organizeProposals === null ? (
-                        <>
-                          <button className="quiet-button" type="button" disabled={organizeBusy} onClick={() => void loadOrganizeProposals()}>
-                            看看有什么可以整理的
-                          </button>
-                          <button className="quiet-button" type="button" disabled={organizeBusy} onClick={() => void loadAiProposals()}>
-                            让 AI 归类
-                          </button>
-                        </>
-                      ) : organizeProposals.length === 0 ? (
-                        <p className="text-faint">资料库已经很整齐了。</p>
-                      ) : (
-                        <>
-                        <p className="text-faint">
-                          {organizeSource === "model"
-                            ? "AI 提议 —— 执行前由你确认，执行后可一键撤销。"
-                            : organizeDegraded
-                              ? "模型这次没能参与，下面是规则建议 —— 执行前由你确认，执行后可一键撤销。"
-                              : "规则建议 —— 执行前由你确认，执行后可一键撤销。"}
-                        </p>
-                        {organizeProposals.map((proposal) => (
-                          <div key={proposal.kind}>
-                            <strong>{proposal.title}（{proposal.items.length} 份）</strong>
-                            <p>{proposal.reason}</p>
-                            <ul>
-                              {proposal.items.slice(0, 8).map((item) => <li key={item}>{item}</li>)}
-                              {proposal.items.length > 8 && <li className="text-faint">…… 其余 {proposal.items.length - 8} 份</li>}
-                            </ul>
-                            <button className="quiet-button" type="button" disabled={organizeBusy} onClick={() => void applyProposal(proposal)}>
-                              收进「{proposal.suggested_folder}」
-                            </button>
-                          </div>
-                        ))}
-                        </>
-                      )}
-                    </div>
-                  </details>
-                )}
-                {collection === "material" && organizePending && (
-                  <div className="library-organize-undo">
-                    <button className="quiet-button" type="button" disabled={organizeBusy} onClick={() => void undoOrganize()}>
-                      撤销这一步整理
-                    </button>
-                    <small className="text-faint">
-                      {organizePending.status && organizePending.status !== "applied"
-                        ? `上一次整理未完成（${organizePending.moves.length} 项），可以撤销已经搬走的部分`
-                        : `上一步：${organizePending.moves.length} 份资料收进「${organizePending.target_folder}」`}
-                    </small>
-                  </div>
-                )}
-                {archive.length > 0 && (
-                  <details className="library-archive">
-                    <summary>已归档 {archive.length} 份</summary>
-                    <ul>
-                      {archive.slice(0, 30).map((entry) => (
-                        <li key={entry.entry_id}>
-                          <span title={entry.original_path}>{entry.title || entry.original_path}</span>
-                          <button className="quiet-button" type="button" onClick={() => void restoreArchived(entry.entry_id)}>
-                            恢复
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  </details>
-                )}
-              </aside>
+            <LibraryTreePanel
+              archive={archive}
+              restoreArchived={restoreArchived}
+              tree={tree}
+              documentQuery={documentQuery}
+              setDocumentQuery={setDocumentQuery}
+              hits={hits}
+              navigate={navigate}
+              collection={collection}
+              selectedFolder={selectedFolder}
+              setSelectedFolder={setSelectedFolder}
+              selectedId={selectedId}
+              selectDocument={selectDocument}
+              moveDocument={moveDocument}
+              archiveDocument={archiveDocument}
+              createFolder={createFolder}
+              deleteFolder={deleteFolder}
+              organizeProposals={organizeProposals}
+              organizeBusy={organizeBusy}
+              organizeSource={organizeSource}
+              organizeDegraded={organizeDegraded}
+              organizePending={organizePending}
+              loadOrganizeProposals={loadOrganizeProposals}
+              loadAiProposals={loadAiProposals}
+              applyProposal={applyProposal}
+              undoOrganize={undoOrganize}
+            />
             )}
             {/* 资料库不再有"我的资料"平铺列表：它和左边的文件夹树功能重复，还白占一栏
                 （2026-09-24 用户要求）。wiki 的三个视图仍然用这一栏。 */}
