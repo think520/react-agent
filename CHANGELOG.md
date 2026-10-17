@@ -12,6 +12,11 @@
 > 从 2026-10-15 起时间戳已正确（`177fbc2` / `c9e9b52` / `0a767bb` / `d123b43` 均为当日）。
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
+- **召回评测集（L3 真实库）+ 评测器扩展（2026-10-17，未推送）**：
+  - **评测器**：`EvalCase` 增加 `kind`（keyword / paraphrase）与 `source`（generated / human）字段（老用例向后兼容 ✓）；`evaluate` 输出 **按 kind 分组**的 hit@k / MRR；`summarize` 打出分组行；新增 `load_eval_config()` + CLI `--embedding-backend`（对照跑 fts_only 用 —— 以前 CLI 传空 config，会把「配了 provider」误判成「没有 embedding 后端」）。回归 +4 条（新字段/非法 kind/分组报告/配置覆盖），`tests/test_recall_eval.py` **15 passed**。
+  - **真实库用例**：29 条（24 条换述 + 5 条关键词对照）写入 `note/vault/.bobodan/eval/cases.jsonl`（`note/` 已被 gitignore ✓ 真实内容不进仓库 ✓）；仓库里只放合成语料模板 `tests/eval/cases.example.jsonl`。
+  - **实测结论（真实库，停服跑两组）**：换述 hit@5 **0.875 → 0.958**、MRR **0.550 → 0.660（+20%）**；关键词 hit@5 **1.000 → 1.000**（零退化 ✓）、MRR 0.900 → 1.000。逐题：向量腿**找回 3 条**、**弄丢 1 条**（`sample.md` 投机解码那条掉出前 5，待观察）、零双向漏检 → **保留向量腿（hybrid 默认）** ✓。
+  - **修掉原方案的错误判据**：原文写「换述 hit@5 提升 ≥15pp」，但 FTS 换述基线已 87.5% → 绝对上限只有 12.5pp，判据数学上不可达 ✗。已改为相对判据（关键词不降 + 找回 ≥ 弄丢+2 + MRR 相对 ≥10%），并写进 `docs/RAG_EVAL.md` 与方案 §5.2。
 - **打包前前端优化：方案 + DESIGN.md v2（2026-10-17，docs-only，未推送）**：
   - 新增 `docs/FRONTEND_OPTIMIZATION.md`（355 行）：基于实测（138 文件/25,613 行、`styles.css` 2,086 行、`LibraryPage` 84KB、主 CSS 197.77KB gz、字体 42.2MB）给出五个工作流 **W-F1 CSS 分层 → W-F2 页面拆分 → W-F3 视觉融合 → W-F4 动效/IME → W-F5 字体包体**、M0–M6 里程碑、五层验收与性能预算表；并冻结六项决策（系统级重构/技法+视觉双吸收但保留品牌/纯 CSS+rAF/三层治理/字体子集化+按需加载/五层验收）。
   - `docs/DESIGN.md` 重写为 v2（766 行）：保留品牌锚点与页面气质规则，升级为**可执行规格** —— 新增表面阶梯 Surface 0–3 映射、发丝边/`color-mix` 外环、高度阶梯、圆角 8 档矩阵、弹簧物理 4 套常数、IME 守卫、指针死区、滚动遮罩、性能与包体预算、可访问性与输入法、打包前检查清单；所有新增规则标 ✅/🟡 实施状态。**`### CSS Tokens` 块由 `styles.css` `:root` 程序化生成**，契约测试 18 passed ✓ 零漂移。

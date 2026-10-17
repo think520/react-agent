@@ -1,0 +1,4 @@
+{"query":"把大问题拆成小问题、避免重复计算，这类方法解决的是什么","expect_sources":["dp.md"],"kind":"paraphrase","source":"human"}
+{"query":"每次都挑眼前最划算的选择，最后为什么也能得到最优","expect_sources":["greedy.md"],"kind":"paraphrase","source":"human"}
+{"query":"从一个起点算到所有点的最短距离，逐步扩展已确定的点","expect_sources":["graph.md"],"kind":"paraphrase","source":"human"}
+{"query":"贪心 局部最优","expect_sources":["greedy.md"],"kind":"keyword","source":"generated"}

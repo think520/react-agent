@@ -28,10 +28,20 @@ DEFAULT_K = 5
 DEFAULT_MODES = ("auto", "hybrid")
 
 
+#: 用例类型：keyword = 关键词型（FTS 就该能中，用来防回归）；paraphrase = 换述型（只有语义检索才可能中）。
+KNOWN_KINDS = ("keyword", "paraphrase")
+#: 用例来源：generated = 自动生成；human = 人工写。
+KNOWN_SOURCES = ("generated", "human")
+
+
 @dataclass(frozen=True)
 class EvalCase:
     query: str
     expect_sources: tuple[str, ...] = ()
+    #: 老用例没有这个字段 → 默认 keyword（向后兼容）。
+    kind: str = "keyword"
+    #: 老用例没有这个字段 → 默认 generated。
+    source: str = "generated"
 
 
 def load_cases(path: str) -> list[EvalCase]:
@@ -51,7 +61,13 @@ def load_cases(path: str) -> list[EvalCase]:
                 raise ValueError(f"{path}:{number} 缺少 query")
             if not expect:
                 raise ValueError(f"{path}:{number} 缺少 expect_sources（没有期望就没法评分）")
-            cases.append(EvalCase(query=query, expect_sources=expect))
+            kind = str(payload.get("kind") or "keyword").strip() or "keyword"
+            if kind not in KNOWN_KINDS:
+                raise ValueError(
+                    f"{path}:{number} 的 kind 不认识：{kind}（允许：{'/'.join(KNOWN_KINDS)}）"
+                )
+            source = str(payload.get("source") or "generated").strip() or "generated"
+            cases.append(EvalCase(query=query, expect_sources=expect, kind=kind, source=source))
     if not cases:
         raise ValueError(f"{path} 里没有任何用例")
     return cases
@@ -90,15 +106,32 @@ def evaluate(
         hits = 0
         rr_total = 0.0
         resolved: dict[str, int] = {}
+        # 按 kind 分组：关键词组是防回归，换述组才用来判断向量腿值不值。
+        buckets: dict[str, dict[str, float]] = {}
         for case in cases:
             retrieved, resolved_mode = retrieve(case.query, mode)
             retrieved = [str(item) for item in retrieved]
-            if hit_at_k(case.expect_sources, retrieved, k):
+            hit = hit_at_k(case.expect_sources, retrieved, k)
+            rr = reciprocal_rank(case.expect_sources, retrieved)
+            if hit:
                 hits += 1
-            rr_total += reciprocal_rank(case.expect_sources, retrieved)
+            rr_total += rr
             key = str(resolved_mode or "unknown")
             resolved[key] = resolved.get(key, 0) + 1
+            bucket = buckets.setdefault(case.kind, {"cases": 0.0, "hits": 0.0, "mrr_total": 0.0})
+            bucket["cases"] += 1
+            bucket["hits"] += 1.0 if hit else 0.0
+            bucket["mrr_total"] += rr
         total = len(cases) or 1
+        by_kind = {
+            name: {
+                "cases": int(bucket["cases"]),
+                "hits": int(bucket["hits"]),
+                "hit_at_k": bucket["hits"] / (bucket["cases"] or 1),
+                "mrr": bucket["mrr_total"] / (bucket["cases"] or 1),
+            }
+            for name, bucket in buckets.items()
+        }
         report[str(mode)] = {
             "cases": len(cases),
             "hits": hits,
@@ -107,6 +140,7 @@ def evaluate(
             "hit_at_k": hits / total,
             "mrr": rr_total / total,
             "resolved_modes": resolved,
+            "by_kind": by_kind,
         }
     return report
 
@@ -122,6 +156,12 @@ def summarize(report: dict[str, dict[str, Any]], *, k: int = DEFAULT_K) -> str:
         hits = metrics.get("hits", 0)
         cases = metrics.get("cases", 0)
         lines.append(f"{mode}: hit@{int(k)}={hit:.3f} MRR={mrr:.3f} （命中 {hits}/{cases}；实际模式 {resolved or '无'}）")
+        for kind in sorted(metrics.get("by_kind", {})):
+            detail = metrics["by_kind"][kind]
+            lines.append(
+                f"  - {kind}: hit@{int(k)}={detail.get('hit_at_k', 0.0):.3f} "
+                f"MRR={detail.get('mrr', 0.0):.3f}（{detail.get('hits', 0)}/{detail.get('cases', 0)}）"
+            )
     return "\n".join(lines)
 
 
@@ -192,6 +232,23 @@ def evaluate_workspace(
     return evaluate(cases, retrieve, modes=modes, k=k)
 
 
+def load_eval_config(
+    *,
+    embedding_backend: str | None = None,
+    config_path: str = "config.yaml",
+) -> dict[str, Any]:
+    # 评测必须拿到**完整** config（只传 rag 子字典会让 EmbeddingService 解析不出预设，
+    # 把「配了 provider」误判成「没有可用的 embedding 后端」——2026-10-15 踩过这个坑）。
+    from dotenv import load_dotenv
+    from providers.factory import ProviderFactory
+
+    load_dotenv(".env", override=False)
+    config = ProviderFactory.load_config(config_path)
+    if embedding_backend:
+        config.setdefault("rag", {})["embedding_backend"] = str(embedding_backend)
+    return config
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     import argparse
 
@@ -204,6 +261,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--modes", default=",".join(DEFAULT_MODES))
     parser.add_argument("--k", type=int, default=DEFAULT_K)
+    parser.add_argument(
+        "--embedding-backend", default="",
+        help="覆盖 rag.embedding_backend；对照用 local（= 关掉向量腿，跑 fts_only）",
+    )
     args = parser.parse_args(argv)
 
     if args.generate_cases:
@@ -213,7 +274,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     else:
         parser.error("需要 --cases 或 --generate-cases")
     modes = [mode.strip() for mode in args.modes.split(",") if mode.strip()]
-    report = evaluate_workspace(args.workspace, cases, modes=modes, k=args.k)
+    config = load_eval_config(embedding_backend=args.embedding_backend or None)
+    report = evaluate_workspace(args.workspace, cases, modes=modes, k=args.k, config=config)
     print(summarize(report, k=args.k))
     return 0
 

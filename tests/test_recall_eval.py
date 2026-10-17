@@ -196,3 +196,66 @@ def test_the_generated_cases_are_actually_retrievable(sample_library, monkeypatc
     report = evaluate(cases, retrieve, modes=["auto"], k=5)
 
     assert report["auto"]["hit_at_k"] == 1.0, report["auto"]
+
+
+# --- L3 人工集：kind/source 分组与 CLI 配置覆盖（2026-10-17）
+
+def test_cases_carry_kind_and_source_with_backward_compatible_defaults(tmp_path):
+    path = tmp_path / "cases.jsonl"
+    path.write_text(
+        '{"query":"问一","expect_sources":["a.md"]}\n'
+        '{"query":"问二","expect_sources":["b.md"],"kind":"paraphrase","source":"human"}\n',
+        encoding="utf-8",
+    )
+
+    cases = load_cases(str(path))
+
+    # 老用例没有新字段 → 必须仍然可用（向后兼容）。
+    assert cases[0].kind == "keyword"
+    assert cases[0].source == "generated"
+    assert cases[1].kind == "paraphrase"
+    assert cases[1].source == "human"
+
+
+def test_unknown_case_kind_is_rejected(tmp_path):
+    path = tmp_path / "cases.jsonl"
+    path.write_text('{"query":"问","expect_sources":["a.md"],"kind":"vibes"}\n', encoding="utf-8")
+
+    with pytest.raises(ValueError, match="kind"):
+        load_cases(str(path))
+
+
+def test_report_breaks_down_by_kind():
+    from rag.recall_eval import EvalCase, evaluate, summarize
+
+    cases = [
+        EvalCase(query="关键词题", expect_sources=("a.md",), kind="keyword"),
+        EvalCase(query="换述题", expect_sources=("b.md",), kind="paraphrase"),
+    ]
+
+    def retrieve(query, mode):
+        if query == "关键词题":
+            return (["a.md"], "fts_only")
+        return ([], "fts_only")
+
+    report = evaluate(cases, retrieve, modes=["auto"], k=5)
+
+    assert report["auto"]["by_kind"]["keyword"]["hit_at_k"] == 1.0
+    assert report["auto"]["by_kind"]["paraphrase"]["hit_at_k"] == 0.0
+    assert report["auto"]["by_kind"]["paraphrase"]["cases"] == 1
+    # 汇总文本要能让人一眼看到分组差别，而不是只有一个总数。
+    text = summarize(report)
+    assert "keyword" in text and "paraphrase" in text
+
+
+def test_eval_config_can_switch_embedding_backend(monkeypatch):
+    import rag.recall_eval as ev
+
+    monkeypatch.setattr(
+        "providers.factory.ProviderFactory.load_config",
+        staticmethod(lambda path="config.yaml": {"rag": {"embedding_backend": "openai_compat"}}),
+    )
+
+    assert ev.load_eval_config(embedding_backend="local")["rag"]["embedding_backend"] == "local"
+    assert ev.load_eval_config()["rag"]["embedding_backend"] == "openai_compat"
+
