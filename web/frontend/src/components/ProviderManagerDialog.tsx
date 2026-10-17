@@ -32,6 +32,9 @@ export function ProviderManagerDialog({ settings, onClose, onChanged }: {
   const [testMsg, setTestMsg] = useState<Record<string, string>>({});
   const [modelInput, setModelInput] = useState({ id: "", name: "" });
   const [confirmDelete, setConfirmDelete] = useState<ProviderSummary | null>(null);
+  // 借自 openhanako 的 auth_type：本地服务（ollama/lmstudio/vllm）不需要 API key。
+  const editingPreset = presets.find((item) => item.name === editing?.name);
+  const editingKeyless = Boolean(editingPreset?.keyless || editingPreset?.auth_type === "none" || editingPreset?.auth_type === "optional");
 
   useEffect(() => {
     void api.providerPresets().then((result) => setPresets(result.presets)).catch(() => setPresets([]));
@@ -56,6 +59,8 @@ export function ProviderManagerDialog({ settings, onClose, onChanged }: {
       ...emptyForm,
       name: preset?.name || "",
       base_url: preset?.base_url || "",
+      model_default: preset?.model_default || "",
+      models: preset?.models?.length ? preset.models : [],
     });
     setEditingName(null);
     setError("");
@@ -111,7 +116,8 @@ export function ProviderManagerDialog({ settings, onClose, onChanged }: {
       await api.saveProvider({
         name,
         base_url: form.base_url.trim(),
-        type: "openai_compatible",
+        // 模板自带的 type（deepseek / minimax / openai）要保留，否则一律退化成 openai_compatible。
+        type: presets.find((item) => item.name === name)?.type || "openai_compatible",
         provider_name: name,
         preset: editingName === name ? "" : (presets.find((item) => item.name === name)?.name || ""),
         api_key: form.api_key.trim() || null,
@@ -168,7 +174,7 @@ export function ProviderManagerDialog({ settings, onClose, onChanged }: {
         </div>
         {presets.length > 0 && <div className="provider-preset-row">
           <span>从模板添加：</span>
-          {presets.map((preset) => <button key={preset.name} className="quiet-button" disabled={working} onClick={() => startAdd(preset)}>{preset.name}</button>)}
+          {presets.map((preset) => <button key={preset.name} className="quiet-button" disabled={working} title={preset.note || preset.base_url} onClick={() => startAdd(preset)}>{preset.note || preset.name}</button>)}
         </div>}
         <div className="provider-list">
           {settings.providers.map((provider) => (
@@ -193,7 +199,7 @@ export function ProviderManagerDialog({ settings, onClose, onChanged }: {
         <div className="provider-editor">
           <label><span>名称</span><input value={editing.name} disabled={editingName !== null || working} maxLength={80} onChange={(event) => setEditing({ ...editing, name: event.target.value })} /></label>
           <label className="wide"><span>API 地址（base_url）</span><input value={editing.base_url} disabled={working} maxLength={300} placeholder="https://api.example.com/v1" onChange={(event) => setEditing({ ...editing, base_url: event.target.value })} /></label>
-          <label className="wide"><span>API Key</span><input type="password" value={editing.api_key} disabled={working} autoComplete="off" placeholder={editingName !== null ? "留空 = 保持原密钥" : "sk-..."} onChange={(event) => setEditing({ ...editing, api_key: event.target.value })} /></label>
+          <label className="wide"><span>API Key{editingKeyless ? "（本地服务可留空）" : ""}</span><input type="password" value={editing.api_key} disabled={working} autoComplete="off" placeholder={editingName !== null ? "留空 = 保持原密钥" : "sk-..."} onChange={(event) => setEditing({ ...editing, api_key: event.target.value })} /></label>
           <div className="provider-models-head">
             <span>模型列表</span>
             <button className="quiet-button" disabled={working || !editing.base_url.trim()} onClick={() => void fetchModels()}><RefreshCw size={13} />{working ? "获取中…" : "获取模型"}</button>

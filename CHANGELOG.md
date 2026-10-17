@@ -12,6 +12,10 @@
 > 从 2026-10-15 起时间戳已正确（`177fbc2` / `c9e9b52` / `0a767bb` / `d123b43` 均为当日）。
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
+- **供应商目录扩容（参照 openhanako，2026-10-17，分支 refactor/prepackaging-m1，未推送）**：内置模板 **7 → 17 个** ✓ —— 新增 kimi（Moonshot）/ zhipu（GLM）/ gemini（Google AI Studio 兼容端点）/ xai（Grok）/ mistral / groq / together / nvidia（NIM）/ lmstudio / vllm；保留 deepseek / minimax / openai / dashscope / siliconflow / openrouter / ollama ✓。
+  - **借 openhanako 的 `auth_type` 语义**：`api-key`（必须）/ `optional`（可空）/ `none`（本地免 key）✓ —— 由 `_normalize_provider` 推导（keyless → none ✓，未知值回落 api-key ✓）；`upsert_provider` 从模板继承 auth_type/keyless/api_key_env（本地服务保存一次不会丢「免 key」✓）。
+  - **UI**：模板行显示备注（如「本地 Ollama（免 key）」✓）、从模板添加时带入默认模型与模型列表 ✓、本地服务显示「API Key（本地服务可留空）」✓、保存时保留模板的 `type`（deepseek/minimax/openai 不再退化成 openai_compatible ✓）。
+  - **测试**：`tests/test_provider_catalog.py` **+6 条**（预设覆盖 ✓ / auth_type 声明 ✓ / 规整推导 ✓ / 模板继承 ✓ / 显式 key 覆盖 ✓ / presets 端点暴露 auth 元数据 ✓）→ 该文件 **20 passed** ✓；`-k "provider or settings"` **100 passed** ✓；前端 **296 passed**、tsc/lint **0** ✓。
 - **前端优化借鉴方案 v2（2026-10-17，docs-only，未推送）**：新增 `docs/FRONTEND_OPTIMIZATION_V2.md` —— 结合两个参考仓库给出下一版方案，并**回答 M2 未解决的问题**。
   - 参考仓库已更新：`openhanako-reference` 从 `1d3ef308` 拉到 **`9a6cabf8`**（新增提交是 CI/docs ✓ 不影响前端结构结论）。
   - **分工结论**：openhanako = **架构范式**（826 文件 / 146,282 行；`zustand slices + actions` 约 50 个 store 文件；`components/chat/` 40+ 区域组件；`data-theme` 主题系统；暖纸主题）；open-claude-ui = **视觉技法**（令牌矩阵/弹簧常数/四态，v1 已吸收）。

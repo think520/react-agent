@@ -249,3 +249,65 @@ def test_fetch_models_unauthorized(monkeypatch, tmp_path):
     with pytest.raises(APIError) as exc_info:
         fetch_provider_models(ProviderFetchModelsRequest(base_url="https://example.com/v1", api_key="bad"))
     assert exc_info.value.code == "fetch_models_unauthorized"
+
+
+# --- 2026-10-17: 供应商目录扩容（参照 openhanako 的 provider 目录 + auth_type 语义）---
+
+
+def test_builtin_presets_cover_cloud_and_local_providers():
+    presets = catalog.BUILTIN_PRESETS
+    assert len(presets) >= 15
+    for name in (
+        "deepseek", "minimax", "openai", "dashscope", "siliconflow", "openrouter",
+        "kimi", "zhipu", "gemini", "xai", "mistral", "groq", "together", "nvidia",
+        "ollama", "lmstudio", "vllm",
+    ):
+        assert name in presets, name
+    for name, preset in presets.items():
+        assert preset["base_url"], name
+        assert preset["provider_name"], name
+        assert isinstance(preset.get("models"), list), name
+
+
+def test_builtin_presets_declare_openhanako_auth_types():
+    presets = catalog.BUILTIN_PRESETS
+    assert {preset["auth_type"] for preset in presets.values()} <= {"api-key", "optional", "none"}
+    for name in ("ollama", "lmstudio", "vllm"):
+        assert presets[name]["auth_type"] == "none", name
+        assert presets[name].get("keyless") is True, name
+    assert presets["deepseek"]["auth_type"] == "api-key"
+
+
+def test_normalize_provider_infers_auth_type():
+    assert catalog._normalize_provider("local", {"keyless": True})["auth_type"] == "none"
+    assert catalog._normalize_provider("cloud", {"base_url": "https://x"})["auth_type"] == "api-key"
+    assert catalog._normalize_provider("weird", {"auth_type": "magic"})["auth_type"] == "api-key"
+    assert catalog._normalize_provider("opt", {"auth_type": "optional"})["auth_type"] == "optional"
+
+
+def test_upsert_preset_inherits_keyless_and_auth_type(monkeypatch, tmp_path):
+    monkeypatch.setenv("BOBODAN_HOME", str(tmp_path / "home"))
+    catalog.upsert_provider("lmstudio", {"preset": "lmstudio", "base_url": "http://localhost:1234/v1"})
+    saved = catalog.load_catalog()["providers"]["lmstudio"]
+    assert saved["auth_type"] == "none"
+    assert saved.get("keyless") is True
+
+
+def test_upsert_explicit_api_key_overrides_preset_auth(monkeypatch, tmp_path):
+    monkeypatch.setenv("BOBODAN_HOME", str(tmp_path / "home"))
+    catalog.upsert_provider("kimi", {"preset": "kimi", "api_key": "sk-test"})
+    saved = catalog.load_catalog()["providers"]["kimi"]
+    assert saved["auth_type"] == "api-key"
+    assert saved["api_key"] == "sk-test"
+
+
+def test_provider_presets_endpoint_exposes_auth_metadata(monkeypatch, tmp_path):
+    monkeypatch.setenv("BOBODAN_HOME", str(tmp_path / "home"))
+    from web.backend.routers.settings import provider_presets
+
+    payload = provider_presets()
+    assert payload["ok"] is True
+    by_name = {item["name"]: item for item in payload["presets"]}
+    assert by_name["ollama"]["keyless"] is True
+    assert by_name["ollama"]["auth_type"] == "none"
+    assert by_name["kimi"]["model_default"] == "moonshot-v1-8k"
