@@ -1,14 +1,12 @@
 import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, Keyboard, Menu, PanelLeft, PanelRight, Plus, Settings, X } from "lucide-react";
+import { ChevronLeft, Keyboard, Menu, PanelLeft, PanelRight, Plus, Settings } from "lucide-react";
 import { NavLink, Outlet, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { api, setActiveLibraryId } from "../lib/api";
-import type { ImportBatchResult } from "../lib/api";
 import { clearImportReport, emptyDocumentImport } from "../lib/importState";
 import type { DocumentImportState } from "../lib/importState";
 import { errorCodeOf } from "../lib/errorHints";
 import { useImportRun } from "../hooks/useImportRun";
-import type { ImportRunProgress } from "../hooks/useImportRun";
 import { toErrorMessage } from "../lib/errors";
 import { describeDocumentImport } from "../lib/importSummary";
 import { notifyError } from "../stores/noticeStore";
@@ -17,66 +15,15 @@ import type { Attribution, ChatSessionSummary, DocumentSummary, KnowledgeContext
 import { IconButton } from "./common";
 import { OnboardingDialog } from "./OnboardingDialog";
 import { ShortcutsDialog } from "./ShortcutsDialog";
-import { LibrarySetupDialog, type LibrarySetupMode } from "./LibrarySetupDialog";
+import { LibrarySetupDialog } from "./LibrarySetupDialog";
 import { SettingsDialog, SettingsUnavailableDialog } from "./SettingsDialog";
-import { ConceptSidebar } from "./ConceptSidebar";
 import { SessionRail } from "./SessionRail";
 import { NoticeCenter } from "./NoticeCenter";
-import { LearningContext } from "./shell/LearningContext";
 import { navItems, pageMeta } from "./shell/nav";
+import { ContextPanel } from "./shell/ContextPanel";
 
-export interface LibrarySetupOptions {
-  initialMode?: LibrarySetupMode;
-  importCount?: number;
-}
-
-export interface AppOutletContext {
-  sessions: ChatSessionSummary[];
-  settings: SettingsSummary | null;
-  refreshSettings: () => Promise<SettingsSummary | null>;
-  refreshSessions: () => Promise<void>;
-  openContext: () => void;
-  conceptDetailId: string | null;
-  openConceptDetail: (conceptId: string) => void;
-  closeConceptDetail: () => void;
-  showKnowledgeContext: (context: KnowledgeContext) => void;
-  receiveKnowledgeContext: (context: KnowledgeContext) => void;
-  clearKnowledgeContext: () => void;
-  showSourceContext: (attribution: Attribution) => void;
-  documents: DocumentSummary[];
-  selectedDocumentIds: string[];
-  selectedDocuments: DocumentSummary[];
-  toggleDocumentScope: (documentId: string) => void;
-  setDocumentScope: (documentIds: string[]) => void;
-  clearDocumentScope: () => void;
-  libraries: LibrarySummary[];
-  activeLibrary: LibrarySummary | null;
-  openLibrarySetup: (options?: LibrarySetupOptions) => void;
-  createLibrary: (name: string, parentPath: string) => Promise<LibrarySummary>;
-  switchLibrary: (libraryId: string) => Promise<void>;
-  startDocumentImport: () => void;
-  documentImporting: boolean;
-  documentImportNotice: string;
-  documentImportError: string;
-  documentImportDuplicateCount: number;
-  importDuplicatesAsCopies: () => void;
-  documentImportVersion: number;
-  /** E8：本次导入的**逐文件**结果（失败清单 UI 用），null 表示还没有结果。 */
-  documentImportResults: ImportBatchResult[] | null;
-  /** W1 E1：这次导入失败的结构化错误码（界面据此给"下一步"）。 */
-  documentImportErrorCode: string;
-  /** E8：运行中的进度（null = 没有正在跑的导入）。 */
-  documentImportProgress: ImportRunProgress | null;
-  /** E8：取消正在跑的导入（协作式：文件边界生效，已收下的保持收下）。 */
-  cancelDocumentImport: () => void;
-  /** E8：拖拽进来的文件走同一条导入通道（没有资料库时先引导新建并记住文件）。 */
-  importDroppedFiles: (files: File[]) => void;
-  /** 还留着原文件对象时才为 true —— 不给假的"重试"按钮。 */
-  documentImportCanRetry: boolean;
-  retryFailedImports: () => void;
-  dismissImportReport: () => void;
-  libraryReady: boolean;
-}
+import type { AppOutletContext } from "./shell/types";
+export type { AppOutletContext, LibrarySetupOptions } from "./shell/types";
 
 export function AppShell() {
   const location = useLocation();
@@ -538,6 +485,24 @@ export function AppShell() {
     [documents, selectedDocumentIds],
   );
 
+  const contextPanelView = {
+    contextOpen,
+    conceptDetailId,
+    desktop,
+    rightAutoCollapsed,
+    setPreview,
+    setContextOpen,
+    setConceptDetailId,
+    openConceptDetail,
+    documents,
+    review,
+    selectedDocumentIds,
+    toggleDocumentScope,
+    knowledgeContext,
+    sourceContext,
+    openMapForConcept: (conceptId: string) => navigate("/knowledge-map", { state: { focusConceptId: conceptId } }),
+  };
+
   return (
     <div className={`app-shell ${leftOpen ? "" : "left-collapsed"} ${rightOpen ? "" : "right-collapsed"} ${leftPreview ? "left-preview" : ""} ${rightPreview ? "right-preview" : ""}`}>
       <aside className={`sidebar ${sidebarOpen ? "open" : ""}`} aria-label="主导航" onMouseEnter={() => schedulePreview("left", true)} onMouseLeave={() => schedulePreview("left", false)}>
@@ -624,41 +589,7 @@ export function AppShell() {
           libraryReady: initialDataLoaded,
         } satisfies AppOutletContext} />
       </main>
-
-      <aside className={`context-panel ${contextOpen ? "open" : ""}`} aria-label="学习上下文">
-        <div className="context-header">
-          <strong>{conceptDetailId ? "概念详情" : "学习书桌"}</strong>
-          <IconButton
-            label={conceptDetailId ? "返回学习书桌" : "关闭上下文"}
-            onClick={() => conceptDetailId
-              ? setConceptDetailId(null)
-              : desktop && rightAutoCollapsed
-                ? setPreview("right", false)
-                : setContextOpen(false)}
-          ><X /></IconButton>
-        </div>
-        {conceptDetailId ? (
-          <ConceptSidebar
-            embedded
-            conceptId={conceptDetailId}
-            onClose={() => setConceptDetailId(null)}
-            onNavigateConcept={openConceptDetail}
-            onConceptUpdated={() => useUiStore.getState().bumpGraphRevision()}
-          />
-        ) : (
-          <LearningContext
-            documents={documents}
-            review={review}
-            selectedDocumentIds={selectedDocumentIds}
-            toggleDocumentScope={toggleDocumentScope}
-            knowledgeContext={knowledgeContext}
-            sourceContext={sourceContext}
-            onOpenConcept={openConceptDetail}
-            onOpenMap={(conceptId) => navigate("/knowledge-map", { state: { focusConceptId: conceptId } })}
-          />
-        )}
-      </aside>
-
+      <ContextPanel view={contextPanelView} />
       {!leftOpen && <div className="panel-hover-edge left" onMouseEnter={() => schedulePreview("left", true)} onMouseLeave={() => schedulePreview("left", false)} />}
 
       <nav className="mobile-nav" aria-label="移动端主导航">

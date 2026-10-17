@@ -12,6 +12,10 @@
 > 从 2026-10-15 起时间戳已正确（`177fbc2` / `c9e9b52` / `0a767bb` / `d123b43` 均为当日）。
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
+- **M2 页面拆分 · AppShell 达标（2026-10-17，分支 refactor/prepackaging-m1，未推送）**：`AppShell.tsx` **790 → 599 行** ✓（≤600 ✓，目标达成）。
+  - 抽出 4 个模块：`shell/LearningContext.tsx`（103 行，学习书桌右栏）／`shell/ContextPanel.tsx`（69 行，右栏容器 + ConceptSidebar 切换）／`shell/nav.ts`（17 行，导航与页面标题）／`shell/types.ts`（65 行，`AppOutletContext` + `LibrarySetupOptions`，由 AppShell **re-export** 保持页面调用方零改动 ✓）。
+  - 验证：前端 **47 文件 / 296 passed** ✓、mock e2e **15** ✓、tsc / lint / build **0** ✓。
+  - **过程记录（诚实）**：脚本手术时把对象构造和 `return (` 插进了 JSX 中间 ✗，tsc 当场报 14 个语法错 —— 按错误定位重建后才过 ✓。后续这类拆分优先手工定位边界、脚本只做「整段搬运」，不再用行号夹逼。
 - **M2 页面拆分 · 第一步：AppShell（2026-10-17，分支 refactor/prepackaging-m1，未推送）**：`AppShell.tsx` 790 → **666 行**（目标 ≤600，还差 66 行，下一步继续）。
   - `components/shell/LearningContext.tsx`（103 行）：把「学习书桌」右栏内容（回答边界 / 资料范围 / 本轮来源 / 相关知识 / 学习回流）整体抽出，自包含 ✓。
   - `components/shell/nav.ts`（17 行）：一级导航与页面标题常量。
