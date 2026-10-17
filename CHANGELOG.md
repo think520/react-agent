@@ -12,6 +12,33 @@
 > 从 2026-10-15 起时间戳已正确（`177fbc2` / `c9e9b52` / `0a767bb` / `d123b43` 均为当日）。
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
+- **设置区重构 S5/5 ✅（2026-10-17，分支 feat/settings-v2，未推送）**：安全/实验/Skills 三节补齐 + **设置项级搜索**上线。
+  - 新增 `sections/SecuritySection`（23 行：密钥存储 / 日志与诊断 / 平台边界 / 本地优先 ✓ 只陈述事实，不放假开关）、`ExperimentsSection`（9 行：如实说明「暂时没有实验开关」）、`SkillsSection`（25 行：从旧的 `settings-group` 块迁入设计系统 ✓）；
+  - 新增 `settings/settingsSearchIndex.ts`（38 条设置项 + 中文别名）；搜索从「只搜分节名」升级为**搜设置项** ✓：结果列表带所属分节提示、点击/回车跳到该节并滚动定位 + 2 秒描边高亮（`.settings-search-flash`）✓；
+  - 清理：旧的 `settings-group` 内联块清零、未用原语别名删除 ✓；`SettingsDialog` 峰值 315 → **288 行** ✓；
+  - 门禁：tsc / lint **0** ✓、vitest **47 文件 / 296 passed** ✓、build **0** ✓、mock e2e **15 passed** ✓。
+- **设置区重构 S4/5 ✅（2026-10-17，分支 feat/settings-v2，未推送）**：记忆去弹窗 + 检索与 RAG 真页。
+  - `MemoryManagerDialog`（236 行）改为节内面板 `settings/memory/MemoryManagerPanel.tsx`（255 行，逻辑/文案零改动，仅去掉 `Modal` 壳）✓；`NotesPage` 仍需要弹窗 → 保留一个 10 行薄兼容壳 `components/MemoryManagerDialog.tsx` ✓；设置区**嵌套弹窗清零** ✓。
+  - 新增 `sections/MemorySection.tsx`（56 行）：学习记忆（开关 + 个人知识计数 + 展开管理面板）、旧版知识图谱迁移（原逻辑整段搬入 ✓）、本地数据边界；新增 `sections/RagSection.tsx`（35 行）：检索状态（runtimeStatus 实读 ✓）、术语词汇表（hybrid / fts_only / unavailable / directory_grep）、评测与降级可见性说明。
+  - **诚实边界**：RAG 节目前是**只读** —— 后端没有暴露检索写入接口，所以只展示状态与术语，不放假开关（计划里写的「可读可改」降级为只读 ✓）。
+  - 门禁：tsc / lint **0** ✓、vitest **47 文件 / 296 passed** ✓、build **0** ✓、mock e2e **15 passed** ✓；`SettingsDialog` 272 → **268 行**。
+- **设置区重构 S3/5 ✅（2026-10-17，分支 feat/settings-v2，未推送）**：AI 与模型节改成**节内主从**，删掉嵌套弹窗。
+  - 新增 `components/settings/providers/`：`ProvidersPane`（208 行：左列表 已配置/未配置/自定义 + 状态点 + 模型数 + 模板入口；右详情/编辑）+ `ProviderFormFields`（46 行）+ `providerForm`（33 行，表单类型与转换）；
+  - 新增 `sections/ModelsSection`（88 行）：供应商主从 + 「模型与任务」（默认模型 / Wiki 主题发现 / 页面撰写 / 整理方式 / 预算）+ 「AI 用量」台账 + 「联网资料」（权限 / 搜索供应商 / Jina 后备）；
+  - **删除 `ProviderManagerDialog.tsx`** ✓ —— 设置区不再有嵌套弹窗；API 调用、保存语义（空 key = 不修改）、文案均与原实现一致 ✓；
+  - 门禁三连修：新 CSS 又触发两条既有门禁 ✗ —— ① `var(--bg-hover)/var(--overlay-light)` 未定义（换成已定义的 `--paper-sunken` ✓）；② `font-size: 11px/11.5px` 低于 §5 硬下限 12px（统一 12px ✓）。
+  - 门禁：tsc / lint **0** ✓、vitest **47 文件 / 296 passed** ✓、build **0** ✓、mock e2e **15 passed** ✓。
+- **设置区重构 S2/5 ✅（2026-10-17，分支 feat/settings-v2，未推送）**：4 个简单节迁进设计系统，行为零变化。
+  - 新增 `components/settings/sections/`：`AssistantSection`（37 行）/ `MeSection`（27）/ `AppearanceSection`（33）/ `StatusSection`（17）—— 全部用 `SettingsSection` 卡片 + `SettingsRow/Field/Segmented/Toggle` + footer 保存按钮 ✓。
+  - `AssistantSection`：保留品牌身份块（`.settings-identity`）+ 昵称/教学方式/回答深度/反馈方式四行；`AppearanceSection`：阅读排版 + 界面感受两张卡（改动即时保存，与迁移前一致 ✓）；`StatusSection`：运行状态七项（后端/AI/搜索/索引/记忆/Skills/版本）。
+  - **踩坑记录**：第一版枚举值是**我猜的** ✗（socratic / serif / 820 / 舒适）—— 从 `main` 版源码与 `UserPreferences` 类型逐字核对后修正 ✓（practice 陪练式 / noto-serif 宋体 / 800 宽 / 舒展 ✓）。教训：迁移枚举必须从类型或原文件抄，不靠记忆 ✗。
+  - 门禁：tsc / lint **0** ✓、vitest **47 文件 / 296 passed** ✓、build **0** ✓、mock e2e **15 passed** ✓；`SettingsDialog` 304 → **279 行**。
+- **设置区重构 S1/5 ✅（2026-10-17，分支 feat/settings-v2，未推送）**：按 openhanako 的 settings 骨架交付**设计系统 + 外壳 + 10 节导航**，行为零变化。
+  - 新增 `web/frontend/src/components/settings/SettingsPrimitives.tsx`：`SettingsPage` / `SettingsHeading` / `SettingsSection` / `SettingsStack` / `SettingsRow` / `SettingsField` / `SettingsToggle` / `SettingsSegmented` / `SettingsFooter`（结构原语，视觉走 Bobodan 令牌 ✓）；
+  - 新增结构类（app.css）：`.settings-page / .settings-stack / .settings-section / -head / -body / -footer`（卡片式分节 ✓ 圆角用 §7 刻度 12px ✓ 未破棘轮 ✓）；
+  - `SettingsDialog`：分节 **7 → 10**（新增「检索与 RAG」「安全与隐私」「实验」占位）；`user→me`、`ai→models` 旧 URL `?settings=` 兼容 ✓；内容统一包进 `SettingsPage` + `SettingsHeading` ✓；
+  - 顺带修一个测试教训：新 CSS 的 `border-radius: 10px` 触发「§7 刻度棘轮」（预算 60），改成 12px ✓（棘轮只允许变小 ✓）。
+  - 门禁：**tsc / lint 0** ✓、vitest **47 文件 / 296 passed** ✓、**build 0** ✓、**mock e2e 15 passed** ✓。
 - **全量门禁通过 + 合并推送（2026-10-17，Round 11/12）**：推送前在分支上跑完整门禁 ✓ ——
   - 后端 **1859 passed** ✓（原 1853 + 供应商目录新增 6 条 ✓）；
   - 前端 **47 文件 / 296 passed** ✓；**tsc / lint / build 全 0** ✓（CSS **31.64 kB gz**、字体异步 **166 kB gz**、JS **91.98 kB gz**）；

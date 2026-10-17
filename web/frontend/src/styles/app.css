@@ -2113,3 +2113,69 @@ mark.reader-anchor-mark {
   font-size: 13px;
   color: var(--muted);
 }
+
+/* ── 设置区 v2（2026-10-17 S1）：Page / Section / Stack 结构类 ── */
+.settings-page { display: flex; flex-direction: column; gap: 22px; }
+.settings-stack { display: flex; flex-direction: column; gap: 14px; }
+.settings-section { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 12px; background: var(--paper); overflow: hidden; }
+.settings-section-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--border); padding: 16px 20px 14px; }
+.settings-section-head h3 { margin: 0; color: var(--ink); font-size: 15px; font-weight: 600; }
+.settings-section-head p { margin: 5px 0 0; max-width: 62ch; color: var(--muted); font-size: 12.5px; line-height: 1.6; }
+.settings-section-body { display: flex; flex-direction: column; gap: 12px; padding: 16px 20px; }
+.settings-section-footer { display: flex; justify-content: flex-end; gap: 8px; border-top: 1px solid var(--border); background: color-mix(in oklab, var(--paper-soft) 70%, var(--paper)); padding: 12px 20px; }
+.settings-section-body .setting-row:first-child { padding-top: 0; }
+
+/* ── 设置区 v2 · S3：供应商主从 + 模型区 ── */
+.providers-pane { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 18px; align-items: start; }
+.providers-list { display: flex; min-width: 0; flex-direction: column; gap: 12px; border-right: 1px solid var(--border); padding-right: 16px; }
+.providers-list-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 12px; }
+.providers-group { display: flex; flex-direction: column; gap: 2px; }
+.providers-group-label { padding: 4px 6px; color: var(--clay); font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.providers-item { display: grid; grid-template-columns: 8px 16px minmax(0, 1fr) auto; align-items: center; gap: 8px; border: 0; border-radius: 8px; background: transparent; padding: 7px 8px; color: var(--ink); font-size: 13px; text-align: left; }
+.providers-item:hover { background: var(--paper-sunken); }
+.providers-item.active { background: var(--paper-sunken); box-shadow: inset 0 0 0 1px var(--border-strong); }
+.providers-item small { color: var(--muted); font-variant-numeric: tabular-nums; }
+.providers-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.providers-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--border-strong); }
+.providers-dot[data-ready="true"] { background: var(--green, #3f7d5a); }
+.providers-presets { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 6px; }
+.providers-detail { display: flex; min-width: 0; flex-direction: column; gap: 12px; }
+.providers-detail-head { display: flex; align-items: center; gap: 8px; color: var(--ink); font-size: 14px; }
+.providers-detail-head i { border-radius: 6px; background: var(--paper-sunken); padding: 1px 6px; color: var(--muted); font-size: 12px; font-style: normal; }
+.providers-detail-meta { display: flex; flex-wrap: wrap; gap: 12px; color: var(--muted); font-size: 12px; }
+.providers-detail-actions { display: flex; flex-wrap: wrap; gap: 8px; border-top: 1px solid var(--border); padding-top: 12px; }
+.settings-model-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--ink); font-size: 13px; font-weight: 600; }
+.settings-model-hint { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.settings-model-list { display: flex; flex-direction: column; gap: 4px; }
+.settings-model-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; align-items: center; gap: 8px; border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; }
+.settings-model-row span { display: flex; min-width: 0; flex-direction: column; gap: 1px; }
+.settings-model-row strong { overflow: hidden; color: var(--ink); font-size: 12.5px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.settings-model-row small { color: var(--muted); font-size: 12px; }
+.settings-model-row i { border-radius: 6px; background: var(--paper-sunken); padding: 1px 6px; color: var(--muted); font-size: 12px; font-style: normal; }
+.settings-model-add { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 8px; }
+.settings-model-budget { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.settings-model-budget label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 12px; }
+.settings-model-budget input { width: 100%; }
+.settings-provider-row { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto auto; align-items: center; gap: 10px; }
+.settings-provider-row div { display: flex; min-width: 0; flex-direction: column; gap: 1px; }
+.settings-provider-row strong { color: var(--ink); font-size: 12.5px; font-weight: 600; }
+.settings-provider-row small { color: var(--muted); font-size: 12px; }
+.settings-provider-row label { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-size: 12px; }
+@media (max-width: 900px) {
+  .providers-pane { grid-template-columns: minmax(0, 1fr); }
+  .providers-list { border-right: 0; border-bottom: 1px solid var(--border); padding: 0 0 12px; }
+  .settings-model-add, .settings-model-budget { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ── 设置区 v2 · S4：记忆面板 + RAG 词汇表 ── */
+.memory-manager-panel { display: flex; flex-direction: column; gap: 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--paper-soft); padding: 14px 16px; }
+.memory-manager-panel .memory-manager-header { border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+.rag-glossary { display: grid; margin: 0; gap: 10px; }
+.rag-glossary div { display: grid; grid-template-columns: 180px minmax(0, 1fr); align-items: baseline; gap: 12px; }
+.rag-glossary dt { color: var(--ink); font-size: 12.5px; font-weight: 600; }
+.rag-glossary dd { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.6; }
+@media (max-width: 720px) { .rag-glossary div { grid-template-columns: minmax(0, 1fr); gap: 2px; } }
+
+/* ── 设置区 v2 · S5：设置项级搜索 ── */
+.settings-nav button small { color: var(--muted); font-size: 12px; }
+.settings-search-flash { outline: 2px solid var(--clay); outline-offset: 2px; border-radius: 8px; }
