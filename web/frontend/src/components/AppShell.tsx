@@ -23,6 +23,7 @@ import { navItems, pageMeta } from "./shell/nav";
 import { ContextPanel } from "./shell/ContextPanel";
 
 import type { AppOutletContext } from "./shell/types";
+import { resolveTheme, systemPrefersDark, watchSystemTheme } from "../lib/theme";
 export type { AppOutletContext, LibrarySetupOptions } from "./shell/types";
 
 export function AppShell() {
@@ -253,8 +254,19 @@ export function AppShell() {
     root.dataset.paperTexture = appearance.paper_texture ? "on" : "off";
     root.dataset.sessionDensity = appearance.session_density;
     root.dataset.motion = appearance.motion;
+    root.dataset.theme = resolveTheme(appearance.theme ?? "system", systemPrefersDark());
+    root.dataset.contrast = appearance.contrast === "high" ? "high" : "normal";
     root.style.setProperty("--body-font-size", `${appearance.body_font_size}px`);
     root.style.setProperty("--content-width", `${appearance.content_width}px`);
+  }, [settings]);
+
+  // 主题 = 跟随系统时，系统切换要实时反映（W-F6）。
+  useEffect(() => {
+    if (!settings) return;
+    if ((settings.preferences.appearance.theme ?? "system") !== "system") return;
+    return watchSystemTheme((prefersDark) => {
+      document.documentElement.dataset.theme = prefersDark ? "dark" : "light";
+    });
   }, [settings]);
 
   useEffect(() => {

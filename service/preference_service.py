@@ -48,6 +48,8 @@ def default_preferences(default_provider: str = "", skill_names: list[str] | Non
             "paper_texture": True,
             "session_density": "comfortable",
             "motion": "system",
+            "theme": "system",
+            "contrast": "normal",
         },
         "ai": {
             "default_provider": default_provider,
@@ -80,6 +82,8 @@ _ENUMS = {
     "appearance.content_width": {640, 720, 800},
     "appearance.session_density": {"comfortable", "compact"},
     "appearance.motion": {"system", "reduced"},
+    "appearance.theme": {"light", "dark", "system"},
+    "appearance.contrast": {"normal", "high"},
     "search.provider": {"auto", "tavily", "exa"},
     "search.permission": {"ask", "auto"},
     "wiki.default_mode": {"catalog", "standard", "deep"},

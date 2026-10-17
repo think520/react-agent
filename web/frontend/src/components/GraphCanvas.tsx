@@ -7,6 +7,7 @@ import type { Settings as SigmaSettings } from "sigma/settings";
 import type { NodeLabelDrawingFunction } from "sigma/rendering";
 import forceAtlas2 from "graphology-layout-forceatlas2";
 import { prefersReducedMotion } from "../lib/motion";
+import { exceedsDragDeadZone, type PointerPosition } from "../lib/pointer";
 import type { ConceptNode, RelationshipEdge } from "../types";
 
 /** Fallback seed for a node without a saved position: spread around the
@@ -224,8 +225,13 @@ export function GraphCanvas({
 
     let draggedNode: string | null = null;
     let isDragging = false;
+  let dragOrigin: PointerPosition | null = null;
 
-    renderer.on("clickNode", ({ node }) => onNodeClick(node));
+    renderer.on("clickNode", ({ node, event }) => {
+    // M4 指针死区：拖拽节点后松手不算点击（位移 ≥ 4px）。
+    if (event && exceedsDragDeadZone(dragOrigin, { x: event.x, y: event.y })) return;
+    onNodeClick(node);
+  });
     renderer.on("clickStage", () => {
       if (!isDragging) onBackgroundClick();
     });
@@ -304,7 +310,8 @@ export function GraphCanvas({
         }]);
         renderer.refresh();
       }
-      window.setTimeout(() => { isDragging = false; }, 0);
+      dragOrigin = null;
+    window.setTimeout(() => { isDragging = false; }, 0);
       draggedNode = null;
     };
     renderer.on("upNode", finishDrag);

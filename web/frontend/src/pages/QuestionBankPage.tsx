@@ -9,87 +9,13 @@ import { toErrorMessage } from "../lib/errors";
 import { useHandoffStore } from "../stores/handoffStore";
 import { notifyInfo } from "../stores/noticeStore";
 import { useConfirm } from "../ui/Modal";
-import type { QuestionBank, QuestionBankItem, QuestionBankState, QuestionSetSummary } from "../types";
+import type { QuestionBank, QuestionBankItem, QuestionSetSummary } from "../types";
 
-const PAGE_SIZE = 20;
 
-const FILTERS: Array<{ key: string; label: string }> = [
-  { key: "all", label: "全部" },
-  { key: "unanswered", label: "未作答" },
-  { key: "incorrect", label: "错题" },
-  { key: "partial", label: "基本正确" },
-  { key: "correct", label: "答对" },
-  { key: "bookmarked", label: "已收藏" },
-];
-
-// The state is the noun the bulk action operates on, so no verb has to be
-// guessed per state ("重练" is only right for the wrong-answer bucket).
-const BULK_NOUNS: Record<string, string> = {
-  unanswered: "未作答题",
-  incorrect: "错题",
-  partial: "基本正确题",
-  correct: "答对题",
-  bookmarked: "收藏题",
-};
-
-const TYPE_OPTIONS = [
-  { value: "", label: "全部题型" },
-  { value: "single_choice", label: "单选题" },
-  { value: "true_false", label: "判断题" },
-  { value: "short_answer", label: "简答题" },
-];
-
-const DIFFICULTY_OPTIONS = [
-  { value: "", label: "全部难度" },
-  { value: "easy", label: "简单" },
-  { value: "medium", label: "中等" },
-  { value: "hard", label: "较难" },
-];
-
-/** A material is stored as a full path; the tail is what identifies it in a menu. */
-function materialLabel(source: string) {
-  const tail = source.split(/[\\/]/).pop() || source;
-  const name = tail.replace(/\.[^.]+$/, "");
-  return name.length > 26 ? name.slice(0, 25) + "…" : name;
-}
-
-const STATE_LABELS: Record<QuestionBankState, string> = {
-  unanswered: "未作答",
-  correct: "答对",
-  partial: "基本正确",
-  incorrect: "答错",
-};
-
-function stateLabel(state: QuestionBankState) {
-  return STATE_LABELS[state] || state;
-}
-
-function filterCount(overview: QuestionBank["overview"], key: string) {
-  if (key === "all") return overview.total;
-  if (key === "bookmarked") return overview.bookmarked;
-  if (key === "unanswered") return overview.unanswered;
-  if (key === "correct") return overview.correct;
-  if (key === "partial") return overview.partial;
-  if (key === "incorrect") return overview.incorrect;
-  return 0;
-}
-
-/** D7: a local-first product must let the user take their data out and put it back. */
-function todayStamp() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function download(filename: string, content: string, type: string) {
-  const url = URL.createObjectURL(new Blob([content], { type }));
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  URL.revokeObjectURL(url);
-}
-
+import {
+  BULK_NOUNS, DIFFICULTY_OPTIONS, FILTERS, PAGE_SIZE, TYPE_OPTIONS,
+  download, filterCount, materialLabel, stateLabel, todayStamp,
+} from "./bank/bankMeta";
 export function QuestionBankPage() {
   const navigate = useNavigate();
   const [state, setState] = useState("all");

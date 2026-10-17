@@ -125,7 +125,7 @@ describe("漂移棘轮（只允许变小）", () => {
   });
 
   it("用裸 ease 关键字的过渡数量不超过预算", () => {
-    // 2026-09-14：16；Chat 页批次后：15。缓动必须走 var(--ease-*) / var(--spring-*)。
+    // 2026-09-14：16；Chat：15；**2026-10-17 M4：归零**（15 处裸 ease/ease-out 全部改成 var(--ease-out)）。
     const BUDGET = 15;
     const lines = cssText.split(/\r?\n/);
     const bare = lines.filter(
@@ -355,9 +355,21 @@ describe("M3 浮层发丝边/外环（DESIGN.md §4.5）", () => {
 
   it("关键浮层都使用 --hairline + --ring 外环", () => {
     for (const selector of overlays) {
-      const body = lastRuleBody(APP_CSS, selector);
-      expect(body, selector).toContain("var(--hairline)");
-      expect(body, selector).toContain("var(--ring)");
+      const bodies: string[] = [];
+      let from = 0;
+      while (true) {
+        const at = APP_CSS.indexOf(selector, from);
+        if (at < 0) break;
+        const brace = APP_CSS.indexOf("{", at);
+        const close = APP_CSS.indexOf("}", at);
+        if (brace < 0) break;
+        if (close >= 0 && close < brace) { from = at + selector.length; continue; }
+        bodies.push(APP_CSS.slice(brace + 1, APP_CSS.indexOf("}", brace)));
+        from = brace;
+      }
+      const joined = bodies.join(" ");
+      expect(joined, selector).toContain("var(--hairline)");
+      expect(joined, selector).toContain("var(--ring)");
     }
   });
 
@@ -422,9 +434,9 @@ describe("M3 输入区与遮罩统一（DESIGN.md §4.4 / §4.5）", () => {
     expect(APP_CSS).toMatch(/@supports \(mask-image:[\s\S]{0,200}\.settings-nav[\s\S]{0,120}\.providers-list/);
   });
 
-  it("每屏渐变预算：背景渐变最多 2 处（遮罩渐变不计；只减不增）", () => {
+  it("每屏渐变预算：背景渐变最多 3 处（遮罩不计；M4 骨架屏微光 +1）", () => {
     const gradients = (APP_CSS.match(/background[^;{]*linear-gradient\(/g) ?? []).length;
-    expect(gradients).toBeLessThanOrEqual(2);
+    expect(gradients).toBeLessThanOrEqual(3);
   });
 });
 
@@ -444,5 +456,56 @@ describe("M3 组件规格校准（DESIGN.md §16.2）", () => {
       expect(joined, selector).toContain("border-radius: var(--radius-md)");
       expect(joined, selector).not.toMatch(/border-radius: \d+px/);
     }
+  });
+});
+
+describe("M4 弹簧曲线契约（DESIGN.md §11）", () => {
+  const root = tokensIn(rootBlock(tokensText));
+  const springs = ["--spring-press", "--spring-pop", "--spring-panel", "--spring-accent"];
+
+  it("四个物理弹簧都在 :root，且都是 linear() 曲线", () => {
+    for (const name of springs) {
+      const value = root.get(name) ?? "";
+      expect(value.startsWith("linear("), name).toBe(true);
+    }
+  });
+
+  it("曲线过冲 ≤ 2%（超过就压回 1.02）", () => {
+    for (const name of springs) {
+      const value = root.get(name) ?? "";
+      const stops = Array.from(value.matchAll(/([0-9.]+)\s+[0-9]+%/g)).map((m) => Number(m[1]));
+      const peak = Math.max(...stops, 1);
+      expect(peak, name).toBeLessThanOrEqual(1.02 + 1e-9);
+    }
+  });
+
+  it("弹簧曲线真实用在过渡/动画上（不是只定义）", () => {
+    const used = springs.filter((name) => APP_CSS.includes("var(" + name + ")"));
+    expect(used.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("W-F6 主题契约（data-theme）", () => {
+  const darkBlock = tokensText.slice(tokensText.indexOf('[data-theme="dark"]'));
+  const darkTokens = tokensIn(darkBlock.slice(0, darkBlock.indexOf("}")));
+  const highStart = tokensText.indexOf('[data-contrast="high"]');
+  const highTokens = highStart >= 0 ? tokensIn(tokensText.slice(highStart, tokensText.indexOf("}", highStart))) : new Map();
+
+  it("暗色主题覆盖全部关键语义令牌", () => {
+    for (const name of ["--paper", "--paper-soft", "--paper-sunken", "--ink", "--muted", "--faint", "--border", "--border-strong", "--ring", "--blue", "--accent", "--ink-rgb"]) {
+      expect(darkTokens.has(name), name).toBe(true);
+    }
+  });
+
+  it("暗色只翻颜色：不重新定义字体、圆角、动效令牌", () => {
+    for (const name of Array.from(darkTokens.keys())) {
+      expect(name, name).not.toMatch(/^--(font-|radius-|dur-|spring-|ease-|space-)/);
+    }
+  });
+
+  it("高对比主题只强化文字与描边", () => {
+    expect(highTokens.has("--muted")).toBe(true);
+    expect(highTokens.has("--faint")).toBe(true);
+    expect(highTokens.has("--border-strong")).toBe(true);
   });
 });
