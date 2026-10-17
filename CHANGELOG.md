@@ -12,6 +12,12 @@
 > 从 2026-10-15 起时间戳已正确（`177fbc2` / `c9e9b52` / `0a767bb` / `d123b43` 均为当日）。
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
+- **W-F7 聊天区域化组件 ✅ 完成（2026-10-17，feat/frontend-m4，未推送）**：按 Transcript / Message / Actions / Cards 四层拆分，**行为零变化**（322 条测试全绿 ✓）。
+  - 新增 `components/chat/ChatTranscript.tsx`（49 行：消息列表 + 截断提示 + 收尾状态）、`ChatMessage.tsx`（UserMessage / AssistantMessage，79 行）、`ChatActions.tsx`（AnswerActions / AnswerFailure，12 行）、`ChatWelcome.tsx`（空态欢迎 + 快捷入口，40 行）。
+  - **Cards 层不重复搬**：artifact 卡片早在 M2 就拆到 `components/artifacts/`（AskUser / Wiki / Web / Practice…），ChatPage 只保留一个 `artifactSurface` 分发器 ✓ —— 如实记账，没有为了「四层」再造一份 ✗。
+  - `ChatPage.tsx` 585 → **557 行** ✓：渲染体从内联 JSX 改成传参给三个组件 ✓；未用导入自动修剪（ReactMarkdown / 一堆图标与卡片 import ✓）。
+  - **过程记录**：ChatPage 是 CRLF 文件 ✗，前两次按 `\n` 匹配的替换都没生效（还误插了 import 位置）→ 改为「规范化成 LF 做手术 → 写回 CRLF」✓ 才稳定；类型也补了 `Attribution`（onOpenSources 参数）✓。
+  - 门禁：tsc / lint **0** ✓、vitest **49 文件 / 322 passed** ✓、build **0** ✓、mock e2e **15** ✓。
 - **W-F6 主题系统 ✅ 完成（2026-10-17，feat/frontend-m4，未推送）**
   - **令牌层**：新增 `[data-theme="dark"]`（暖炭纸面 + 米白文字 + 提亮品牌蓝，`--ink-rgb` 等合成三元组与阴影一并翻转 ✓）与 `[data-contrast="high"]`（只强化 muted/faint/描边 ✓）；**只翻颜色**，不重定义字体/圆角/动效 ✓（契约测试验证 ✓）。
   - **偏好与持久化**：后端 `preference_service` 增加 `appearance.theme`（light/dark/system，默认 system）与 `appearance.contrast`（normal/high，默认 normal）+ 枚举校验 ✓（新增后端测试：默认值 / 合法切换 / 非法值拒绝 ✓）；前端 `types.ts` 同步 ✓。

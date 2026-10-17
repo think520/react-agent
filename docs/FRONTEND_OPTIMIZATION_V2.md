@@ -115,7 +115,7 @@ v2 **新增两项**：
 | W-F4 | 动效与 IME | 🟡 计划中 |
 | W-F5 | 字体与包体 | 🟡 计划中 |
 | W-F6 | 主题系统（`data-theme`） | ✅ **完成（2026-10-17）**：`[data-theme="dark"]` + `[data-contrast="high"]` 只翻转颜色变量（不重定义字体/圆角/动效，契约测试保证 ✓）；后端 `appearance.theme/contrast` 默认值与枚举校验 ✓；设置「界面与阅读」可切换并持久化 ✓；跟随系统时实时响应 `prefers-color-scheme` ✓；暗色/高对比实拍验证 ✓ |
-| W-F7 | 聊天区域化组件 | 🆕 借 openhanako |
+| W-F7 | 聊天区域化组件 | ✅ **完成（2026-10-17）**：`components/chat/{ChatTranscript,ChatMessage,ChatActions}` + `ChatWelcome`（Cards 层在 M2 已拆到 `components/artifacts/`）；ChatPage 585 → **557 行**，每个新文件 21–79 行；行为不变（322 条测试全绿 ✓） |
 
 **与 M2 两档验收的关系**：两档验收的结论不变 ✓；本文 §1 就是「已知债」的**解法** ✓ —— 不是回头再做一遍 ✓，而是换一条**能一次做对**的路线 ✓。
 

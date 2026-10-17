@@ -1,14 +1,12 @@
 import {} from "../lib/documentLinks";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUp, BookOpen, Brain, Command, FilePlus2, FileText, FolderOpen, Globe2, Library, MessageCircle, Paperclip, RotateCcw, Square, Sparkles, X } from "lucide-react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { ArrowUp, Command, FileText, Globe2, Library, MessageCircle, Paperclip, Square, Sparkles, X } from "lucide-react";
 import { useNavigate, useOutletContext, useParams } from "react-router-dom";
 
 import { createChatActions } from "./chat/chatActions";
 
 import type { AppOutletContext } from "../components/AppShell";
-import { AttributionBadges, BrandIllustration, ErrorNotice, IconButton, LoadingState } from "../components/common";
+import { IconButton, LoadingState } from "../components/common";
 import { WikiPlanCard } from "../components/WikiPlanCard";
 import { ModelSelect } from "../components/ModelSelect";
 import { DropdownSelect } from "../components/DropdownSelect";
@@ -23,10 +21,10 @@ import { WebConsentCard } from "../components/artifacts/WebConsentCard";
 import { WebEvidenceCard } from "../components/artifacts/WebEvidenceCard";
 import { WikiFocusCard } from "../components/artifacts/WikiFocusCard";
 import { WikiResultCard } from "../components/artifacts/WikiResultCard";
-import { ProcessFoldBlock } from "../components/ProcessFoldBlock";
+import {} from "../components/ProcessFoldBlock";
 import { useChatStream } from "../hooks/useChatStream";
 import { useStickyBottomScroll } from "../hooks/useStickyBottomScroll";
-import { BlockErrorBoundary } from "../ui";
+import {} from "../ui";
 import { api } from "../lib/api";
 import {} from "../lib/commandRouter";
 import {} from "../lib/errors";
@@ -39,9 +37,11 @@ import {
 } from "../stores/chatStore";
 import { notifyError } from "../stores/noticeStore";
 import { useUiStore } from "../stores/uiStore";
-import type { ChatArtifact, KnowledgeContextArtifact, RunSummaryArtifact, WikiPlanArtifact } from "../types";
+import type { ChatArtifact, KnowledgeContextArtifact, WikiPlanArtifact } from "../types";
 
-import { BobodanProcess, PersonalizationChip, RunSummary, initialDraft } from "./chat/chatPrimitives";
+import { initialDraft } from "./chat/chatPrimitives";
+import { ChatTranscript } from "../components/chat/ChatTranscript";
+import { ChatWelcome } from "../components/chat/ChatWelcome";
 import type { SlashItem } from "./chat/chatPrimitives";
 import { WEB_COMMANDS } from "./chat/chatPrimitives";
 import { useCompositionGuard, isImeKeyEvent } from "../lib/ime";
@@ -540,65 +540,37 @@ export function ChatPage() {
   );
 
   return (
-    <section className={`chat-page ${!loading && !messages.length ? "is-empty" : ""}`}>
+    <section className={"chat-page " + (!loading && !messages.length ? "is-empty" : "")}>
       <div className="chat-scroll" ref={scrollRef}>
         {loading ? <LoadingState label="正在找回这段对话…" /> : messages.length ? (
-          <div className="conversation">
-            {messages.map((message, index) => message.role === "user" ? (
-              <div className="user-message-wrap" key={index}>
-                <div className="user-message">{message.content}</div>
-                {message.references?.length ? <div className="message-references">{message.references.map((reference) => <button type="button" key={`${reference.type}:${reference.id}`} onClick={() => openReference(reference)}>{reference.type === "document" ? <FileText size={12} /> : <MessageCircle size={12} />}<span>{reference.title}</span><small>{reference.type === "document" ? reference.collection === "wiki" ? "Wiki" : "资料" : "会话"}</small></button>)}</div> : null}
-              </div>
-            ) : (
-              <article className={`assistant-message ${message.failed ? "failed" : ""}`} key={index}>
-                <div className="assistant-heading"><img src={message.failed ? "/assets/brand/expressions/bobodan-expression-curious.webp" : "/assets/brand/expressions/bobodan-expression-neutral.webp"} alt="" /><span>{settings?.preferences.assistant.display_name || "Bobodan"}</span></div>
-                {message.pending && status && <BobodanProcess state={brandState} detail={status} />}
-                {!message.pending && <RunSummary artifact={message.artifacts?.find((artifact): artifact is RunSummaryArtifact => artifact.type === "run_summary")} />}
-                {!message.pending && message.process?.length ? <ProcessFoldBlock steps={message.process} /> : null}
-                <BlockErrorBoundary><div className="answer-prose"><ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content || (message.pending ? "正在整理回答…" : message.failed ? "回答没有完成。" : "本轮没有生成可显示的内容。")}</ReactMarkdown></div></BlockErrorBoundary>
-                {message.artifacts?.map((artifact) => <BlockErrorBoundary key={artifact.artifact_id}>{artifactSurface(artifact)}</BlockErrorBoundary>)}
-                <AttributionBadges attribution={message.attribution} onOpenSources={showSourceContext} />
-                <PersonalizationChip references={message.personalization} />
-                {!message.pending && !message.failed && message.content && !message.artifacts?.some((artifact) => artifact.type === "practice_ready") && <div className="answer-actions"><button className="quiet-button" onClick={() => preparePractice(index)}><BookOpen size={15} />生成 5 道练习</button></div>}
-                {message.failed && <div className="answer-failure"><span>{error || "AI 连接暂时不可用，请稍后重试。"}</span><button className="quiet-button" disabled={sending} onClick={() => retryMessage(index, true)}><RotateCcw size={15} />重新发送本轮</button></div>}
-                {message.stopped && <div className="answer-failure"><span>回答已停止，只生成了部分内容。</span><button className="quiet-button" disabled={sending} onClick={() => retryMessage(index)}><RotateCcw size={15} />重新发送本轮</button></div>}
-              </article>
-            ))}
-            {/* W1 E11：续写用尽仍被截断 —— 说清楚，并给一个接着写的入口。 */}
-            {truncated && !truncated.continuing && (
-              <div className="answer-truncated" role="status">
-                <span>这次回答被输出长度上限截断了，没有写完。</span>
-                <button
-                  className="quiet-button"
-                  disabled={sending}
-                  onClick={() => { clearTruncated(); void send(undefined, "请从中断处继续写，不要重复已经写过的内容。"); }}
-                >
-                  接着写
-                </button>
-              </div>
-            )}
-            {status && !messages.at(-1)?.pending && <BobodanProcess state={brandState} detail={status} />}
-          </div>
+          <ChatTranscript
+            messages={messages}
+            status={status}
+            brandState={brandState}
+            assistantName={settings?.preferences.assistant.display_name || "Bobodan"}
+            sending={sending}
+            error={error || ""}
+            truncated={truncated}
+            onContinue={() => { clearTruncated(); void send(undefined, "请从中断处继续写，不要重复已经写过的内容。"); }}
+            onPreparePractice={preparePractice}
+            onRetry={retryMessage}
+            renderArtifact={artifactSurface}
+            onOpenReference={openReference}
+            onOpenSources={showSourceContext}
+          />
         ) : (
-          <div className="welcome-view">
-            <div className="welcome-identity">
-              <BrandIllustration state="ready" size={112} alt="Bobodan" />
-              <h2>今天想学点什么？</h2>
-              <div className="welcome-context">
-                <span><FolderOpen size={14} />{activeLibrary?.name || "尚未选择资料库"}</span>
-                <span><Brain size={14} />记忆随学习沉淀</span>
-              </div>
-            </div>
-            {error && <ErrorNotice message={error} />}
-            {composer}
-            {wikiPlanLoading && <BobodanProcess state="reading" detail={status || "正在生成 Wiki 计划"} />}
-            <div className="starter-actions">
-              <button onClick={() => applyPrompt("根据我的资料，帮我梳理今天最值得学习的三个知识点。")}>梳理学习重点</button>
-              <button onClick={() => applyPrompt("请先用直觉解释，再给出严谨推导。")}>先讲直觉，再补证明</button>
-              <button disabled={documentImporting} onClick={startDocumentImport}><FilePlus2 size={15} />{documentImporting ? "正在导入" : "导入资料"}</button>
-              <button onClick={() => navigate("/practice")}><BookOpen size={15} />开始练习</button>
-            </div>
-          </div>
+          <ChatWelcome
+            libraryName={activeLibrary?.name || ""}
+            error={error || ""}
+            composer={composer}
+            wikiPlanLoading={wikiPlanLoading}
+            status={status}
+            brandState={brandState}
+            documentImporting={documentImporting}
+            onApplyPrompt={applyPrompt}
+            onImport={startDocumentImport}
+            onOpenPractice={() => navigate("/practice")}
+          />
         )}
       </div>
       {messages.length > 0 && composer}
