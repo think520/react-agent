@@ -12,6 +12,11 @@
 > 从 2026-10-15 起时间戳已正确（`177fbc2` / `c9e9b52` / `0a767bb` / `d123b43` 均为当日）。
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
+- **M2 store-lift · 第 2 步 ✅ ChatPage 达标（2026-10-17，分支 refactor/prepackaging-m1，未推送）**：`ChatPage.tsx` **1,031 → 579 行** ✓（≤600 ✓）。
+  - 新增 `pages/chat/chatActions.ts`（663 行）：**「单一 ctx 边界」**的动作层 —— 27 个处理器（send / wiki 族 / web 族 / 练习族 / 设置族 / 交互族 / 引用族）整体搬出组件，依赖折叠成**一个 `ChatActionContext`**（43 个字段，含类型 ✓）✓；组件每帧 `createChatActions(ctx)` 一次并解构 ✓，**调用点一字未改** ✓。
+  - 这样绕开了之前两次失败的两个死结：① 不用给每个 hook 写 30+ deps（只有**一个** ctx ✓）；② 不用处理 effect 与处理器的双向依赖（effect 仍留在组件 ✓，actions 是纯函数工厂 ✓）。
+  - 一个**误报**：react-hooks v7 的 `refs` 规则把「把 ref 对象交给纯工厂」判成 render 期访问 ✗ —— 加了一行带理由的局部 disable ✓（`factory only stores the refs; .current is read inside handlers` ✓）。
+  - 验证：前端 **47 文件 / 296 passed** ✓、tsc / lint **0** ✓、ChatPage 5 条测试 ✓。
 - **M2 store-lift · 第 1 步（2026-10-17，分支 refactor/prepackaging-m1，未推送）**：新建 `web/frontend/src/stores/chatStore.ts`（69 行）—— 借鉴 openhanako 的 store 约定：状态放 zustand ✓、读写用**模块级 setter** ✓（`setSending` / `setReferences` / `setWebSelections` … 12 个），组件只订阅字段 ✓。
   - ChatPage 的 **12 个 UI 字段**从 `useState` 迁到 store（sending / practiceStarting / error / paletteIndex / paletteDismissed / wikiPlanLoading / references / webOnce / webSelections / mentionTab / mentionIndex / mentionDismissed ✓），调用点**一字未改** ✓。
   - 为「actions 无闭包」铺路：后续 `chatActions` 直接 `useChatStore.getState()/setState()`，不再往 hook 里传 30+ 依赖 ✓（这是 v2 方案对 M2 两次失败的根因修正 ✓）。
