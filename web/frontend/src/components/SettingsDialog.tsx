@@ -1,18 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity, Bot, BookOpenText, Brain, Check, ChevronLeft, CircleUserRound,
-  Cpu, Database, Gauge, RefreshCw, Search, ShieldCheck, Sparkles, Wrench, X,
+  Cpu, Database, RefreshCw, Search, ShieldCheck, Sparkles, Wrench, X,
 } from "lucide-react";
 
 import { api } from "../lib/api";
 import type { LegacyGraphPreview, LibrarySummary, MemoryOverview, RuntimeStatus, SettingsSummary } from "../types";
-import { BrandIllustration, IconButton } from "./common";
+import { IconButton } from "./common";
 import { MemoryManagerDialog } from "./MemoryManagerDialog";
 import { ModelSelect } from "./ModelSelect";
 import { DropdownSelect } from "./DropdownSelect";
 import { ProviderManagerDialog } from "./ProviderManagerDialog";
 import { Modal, ConfirmDialog } from "../ui/Modal";
 import { SettingsHeading, SettingsPage, SettingsSection, SettingsRow, SettingsSegmented, SettingsToggle } from "./settings/SettingsPrimitives";
+import { AppearanceSection } from "./settings/sections/AppearanceSection";
+import { AssistantSection } from "./settings/sections/AssistantSection";
+import { MeSection } from "./settings/sections/MeSection";
+import { StatusSection } from "./settings/sections/StatusSection";
 
 type SectionId = "assistant" | "me" | "appearance" | "models" | "rag" | "memory" | "skills" | "security" | "status" | "experiments";
 
@@ -202,34 +206,9 @@ export function SettingsDialog({
   }
 
   function sectionContent() {
-    if (active === "assistant") return <>
-      <div className="settings-identity"><BrandIllustration state="listening" size={92} alt="Bobodan" /><div><span>品牌角色</span><h3>Bobodan</h3><p>三花猫品牌保持固定，你可以调整它陪伴学习的方式。</p></div></div>
-      <section className="settings-group"><header><h3>称呼与教学方式</h3><p>这些设置影响表达，不改变事实、来源和安全规则。</p></header>
-        <label className="settings-field"><span>助手昵称</span><input maxLength={60} value={assistant.display_name} onChange={(event) => setAssistant({ ...assistant, display_name: event.target.value })} /></label>
-        <SettingRow label="教学方式" hint="决定默认如何展开一次讲解"><Segmented label="教学方式" value={assistant.teaching_style} onChange={(value) => setAssistant({ ...assistant, teaching_style: value })} options={[{ value: "guided", label: "引导式" }, { value: "explanatory", label: "讲解式" }, { value: "practice", label: "陪练式" }]} /></SettingRow>
-        <SettingRow label="回答深度"><Segmented label="回答深度" value={assistant.answer_depth} onChange={(value) => setAssistant({ ...assistant, answer_depth: value })} options={[{ value: "concise", label: "简洁" }, { value: "standard", label: "标准" }, { value: "deep", label: "深入" }]} /></SettingRow>
-        <SettingRow label="反馈方式"><Segmented label="反馈方式" value={assistant.feedback_strength} onChange={(value) => setAssistant({ ...assistant, feedback_strength: value })} options={[{ value: "gentle", label: "温和" }, { value: "direct", label: "直接" }]} /></SettingRow>
-        <footer><button className="primary-button" disabled={saving} onClick={() => void saveAssistant()}><Check size={15} />保存助手设置</button></footer>
-      </section>
-    </>;
-    if (active === "me") return <section className="settings-group"><header><h3>你的学习资料</h3><p>用于调整讲解起点，不会作为公开资料或自动写入 Wiki。</p></header>
-      <label className="settings-field"><span>怎么称呼你</span><input maxLength={60} value={profile.display_name} onChange={(event) => setProfile({ ...profile, display_name: event.target.value })} /></label>
-      <label className="settings-field"><span>个人简介</span><textarea rows={5} maxLength={1000} value={profile.profile} onChange={(event) => setProfile({ ...profile, profile: event.target.value })} placeholder="例如：正在学习计算机基础，熟悉 Python。" /></label>
-      <label className="settings-field"><span>长期学习目标</span><textarea rows={4} maxLength={500} value={profile.long_term_goal} onChange={(event) => setProfile({ ...profile, long_term_goal: event.target.value })} /></label>
-      <footer><button className="primary-button" disabled={saving} onClick={() => void saveProfile()}><Check size={15} />保存我的资料</button></footer>
-    </section>;
-    if (active === "appearance") return <>
-      <section className="settings-group"><header><h3>阅读排版</h3><p>高频操作仍使用系统黑体，正文阅读可以选择今楷或宋体。</p></header>
-        <SettingRow label="阅读字体"><Segmented label="阅读字体" value={preferences.appearance.reading_font} onChange={(value) => void patchPreferences({ appearance: { reading_font: value } })} options={[{ value: "jin-kai", label: "今楷" }, { value: "noto-serif", label: "宋体" }]} /></SettingRow>
-        <SettingRow label="正文字号"><Segmented label="正文字号" value={preferences.appearance.body_font_size} onChange={(value) => void patchPreferences({ appearance: { body_font_size: value } })} options={[15, 16, 17, 18].map((value) => ({ value: value as 15 | 16 | 17 | 18, label: `${value}` }))} /></SettingRow>
-        <SettingRow label="内容宽度"><Segmented label="内容宽度" value={preferences.appearance.content_width} onChange={(value) => void patchPreferences({ appearance: { content_width: value } })} options={[{ value: 640, label: "窄" }, { value: 720, label: "标准" }, { value: 800, label: "宽" }]} /></SettingRow>
-      </section>
-      <section className="settings-group"><header><h3>界面感受</h3></header>
-        <SettingRow label="纸张纹理" hint="保持轻微，不影响正文对比度"><Toggle label="纸张纹理" checked={preferences.appearance.paper_texture} onChange={(value) => void patchPreferences({ appearance: { paper_texture: value } })} /></SettingRow>
-        <SettingRow label="会话列表密度"><Segmented label="会话列表密度" value={preferences.appearance.session_density} onChange={(value) => void patchPreferences({ appearance: { session_density: value } })} options={[{ value: "comfortable", label: "舒展" }, { value: "compact", label: "紧凑" }]} /></SettingRow>
-        <SettingRow label="减少动态效果"><Toggle label="减少动态效果" checked={preferences.appearance.motion === "reduced"} onChange={(value) => void patchPreferences({ appearance: { motion: value ? "reduced" : "system" } })} /></SettingRow>
-      </section>
-    </>;
+    if (active === "assistant") return <AssistantSection assistant={assistant} setAssistant={setAssistant} saving={saving} onSave={saveAssistant} />;
+    if (active === "me") return <MeSection profile={profile} setProfile={setProfile} saving={saving} onSave={saveProfile} />;
+    if (active === "appearance") return <AppearanceSection appearance={preferences.appearance} patch={(patch) => void patchPreferences(patch)} />;
     if (active === "models") return <>
       <section className="settings-group"><header><h3>模型与连接</h3><p>API key 在供应商管理中填写，密钥明文保存在本地应用数据目录。</p></header>
         <SettingRow label="默认模型" hint="聊天与未指定任务默认使用"><ModelSelect providers={settings.providers} label="默认模型" value={preferences.ai.default_provider || "default"} onChange={(value) => void patchPreferences({ ai: { default_provider: value } })} includeDefault={false} bordered /></SettingRow>
@@ -276,7 +255,7 @@ export function SettingsDialog({
         <p className="text-faint">这一页在 S5 交付。</p>
       </SettingsSection>
     </SettingsPage>;
-    return <section className="settings-group"><header><h3>运行状态</h3><p>只展示普通用户能理解并采取行动的状态。</p></header>{runtimeStatus ? <div className="runtime-grid"><div><Activity /><span><strong>后端</strong><small>连接正常</small></span></div><div><Cpu /><span><strong>AI</strong><small>{runtimeStatus.providers.configured}/{runtimeStatus.providers.available} 已配置</small></span></div><div><Search /><span><strong>联网搜索</strong><small>{runtimeStatus.search.permission === "auto" ? "模型自动" : "每次询问"} · {runtimeStatus.search.default} · {runtimeStatus.search.jina_fallback ? "Jina 后备开启" : "仅直接读取"}</small></span></div><div><Database /><span><strong>资料索引</strong><small>{runtimeStatus.knowledge.state === "ready" ? `${runtimeStatus.knowledge.documents} 份资料` : "等待资料"}</small></span></div><div><Brain /><span><strong>记忆</strong><small>{runtimeStatus.memory.enabled ? "已启用" : "已关闭"}</small></span></div><div><Wrench /><span><strong>Skills</strong><small>{runtimeStatus.skills.enabled}/{runtimeStatus.skills.available} 已启用</small></span></div><div><Gauge /><span><strong>版本</strong><small>{runtimeStatus.version}</small></span></div></div> : <p className="settings-empty">正在读取状态…</p>}</section>;
+    return <StatusSection runtimeStatus={runtimeStatus} />;
   }
 
   return <Modal backdropClassName="settings-backdrop" onClose={onClose} ariaLabel="设置">

@@ -12,6 +12,11 @@
 > 从 2026-10-15 起时间戳已正确（`177fbc2` / `c9e9b52` / `0a767bb` / `d123b43` 均为当日）。
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
+- **设置区重构 S2/5 ✅（2026-10-17，分支 feat/settings-v2，未推送）**：4 个简单节迁进设计系统，行为零变化。
+  - 新增 `components/settings/sections/`：`AssistantSection`（37 行）/ `MeSection`（27）/ `AppearanceSection`（33）/ `StatusSection`（17）—— 全部用 `SettingsSection` 卡片 + `SettingsRow/Field/Segmented/Toggle` + footer 保存按钮 ✓。
+  - `AssistantSection`：保留品牌身份块（`.settings-identity`）+ 昵称/教学方式/回答深度/反馈方式四行；`AppearanceSection`：阅读排版 + 界面感受两张卡（改动即时保存，与迁移前一致 ✓）；`StatusSection`：运行状态七项（后端/AI/搜索/索引/记忆/Skills/版本）。
+  - **踩坑记录**：第一版枚举值是**我猜的** ✗（socratic / serif / 820 / 舒适）—— 从 `main` 版源码与 `UserPreferences` 类型逐字核对后修正 ✓（practice 陪练式 / noto-serif 宋体 / 800 宽 / 舒展 ✓）。教训：迁移枚举必须从类型或原文件抄，不靠记忆 ✗。
+  - 门禁：tsc / lint **0** ✓、vitest **47 文件 / 296 passed** ✓、build **0** ✓、mock e2e **15 passed** ✓；`SettingsDialog` 304 → **279 行**。
 - **设置区重构 S1/5 ✅（2026-10-17，分支 feat/settings-v2，未推送）**：按 openhanako 的 settings 骨架交付**设计系统 + 外壳 + 10 节导航**，行为零变化。
   - 新增 `web/frontend/src/components/settings/SettingsPrimitives.tsx`：`SettingsPage` / `SettingsHeading` / `SettingsSection` / `SettingsStack` / `SettingsRow` / `SettingsField` / `SettingsToggle` / `SettingsSegmented` / `SettingsFooter`（结构原语，视觉走 Bobodan 令牌 ✓）；
   - 新增结构类（app.css）：`.settings-page / .settings-stack / .settings-section / -head / -body / -footer`（卡片式分节 ✓ 圆角用 §7 刻度 12px ✓ 未破棘轮 ✓）；
