@@ -12,6 +12,10 @@
 > 从 2026-10-15 起时间戳已正确（`177fbc2` / `c9e9b52` / `0a767bb` / `d123b43` 均为当日）。
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
+- **M2 页面拆分 · ChatPage 第一步（2026-10-17，分支 refactor/prepackaging-m1，未推送）**：`ChatPage.tsx` **1,185 → 1,031 行**（目标 ≤600，还需抽动作处理器 hook，下一步继续）。
+  - 新增 `pages/chat/chatPrimitives.tsx`（137 行）：纯展示原语与工具函数（`BobodanProcess` / `PersonalizationChip` / `RunSummary` / `initialDraft` / `SliderItem 与命令表`），只接收 props、不放状态 ✓。
+  - 验证：前端 **47 文件 / 296 passed** ✓、tsc / lint **0** ✓、mock e2e **15** ✓。
+  - 说明：ChatPage 的剩余体积集中在`动作处理器`（约 680 行：发送/流式接线、Web 同意流、Wiki 计划流、练习准备、设置变更、交互回答等）——这些闭包共享大量状态，下一步按「artifact 动作族」整体抽成一个 hook（约 −430 行），并逐项核对 F1 的 `applyEvent` 与 F7 的 `pinToBottom` 契约不被搬坏。
 - **M2 页面拆分 · api.ts 达标（2026-10-17，分支 refactor/prepackaging-m1，未推送）**：`lib/api.ts` **1,407 → 19 行** ✓（门面）。
   - 161 个方法按领域搬到 `lib/api/endpoints/`：`library.ts` 227 / `practice.ts` 225 / `workspace.ts` 200（设置+记忆+图谱）/ `wiki.ts` 133 / `chat.ts` 63 行 —— **全部 ≤600** ✓。
   - `lib/api.ts` 只保留 5 个领域对象的展开组合 + `export *`（http / types / transport），调用方 `from "../lib/api"` **零改动** ✓。
