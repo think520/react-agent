@@ -167,11 +167,16 @@ export function ProvidersPane({ providers, onChanged }: {
       {configured.length > 0 && <div className="providers-group"><span className="providers-group-label">已配置</span>{configured.map(renderItem)}</div>}
       {unconfigured.length > 0 && <div className="providers-group"><span className="providers-group-label">未配置</span>{unconfigured.map(renderItem)}</div>}
       {custom.length > 0 && <div className="providers-group"><span className="providers-group-label">自定义</span>{custom.map(renderItem)}</div>}
-      {presets.length > 0 && <div className="providers-group">
+      {presets.some((preset) => !providers.some((item) => item.name === preset.name)) && <div className="providers-group">
         <span className="providers-group-label">从模板添加</span>
-        <div className="providers-presets">
-          {presets.map((preset) => <button key={preset.name} type="button" className="quiet-button" disabled={working} title={preset.note || preset.base_url} onClick={() => startAdd(preset)}>{preset.note || preset.name}</button>)}
-        </div>
+        {presets.filter((preset) => !providers.some((item) => item.name === preset.name)).map((preset) => (
+          <button key={preset.name} type="button" className="providers-item dim" disabled={working} title={(preset.note || preset.name) + " · " + preset.base_url} onClick={() => startAdd(preset)}>
+            <span className="providers-dot" />
+            <Plus size={14} />
+            <span className="providers-name">{preset.name}</span>
+            <small>{preset.auth_type === "none" ? "本地" : ""}</small>
+          </button>
+        ))}
       </div>}
     </div>
     <div className="providers-detail">
