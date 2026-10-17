@@ -2305,3 +2305,11 @@ mark.reader-anchor-mark {
 .selection-toolbar { background: color-mix(in srgb, var(--paper) 92%, transparent); }
 .wiki-plan-compose, .wiki-plan-card { background: color-mix(in srgb, var(--paper-soft) 72%, transparent); }
 .slash-palette, .mention-palette { background: color-mix(in srgb, var(--surface-3) 98%, transparent); }
+
+/* ── 视觉返工（2026-10-17 用户反馈）──
+   ① 练习出题卡：限制到舒适阅读宽度，不再拉满整页（右侧大片空白 ✗）；
+   ② 复习「下一步」提示：去掉整块蓝色洗底 + 蓝色竖条（太抢眼 ✗），改成安静的中性卡。 */
+.practice-create { max-width: 720px; padding: 18px 20px; }
+.practice-create .practice-mode { margin-bottom: 12px; }
+.practice-create .practice-stepwise { margin: 0 0 12px; }
+.review-objective { margin: 0 0 16px; border: 1px solid var(--border-subtle); border-left: 2px solid var(--clay-wash); border-radius: var(--radius-md); padding: 10px 14px; background: var(--surface-2); color: var(--muted); font-size: 13px; }
