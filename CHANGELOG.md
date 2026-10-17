@@ -12,6 +12,12 @@
 > 从 2026-10-15 起时间戳已正确（`177fbc2` / `c9e9b52` / `0a767bb` / `d123b43` 均为当日）。
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
+- **设置区重构 S3/5 ✅（2026-10-17，分支 feat/settings-v2，未推送）**：AI 与模型节改成**节内主从**，删掉嵌套弹窗。
+  - 新增 `components/settings/providers/`：`ProvidersPane`（208 行：左列表 已配置/未配置/自定义 + 状态点 + 模型数 + 模板入口；右详情/编辑）+ `ProviderFormFields`（46 行）+ `providerForm`（33 行，表单类型与转换）；
+  - 新增 `sections/ModelsSection`（88 行）：供应商主从 + 「模型与任务」（默认模型 / Wiki 主题发现 / 页面撰写 / 整理方式 / 预算）+ 「AI 用量」台账 + 「联网资料」（权限 / 搜索供应商 / Jina 后备）；
+  - **删除 `ProviderManagerDialog.tsx`** ✓ —— 设置区不再有嵌套弹窗；API 调用、保存语义（空 key = 不修改）、文案均与原实现一致 ✓；
+  - 门禁三连修：新 CSS 又触发两条既有门禁 ✗ —— ① `var(--bg-hover)/var(--overlay-light)` 未定义（换成已定义的 `--paper-sunken` ✓）；② `font-size: 11px/11.5px` 低于 §5 硬下限 12px（统一 12px ✓）。
+  - 门禁：tsc / lint **0** ✓、vitest **47 文件 / 296 passed** ✓、build **0** ✓、mock e2e **15 passed** ✓。
 - **设置区重构 S2/5 ✅（2026-10-17，分支 feat/settings-v2，未推送）**：4 个简单节迁进设计系统，行为零变化。
   - 新增 `components/settings/sections/`：`AssistantSection`（37 行）/ `MeSection`（27）/ `AppearanceSection`（33）/ `StatusSection`（17）—— 全部用 `SettingsSection` 卡片 + `SettingsRow/Field/Segmented/Toggle` + footer 保存按钮 ✓。
   - `AssistantSection`：保留品牌身份块（`.settings-identity`）+ 昵称/教学方式/回答深度/反馈方式四行；`AppearanceSection`：阅读排版 + 界面感受两张卡（改动即时保存，与迁移前一致 ✓）；`StatusSection`：运行状态七项（后端/AI/搜索/索引/记忆/Skills/版本）。

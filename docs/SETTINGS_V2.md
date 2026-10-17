@@ -72,7 +72,7 @@ web/frontend/src/components/settings/
 |---|---|---|
 | **S1** ✅ | 设计系统（primitives + CSS）+ 外壳重排 + 10 节导航 | **已完成 2026-10-17**：`components/settings/SettingsPrimitives.tsx`（Page/Heading/Section/Stack/Row/Field/Toggle/Segmented/Footer）+ `.settings-section` 等结构类；10 节导航（我与学习/Bobodan/界面与阅读/AI 与模型/检索与 RAG/记忆与数据/Skills/安全与隐私/状态与关于/实验）；旧 7 节内容原样挂载（user→me、ai→models 旧 URL 兼容）；检索/RAG、安全与隐私、实验为占位（S4/S5 接入） |
 | **S2** ✅ | 迁移 4 个简单节 | **已完成 2026-10-17**：`components/settings/sections/{Assistant,Me,Appearance,Status}Section.tsx`（37/27/33/17 行）；卡片式 `SettingsSection` + `SettingsRow/Field/Segmented/Toggle` + footer 保存按钮；枚举/文案与原版逐字一致（陪练式/今楷/noto-serif/800 宽/舒展）；SettingsDialog 279 行（4 节搬出） |
-| **S3** | AI 与模型：供应商主从 + 模型区 + 用量台账 + 后台任务模型（只读）+ 删除 `ProviderManagerDialog` | 与 openhanako 供应商页同构；模型元数据扩展 |
+| **S3** ✅ | AI 与模型 | **已完成 2026-10-17**：`settings/providers/{ProvidersPane(208),ProviderFormFields(46),providerForm(33)}` + `sections/ModelsSection(88)`；供应商**节内主从**（左：已配置/未配置/自定义分组 + 状态点 + 模型数 + 模板入口；右：详情/编辑表单 + 测试/删除）；模型与任务卡（默认模型 + Wiki 两个任务模型 + 整理方式 + 预算）、AI 用量卡、联网资料卡；**删除 `ProviderManagerDialog.tsx`**（嵌套弹窗清零 ✓）；API 调用与文案与原弹窗一致 |
 | **S4** | 记忆与数据（去 `MemoryManagerDialog` 弹窗）+ 检索与 RAG 新节 | 弹窗清零；RAG 配置可读可改 |
 | **S5** | 安全与隐私 / 实验（占位）+ 设置项级搜索上线 + a11y/键盘 + 清理旧 class | 搜索命中跳转可用；全量门禁绿 |
 

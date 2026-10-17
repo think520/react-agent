@@ -8,14 +8,14 @@ import { api } from "../lib/api";
 import type { LegacyGraphPreview, LibrarySummary, MemoryOverview, RuntimeStatus, SettingsSummary } from "../types";
 import { IconButton } from "./common";
 import { MemoryManagerDialog } from "./MemoryManagerDialog";
-import { ModelSelect } from "./ModelSelect";
-import { DropdownSelect } from "./DropdownSelect";
-import { ProviderManagerDialog } from "./ProviderManagerDialog";
+import {} from "./ModelSelect";
+import {} from "./DropdownSelect";
 import { Modal, ConfirmDialog } from "../ui/Modal";
-import { SettingsHeading, SettingsPage, SettingsSection, SettingsRow, SettingsSegmented, SettingsToggle } from "./settings/SettingsPrimitives";
+import { SettingsHeading, SettingsPage, SettingsSection, SettingsRow, SettingsToggle } from "./settings/SettingsPrimitives";
 import { AppearanceSection } from "./settings/sections/AppearanceSection";
 import { AssistantSection } from "./settings/sections/AssistantSection";
 import { MeSection } from "./settings/sections/MeSection";
+import { ModelsSection } from "./settings/sections/ModelsSection";
 import { StatusSection } from "./settings/sections/StatusSection";
 
 type SectionId = "assistant" | "me" | "appearance" | "models" | "rag" | "memory" | "skills" | "security" | "status" | "experiments";
@@ -38,7 +38,6 @@ const LEGACY_SECTION_IDS: Record<string, SectionId> = { user: "me", ai: "models"
 
 const SettingRow = SettingsRow;
 const Toggle = SettingsToggle;
-const Segmented = SettingsSegmented;
 
 export function SettingsDialog({
   settings,
@@ -69,7 +68,6 @@ export function SettingsDialog({
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus | null>(null);
   const [memoryOverview, setMemoryOverview] = useState<MemoryOverview | null>(null);
   const [memoryManagerOpen, setMemoryManagerOpen] = useState(false);
-  const [providerManagerOpen, setProviderManagerOpen] = useState(false);
   const [legacyGraph, setLegacyGraph] = useState<LegacyGraphPreview | null>(null);
   const [legacyConceptIds, setLegacyConceptIds] = useState<string[]>([]);
   const [legacyMemoryIds, setLegacyMemoryIds] = useState<string[]>([]);
@@ -209,24 +207,7 @@ export function SettingsDialog({
     if (active === "assistant") return <AssistantSection assistant={assistant} setAssistant={setAssistant} saving={saving} onSave={saveAssistant} />;
     if (active === "me") return <MeSection profile={profile} setProfile={setProfile} saving={saving} onSave={saveProfile} />;
     if (active === "appearance") return <AppearanceSection appearance={preferences.appearance} patch={(patch) => void patchPreferences(patch)} />;
-    if (active === "models") return <>
-      <section className="settings-group"><header><h3>模型与连接</h3><p>API key 在供应商管理中填写，密钥明文保存在本地应用数据目录。</p></header>
-        <SettingRow label="默认模型" hint="聊天与未指定任务默认使用"><ModelSelect providers={settings.providers} label="默认模型" value={preferences.ai.default_provider || "default"} onChange={(value) => void patchPreferences({ ai: { default_provider: value } })} includeDefault={false} bordered /></SettingRow>
-        <div className="provider-row"><span className={`provider-mark ${settings.providers.some((item) => item.configured) ? "ready" : ""}`}><Cpu size={17} /></span><div><strong>{settings.providers.filter((item) => item.configured).length}/{settings.providers.length} 个供应商已配置</strong><small>管理 API key、模型列表、测试连接与删除</small></div><button className="quiet-button" onClick={() => setProviderManagerOpen(true)}>管理供应商</button></div>
-      </section>
-      <section className="settings-group"><header><h3>Wiki 模型与额度</h3><p>发现主题和撰写页面可以分别选择模型；达到额度后任务会保存并暂停。</p></header>
-        <SettingRow label="主题发现模型"><ModelSelect providers={settings.providers} label="主题发现模型" value={preferences.ai.task_providers?.wiki_discovery || "default"} onChange={(value) => void patchPreferences({ ai: { task_providers: { wiki_discovery: value } } })} includeDefault bordered /></SettingRow>
-        <SettingRow label="页面撰写模型"><ModelSelect providers={settings.providers} label="页面撰写模型" value={preferences.ai.task_providers?.wiki_drafting || "default"} onChange={(value) => void patchPreferences({ ai: { task_providers: { wiki_drafting: value } } })} includeDefault bordered /></SettingRow>
-        <SettingRow label="默认整理方式"><DropdownSelect className="bordered" ariaLabel="默认整理方式" value={preferences.wiki?.default_mode || "standard"} onChange={(value) => void patchPreferences({ wiki: { default_mode: value } })} options={[{ value: "catalog", label: "快速建档" }, { value: "standard", label: "标准整理 · 每批 5 份" }, { value: "deep", label: "深度全库" }]} /></SettingRow>
-        <div className="wiki-budget-settings"><label><span>请求上限</span><input type="number" min={1} max={500} value={preferences.wiki?.budget.max_requests || 24} onChange={(event) => void patchPreferences({ wiki: { budget: { max_requests: Number(event.target.value) } } })} /></label><label><span>输入 Token</span><input type="number" min={1000} step={10000} value={preferences.wiki?.budget.max_input_tokens || 300000} onChange={(event) => void patchPreferences({ wiki: { budget: { max_input_tokens: Number(event.target.value) } } })} /></label><label><span>输出 Token</span><input type="number" min={1000} step={1000} value={preferences.wiki?.budget.max_output_tokens || 40000} onChange={(event) => void patchPreferences({ wiki: { budget: { max_output_tokens: Number(event.target.value) } } })} /></label></div>
-      </section>
-      <section className="settings-group"><header><div><h3>AI 用量</h3><p>只记录请求元数据，不保存提示词或资料正文。</p></div><Segmented label="用量统计范围" value={usageDays} onChange={setUsageDays} options={[{ value: 7, label: "7 天" }, { value: 30, label: "30 天" }]} /></header>{usage ? <><div className="usage-summary"><div><strong>{usage.requests}</strong><span>请求</span></div><div><strong>{usage.input_tokens.toLocaleString()}</strong><span>输入 Token</span></div><div><strong>{usage.output_tokens.toLocaleString()}</strong><span>输出 Token</span></div><div><strong>{usage.cache_reported ? usage.cache_read_tokens.toLocaleString() : "未报告"}</strong><span>缓存读取</span></div><div><strong>{usage.cache_reported ? usage.cache_miss_tokens.toLocaleString() : "未报告"}</strong><span>未缓存 Token</span></div><div><strong>{usage.errors}</strong><span>错误</span></div></div><p className="usage-detail">模型分布：{Object.entries(usage.model_distribution).map(([model, count]) => `${model} ${count}`).join(" · ") || "暂无"}{usage.cost_reported ? ` · 已报告费用 $${usage.cost_usd.toFixed(4)}` : " · Provider 未报告费用"}</p></> : <p className="settings-empty">还没有可显示的用量记录。</p>}</section>
-      <section className="settings-group"><header><h3>联网资料</h3><p>模型自动模式会在本地资料不足或需要最新信息时搜索；所有模式都保留来源和证据快照。</p></header>
-        <SettingRow label="联网权限" hint={preferences.search.permission === "auto" ? "搜索查询可能在模型判断需要时发送给外部搜索服务" : "模型先说明资料缺口，由你确认后才联网"}><Segmented label="联网权限" value={preferences.search.permission} onChange={(value) => void patchPreferences({ search: { permission: value } })} options={[{ value: "ask", label: "每次询问" }, { value: "auto", label: "模型自动" }]} /></SettingRow>
-        {settings.search_providers.map((provider) => <div className="provider-row" key={provider.name}><span className={`provider-mark ${provider.configured ? "ready" : ""}`}><Search size={17} /></span><div><strong>{provider.name === "auto" ? "自动选择" : provider.name === "tavily" ? "Tavily" : "Exa"}</strong><small>{provider.name === "auto" ? "Tavily → Exa" : provider.name === "tavily" ? "需要本地环境变量" : "公共 MCP 搜索"}{searchTest[provider.name] ? ` · ${searchTest[provider.name]}` : ""}</small></div><label><input type="radio" name="search-provider" checked={preferences.search.provider === provider.name} disabled={!provider.configured} onChange={() => void patchPreferences({ search: { provider: provider.name } })} />默认</label><button className="quiet-button" disabled={!provider.configured} onClick={() => void testSearchProvider(provider.name)}>测试搜索</button></div>)}
-        <SettingRow label="Jina Reader 后备" hint="直接读取失败时使用，并在来源中明确标注"><Toggle label="Jina Reader 后备" checked={preferences.search.jina_fallback} onChange={(value) => void patchPreferences({ search: { jina_fallback: value } })} /></SettingRow>
-      </section>
-    </>;
+    if (active === "models") return <ModelsSection settings={settings} preferences={preferences} usage={usage} usageDays={usageDays} setUsageDays={setUsageDays} patch={(patch) => void patchPreferences(patch)} searchTest={searchTest} testSearchProvider={testSearchProvider} onSettingsChange={onSettingsChange} />;
     if (active === "memory") return <>
       <section className="settings-group"><header><h3>学习记忆</h3><p>关闭后停止候选整理、长期知识写入和个性化；做题进度、错题和掌握度仍会保存。</p></header><SettingRow label="启用学习记忆"><Toggle label="启用学习记忆" checked={preferences.memory.enabled} onChange={(value) => void patchPreferences({ memory: { enabled: value } })} /></SettingRow><SettingRow label="个人知识" hint={`${memoryOverview?.knowledge_count || 0} 条已确认 · ${memoryOverview?.pending_candidate_count || 0} 条待确认`}><button className="quiet-button" disabled={!activeLibrary} onClick={() => setMemoryManagerOpen(true)}><Brain size={15} />管理个人知识</button></SettingRow></section>
       {legacyGraph?.detected && <section className="settings-group"><header><h3>旧版知识图谱迁移</h3><p>旧 JSON 不再参与回答。逐项核对后导入候选区，校验成功才归档原文件。</p></header>
@@ -261,8 +242,7 @@ export function SettingsDialog({
   return <Modal backdropClassName="settings-backdrop" onClose={onClose} ariaLabel="设置">
     {/* Nested managers render alongside instead of replacing this dialog, so
         the Modal stack decides which layer Escape closes. */}
-    {providerManagerOpen && <ProviderManagerDialog settings={settings} onClose={() => setProviderManagerOpen(false)} onChanged={async () => { const refreshed = await api.settings(); onSettingsChange(refreshed); }} />}
-    {memoryManagerOpen && <MemoryManagerDialog memoryEnabled={preferences.memory.enabled} onClose={() => { setMemoryManagerOpen(false); void api.memoryOverview().then(setMemoryOverview).catch(() => undefined); }} />}
+        {memoryManagerOpen && <MemoryManagerDialog memoryEnabled={preferences.memory.enabled} onClose={() => { setMemoryManagerOpen(false); void api.memoryOverview().then(setMemoryOverview).catch(() => undefined); }} />}
     {confirmLegacy && <ConfirmDialog
       busy={migrationBusy}
       danger={confirmLegacy === "archive"}
