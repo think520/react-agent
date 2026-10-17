@@ -2228,3 +2228,20 @@ mark.reader-anchor-mark {
 .slash-palette, .mention-palette { background: var(--surface-3); box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-lift); }
 .library-more-menu > div { background: var(--surface-3); box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-float); }
 .notice { background: var(--surface-3); box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-float); }
+
+
+/* ── M3 · 输入区统一：Surface 3 + 发丝边 + 外环（DESIGN.md §4.4 / §4.5）──
+   输入区（composer / 设置字段 / 搜索框）统一成「纸软表面 + ring」，焦点不再用裸 rgba。 */
+.composer { border: 0; background: var(--surface-3); box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-lift); }
+.composer:focus-within { box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-float); }
+.settings-field input, .settings-field textarea { border-color: var(--border-strong); background: var(--surface-3); }
+.settings-field input:focus, .settings-field textarea:focus { border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+.settings-search:focus-within, .document-search:focus-within { border-color: color-mix(in srgb, var(--accent) 18%, transparent); }
+
+/* ── M3 · 长列表滚动遮罩（DESIGN.md §4.5 / W-F3）──
+   只对会滚动的长列表生效；不支持 mask-image 时自动降级为无遮罩。 */
+@supports (mask-image: linear-gradient(black, transparent)) {
+  .settings-nav, .providers-list {
+    mask-image: linear-gradient(to bottom, transparent 0, black 8px, black calc(100% - 16px), transparent 100%);
+  }
+}

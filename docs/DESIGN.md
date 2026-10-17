@@ -184,6 +184,8 @@ Chat 内的临时展开面板（学习白纸），不是 Figma / Notion / IDE。
 
 ### 4.3 颜色面积预算
 
+**渐变预算（M3）**：每屏背景渐变 ≤ 1 处，且同色相明度差 ≤ 8%；遮罩渐变（`mask-image`）与纸纹不计入。整份样式背景渐变上限由 `designTokens.test.ts` 棘轮看住（当前 2 处，只减不增）。
+
 | 区域 | 预算 |
 |---|---|
 | 背景 / 表面 | ≥ 85% 屏幕面积 |
@@ -205,7 +207,7 @@ Chat 内的临时展开面板（学习白纸），不是 Figma / Notion / IDE。
 
 **规则**：相邻两层必须能区分（明度差 ≥ 2/255，或靠发丝边区分）；同一屏最多 4 层，超过就是「卡片套卡片」。
 
-**表面落位清单（M3 ✓）**：Surface 0 = `.sidebar` / `.context-panel` / `.settings-nav` / `.library-tree-pane` / `.document-rail`；Surface 1 = `.page-scroll` / `.settings-main`；Surface 2 = `.settings-section`（+ `--border-subtle` 发丝边）；Surface 3 = `.ui-modal-panel` / `.slash-palette` / `.mention-palette` / `.library-more-menu > div` / `.notice`（+ `--ring` 外环 + 阴影档位）。契约测试：`designTokens.test.ts` 的「M3 表面阶梯落位」。
+**表面落位清单（M3 ✓）**：Surface 0 = `.sidebar` / `.context-panel` / `.settings-nav` / `.library-tree-pane` / `.document-rail`；Surface 1 = `.page-scroll` / `.settings-main`；Surface 2 = `.settings-section`（+ `--border-subtle` 发丝边）；Surface 3 = `.ui-modal-panel` / `.slash-palette` / `.mention-palette` / `.library-more-menu > div` / `.notice`（+ `--ring` 外环 + 阴影档位）；**输入区**（`.composer` / `.settings-field input` / `.settings-search` / `.document-search`）同样走 Surface 3 + ring，焦点色用 `color-mix(in srgb, var(--accent) 35%, transparent)`，不再写裸 rgba。契约测试：`designTokens.test.ts` 的「M3 表面阶梯落位」。
 
 ### 4.5 发丝边与外环 ✅ 已实施（M3，2026-10-17）
 

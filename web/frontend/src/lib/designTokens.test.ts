@@ -384,8 +384,14 @@ describe("M3 表面阶梯落位（DESIGN.md §4.4）", () => {
   ];
 
   it("关键表面按阶梯使用 --surface-N", () => {
+    const escapeSelector = (selector: string) =>
+      selector.split("").map((ch) => ".[]{}()*+?^$|\\".includes(ch) ? "\\" + ch : ch).join("");
     for (const [selector, token] of mapping) {
-      expect(lastRuleBody(APP_CSS, selector), selector).toContain("var(" + token + ")");
+      const re = new RegExp(escapeSelector(selector) + "\\s*(?:,[^{]*)?\\{([^}]*)\\}", "g");
+      const bodies: string[] = [];
+      let match: RegExpExecArray | null;
+      while ((match = re.exec(APP_CSS)) !== null) bodies.push(match[1]);
+      expect(bodies.some((body) => body.includes("var(" + token + ")")), selector).toBe(true);
     }
   });
 
@@ -393,5 +399,31 @@ describe("M3 表面阶梯落位（DESIGN.md §4.4）", () => {
     for (const token of ["--surface-0", "--surface-1", "--surface-2", "--surface-3"]) {
       expect(APP_CSS.includes("var(" + token + ")"), token).toBe(true);
     }
+  });
+});
+
+describe("M3 输入区与遮罩统一（DESIGN.md §4.4 / §4.5）", () => {
+  it("composer 使用 surface-3 + 发丝边 + 外环，不再用裸 rgba 描边", () => {
+    const body = lastRuleBody(APP_CSS, ".composer");
+    expect(body).toContain("var(--surface-3)");
+    expect(body).toContain("var(--hairline)");
+    expect(body).toContain("var(--ring)");
+    expect(body).not.toMatch(/border:\s*1px solid rgba\(/);
+  });
+
+  it("设置字段背景走 surface-3，焦点色走 token", () => {
+    const field = lastRuleBody(APP_CSS, ".settings-field input");
+    expect(field).toContain("var(--surface-3)");
+    const focus = lastRuleBody(APP_CSS, ".settings-field input:focus");
+    expect(focus).toContain("color-mix(");
+  });
+
+  it("长列表滚动遮罩存在且可降级", () => {
+    expect(APP_CSS).toMatch(/@supports \(mask-image:[\s\S]{0,200}\.settings-nav[\s\S]{0,120}\.providers-list/);
+  });
+
+  it("每屏渐变预算：背景渐变最多 2 处（遮罩渐变不计；只减不增）", () => {
+    const gradients = (APP_CSS.match(/background[^;{]*linear-gradient\(/g) ?? []).length;
+    expect(gradients).toBeLessThanOrEqual(2);
   });
 });

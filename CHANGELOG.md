@@ -12,6 +12,13 @@
 > 从 2026-10-15 起时间戳已正确（`177fbc2` / `c9e9b52` / `0a767bb` / `d123b43` 均为当日）。
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
+- **M3（W-F3）· 第 4 步 ✅ 输入区统一 + 滚动遮罩 + 渐变预算（2026-10-17，feat/frontend-m3，未推送）**
+  - **输入区统一**：`.composer` 从「裸 rgba 描边 + 自定义阴影」改成 `Surface 3 + --hairline + --ring + --shadow-lift` ✓（焦点态换 `--shadow-float` ✓）；设置字段背景改 `var(--surface-3)` ✓；设置字段/两个搜索框的焦点色从裸 rgba 改成 `color-mix(in srgb, var(--accent) 35%/18%, transparent)` ✓。
+  - **滚动遮罩**：`.settings-nav` / `.providers-list` 加 `mask-image` 上下渐隐 ✓，包在 `@supports (mask-image: linear-gradient(black, transparent))` 里，不支持时**自动降级为无遮罩** ✓。
+  - **渐变预算**：DESIGN §4.3 补规则「每屏背景渐变 ≤1，遮罩/纸纹不计」，并由棘轮测试看住（当前 2 处，只减不增 ✓）。
+  - **契约测试 +4**：composer 必须是 surface-3 + hairline + ring 且无裸 rgba 描边 ✓；设置字段背景 surface-3、焦点用 token ✓；遮罩规则存在且可降级 ✓；背景渐变 ≤2 ✓。
+  - 过程记录：改测试时手写正则转义两次写坏（`\\"` 把字符串提前闭合 ✗）→ 改成逐字符转义 + 行级修复 ✓，教训已写进本轮记录。
+  - 门禁：tsc / lint **0** ✓、vitest **47 文件 / 308 passed** ✓、build **0** ✓、mock e2e **15** ✓。
 - **M3（W-F3）· 第 3 步 ✅ 表面阶梯落位（2026-10-17，feat/frontend-m3，未推送）**：把 §4.4 的四层阶梯真正挂到关键表面上，只换令牌、不批量替换旧色值 ✓。
   - **Surface 0（纸沉）**：`.sidebar` / `.context-panel` / `.settings-nav` / `.library-tree-pane` / `.document-rail` ✓ —— 停靠栏从「透明叠在画布上」变成可辨识的沉一级表面 ✓。
   - **Surface 1（画布）**：`.page-scroll` / `.settings-main` ✓；**Surface 2（卡片）**：`.settings-section` + `--border-subtle` 发丝边 ✓；**Surface 3（浮层）**：弹窗 / 输入区浮层 / 菜单 / 通知 ✓（同时保留 ring + 阴影档位 ✓）。
