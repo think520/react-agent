@@ -2267,3 +2267,10 @@ mark.reader-anchor-mark {
 
 /* ② 复习页：与页面容器同宽，不再二次居中 */
 .review-container { max-width: none; }
+
+/* ── UI 审计修复 · 第 2 批（2026-10-17）──
+   题库「练习集」在没有集合时是一个带边框的空框，看起来像坏掉的输入框 ✗
+   → 折叠态改成「轻分隔行」，展开态才显示完整容器。 */
+.bank-sets { border: 0; border-top: 1px solid var(--border-subtle); border-radius: 0; margin: 0 0 10px; padding: 0; background: transparent; }
+.bank-sets[open] { border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0 14px; background: var(--paper-soft); }
+.bank-sets:not([open]) > summary { min-height: 38px; color: var(--muted); font-size: 13px; }
