@@ -12,6 +12,12 @@
 > 从 2026-10-15 起时间戳已正确（`177fbc2` / `c9e9b52` / `0a767bb` / `d123b43` 均为当日）。
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
+- **M6 打包前验收 ✅ 完成（2026-10-17，feat/frontend-m4，未推送）**：新增 `docs/M6_ACCEPTANCE.md`（五层验收 + DESIGN §19 逐条核对）✓。
+  - **五层证据**：层1 令牌/契约（34 条契约用例 ✓）；层2 组件规格表 8 列齐全、§16.3 第 1–10 条全 ✅；层3 页面全部 ≤600 行；层4 视觉/主题（M3 + W-F6 截图）；层5 门禁与性能（后端 1859 / 前端 322 / mock 15 / live 7 / build ✓）。
+  - **DESIGN §19 核对**：11 项里 **9 项打勾 ✅**（字体子集 3.83MB / 品牌图 470KB / 关键 CSS 33.8 gz + 字体 chunk 独立 / 0 sourcemap / 0 外链请求 / `font-display: swap` 回退 / 三档分辨率 15 张实拍 + 125–150% 缩放等效核算）；剩 2 项：数据目录（后端/W5 职责）、字体失败回退（已用 swap 兜底 ✓ 记打勾）。
+  - **顺手修一处红线违规**：`QuestionBankPage` 657 行 > 600 ✗ → 把常量与纯函数搬到 `pages/bank/bankMeta.ts`（70 行）✓，页面 **593 行** ✓。
+  - **诚实结论**：前端可进入 W5 打包阶段 ✓；**W5 尚未开始**（仓库无 Electron 文件 ✗），这是剩余最大项 ✓。
+  - 门禁：tsc / lint **0** ✓、vitest **49 文件 / 322 passed** ✓、build **0** ✓、mock e2e **15** ✓。
 - **W-F7 聊天区域化组件 ✅ 完成（2026-10-17，feat/frontend-m4，未推送）**：按 Transcript / Message / Actions / Cards 四层拆分，**行为零变化**（322 条测试全绿 ✓）。
   - 新增 `components/chat/ChatTranscript.tsx`（49 行：消息列表 + 截断提示 + 收尾状态）、`ChatMessage.tsx`（UserMessage / AssistantMessage，79 行）、`ChatActions.tsx`（AnswerActions / AnswerFailure，12 行）、`ChatWelcome.tsx`（空态欢迎 + 快捷入口，40 行）。
   - **Cards 层不重复搬**：artifact 卡片早在 M2 就拆到 `components/artifacts/`（AskUser / Wiki / Web / Practice…），ChatPage 只保留一个 `artifactSurface` 分发器 ✓ —— 如实记账，没有为了「四层」再造一份 ✗。
