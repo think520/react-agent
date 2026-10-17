@@ -12,6 +12,10 @@
 > 从 2026-10-15 起时间戳已正确（`177fbc2` / `c9e9b52` / `0a767bb` / `d123b43` 均为当日）。
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
+- **M2 store-lift · 第 5 步 · 阅读区 ✅ + LibraryPage 达标（2026-10-17，分支 refactor/prepackaging-m1，未推送）**：LibraryPage **762 → 544 行** ✓（≤600 ✓）；新增 pages/library/LibraryReadingArea.tsx（249 行，24 个 props）。
+  - 阅读区（Wiki 视图侧栏 + 滚动指示 + 阅读列 + DocumentReader 挂载 + 空态），原 612–765 共 154 行整体搬出 ✓；一次收全 22 个名字 ✓、一次补全 props ✓（沿用修正流程 ✓）。
+  - 顺手把 header/tree/reading 三个组件的传参**压缩成多属性一行** ✓（83 行 → ~21 行 ✓），这是最后 60 行的关键 ✓。
+  - **M2 至此两页全部达标**：ChatPage 579 ✓、LibraryPage 544 ✓；tsc / lint **0** ✓、前端 **47 文件 / 296 passed** ✓。
 - **M2 store-lift · 第 5 步 · 头部区 ✅（2026-10-17，分支 refactor/prepackaging-m1，未推送）**：LibraryPage **893 → 762 行**；新增 pages/library/LibraryHeader.tsx（426 行，83 个 props）。
   - 头部区（工具栏 / 更多菜单 / 同步行 / Wiki 计划卡 / 健康摘要 / 页面编辑器 / 导入进度与报告，原 495–698 共 204 行）整块搬出 ✓；修正流程一次成功 ✓：先修导入（路径 + 多行去重）→ 一次 tsc 收全 82 个名字 → 一次补全 props → 收尾 ✓。
   - 两个小类型按真实来源修正 ✓：DocumentImportProgress 用 AppOutletContext 的字段类型 ✓、progressPercent 用 NonNullable ✓；SyncSourceList / progressPercent 两个小工具复制进面板 ✓。
