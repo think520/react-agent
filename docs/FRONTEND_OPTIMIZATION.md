@@ -315,6 +315,8 @@
 
 **已知债的后续方案（手工协议，不脚本切分）**：
 
+> **更新（2026-10-17）**：手工协议仍是兜底 ✓，但**推荐路线已改为「store 化 + actions 无闭包」**（借鉴 openhanako）—— 见 [«FRONTEND_OPTIMIZATION_V2.md»](./FRONTEND_OPTIMIZATION_V2.md) §1：把状态搬进 zustand slice、处理器搬成模块级 action，可彻底消掉「依赖清单」这笔过路费 ✓。
+
 1. **先视图层**：把 JSX 区（composer 约 106 行、transcript 约 42 行、welcome 约 21 行、artifactSurface 约 62 行）抽成组件 —— JSX 边界清楚，tsc 可校验，属性清单约 40 项（这是抽取成本的来源，必须接受）。
 2. **再处理器族**：wiki 族（约 140 行）/ web 族（约 74）/ 交互族（约 90）/ 练习与设置族（约 92）各自抽 hook —— 每族依赖 8–12 项，用 `ReturnType<typeof useChatState>` 推导类型。
 3. **每步只做一块**：搬 → tsc → 跑该页测试 → 再搬下一块；不跨块合并提交。

@@ -12,6 +12,11 @@
 > 从 2026-10-15 起时间戳已正确（`177fbc2` / `c9e9b52` / `0a767bb` / `d123b43` 均为当日）。
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
+- **前端优化借鉴方案 v2（2026-10-17，docs-only，未推送）**：新增 `docs/FRONTEND_OPTIMIZATION_V2.md` —— 结合两个参考仓库给出下一版方案，并**回答 M2 未解决的问题**。
+  - 参考仓库已更新：`openhanako-reference` 从 `1d3ef308` 拉到 **`9a6cabf8`**（新增提交是 CI/docs ✓ 不影响前端结构结论）。
+  - **分工结论**：openhanako = **架构范式**（826 文件 / 146,282 行；`zustand slices + actions` 约 50 个 store 文件；`components/chat/` 40+ 区域组件；`data-theme` 主题系统；暖纸主题）；open-claude-ui = **视觉技法**（令牌矩阵/弹簧常数/四态，v1 已吸收）。
+  - **关键发现（解我上一轮卡点）**：openhanako **自己也用 2,209 行的 `InputArea.tsx`** ✗ —— 它不靠「切小文件」，而靠`store 化 + actions 无闭包`：它的 `session-actions.ts` 头部写明「所有函数直接操作 Zustand store，不依赖 ctx 注入，不持有闭包状态」✓。这样处理器**不再需要依赖清单** ✓、也没有双向依赖 ✓ → 正是 ChatPage 两次失败（34 个 deps / effect 反向调用）的解法 ✓。
+  - 方案给出 ChatPage/LibraryPage 的**迁移路线**：`chatSlice → chatActions（按族搬：web/wiki/交互/练习设置/send）→ effect 迁移 → 组件改 selector`，每步一个提交 + 该页测试 + tsc ✓；目标 **ChatPage 1,031→≤400、LibraryPage 1,461→≤400** ✓。另列 7 项可借鉴项与 3 项不借鉴项（超大文件/超大 CSS module/store 里显式 any ✗）。
 - **M2 验收收口（两档，2026-10-17，分支 refactor/prepackaging-m1，未推送）**：按用户选择的**两档验收**记录 M2 结论（详见 `docs/FRONTEND_OPTIMIZATION.md` §6.1）。
   - **✅ 达标**：`AppShell` **790 → 599**；`lib/api.ts` 门面 **1,407 → 19**（http 53 / types 136 / transport 395 / endpoints 共 848，**全部 ≤600**）；`SettingsDialog` 289（原本已达标）。
   - **🟡 已知债**：`ChatPage` **1,185 → 1,031**（已抽 `chatPrimitives` 137 行）；`LibraryPage` 1,461 未动。两页是「状态+effect+处理器+JSX」交织结构，抽取成本（约 40 项依赖声明）≈ 收益，且脚本切分两次失败（effect 块边界不可靠）→ 改为**手工逐块协议**，预计每页 3–4 轮，已写进方案 §6.1。
