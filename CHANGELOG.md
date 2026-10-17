@@ -12,6 +12,9 @@
 > 从 2026-10-15 起时间戳已正确（`177fbc2` / `c9e9b52` / `0a767bb` / `d123b43` 均为当日）。
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
+- **M2 · ChatPage 第二步：方案调整（2026-10-17，分支 refactor/prepackaging-m1，未推送）**：原计划把动作处理器整块抽成 `useChatActions(deps)` —— 实测**依赖面 34 个**（refs / state setter / 流式回调 / 导航 / 设置……），deps 的声明 + 传参约 70 行，**大于**搬出后的收益 ✗，而且「deps 未用导入」还触发了一串隐式 any ✗。已**整体回退**（`git checkout`；工作区干净、tsc 0、未提交半成品 ✓），避免一个更差的中间态。
+  - **修正方向（下一轮执行）**：改为 **container / hook / view 三层** —— 把「状态 + 副作用 + 处理器」整体移进 `useChatPage`（用 `ReturnType<typeof useChatState>` 让第二个 hook 的类型**自动推导**，不手写 34 个 deps），ChatPage 只留组合与 JSX（预计 ≤200 行）。
+  - 本轮**没有代码提交**：净效果是「一个错误方向的负结论 + 干净的工作区」，比留一个更难维护的中间态好。
 - **M2 页面拆分 · ChatPage 第一步（2026-10-17，分支 refactor/prepackaging-m1，未推送）**：`ChatPage.tsx` **1,185 → 1,031 行**（目标 ≤600，还需抽动作处理器 hook，下一步继续）。
   - 新增 `pages/chat/chatPrimitives.tsx`（137 行）：纯展示原语与工具函数（`BobodanProcess` / `PersonalizationChip` / `RunSummary` / `initialDraft` / `SliderItem 与命令表`），只接收 props、不放状态 ✓。
   - 验证：前端 **47 文件 / 296 passed** ✓、tsc / lint **0** ✓、mock e2e **15** ✓。
