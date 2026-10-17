@@ -12,6 +12,10 @@
 > 从 2026-10-15 起时间戳已正确（`177fbc2` / `c9e9b52` / `0a767bb` / `d123b43` 均为当日）。
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
+- **M2 store-lift · 第 5 步 · 头部区 ✅（2026-10-17，分支 refactor/prepackaging-m1，未推送）**：LibraryPage **893 → 762 行**；新增 pages/library/LibraryHeader.tsx（426 行，83 个 props）。
+  - 头部区（工具栏 / 更多菜单 / 同步行 / Wiki 计划卡 / 健康摘要 / 页面编辑器 / 导入进度与报告，原 495–698 共 204 行）整块搬出 ✓；修正流程一次成功 ✓：先修导入（路径 + 多行去重）→ 一次 tsc 收全 82 个名字 → 一次补全 props → 收尾 ✓。
+  - 两个小类型按真实来源修正 ✓：DocumentImportProgress 用 AppOutletContext 的字段类型 ✓、progressPercent 用 NonNullable ✓；SyncSourceList / progressPercent 两个小工具复制进面板 ✓。
+  - 验证：前端 **47 文件 / 296 passed** ✓、tsc / lint **0** ✓。
 - **M2 store-lift · 第 5 步 · 头部区提取：回退（2026-10-17）**：尝试把 LibraryPage 头部区（495–698，204 行：工具栏/同步行/Wiki 计划卡/健康摘要/编辑器/导入进度）搬成 `LibraryHeader` ✗ —— 首次边界检测错误（`end=0` 把文件切坏 ✗，已回退重来 ✓），重来后依赖面暴露为 **60+ 个名字** ✗，而逐轮 tsc 补 props 的方式**不收敛** ✗（每修一批导入又露出下一批 ✗）。已整体回退 ✓：LibraryPage **893 行**、tsc 0、页面测试 13 passed ✓、工作区干净 ✓。
   - **流程修正（下轮执行）**：像树栏那样 → ① 先一次性修好**导入路径 + 去重** ✓；② 一次 tsc **收全**缺失名（而不是边补边看 ✗）；③ 一次补全 props **接口 + 解构 + 页面传参** ✓；④ 再跑一次 tsc/lint/测试 ✓。头部分块预计还需 1 轮、剩余视图区 1–2 轮。
 - **M2 store-lift · 第 5 步 · 视图层第一块（2026-10-17，分支 refactor/prepackaging-m1，未推送）**：`LibraryPage.tsx` **978 → 893 行**；新增 `pages/library/LibraryTreePanel.tsx`（183 行）。
