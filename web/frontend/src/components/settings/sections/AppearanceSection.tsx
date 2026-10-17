@@ -20,6 +20,14 @@ export function AppearanceSection({ appearance, patch }: {
         <SettingsSegmented label="内容宽度" value={appearance.content_width} onChange={(value) => patch({ appearance: { content_width: value } })} options={[{ value: 640, label: "窄" }, { value: 720, label: "标准" }, { value: 800, label: "宽" }]} />
       </SettingsRow>
     </SettingsSection>
+    <SettingsSection title="主题" description="主题只翻转颜色变量，不改布局与字体；跟随系统时会实时响应系统切换。">
+      <SettingsRow label="主题">
+        <SettingsSegmented label="主题" value={appearance.theme} onChange={(value) => patch({ appearance: { theme: value } })} options={[{ value: "system", label: "跟随系统" }, { value: "light", label: "浅色" }, { value: "dark", label: "深色" }]} />
+      </SettingsRow>
+      <SettingsRow label="高对比度" hint="加粗文字与描边，适合强光环境">
+        <SettingsToggle label="高对比度" checked={appearance.contrast === "high"} onChange={(value) => patch({ appearance: { contrast: value ? "high" : "normal" } })} />
+      </SettingsRow>
+    </SettingsSection>
     <SettingsSection title="界面感受">
       <SettingsRow label="纸张纹理" hint="保持轻微，不影响正文对比度">
         <SettingsToggle label="纸张纹理" checked={appearance.paper_texture} onChange={(value) => patch({ appearance: { paper_texture: value } })} />

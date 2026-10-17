@@ -54,3 +54,28 @@ def test_concurrent_patches_do_not_lose_an_update(tmp_path, monkeypatch):
     assert outcomes.count("ok") == 1, outcomes
     assert any("conflict" in outcome for outcome in outcomes), outcomes
     assert service.get()["revision"] == base + 1
+
+def test_appearance_theme_and_contrast_are_validated(tmp_path):
+    """W-F6：主题/对比度偏好必须有默认值，且非法值被拒绝。"""
+    from service.preference_service import PreferenceService
+
+    service = PreferenceService(default_provider="deepseek", home=str(tmp_path))
+    defaults = service.get()
+    assert defaults["appearance"]["theme"] == "system"
+    assert defaults["appearance"]["contrast"] == "normal"
+
+    updated = service.patch(
+        defaults["revision"],
+        {"appearance": {"theme": "dark", "contrast": "high"}},
+        {"deepseek"},
+        set(),
+    )
+    assert updated["appearance"]["theme"] == "dark"
+    assert updated["appearance"]["contrast"] == "high"
+
+    import pytest
+
+    with pytest.raises(ValueError):
+        service.patch(updated["revision"], {"appearance": {"theme": "neon"}}, {"deepseek"}, set())
+    with pytest.raises(ValueError):
+        service.patch(updated["revision"], {"appearance": {"contrast": "extreme"}}, {"deepseek"}, set())

@@ -12,6 +12,13 @@
 > 从 2026-10-15 起时间戳已正确（`177fbc2` / `c9e9b52` / `0a767bb` / `d123b43` 均为当日）。
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
+- **W-F6 主题系统 ✅ 完成（2026-10-17，feat/frontend-m4，未推送）**
+  - **令牌层**：新增 `[data-theme="dark"]`（暖炭纸面 + 米白文字 + 提亮品牌蓝，`--ink-rgb` 等合成三元组与阴影一并翻转 ✓）与 `[data-contrast="high"]`（只强化 muted/faint/描边 ✓）；**只翻颜色**，不重定义字体/圆角/动效 ✓（契约测试验证 ✓）。
+  - **偏好与持久化**：后端 `preference_service` 增加 `appearance.theme`（light/dark/system，默认 system）与 `appearance.contrast`（normal/high，默认 normal）+ 枚举校验 ✓（新增后端测试：默认值 / 合法切换 / 非法值拒绝 ✓）；前端 `types.ts` 同步 ✓。
+  - **应用与响应**：`AppShell` 把解析后的主题写到 `documentElement.dataset.theme/contrast` ✓；`lib/theme.ts` 负责 `resolveTheme` 与 `watchSystemTheme`（系统切换实时反映 ✓）+ 单测 ✓。
+  - **设置 UI**：「界面与阅读」新增「主题」卡（跟随系统 / 浅色 / 深色分段 + 高对比开关 ✓，即时保存 ✓）。
+  - **顺带修**：顶栏/选区工具条/Wiki 计划卡/输入浮层的**浅色硬编码 rgba** 改成 `color-mix(var(--paper)…)` ✓ —— 否则暗色下会留下白条 ✓（暗色实拍已验证修复 ✓）。
+  - 门禁：tsc / lint **0** ✓、vitest **49 文件 / 322 passed**（+2 主题解析 +3 主题契约 ✓）、build **0** ✓、后端偏好测试 **2 passed** ✓；暗色/高对比截图存 `web/frontend/test-results/theme/` ✓。
 - **M5（W-F5 字体与包体）✅ 完成（2026-10-17，feat/frontend-m4，未推送）**
   - **楷体子集化**：`TsangerJinKai02-W04/W05.ttf` 各 18.07/18.08MB → 用 fontTools **GB2312 7543 字符集**（6763 汉字 + 标点 + ASCII）子集化成 woff2，各 **1.91/1.92MB** ✓ 合计 **3.83MB（原 36.15MB，−89%）** ✓；`fonts.css` 改引用 woff2 ✓、36MB TTF 已删除 ✓；生僻字回退 Noto 分片（回退链保留 ✓）。
   - **按需加载**：`fonts.css` 由 `main.tsx` 动态 import → 构建产物里是**独立 `fonts-*.css`（166KB gz）**，首屏关键 CSS 只剩 **33.8KB gz** ✓；楷体只在 `data-reading-font="jin-kai"` 时被使用，浏览器按需请求 ✓。

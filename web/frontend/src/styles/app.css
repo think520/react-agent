@@ -2299,3 +2299,9 @@ mark.reader-anchor-mark {
    目前没有骨架屏组件，规则先落为令牌与约定，等组件出现时直接用。 */
 .skeleton { background: linear-gradient(90deg, var(--paper-soft), var(--paper-sunken), var(--paper-soft)); background-size: 200% 100%; animation: skeleton-sheen var(--dur-shimmer) var(--ease-out) infinite; }
 @keyframes skeleton-sheen { from { background-position: 200% 0; } to { background-position: 0 0; } }
+
+/* ── W-F6 主题修复：浅色底色的半透明面板改用令牌（否则暗色下仍是白条）── */
+.topbar { background: color-mix(in srgb, var(--paper) 86%, transparent); }
+.selection-toolbar { background: color-mix(in srgb, var(--paper) 92%, transparent); }
+.wiki-plan-compose, .wiki-plan-card { background: color-mix(in srgb, var(--paper-soft) 72%, transparent); }
+.slash-palette, .mention-palette { background: color-mix(in srgb, var(--surface-3) 98%, transparent); }

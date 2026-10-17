@@ -484,3 +484,28 @@ describe("M4 弹簧曲线契约（DESIGN.md §11）", () => {
     expect(used.length).toBeGreaterThanOrEqual(2);
   });
 });
+
+describe("W-F6 主题契约（data-theme）", () => {
+  const darkBlock = tokensText.slice(tokensText.indexOf('[data-theme="dark"]'));
+  const darkTokens = tokensIn(darkBlock.slice(0, darkBlock.indexOf("}")));
+  const highStart = tokensText.indexOf('[data-contrast="high"]');
+  const highTokens = highStart >= 0 ? tokensIn(tokensText.slice(highStart, tokensText.indexOf("}", highStart))) : new Map();
+
+  it("暗色主题覆盖全部关键语义令牌", () => {
+    for (const name of ["--paper", "--paper-soft", "--paper-sunken", "--ink", "--muted", "--faint", "--border", "--border-strong", "--ring", "--blue", "--accent", "--ink-rgb"]) {
+      expect(darkTokens.has(name), name).toBe(true);
+    }
+  });
+
+  it("暗色只翻颜色：不重新定义字体、圆角、动效令牌", () => {
+    for (const name of Array.from(darkTokens.keys())) {
+      expect(name, name).not.toMatch(/^--(font-|radius-|dur-|spring-|ease-|space-)/);
+    }
+  });
+
+  it("高对比主题只强化文字与描边", () => {
+    expect(highTokens.has("--muted")).toBe(true);
+    expect(highTokens.has("--faint")).toBe(true);
+    expect(highTokens.has("--border-strong")).toBe(true);
+  });
+});

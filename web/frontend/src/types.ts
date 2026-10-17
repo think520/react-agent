@@ -339,6 +339,8 @@ export interface UserPreferences {
     paper_texture: boolean;
     session_density: "comfortable" | "compact";
     motion: "system" | "reduced";
+    theme: "light" | "dark" | "system";
+    contrast: "normal" | "high";
   };
   ai: {
     default_provider: string;

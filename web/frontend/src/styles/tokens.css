@@ -132,3 +132,47 @@
     --hairline: 0.5px;
   }
 }
+
+/* ── W-F6 主题（2026-10-17）：只翻转颜色变量，不动布局/字体/圆角。 ──
+   暗色保留「暖纸」气质：纸面压成炭棕，文字换成暖米白；品牌蓝提亮到可读。 */
+[data-theme="dark"] {
+  --paper: #1c1b19;
+  --paper-soft: #242220;
+  --paper-sunken: #141312;
+  --ink: #ece7dd;
+  --muted: #bdb5a8;
+  --faint: #9c9386;
+  --blue: #a8c2e4;
+  --blue-soft: #c6d8ee;
+  --blue-wash: #223040;
+  --sage: #9dbf98;
+  --sage-wash: #222b21;
+  --sage-deep: #c6dcc2;
+  --clay: #e0a184;
+  --clay-wash: #3a2b23;
+  --petal-wash: #3a2a28;
+  --danger: #e6a89e;
+  --accent: #a8c2e4;
+  --ink-soft: #cfc8ba;
+  --accent-rgb: 168, 194, 228;
+  --ink-rgb: 236, 231, 221;
+  --sage-rgb: 157, 191, 152;
+  --clay-rgb: 224, 161, 132;
+  --border-subtle: rgba(236, 231, 221, 0.08);
+  --border: rgba(236, 231, 221, 0.16);
+  --border-strong: rgba(236, 231, 221, 0.28);
+  --ring: color-mix(in srgb, var(--ink) 22%, transparent);
+  --shadow-soft: 0 4px 12px rgba(0, 0, 0, 0.35);
+  --shadow-lift: 0 2px 8px rgba(0, 0, 0, 0.45);
+  --shadow-float: 0 16px 40px rgba(0, 0, 0, 0.55);
+  --shadow-dialog: 0 24px 70px rgba(0, 0, 0, 0.65);
+}
+
+/* 高对比：不换色相，只把文字与描边推到更强。 */
+[data-contrast="high"] {
+  --muted: #efe9de;
+  --faint: #d6cec0;
+  --border-subtle: rgba(236, 231, 221, 0.16);
+  --border: rgba(236, 231, 221, 0.3);
+  --border-strong: rgba(236, 231, 221, 0.46);
+}
