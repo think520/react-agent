@@ -44,6 +44,7 @@ import type { ChatArtifact, KnowledgeContextArtifact, RunSummaryArtifact, WikiPl
 import { BobodanProcess, PersonalizationChip, RunSummary, initialDraft } from "./chat/chatPrimitives";
 import type { SlashItem } from "./chat/chatPrimitives";
 import { WEB_COMMANDS } from "./chat/chatPrimitives";
+import { useCompositionGuard, isImeKeyEvent } from "../lib/ime";
 
 export function ChatPage() {
   const { sessionId } = useParams();
@@ -98,6 +99,7 @@ export function ChatPage() {
     truncated,
     clearTruncated,
   } = useChatStream();
+  const ime = useCompositionGuard();
   const [draft, setDraft] = useState(() => initialDraft(sessionId, true));
   const [loading, setLoading] = useState(Boolean(sessionId));
   const sending = useChatUiStore((state) => state.sending);
@@ -468,8 +470,10 @@ export function ChatPage() {
           disabled={sending || !libraryReady}
           placeholder="说点什么…"
           aria-label="消息"
+      {...ime.compositionProps}
           onChange={(event) => { setDraft(event.target.value); setPaletteDismissed(false); setMentionDismissed(false); setPaletteIndex(0); setMentionIndex(0); }}
           onKeyDown={(event) => {
+          if (ime.isComposing(event) || isImeKeyEvent(event)) return;
             if (paletteOpen && event.key === "ArrowDown") {
               event.preventDefault();
               setPaletteIndex((current) => (current + 1) % filteredSlashItems.length);
@@ -515,7 +519,7 @@ export function ChatPage() {
               setMentionDismissed(true);
               return;
             }
-            if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+            if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && !ime.isComposing(event)) {
               event.preventDefault();
               void send();
             }

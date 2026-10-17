@@ -174,3 +174,31 @@ it("跳过选择会恢复暂停的那一轮", async () => {
     expect.objectContaining({ resumeInteractionId: "i1" }),
   );
 }, 15000);
+
+// M4：CJK 输入法合成期间不得发送（先红后绿：修之前 Enter 会直接发送）
+describe("CJK IME 合成守卫（M4）", () => {
+  it("合成中按 Enter 不发送消息", () => {
+    hoisted.ctx.activeLibrary = { library_id: "audit-library" };
+    render(<MemoryRouter initialEntries={["/chat"]}><ChatPage /></MemoryRouter>);
+    const composer = screen.getByRole("textbox", { name: "消息" });
+    fireEvent.change(composer, { target: { value: "波波蛋" } });
+    fireEvent.compositionStart(composer);
+    fireEvent.keyDown(composer, { key: "Enter", code: "Enter" });
+    expect(vi.mocked(streamChat)).not.toHaveBeenCalled();
+    expect(composer).toHaveValue("波波蛋");
+    fireEvent.compositionEnd(composer);
+  });
+
+  it("合成结束后按 Enter 正常发送", async () => {
+    hoisted.ctx.activeLibrary = { library_id: "audit-library" };
+    vi.mocked(streamChat).mockImplementation(async (...args) => {
+      args[4]({ event: "run_completed", data: { chat_session_id: "s1", termination_reason: "final_answer" } });
+    });
+    render(<MemoryRouter initialEntries={["/chat"]}><ChatPage /></MemoryRouter>);
+    const composer = screen.getByRole("textbox", { name: "消息" });
+    fireEvent.change(composer, { target: { value: "你好" } });
+    fireEvent.compositionEnd(composer);
+    fireEvent.keyDown(composer, { key: "Enter", code: "Enter" });
+    await waitFor(() => expect(streamChat).toHaveBeenCalledTimes(1), { timeout: 700 });
+  });
+});

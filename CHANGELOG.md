@@ -12,6 +12,11 @@
 > 从 2026-10-15 起时间戳已正确（`177fbc2` / `c9e9b52` / `0a767bb` / `d123b43` 均为当日）。
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
+- **M4（W-F4）· 第 2 步 ✅ CJK IME 合成守卫（2026-10-17，feat/frontend-m4，未推送）**：先写**会失败的回归测试**，再修到绿 ✓。
+  - **红**：新增测试「合成中按 Enter 不发送消息」实测 ✗ —— 合成中按 Enter 时 `streamChat` 被调用 1 次（直接把未上屏的候选词发出去了）✓ 复现成功。
+  - **绿**：新增 `lib/ime.ts`：`useCompositionGuard` 在 `compositionstart → compositionend` 之间置位，并额外识别 `keyCode 229`（部分 IME 提交候选词的 Enter 只给 229）✓；`ChatPage` 输入框接入 `compositionProps` + onKeyDown 首行守卫 + 发送条件补 `!ime.isComposing(event)` ✓；`SettingsDialog` 搜索框（方向键/Enter 键盘导航）同样接入 ✓。
+  - 两条测试：合成中 Enter **不发送且草稿保留** ✓；合成结束后 Enter **正常发送** ✓（314 passed ✓）。
+  - 门禁：tsc / lint **0** ✓、vitest **47 文件 / 314 passed** ✓、build **0** ✓、mock e2e **15** ✓。
 - **M4（W-F4 动效与交互物理）· 第 1 步 ✅ 物理弹簧令牌（2026-10-17，分支 feat/frontend-m4，未推送）**
   - 按方案 §W-F4 的四个物理常数（press 600/30/m1、pop 320/28/m1、panel 1200/80/m0.1、accent 380/18/m1）**数值积分**出阶跃响应，采样成 CSS `linear()` ✓ 写入 `tokens.css` 与 DESIGN §4.6 表 ✓。
   - 原始过冲 8.9% / 2% / 0% / **19.5%** ✗ → 统一**压到 ≤2%**（曲线停靠值上限 1.02 ✓，panel 保持零过冲 ✓）；每条曲线同时记录稳定窗口（408ms / 559ms / 91ms / 667ms）✓。
