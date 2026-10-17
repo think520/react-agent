@@ -291,3 +291,50 @@ describe("字体契约（W3 F14）", () => {
   });
 });
 
+
+
+describe("M3 视觉技法令牌（DESIGN.md §4.4 / §4.5）", () => {
+  it("表面阶梯是既有纸面色的别名，不引入新色值", () => {
+    const root = tokensIn(rootBlock(tokensText));
+    expect(root.get("--surface-0")).toBe("var(--paper-sunken)");
+    expect(root.get("--surface-1")).toBe("var(--paper)");
+    expect(root.get("--surface-2")).toBe("var(--paper-soft)");
+    expect(root.get("--surface-3")).toBe("var(--paper-soft)");
+    const tones = ["--surface-0", "--surface-1", "--surface-2", "--surface-3"]
+      .map((name) => (root.get(name) ?? "").replace(/var\(|\)/g, ""));
+    expect(new Set(tones)).toEqual(new Set(["--paper-sunken", "--paper", "--paper-soft"]));
+  });
+
+  it("发丝边与外环已入 :root，并在 2dppx 下减半", () => {
+    const root = tokensIn(rootBlock(tokensText));
+    expect(root.get("--hairline")).toBe("1px");
+    expect(root.get("--ring") ?? "").toContain("color-mix(");
+    expect(tokensText).toMatch(/@media \(min-resolution: 2dppx\)[\s\S]{0,80}--hairline:\s*0\.5px/);
+  });
+
+  it("高度阶梯与圆角补充令牌齐全，且 §7 圆角棘轮不受影响", () => {
+    const root = tokensIn(rootBlock(tokensText));
+    for (const name of [
+      "--radius-xs", "--radius-control", "--radius-panel", "--radius-pill",
+      "--h-control-sm", "--h-control", "--h-control-lg",
+    ]) {
+      expect(root.has(name)).toBe(true);
+    }
+    // §7 四档仍在（棘轮扫描的是 border-radius 字面量，不动这四档）
+    for (const name of ["--radius-sm", "--radius-md", "--radius-lg", "--radius-xl"]) {
+      expect(root.has(name)).toBe(true);
+    }
+  });
+
+  it("§4.6 文档表同步列出所有 M3 令牌", () => {
+    const doc = tokensIn(docTokenBlock(docText));
+    for (const name of [
+      "--surface-0", "--surface-1", "--surface-2", "--surface-3",
+      "--hairline", "--ring",
+      "--radius-xs", "--radius-control", "--radius-panel", "--radius-pill",
+      "--h-control-sm", "--h-control", "--h-control-lg",
+    ]) {
+      expect(doc.has(name)).toBe(true);
+    }
+  });
+});

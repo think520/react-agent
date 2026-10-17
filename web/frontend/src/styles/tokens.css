@@ -91,6 +91,27 @@
   --delay-ink-a: -180ms;
   --delay-ink-b: 180ms;
 
+  /* --- Surface ladder (DESIGN.md §4.4, M3). Aliases only: no new colours. */
+  --surface-0: var(--paper-sunken);   /* docked rails, inset blocks */
+  --surface-1: var(--paper);          /* page canvas */
+  --surface-2: var(--paper-soft);     /* cards, list containers */
+  --surface-3: var(--paper-soft);     /* overlays: same ivory + ring + float shadow */
+
+  /* --- Hairline & ring (DESIGN.md §4.5, M3). Overlays use ring, inputs keep --border-strong. */
+  --hairline: 1px;
+  --ring: color-mix(in srgb, var(--ink) 12%, transparent);
+
+  /* --- Radius additions (M3). §7 ladder (6/8/12/16) stays the border-radius rule;
+     these are named sizes for phones, control groups, panels and pills. */
+  --radius-xs: 2px;
+  --radius-control: 10px;
+  --radius-panel: 18px;
+  --radius-pill: 999px;
+
+  /* --- Control height ladder (DESIGN.md §16.2, M3). */
+  --h-control-sm: 28px;
+  --h-control: 36px;
+  --h-control-lg: 44px;
   color: var(--ink);
   background: var(--paper);
   font-family: var(--font-ui);
@@ -98,3 +119,9 @@
   text-rendering: optimizeLegibility;
 }
 
+/* Retina hairline: half a CSS pixel only where device pixels are dense (DESIGN.md §4.5). */
+@media (min-resolution: 2dppx) {
+  :root {
+    --hairline: 0.5px;
+  }
+}
