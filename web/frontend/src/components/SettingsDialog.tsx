@@ -10,13 +10,17 @@ import { IconButton } from "./common";
 import {} from "./ModelSelect";
 import {} from "./DropdownSelect";
 import { Modal, ConfirmDialog } from "../ui/Modal";
-import { SettingsHeading, SettingsPage, SettingsSection, SettingsRow, SettingsToggle } from "./settings/SettingsPrimitives";
+import { SettingsHeading, SettingsPage } from "./settings/SettingsPrimitives";
 import { AppearanceSection } from "./settings/sections/AppearanceSection";
 import { AssistantSection } from "./settings/sections/AssistantSection";
 import { MeSection } from "./settings/sections/MeSection";
 import { MemorySection } from "./settings/sections/MemorySection";
 import { ModelsSection } from "./settings/sections/ModelsSection";
 import { RagSection } from "./settings/sections/RagSection";
+import { ExperimentsSection } from "./settings/sections/ExperimentsSection";
+import { SecuritySection } from "./settings/sections/SecuritySection";
+import { SkillsSection } from "./settings/sections/SkillsSection";
+import { searchSettings } from "./settings/settingsSearchIndex";
 import { StatusSection } from "./settings/sections/StatusSection";
 
 type SectionId = "assistant" | "me" | "appearance" | "models" | "rag" | "memory" | "skills" | "security" | "status" | "experiments";
@@ -37,8 +41,6 @@ const sections: Array<{ id: SectionId; label: string; icon: typeof Bot; aliases:
 /** 旧版 URL/入口的 section id 兼容（?settings=user / ?settings=ai 仍可用）。 */
 const LEGACY_SECTION_IDS: Record<string, SectionId> = { user: "me", ai: "models" };
 
-const SettingRow = SettingsRow;
-const Toggle = SettingsToggle;
 
 export function SettingsDialog({
   settings,
@@ -119,7 +121,16 @@ export function SettingsDialog({
 
   const matches = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
-    return needle ? sections.filter((item) => `${item.label} ${item.aliases}`.toLocaleLowerCase().includes(needle)) : sections;
+    if (!needle) {
+      return sections.map((item) => ({ id: item.id, label: item.label, icon: item.icon, tab: item.id, hint: "" }));
+    }
+    return searchSettings(needle).map((entry) => ({
+      id: entry.id,
+      label: entry.label,
+      icon: sections.find((item) => item.id === entry.tab)?.icon || Bot,
+      tab: entry.tab,
+      hint: sections.find((item) => item.id === entry.tab)?.label || "",
+    }));
   }, [query]);
   const recommendedMemories = legacyGraph?.memories.filter((item) => item.recommended) || [];
   const allConceptsSelected = Boolean(legacyGraph?.concepts.length)
@@ -203,24 +214,31 @@ export function SettingsDialog({
     }
   }
 
+  function flashSetting(label: string) {
+    const selector = ".settings-main .settings-section, .settings-main .setting-row, .settings-main .settings-field, .settings-main .settings-boundary";
+    const target = Array.from(document.querySelectorAll<HTMLElement>(selector)).find((element) => element.textContent?.includes(label));
+    if (!target) return;
+    target.scrollIntoView({ block: "center" });
+    target.classList.add("settings-search-flash");
+    window.setTimeout(() => target.classList.remove("settings-search-flash"), 1600);
+  }
+
+  function jumpTo(tab: SectionId, label?: string) {
+    onSectionChange(tab);
+    setQuery("");
+    if (label) window.setTimeout(() => flashSetting(label), 80);
+  }
+
   function sectionContent() {
     if (active === "assistant") return <AssistantSection assistant={assistant} setAssistant={setAssistant} saving={saving} onSave={saveAssistant} />;
     if (active === "me") return <MeSection profile={profile} setProfile={setProfile} saving={saving} onSave={saveProfile} />;
     if (active === "appearance") return <AppearanceSection appearance={preferences.appearance} patch={(patch) => void patchPreferences(patch)} />;
     if (active === "models") return <ModelsSection settings={settings} preferences={preferences} usage={usage} usageDays={usageDays} setUsageDays={setUsageDays} patch={(patch) => void patchPreferences(patch)} searchTest={searchTest} testSearchProvider={testSearchProvider} onSettingsChange={onSettingsChange} />;
     if (active === "memory") return <MemorySection preferences={preferences} patch={(patch) => void patchPreferences(patch)} memoryOverview={memoryOverview} activeLibrary={activeLibrary} legacyGraph={legacyGraph} legacyConceptIds={legacyConceptIds} setLegacyConceptIds={setLegacyConceptIds} legacyMemoryIds={legacyMemoryIds} setLegacyMemoryIds={setLegacyMemoryIds} recommendedMemories={recommendedMemories} allConceptsSelected={allConceptsSelected} allRecommendedMemoriesSelected={allRecommendedMemoriesSelected} migrationBusy={migrationBusy} setConfirmLegacy={setConfirmLegacy} />;
-    if (active === "skills") return <section className="settings-group"><header><h3>Web 安全 Skills</h3><p>这里只显示浏览器运行时能够完整执行的学习技能。</p></header>{settings.skills.length ? settings.skills.map((skill) => <SettingRow key={skill.name} label={skill.name} hint={`${skill.description} · 能力：${skill.capabilities.join("、")} · 来源：${skill.source}`}><Toggle label={`${skill.name} 技能`} checked={preferences.skills.enabled_names.includes(skill.name)} onChange={(value) => { const names = value ? [...preferences.skills.enabled_names, skill.name] : preferences.skills.enabled_names.filter((item) => item !== skill.name); void patchPreferences({ skills: { enabled_names: names } }); }} /></SettingRow>) : <p className="settings-empty">当前没有可用于 Web 的 Skills。</p>}</section>;
+    if (active === "skills") return <SkillsSection skills={settings.skills} preferences={preferences} patch={(patch) => void patchPreferences(patch)} />;
     if (active === "rag") return <RagSection />;
-    if (active === "security") return <SettingsPage tab="security">
-      <SettingsSection title="安全与隐私" description="密钥存储位置、日志与遥测开关、本地优先说明。">
-        <p className="text-faint">这一页在 S5 交付。</p>
-      </SettingsSection>
-    </SettingsPage>;
-    if (active === "experiments") return <SettingsPage tab="experiments">
-      <SettingsSection title="实验" description="实验开关默认全部关闭，打开后也随时可以关回去。">
-        <p className="text-faint">这一页在 S5 交付。</p>
-      </SettingsSection>
-    </SettingsPage>;
+    if (active === "security") return <SecuritySection />;
+    if (active === "experiments") return <ExperimentsSection />;
     return <StatusSection runtimeStatus={runtimeStatus} />;
   }
 
@@ -240,7 +258,7 @@ export function SettingsDialog({
     />}
     <section className="settings-dialog">
       <header className="settings-dialog-header"><button className="settings-back" onClick={onClose} aria-label="返回"><ChevronLeft /></button><strong>设置</strong><h2>{sections.find((item) => item.id === active)?.label}</h2><IconButton label="关闭设置" onClick={onClose}><X /></IconButton></header>
-      <div className="settings-dialog-body"><nav className="settings-nav" aria-label="设置分类"><label className="settings-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (!matches.length) return; if (event.key === "ArrowDown") { event.preventDefault(); setSearchIndex((current) => (current + 1) % matches.length); } else if (event.key === "ArrowUp") { event.preventDefault(); setSearchIndex((current) => (current - 1 + matches.length) % matches.length); } else if (event.key === "Enter") { event.preventDefault(); onSectionChange(matches[Math.min(searchIndex, matches.length - 1)].id); } }} placeholder="搜索设置" />{query && <button onClick={() => setQuery("")} aria-label="清空搜索"><X size={13} /></button>}</label>{matches.map(({ id, label, icon: Icon }, index) => <button ref={active === id ? activeNavRef : undefined} className={`${active === id ? "active" : ""} ${query && searchIndex === index ? "search-active" : ""}`} key={id} onClick={() => onSectionChange(id)}><Icon size={17} /><span>{label}</span>{id === "memory" && Boolean(memoryOverview?.pending_candidate_count) && <i className="settings-nav-badge">{memoryOverview?.pending_candidate_count}</i>}</button>)}</nav><main className="settings-main">{error && <div className="settings-error">{error}</div>}{notice && <div className="settings-notice"><Check size={14} />{notice}</div>}<SettingsHeading eyebrow="Bobodan Settings" title={sections.find((item) => item.id === active)?.label || ""} /><SettingsPage tab={active}>{sectionContent()}</SettingsPage></main></div>
+      <div className="settings-dialog-body"><nav className="settings-nav" aria-label="设置分类"><label className="settings-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (!matches.length) return; if (event.key === "ArrowDown") { event.preventDefault(); setSearchIndex((current) => (current + 1) % matches.length); } else if (event.key === "ArrowUp") { event.preventDefault(); setSearchIndex((current) => (current - 1 + matches.length) % matches.length); } else if (event.key === "Enter") { event.preventDefault(); jumpTo(matches[Math.min(searchIndex, matches.length - 1)].tab, matches[Math.min(searchIndex, matches.length - 1)].label); } }} placeholder="搜索设置" />{query && <button onClick={() => setQuery("")} aria-label="清空搜索"><X size={13} /></button>}</label>{matches.map(({ id, label, icon: Icon, tab, hint }, index) => <button ref={active === id ? activeNavRef : undefined} className={`${active === tab ? "active" : ""} ${query && searchIndex === index ? "search-active" : ""}`} key={id} onClick={() => jumpTo(tab, label)} title={hint || undefined}><Icon size={17} /><span>{label}</span>{hint && <small>{hint}</small>}{id === "memory" && Boolean(memoryOverview?.pending_candidate_count) && <i className="settings-nav-badge">{memoryOverview?.pending_candidate_count}</i>}</button>)}</nav><main className="settings-main">{error && <div className="settings-error">{error}</div>}{notice && <div className="settings-notice"><Check size={14} />{notice}</div>}<SettingsHeading eyebrow="Bobodan Settings" title={sections.find((item) => item.id === active)?.label || ""} /><SettingsPage tab={active}>{sectionContent()}</SettingsPage></main></div>
     </section>
   </Modal>;
 }

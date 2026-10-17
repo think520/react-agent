@@ -74,7 +74,7 @@ web/frontend/src/components/settings/
 | **S2** ✅ | 迁移 4 个简单节 | **已完成 2026-10-17**：`components/settings/sections/{Assistant,Me,Appearance,Status}Section.tsx`（37/27/33/17 行）；卡片式 `SettingsSection` + `SettingsRow/Field/Segmented/Toggle` + footer 保存按钮；枚举/文案与原版逐字一致（陪练式/今楷/noto-serif/800 宽/舒展）；SettingsDialog 279 行（4 节搬出） |
 | **S3** ✅ | AI 与模型 | **已完成 2026-10-17**：`settings/providers/{ProvidersPane(208),ProviderFormFields(46),providerForm(33)}` + `sections/ModelsSection(88)`；供应商**节内主从**（左：已配置/未配置/自定义分组 + 状态点 + 模型数 + 模板入口；右：详情/编辑表单 + 测试/删除）；模型与任务卡（默认模型 + Wiki 两个任务模型 + 整理方式 + 预算）、AI 用量卡、联网资料卡；**删除 `ProviderManagerDialog.tsx`**（嵌套弹窗清零 ✓）；API 调用与文案与原弹窗一致 |
 | **S4** ✅ | 记忆与数据 + 检索与 RAG | **已完成 2026-10-17**：`MemoryManagerDialog` 改为节内展开面板（`settings/memory/MemoryManagerPanel.tsx`，255 行，逻辑零改动），Notes 页保留一个薄兼容壳；`sections/MemorySection.tsx`（学习记忆/迁移/边界）+ `sections/RagSection.tsx`（检索状态 + 术语词汇表 + 评测说明）。设置区嵌套弹窗**清零** ✓；RAG 当前为**只读**（后端未暴露写接口，不造假开关） |
-| **S5** | 安全与隐私 / 实验（占位）+ 设置项级搜索上线 + a11y/键盘 + 清理旧 class | 搜索命中跳转可用；全量门禁绿 |
+| **S5** ✅ | 安全与隐私 / 实验 + 设置项级搜索 + 清理 | **已完成 2026-10-17**：`sections/{Security,Experiments,Skills}Section`（23/9/25 行，Skills 顺带迁入设计系统）；`settings/settingsSearchIndex.ts`（38 条设置项 + 中文别名）；搜索**命中设置项**而非分节：结果列表带所属分节提示、点击/回车跳到该节并滚动 + 2 秒高亮（`.settings-search-flash`）；旧 `settings-group` 块清零，`SettingsDialog` 降至 288 行 |
 
 ## 5. 风险
 
