@@ -12,6 +12,10 @@
 > 从 2026-10-15 起时间戳已正确（`177fbc2` / `c9e9b52` / `0a767bb` / `d123b43` 均为当日）。
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
+- **M2 store-lift · 第 1 步（2026-10-17，分支 refactor/prepackaging-m1，未推送）**：新建 `web/frontend/src/stores/chatStore.ts`（69 行）—— 借鉴 openhanako 的 store 约定：状态放 zustand ✓、读写用**模块级 setter** ✓（`setSending` / `setReferences` / `setWebSelections` … 12 个），组件只订阅字段 ✓。
+  - ChatPage 的 **12 个 UI 字段**从 `useState` 迁到 store（sending / practiceStarting / error / paletteIndex / paletteDismissed / wikiPlanLoading / references / webOnce / webSelections / mentionTab / mentionIndex / mentionDismissed ✓），调用点**一字未改** ✓。
+  - 为「actions 无闭包」铺路：后续 `chatActions` 直接 `useChatStore.getState()/setState()`，不再往 hook 里传 30+ 依赖 ✓（这是 v2 方案对 M2 两次失败的根因修正 ✓）。
+  - 测试：**+1 处 setup 修复** —— zustand 是模块级状态，前一个测试的 `sending: true` 会泄漏到下一个 ✗（ChatPage 等一个永远不会来的流 ⏳）→ 在 `src/test/setup.ts` 加 `beforeEach(resetChatUiState)` ✓。前端 **47 文件 / 296 passed** ✓、tsc/lint **0** ✓。
 - **供应商目录扩容（参照 openhanako，2026-10-17，分支 refactor/prepackaging-m1，未推送）**：内置模板 **7 → 17 个** ✓ —— 新增 kimi（Moonshot）/ zhipu（GLM）/ gemini（Google AI Studio 兼容端点）/ xai（Grok）/ mistral / groq / together / nvidia（NIM）/ lmstudio / vllm；保留 deepseek / minimax / openai / dashscope / siliconflow / openrouter / ollama ✓。
   - **借 openhanako 的 `auth_type` 语义**：`api-key`（必须）/ `optional`（可空）/ `none`（本地免 key）✓ —— 由 `_normalize_provider` 推导（keyless → none ✓，未知值回落 api-key ✓）；`upsert_provider` 从模板继承 auth_type/keyless/api_key_env（本地服务保存一次不会丢「免 key」✓）。
   - **UI**：模板行显示备注（如「本地 Ollama（免 key）」✓）、从模板添加时带入默认模型与模型列表 ✓、本地服务显示「API Key（本地服务可留空）」✓、保存时保留模板的 `type`（deepseek/minimax/openai 不再退化成 openai_compatible ✓）。

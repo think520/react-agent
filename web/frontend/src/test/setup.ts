@@ -1,5 +1,14 @@
 import "@testing-library/jest-dom/vitest";
 import { configure } from "@testing-library/react";
+import { beforeEach } from "vitest";
+
+import { resetChatUiState } from "../stores/chatStore";
+
+// zustand stores live at module scope: without a reset, one test's `sending: true`
+// leaks into the next render and ChatPage waits forever for a stream that never starts.
+beforeEach(() => {
+  resetChatUiState();
+});
 
 // CI runners are slower than a dev machine. The app shell test failed there
 // with "Unable to find role=heading" because a lazily-loaded route chunk can

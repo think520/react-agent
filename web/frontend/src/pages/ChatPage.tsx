@@ -31,6 +31,11 @@ import { toErrorMessage } from "../lib/errors";
 import { parseMentionDraft } from "../lib/mention";
 import { looksLikeSettingsChange } from "../lib/settingsIntent";
 import { useHandoffStore } from "../stores/handoffStore";
+import {
+  setMentionDismissed, setMentionIndex, setMentionTab, setPaletteDismissed, setPaletteIndex,
+  setPracticeStarting, setReferences, setSending, setWebOnce, setWebSelections, setWikiPlanLoading,
+  setInlineError, useChatUiStore,
+} from "../stores/chatStore";
 import { notifyError } from "../stores/noticeStore";
 import { useUiStore } from "../stores/uiStore";
 import type { AskUserArtifact, ChatArtifact, ChatReference, KnowledgeContextArtifact, MemoryConfirmationArtifact, PracticeReadyArtifact, RunSummaryArtifact, SettingsChangeArtifact, WebCandidatesArtifact, WebConsentArtifact, WebEvidenceArtifact, WikiFocusArtifact, WikiPlanArtifact, WikiResultArtifact } from "../types";
@@ -94,16 +99,16 @@ export function ChatPage() {
   } = useChatStream();
   const [draft, setDraft] = useState(() => initialDraft(sessionId, true));
   const [loading, setLoading] = useState(Boolean(sessionId));
-  const [sending, setSending] = useState(false);
-  const [practiceStarting, setPracticeStarting] = useState("");
-  const [error, setInlineError] = useState("");
+  const sending = useChatUiStore((state) => state.sending);
+  const practiceStarting = useChatUiStore((state) => state.practiceStarting);
+  const error = useChatUiStore((state) => state.inlineError);
   // E1: operation failures are reported to the app-level surface so they stay
   // visible even when the card, dialog or panel that triggered them is gone.
   // `error` (above) keeps only page-level failures: session load and stream fail.
   const setError = (message: string) => notifyError(message);
-  const [paletteIndex, setPaletteIndex] = useState(0);
-  const [paletteDismissed, setPaletteDismissed] = useState(false);
-  const [wikiPlanLoading, setWikiPlanLoading] = useState(false);
+  const paletteIndex = useChatUiStore((state) => state.paletteIndex);
+  const paletteDismissed = useChatUiStore((state) => state.paletteDismissed);
+  const wikiPlanLoading = useChatUiStore((state) => state.wikiPlanLoading);
   // P5G.4：`provider::model` 完整引用（模型级选择）
   const [selectedProvider, setSelectedProvider] = useState(() => useUiStore.getState().newSessionProvider || "");
 
@@ -120,15 +125,15 @@ export function ChatPage() {
     if (!session.provider_name) return "";
     return session.model_name ? `${session.provider_name}::${session.model_name}` : session.provider_name;
   }
-  const [references, setReferences] = useState<ChatReference[]>([]);
-  const [webOnce, setWebOnce] = useState(false);
+  const references = useChatUiStore((state) => state.references);
+  const webOnce = useChatUiStore((state) => state.webOnce);
   const strictDocumentScope = useUiStore((state) => state.strictDocumentScope);
   const toggleStrictDocumentScope = useUiStore((state) => state.toggleStrictDocumentScope);
-  const [webSelections, setWebSelections] = useState<Record<string, string[]>>({});
+  const webSelections = useChatUiStore((state) => state.webSelections);
   const [referenceDocuments, setReferenceDocuments] = useState(documents);
-  const [mentionTab, setMentionTab] = useState<"document" | "session">("document");
-  const [mentionIndex, setMentionIndex] = useState(0);
-  const [mentionDismissed, setMentionDismissed] = useState(false);
+  const mentionTab = useChatUiStore((state) => state.mentionTab);
+  const mentionIndex = useChatUiStore((state) => state.mentionIndex);
+  const mentionDismissed = useChatUiStore((state) => state.mentionDismissed);
   const { ref: scrollRef, pinToBottom } = useStickyBottomScroll<HTMLDivElement>([messages, status]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
