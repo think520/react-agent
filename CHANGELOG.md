@@ -12,6 +12,11 @@
 > 从 2026-10-15 起时间戳已正确（`177fbc2` / `c9e9b52` / `0a767bb` / `d123b43` 均为当日）。
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
+- **设置区重构 S4/5 ✅（2026-10-17，分支 feat/settings-v2，未推送）**：记忆去弹窗 + 检索与 RAG 真页。
+  - `MemoryManagerDialog`（236 行）改为节内面板 `settings/memory/MemoryManagerPanel.tsx`（255 行，逻辑/文案零改动，仅去掉 `Modal` 壳）✓；`NotesPage` 仍需要弹窗 → 保留一个 10 行薄兼容壳 `components/MemoryManagerDialog.tsx` ✓；设置区**嵌套弹窗清零** ✓。
+  - 新增 `sections/MemorySection.tsx`（56 行）：学习记忆（开关 + 个人知识计数 + 展开管理面板）、旧版知识图谱迁移（原逻辑整段搬入 ✓）、本地数据边界；新增 `sections/RagSection.tsx`（35 行）：检索状态（runtimeStatus 实读 ✓）、术语词汇表（hybrid / fts_only / unavailable / directory_grep）、评测与降级可见性说明。
+  - **诚实边界**：RAG 节目前是**只读** —— 后端没有暴露检索写入接口，所以只展示状态与术语，不放假开关（计划里写的「可读可改」降级为只读 ✓）。
+  - 门禁：tsc / lint **0** ✓、vitest **47 文件 / 296 passed** ✓、build **0** ✓、mock e2e **15 passed** ✓；`SettingsDialog` 272 → **268 行**。
 - **设置区重构 S3/5 ✅（2026-10-17，分支 feat/settings-v2，未推送）**：AI 与模型节改成**节内主从**，删掉嵌套弹窗。
   - 新增 `components/settings/providers/`：`ProvidersPane`（208 行：左列表 已配置/未配置/自定义 + 状态点 + 模型数 + 模板入口；右详情/编辑）+ `ProviderFormFields`（46 行）+ `providerForm`（33 行，表单类型与转换）；
   - 新增 `sections/ModelsSection`（88 行）：供应商主从 + 「模型与任务」（默认模型 / Wiki 主题发现 / 页面撰写 / 整理方式 / 预算）+ 「AI 用量」台账 + 「联网资料」（权限 / 搜索供应商 / Jina 后备）；

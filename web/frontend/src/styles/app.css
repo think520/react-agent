@@ -2166,3 +2166,12 @@ mark.reader-anchor-mark {
   .providers-list { border-right: 0; border-bottom: 1px solid var(--border); padding: 0 0 12px; }
   .settings-model-add, .settings-model-budget { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* ── 设置区 v2 · S4：记忆面板 + RAG 词汇表 ── */
+.memory-manager-panel { display: flex; flex-direction: column; gap: 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--paper-soft); padding: 14px 16px; }
+.memory-manager-panel .memory-manager-header { border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+.rag-glossary { display: grid; margin: 0; gap: 10px; }
+.rag-glossary div { display: grid; grid-template-columns: 180px minmax(0, 1fr); align-items: baseline; gap: 12px; }
+.rag-glossary dt { color: var(--ink); font-size: 12.5px; font-weight: 600; }
+.rag-glossary dd { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.6; }
+@media (max-width: 720px) { .rag-glossary div { grid-template-columns: minmax(0, 1fr); gap: 2px; } }
