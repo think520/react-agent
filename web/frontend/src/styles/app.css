@@ -2245,3 +2245,25 @@ mark.reader-anchor-mark {
     mask-image: linear-gradient(to bottom, transparent 0, black 8px, black calc(100% - 16px), transparent 100%);
   }
 }
+
+/* ── UI 审计修复 · 第 1 批（2026-10-17）──────────────────────────
+   ① 练习页：去掉 tab 下方「多余的分隔线 + 28px 空白」，把出题区变成一张卡；
+   ② 复习页：容器不再在 .page-container 里二次居中（宽屏不再左右空一大块）；
+   ③ 按钮中文不再被挤成两行（标题栏/题库/笔记页最明显）。 */
+
+/* ③ 按钮与分段控件：中文不换行 */
+.primary-button, .quiet-button, .heading-actions button, .wiki-view-tabs button,
+.setting-segmented button, .practice-mode button, .settings-nav button,
+.review-row button, .danger-text-button, .text-link { white-space: nowrap; }
+
+/* ① 练习页出题区：卡片表面，而不是两条全宽分隔线夹一条空白 */
+.practice-create { border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); margin-top: 6px; padding: 16px 18px; background: var(--surface-2); }
+.practice-start { max-width: none; }
+
+/* ① 出题方式：与设置页一致的分段控件（原来是大圆角 chip，视觉不一致） */
+.practice-mode { display: inline-flex; width: fit-content; gap: 2px; border: 1px solid var(--border); border-radius: var(--radius-md); margin-bottom: 16px; padding: 2px; background: rgba(46,43,39,.025); }
+.practice-mode button { min-height: 28px; border: 0; border-radius: var(--radius-sm); padding: 0 12px; background: transparent; color: var(--muted); font-size: 12.5px; }
+.practice-mode button.active { background: var(--paper); color: var(--blue); box-shadow: 0 1px 4px rgba(46,43,39,.08); font-weight: 650; }
+
+/* ② 复习页：与页面容器同宽，不再二次居中 */
+.review-container { max-width: none; }
