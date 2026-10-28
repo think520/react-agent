@@ -69,7 +69,9 @@
   --font-reading: "Noto Serif SC", "Source Han Serif SC", "Songti SC", "STSong", "SimSun", serif;
   --font-article: "TsangerJinKai02", "Noto Serif SC", "Source Han Serif SC", "Songti SC", serif;
   --font-mono: ui-monospace, "Cascadia Code", monospace;
-  --body-font-size: 17px;
+  /* 仅首帧兜底：运行时由 AppShell 按偏好内联覆盖（AppShell.tsx:263 设置 --body-font-size）；
+     默认值与后端偏好默认值一致（service/preference_service.py:46 → 16，可选 15/16/17/18）。 */
+  --body-font-size: 16px;
   --content-width: 720px;
 
   /* --- Motion (DESIGN.md §11): two curves, three durations, three springs.

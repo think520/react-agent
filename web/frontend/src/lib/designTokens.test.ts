@@ -126,7 +126,8 @@ describe("漂移棘轮（只允许变小）", () => {
 
   it("用裸 ease 关键字的过渡数量不超过预算", () => {
     // 2026-09-14：16；Chat：15；**2026-10-17 M4：归零**（15 处裸 ease/ease-out 全部改成 var(--ease-out)）。
-    const BUDGET = 15;
+    // 2026-10-28 实测：0，与归零记录一致；预算随之归零，新增裸 ease 直接失败（只减不增）。
+    const BUDGET = 0;
     const lines = cssText.split(/\r?\n/);
     const bare = lines.filter(
       (line: string) => /transition\s*:|animation\s*:/.test(line) && /(?<!-)\bease\b/.test(line),
@@ -135,8 +136,8 @@ describe("漂移棘轮（只允许变小）", () => {
   });
 
   it("不在 §7 刻度上的 border-radius 数量不超过预算", () => {
-    // 2026-09-14：73；Chat：69；Practice·Review：65；Library·Reader：60。刻度只允许 6 / 8 / 12 / 16，其余进棘轮。
-    const BUDGET = 60;
+    // 2026-09-14：73；Chat：69；Practice·Review：65；Library·Reader：60；2026-10-28 实测：58（预算收紧到 58）。刻度只允许 6 / 8 / 12 / 16，其余进棘轮。
+    const BUDGET = 58;
     const scale = new Set([0, 6, 8, 12, 16]);
     const offScale = (cssText.match(/border-radius:\s*([0-9]+)px/g) ?? [])
       .map((match: string) => parseInt(match.replace(/\D+/g, ""), 10))

@@ -16,4 +16,5 @@ export const pageMeta: Record<string, [string, string]> = {
   review: ["今日复习", "把薄弱点慢慢练熟"],
   library: ["本地资料", "你的学习材料"],
   "knowledge-map": ["知识地图", "概念关系一览"],
+  notes: ["我的笔记", "记录你的思考、结论和摘录"],
 };
