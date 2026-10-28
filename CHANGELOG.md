@@ -12,6 +12,13 @@
 > 从 2026-10-15 起时间戳已正确（`177fbc2` / `c9e9b52` / `0a767bb` / `d123b43` 均为当日）。
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
+- **审查收尾：减动效改零化令牌 + 缩进契约（2026-10-28，main 本地提交 ✓ 未推送）**：补齐审查 P1-⑥ 与 P2-⑦ 的剩余部分。
+  - **⑥ 减动效不再用 !important 压属性**：把既有的两条全局重拳（`animation-duration/transition-duration: 0.01ms !important`、`[data-motion="reduced"]` 同款）改为**只零化时长令牌**（`--dur-fast/base/slow/spin/ink/ink-soft/enter/shimmer: 0ms`）✓，因此组件级 `@media` 规则重新生效 ✓；无限循环动画（`.spin` / `.wiki-run-thinking i` / 提取状态图标 / `.skeleton`）单独 `animation: none`（否则 0ms 循环会抖动）✓。
+  - **浏览器实测**：系统 `prefers-reduced-motion: reduce` 下 `--dur-fast/base/shimmer = 0s` ✓、`.spin` 的 `animationName = none` ✓；应用内开关 `[data-motion="reduced"]` 下 `--dur-fast = 0s` ✓。
+  - **⑦ 新增 2 条契约**：减动效必须零化令牌且**不得**再出现 `0.01ms !important`、组件级规则必须在位、无限循环必须显式停掉 ✓；缩进契约（`App.tsx` 的 `chat/:sessionId?` 路由 12 空格、`ChatPage` 的 `{...ime.compositionProps}` 10 空格）✓。
+  - **我制造的一次事故（必须记账）**：为验证提交快照，我建了带 `node_modules` **junction** 的临时 worktree；`git worktree remove --force` 顺着 junction **删掉了真实依赖的一部分**（typescript/vitest 消失 ✗）→ `npm ci` 368 包复原 ✓；随后改用 `git archive` 解包到临时目录 + 独立 `npm ci` 验证（不再碰 junction）✓。
+  - **验证**：tsc / lint **0** ✓、vitest **52 文件 / 339 passed**（+2 契约）✓、build **0** ✓、mock e2e **15** ✓、live e2e **7** ✓；**提交快照独立验证**（git archive + npm ci，排除工作区未提交改动）→ **51 文件 / 336 passed** ✓。
+
 - **按外部审查报告修复真实缺陷（2026-10-28，main 本地提交 ✓ 未推送）**：审查指出 12 个提交里 3 个有真实缺陷（其中 2 个「测试全绿但功能不生效」），逐条核实成立 ✓ 并全部修复 + 补上能抓住它们的测试。
   - **P0-① 图谱 4px 死区空转**：`dragOrigin` 从未在 `downNode` 赋值（只在 `finishDrag` 置空）✗，且即使赋值也会踩顺序坑（sigma 的 upNode/finishDrag 先于 clickNode）→ 改为 `downNode` 记录起点 + `moveBody` 累计 `dragMoved` + `clickNode` 直接拦断 ✓；新增**源码接线契约** `wiring.test.ts`（断言真的赋值/真的拦截）✓。
   - **P0-② 高对比把文字变没**：初版只写了一套深色系浅色文字 ✗ —— 浅色用户打开高对比后 muted 实测 **1.10:1**（WCAG 要求 4.5）。改为按主题**成对定义**（浅色压深 / 暗色提亮）✓，并新增 `themeContrast.test.ts` **真算 WCAG 比值**（浅色 muted/faint ≥7，暗色 ≥7，且高对比必须强于普通）✓；浏览器实测 **muted 11.61 / faint 9.67** ✓。
