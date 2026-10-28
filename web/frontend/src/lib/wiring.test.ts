@@ -59,6 +59,28 @@ describe("源码接线契约", () => {
     expect(css).toContain('[data-paper-texture="on"] body { background-color: var(--paper); }');
   });
 
+  it("减动效只零化时长令牌，不用 !important 压属性（组件级规则才能生效）", () => {
+    const css = read("styles/app.css");
+    expect(css).toMatch(/--dur-fast: 0ms/);
+    expect(css).toMatch(/\[data-motion="reduced"\] \{[\s\S]{0,300}--dur-shimmer: 0ms/);
+    expect(css).not.toContain("animation-duration: 0.01ms !important");
+    expect(css).not.toContain("transition-duration: 0.01ms !important");
+    // 组件级规则必须还在（恢复生效的标志）
+    expect(css).toContain(".setting-toggle i { transition: none; }");
+    // 无限循环动画必须显式停掉，否则 0ms 循环会抖动
+    expect(css).toMatch(/\.spin, \.wiki-run-thinking i, \.reader-actions \.status-extracting svg, \.skeleton \{ animation: none; \}/);
+  });
+
+  it("缩进契约：路由块与 compositionProps 逐行对齐（防止正则编辑再弄坏）", () => {
+    const app = readFileSync(resolve(process.cwd(), "src/App.tsx"), "utf8").replace(/\r\n/g, "\n");
+    const routeLines = app.split("\n").filter((line) => line.includes("chat/:sessionId?"));
+    expect(routeLines.length).toBe(1);
+    expect(routeLines[0].startsWith("            <Route")).toBe(true);
+    const chat = read("pages/ChatPage.tsx");
+    const composition = chat.split("\n").find((line) => line.includes("{...ime.compositionProps}"));
+    expect(composition).toBeDefined();
+    expect(composition!.startsWith("          {...ime.compositionProps}")).toBe(true);
+  });
   it("不要再出现第二条全局 !important 减动效重拳", () => {
     const css = read("styles/app.css");
     const hits = (css.match(/animation: none !important; transition: none !important/g) ?? []).length;

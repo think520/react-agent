@@ -1369,19 +1369,28 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
   .wiki-guide-steps, .wiki-run-estimate, .usage-summary { grid-template-columns: 1fr 1fr; }.wiki-run-estimate > div, .wiki-run-estimate > div:nth-of-type(n+4) { grid-column: span 1; border-top: 0; border-right: 1px solid var(--border); }.wiki-run-estimate > div:nth-of-type(n+3) { border-top: 1px solid var(--border); }.wiki-run-estimate > div:nth-of-type(2n) { border-right: 0; }.wiki-view-tabs { gap: 14px; overflow-x: auto; }.wiki-view-tabs button { flex: 0 0 auto; }.wiki-budget-settings { grid-template-columns: 1fr; }.wiki-editor-backdrop { padding: 0; }.wiki-editor { width: 100%; height: 100dvh; max-height: none; border: 0; border-radius: 0; }.wiki-editor > header, .wiki-editor-toolbar, .wiki-editor > main, .wiki-editor > footer { padding-left: 14px; padding-right: 14px; }.wiki-editor-fields { grid-template-columns: 1fr; }.wiki-editor-fields label:first-child, .wiki-editor-fields .wide { grid-column: auto; }.wiki-editor > footer { padding-bottom: max(12px, env(safe-area-inset-bottom)); }
 }
 
+/* 减动效（2026-10-28 审查 P1-⑥ 修订）：只把**时长令牌**归零，不再用 !important 压属性 ——
+   这样组件级 @media 规则重新生效。无限循环动画单独关掉，否则 0ms 循环会变成高频抖动。 */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+  :root {
+    --dur-fast: 0ms; --dur-base: 0ms; --dur-slow: 0ms;
+    --dur-spin: 0ms; --dur-ink: 0ms; --dur-ink-soft: 0ms; --dur-enter: 0ms; --dur-shimmer: 0ms;
+  }
+  *, *::before, *::after { animation-iteration-count: 1 !important; scroll-behavior: auto !important; }
+  .spin, .wiki-run-thinking i, .reader-actions .status-extracting svg, .skeleton { animation: none; }
 }
 
-/* The in-app 界面感受 toggle (data-motion="reduced" on <html>) must mean the
-   same thing as the OS preference — one global kill-switch, not the handful
-   of selectors it used to cover. */
-[data-motion="reduced"] *, [data-motion="reduced"] *::before, [data-motion="reduced"] *::after {
-  scroll-behavior: auto !important;
-  animation-duration: 0.01ms !important;
-  animation-iteration-count: 1 !important;
-  transition-duration: 0.01ms !important;
+/* 应用内开关（界面感受 → 减少动态效果）与系统偏好同义：同一套令牌归零。 */
+[data-motion="reduced"] {
+  --dur-fast: 0ms; --dur-base: 0ms; --dur-slow: 0ms;
+  --dur-spin: 0ms; --dur-ink: 0ms; --dur-ink-soft: 0ms; --dur-enter: 0ms; --dur-shimmer: 0ms;
 }
+[data-motion="reduced"] *, [data-motion="reduced"] *::before, [data-motion="reduced"] *::after {
+  animation-iteration-count: 1 !important;
+  scroll-behavior: auto !important;
+}
+[data-motion="reduced"] .spin, [data-motion="reduced"] .wiki-run-thinking i,
+[data-motion="reduced"] .reader-actions .status-extracting svg, [data-motion="reduced"] .skeleton { animation: none; }
 
 @media (prefers-reduced-transparency: reduce) {
   .topbar, .mobile-nav, .composer { background: var(--paper-soft); backdrop-filter: none; }
