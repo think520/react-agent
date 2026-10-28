@@ -294,7 +294,7 @@
 | **M3** | W-F3 视觉融合 | ✅ **完成（2026-10-17，feat/frontend-m3）**：①令牌层（surface/hairline/ring/圆角/高度 + 契约）；②浮层发丝边落地 ✓；③表面阶梯落位（11 个关键表面）；④输入区统一 + 滚动遮罩 + 渐变预算；⑤组件圆角令牌化 + **关键页实拍验收**（Chat / Library / Settings AI / Settings 界面四图）。全部行为零变化，门禁全绿 | 2–3 天 | 每技法 1 |
 | **M4** | W-F4 动效/IME | ✅ **完成（2026-10-17，feat/frontend-m4）**：弹簧令牌 + 按压/浮层入场/通知动效 ✓、CJK IME 合成守卫（`lib/ime.ts`，先红后绿 2 条回归）✓、图谱拖拽 4px 指针死区（`lib/pointer.ts` + 3 条单测）✓、减少动效 CSS 兜底 ✓、骨架屏微光规则与 `--dur-shimmer: 1200ms` ✓、**裸缓动棘轮 15 → 0** ✓ | 1–2 天 | 每项 1 |
 | **M5** | W-F5 字体/包体 | ✅ **完成（2026-10-17）**：楷体 TTF 36.15MB → GB2312 子集 woff2 **3.83MB（−89%）**；品牌 PNG 4.71MB → WebP **470KB**（+ icon 138KB）；字体 face 已独立成 `fonts-*.css`（166KB gz，延迟加载）；dist 12.07MB（无 sourcemap）；DESIGN §17 预算表按实测更新 ✓ | 1–2 天 | 每资源 1 |
-| **M6** | 打包前验收 | ✅ **完成（2026-10-17）**：报告 »docs/M6_ACCEPTANCE.md«（五层验收 + DESIGN §19 逐条核对 9/11 ✅、2 项属后端/W5）；三档分辨率 15 张实拍不破版 ✓；顺手把 QuestionBankPage **657 → 593 行** ✓；性能预算全达标（主 JS 95.77 / 关键 CSS 33.8 KB gz、dist 12.07MB、0 sourcemap、0 外链请求）✓ | 1 天 | 1 |
+| **M6** | 打包前验收 | ✅ **完成（2026-10-17）**：报告 »docs/archive/frontend/M6_ACCEPTANCE.md«（五层验收 + DESIGN §19 逐条核对 9/11 ✅、2 项属后端/W5）；三档分辨率 15 张实拍不破版 ✓；顺手把 QuestionBankPage **657 → 593 行** ✓；性能预算全达标（主 JS 95.77 / 关键 CSS 33.8 KB gz、dist 12.07MB、0 sourcemap、0 外链请求）✓ | 1 天 | 1 |
 
 **总计**：约 **8–13 个工作日**（按半天为一个可提交单元）。每阶段结束必须过五层验收，否则不进下一阶段。
 
@@ -315,14 +315,14 @@
 
 **已知债的后续方案（手工协议，不脚本切分）**：
 
-> **更新（2026-10-17）**：手工协议仍是兜底 ✓，但**推荐路线已改为「store 化 + actions 无闭包」**（借鉴 openhanako）—— 见 [«FRONTEND_OPTIMIZATION_V2.md»](./FRONTEND_OPTIMIZATION_V2.md) §1：把状态搬进 zustand slice、处理器搬成模块级 action，可彻底消掉「依赖清单」这笔过路费 ✓。
+> **更新（2026-10-17）**：手工协议仍是兜底 ✓，但**推荐路线已改为「store 化 + actions 无闭包」**（借鉴 openhanako）—— 见 [«FRONTEND_OPTIMIZATION_V2.md»](FRONTEND_OPTIMIZATION_V2.md) §1：把状态搬进 zustand slice、处理器搬成模块级 action，可彻底消掉「依赖清单」这笔过路费 ✓。
 
 1. **先视图层**：把 JSX 区（composer 约 106 行、transcript 约 42 行、welcome 约 21 行、artifactSurface 约 62 行）抽成组件 —— JSX 边界清楚，tsc 可校验，属性清单约 40 项（这是抽取成本的来源，必须接受）。
 2. **再处理器族**：wiki 族（约 140 行）/ web 族（约 74）/ 交互族（约 90）/ 练习与设置族（约 92）各自抽 hook —— 每族依赖 8–12 项，用 `ReturnType<typeof useChatState>` 推导类型。
 3. **每步只做一块**：搬 → tsc → 跑该页测试 → 再搬下一块；不跨块合并提交。
 4. ChatPage 预计 3–4 轮、LibraryPage 3–4 轮（每轮一个可回滚提交）。
 
-> **更新（2026-10-17 晚）**：两档验收的「已知债」已通过 **store-lift** 全部清零 ✓ —— ChatPage **579**、LibraryPage **544**（均 ≤600 ✓）；方法与过程见 [「FRONTEND_OPTIMIZATION_V2.md」](./FRONTEND_OPTIMIZATION_V2.md) §1 与 CHANGELOG 的 1–5 步记录 ✓。以下内容保留为历史过程记录。
+> **更新（2026-10-17 晚）**：两档验收的「已知债」已通过 **store-lift** 全部清零 ✓ —— ChatPage **579**、LibraryPage **544**（均 ≤600 ✓）；方法与过程见 [「FRONTEND_OPTIMIZATION_V2.md」](FRONTEND_OPTIMIZATION_V2.md) §1 与 CHANGELOG 的 1–5 步记录 ✓。以下内容保留为历史过程记录。
 
 **门禁证据（2026-10-17 实跑）**：后端 **1,853 passed** ｜ 前端 **47 文件 / 296 passed** ｜ tsc / lint / build **0** ｜ mock e2e **15** ｜ **live 7**（真实后端）。
 

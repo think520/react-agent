@@ -56,7 +56,7 @@ docs/assets/brand/bobodan-calico-avatar-32.png
 - 只使用少量低饱和平涂，不做复杂体积光和写实毛发。
 - 角色气质成熟、温和、克制，不幼儿化，不靠夸张卖萌。
 
-品牌配色继续使用 `docs/DESIGN.md`：墨蓝 `#1B365D`、橘棕 `#B86F4B`、暖纸色 `#F5F4ED`、植物绿 `#7A9B76`。
+品牌配色以设计令牌为单一来源（`web/frontend/src/styles/tokens.css`）：墨蓝 `#1B365D`（:17）、橘棕 `#B86F4B`（:22）、暖纸色 `#F5F4ED`（:9）、植物绿 `#7A9B76`（:20）；`docs/DESIGN.md` 负责语义与使用约束，具体 hex 以 tokens.css 为准（校验：2026-10-28，web/frontend/src/styles/tokens.css:2、:9、:17、:20、:22）。
 
 ## 3. 品牌与人设边界
 

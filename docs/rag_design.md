@@ -1,16 +1,18 @@
 # Bobodan Full RAG Design
 
-> 实现状态（2026-09-08）：RAG v2 已是唯一正常运行检索链路。SQLite `knowledge.db` 是元数据和 FTS truth source，Qdrant 是尚未启用的可选语义索引；旧 `rag_index*.json`、`rag/vector_store.py`、`rag/embeddings.py` 和旧 chunker 已退出 runtime。本文保留最初设计背景，但以下章节以当前实现边界为准。
+> 实现状态（2026-10-28 校订）：RAG v2 已是唯一正常运行检索链路。SQLite `knowledge.db` 是元数据和 FTS truth source；Qdrant 是本地可选、可降级的语义索引，配置了可用 embedding 时参与默认的 hybrid 检索（`config.yaml:106`）。旧 `rag_index*.json`、`rag/vector_store.py`、`rag/embeddings.py` 和旧 chunker 已退出 runtime。本文保留最初设计背景，但以下章节以当前实现边界为准。（校验：2026-10-28，`rag/qdrant_store.py`）
 >
-> **Embedding 决策与实际状态（2026-09-08）**：用户自配 API embedding（SiliconFlow bge-m3 免费标推荐 / DashScope / OpenAI 兼容）、签名版本化、批次维度校验、索引心跳守卫与召回评测集已在 `ROADMAP.md` W2 / B2 立项，**尚未实现**。当前 `EmbeddingService` 仍只适配用户本机已安装的 Ollama；向量腿尚未在真实资料库运行，`fts_only` 是一等公民形态而非降级。Qdrant 保持本地可选索引。完整论证见 `Bobodan参考项目调研报告.md` 第十章。
+> **Embedding 决策与实际状态（2026-10-28 校订）**：用户自配 API embedding（SiliconFlow bge-m3 免费标推荐 / DashScope / OpenAI 兼容 / 智谱）、签名版本化、批次维度校验、429 退避与断点续传、索引心跳守卫与召回评测均已落地：签名见 `rag/embedding_signature.py`，维度校验见 `rag/embedding_provider.py:269`，重试与退避见 `rag/embedding_provider.py:39`，索引守卫见 `rag/index_guard.py`，评测见 `rag/recall_eval.py` 与 `docs/RAG_EVAL.md`（2026-10-17）。召回默认 hybrid（`config.yaml:106`），无可用 embedding 时降级为 FTS-only。完整论证见 `Bobodan参考项目调研报告.md` 第十章。（校验：2026-10-28）
+>
+> **事实基准（2026-10-28）**：本文的架构与设计意图仍有效；G2–G4 的实现状态已在 2026-10 更新——embedding 签名版本化（`rag/embedding_signature.py`）、索引守卫（`rag/index_guard.py`）、召回评测（`rag/recall_eval.py`）均已落地，召回基线以 `docs/RAG_EVAL.md`（2026-10-17）为准；本文 §4.1 schema 尚未系统回写；§9.3 路由清单与 §14 测试清单已按实况就地校订（见各处标注）。
 
 ## 1. 目标与当前可用形态
 
-本节先记录完整 RAG 的设计目标；当前实现以 FTS5 为稳定基线，向量检索是可选增强。实际运行时，`hybrid` 始终包含 SQLite FTS5；只有 Ollama 可用且对应向量已成功索引时，才会额外执行 Qdrant 向量检索并做 RRF 融合。没有可用 embedding 时，系统仍以 FTS-only 继续工作。
+本节先记录完整 RAG 的设计目标；当前实现以 FTS5 为稳定基线，向量检索是可选增强。实际运行时，`hybrid` 始终包含 SQLite FTS5；只有配置了可用 embedding（`auto`：配好的 API provider 优先，否则本机 Ollama）且对应向量已成功索引时，才会额外执行 Qdrant 向量检索并做 RRF 融合。没有可用 embedding 时，系统仍以 FTS-only 继续工作。
 
 Bobodan 的知识库检索升级为完整 RAG 基础设施，支持四种检索方式：
 
-1. **向量检索（设计目标）**：语义相似度检索（Qdrant + 可配置 embedding provider：Ollama 或用户自配的 OpenAI 兼容 API；签名/维度校验/评测见 B2 余项）。
+1. **向量检索（设计目标）**：语义相似度检索（Qdrant + 可配置 embedding provider：Ollama 或用户自配的 OpenAI 兼容 API；签名/维度校验/评测已落地，见 `rag/embedding_signature.py`、`docs/RAG_EVAL.md`；校验：2026-10-28）。
 2. **FTS5 检索**：关键词、术语、原文匹配（SQLite FTS5 / BM25）。
 3. **目录索引检索**：文档级路由，根据标题、摘要、关键词 + chunk 聚合判断相关文档。
 4. **grep/rg 检索**：在候选文档中做精确文本搜索，返回原文上下文。
@@ -437,7 +439,7 @@ class RetrievalResult:
 
 ### 6.2 Vector Retriever
 
-> provider 层已支持用户自配 API（B2 前半落地）。embedding 签名版本化、批次维度校验、429 退避与断点续传、召回评测集仍未完成（B2 余项），以下「目标形态」不得当作已上线能力。
+> provider 层已支持用户自配 API；embedding 签名版本化（`rag/embedding_signature.py`）、批次维度校验（`rag/embedding_provider.py:269`）、429 退避与断点续传（`rag/embedding_provider.py:39`、`obsidian/sync.py:381`）、召回评测（`docs/RAG_EVAL.md`，2026-10-17）均已落地，以下「目标形态」按已实现边界理解。（校验：2026-10-28）
 
 用途：
 
@@ -448,7 +450,7 @@ class RetrievalResult:
 数据来源：
 
 - Qdrant collection `bobodan_chunks`
-- 当前 embedding 来自用户本机已安装的 Ollama；未配置或不可用时不启用向量检索
+- 当前 embedding 来自 `embedding_backend` 选定的 provider（`auto` 时配好的 API provider 优先，否则本机 Ollama）；未配置或不可用时不启用向量检索（`rag/embedding_provider.py:44-78`；校验：2026-10-28）
 
 失败降级：
 
@@ -882,7 +884,7 @@ Use hybrid for normal semantic Q&A.
 GET  /api/kb/status
 POST /api/kb/sync
 POST /api/kb/search
-POST /api/kb/reindex
+POST /api/kb/reindex            # ⏳ 未交付（2026-10-28 校验：web/backend/routers/kb.py 无此路由）
 GET  /api/kb/documents
 GET  /api/kb/documents/{document_id}
 ```
@@ -928,12 +930,12 @@ RAG = 原文证据和文档检索层
 
 下面是**当前配置形态**。**B2 的 provider 层已落地**：`embedding_backend` 取 `auto | openai_compat | ollama | local`，API provider 走 OpenAI 兼容的 `POST {base_url}/embeddings`，`auto` = 配好的 API provider 优先、否则 Ollama、都没有则 FTS5-only。密钥只从环境变量读（`embedding_api_key_env`，留空用预设自带的变量名），**绝不写进 `config.yaml`**（它是受版本控制的文件）。
 
-仍属 B2 未完成部分：embedding 签名版本化、批次维度校验、429 退避与断点续传、召回评测集（G4）。在评测集通过之前，**不得宣称混合检索优于 FTS-only**。
+G2–G4 已落地：embedding 签名版本化、批次维度校验、429 退避与断点续传、召回评测（`docs/RAG_EVAL.md`，2026-10-17）。评测结论：**向量腿保留为默认，实测 hybrid 整体优于 FTS-only**——合计 hit@5 0.966 / MRR 0.718 vs FTS-only 0.897 / 0.610（单条回归见 `docs/RAG_EVAL.md` §5；校验：2026-10-28，`docs/RAG_EVAL.md:62-64`）。
 
 ```yaml
 rag:
   embedding_backend: auto          # auto | openai_compat | ollama | local
-  embedding_preset: ""             # siliconflow | dashscope | openai
+  embedding_preset: ""             # zhipu | siliconflow | dashscope | openai（config.yaml:68 当前为 zhipu；校验：2026-10-28）
   embedding_base_url: ""
   embedding_model: ""
   embedding_api_key_env: ""        # 例：SILICONFLOW_API_KEY
@@ -993,7 +995,7 @@ rag:
 
 ## 12. 文件规划与实现边界
 
-本节保留 RAG v2 立项时的文件拆分，用于解释模块职责；其中当前已存在的模块以仓库为准。B2 的 API embedding、签名、心跳和评测将按 `ROADMAP.md` 新增或调整文件，不以本节旧清单为承诺。
+本节保留 RAG v2 立项时的文件拆分，用于解释模块职责；其中当前已存在的模块以仓库为准。B2 的 API embedding、签名、心跳和评测已落地（`rag/embedding_provider.py`、`rag/embedding_signature.py`、`rag/index_guard.py`、`rag/recall_eval.py`），本节旧清单不作为实现承诺。
 
 新增：
 
@@ -1019,12 +1021,12 @@ web/backend/routers/kb.py        # FastAPI KB endpoints
 tests/test_rag_sqlite_store.py
 tests/test_rag_qdrant_store.py
 tests/test_rag_retrievers.py
-tests/test_rag_hybrid.py
+tests/test_rag_fixes.py
 tests/test_rag_orchestrator.py
 tests/test_rag_query_router.py
 tests/test_rag_chunker_v2.py
 tests/test_rag_parsers.py
-tests/test_kb_api.py
+tests/test_web_backend.py
 ```
 
 修改：
@@ -1050,7 +1052,7 @@ rag/chunker.py                   # 旧无 heading 切块器
 
 ## 13. 迁移策略
 
-以下是当前索引迁移与重建约束。涉及用户自配 API embedding 的迁移、签名不匹配和断点续传，按 `ROADMAP.md` B2 的验收定义实施。
+以下是当前索引迁移与重建约束。用户自配 API embedding 的迁移、签名不匹配和断点续传已按 B2 落地（`rag/embedding_signature.py`、`obsidian/sync.py:381`；校验：2026-10-28）。
 
 ### 13.1 旧索引处理
 
@@ -1147,9 +1149,9 @@ full sync 完全重建 SQLite + Qdrant：
 
 ## 14. 已有测试与后续验证
 
-RAG v2 的 SQLite、Qdrant、解析、检索、路由和服务契约已有回归覆盖。下列清单既保留已实现链路的关键回归，也列出 B1/B2 完成时需要补齐的评测；向量评测通过前，不能宣称混合检索优于 FTS-only。
+RAG v2 的 SQLite、Qdrant、解析、检索、路由和服务契约已有回归覆盖。下列清单保留已实现链路的关键回归；召回评测已于 2026-10-17 补齐，hybrid 整体优于 FTS-only（`docs/RAG_EVAL.md`）。
 
-其中 Qdrant、RRF 和解析器测试验证的是可选组件的契约与故障降级，不代表每个用户工作区都已建立向量索引；真实资料集上的语义召回质量、API embedding provider、签名/维度校验和断点续传仍属于 B1/B2 门槛。
+其中 Qdrant、RRF 和解析器测试验证的是可选组件的契约与故障降级，不代表每个用户工作区都已建立向量索引；真实资料集上的语义召回质量、API embedding provider、签名/维度校验和断点续传均已落地（`docs/RAG_EVAL.md`、`rag/embedding_signature.py`、`rag/embedding_provider.py:39`、`obsidian/sync.py:381`；校验：2026-10-28）。
 
 1. SQLite store
    - 建库
@@ -1234,7 +1236,7 @@ RAG v2 的 SQLite、Qdrant、解析、检索、路由和服务契约已有回归
 pytest tests/test_rag_sqlite_store.py -v
 pytest tests/test_rag_qdrant_store.py -v
 pytest tests/test_rag_chunker_v2.py tests/test_rag_parsers.py -v
-pytest tests/test_rag_retrievers.py tests/test_rag_hybrid.py -v
+pytest tests/test_rag_retrievers.py tests/test_rag_fixes.py -v  # 校验：2026-10-28
 pytest tests/test_rag_orchestrator.py tests/test_rag_query_router.py -v
 pytest tests/test_kb_service.py tests/test_knowledge_tools.py -v
 pytest
@@ -1242,7 +1244,7 @@ pytest
 
 ## 15. 当前完成标准与未来门槛
 
-以下前半部分描述已落地 RAG v2 的稳定约束；涉及真实语义向量召回、用户 API embedding 和 Ollama 以外 provider 的条目属于 B1/B2 验收门槛。
+以下前半部分描述已落地 RAG v2 的稳定约束；真实语义召回、用户 API embedding 和 Ollama 以外 provider 的验证已于 2026-10-17 完成（`docs/RAG_EVAL.md`；校验：2026-10-28）。
 
 完成后应满足：
 
@@ -1250,7 +1252,7 @@ pytest
 - `rag_search` 默认走 auto 路由；向量不可用时返回 `fts_only` 语义的检索状态。
 - exact keyword 查询由 FTS5 命中。
 - 不带空格的中文短语可以由 CJK 2-gram FTS 命中，英文术语检索不退化。
-- 语义查询由 Qdrant vector 命中的目标，需在 B2 以真实资料评测集验证。
+- 语义查询由 Qdrant vector 命中：2026-10-17 真实资料评测已完成，hybrid hit@5 0.966 / MRR 0.718（`docs/RAG_EVAL.md:62-66`；校验：2026-10-28）。
 - "在哪里提到"类问题走 directory_grep。
 - "哪些文档"类问题走 directory。
 - hybrid 无结果时 auto 模式 fallback 到 directory_grep。
@@ -1258,7 +1260,7 @@ pytest
 - PDF/PPT/Word 能正确解析并索引，引用带页码/slide 号。
 - Qdrant 失败时 FTS5/directory/grep 仍可用。
 - Qdrant 残留旧数据由 SQLite hydrate 过滤。
-- 没有 Ollama 时，FTS5 / directory / grep 仍可用；B2 后同样适用于未配置任何 embedding provider 的场景。
+- 没有 Ollama 时，FTS5 / directory / grep 仍可用；未配置任何 embedding provider 时同样降级为 `fts_only`。
 - 没有 `rg` 时，Python fallback 仍可用。
 - CLI、tool、KBService、FastAPI 都使用同一套检索逻辑（Orchestrator）。
 - 同一 workspace 的重复检索复用有界 Orchestrator 缓存；索引变更后缓存明确失效。

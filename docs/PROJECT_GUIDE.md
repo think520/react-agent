@@ -2,9 +2,8 @@
 
 这份文档是 Bobodan 后续给人和 AI 看的产品与架构主入口。想知道产品是什么、当前到哪一步、哪些功能该隐藏、代码边界怎么守，先读这里；具体排期只看 [`ROADMAP.md`](ROADMAP.md)，视觉和交互硬约束只看 [`DESIGN.md`](DESIGN.md)。
 
-> 当前阶段（2026-09-08）：A0 现状核对与 A1 学习闭环正确性均已完成——会话内失败可见、
-> 人工交互具备持久化生命周期（`ask_user`）、练习卡由服务端绑定、简答三态判分前后端一致（证据见 `ROADMAP.md` §2）。
-> 下一步是 A2 学习推进（E5 / E6 / E9 / E14）；向量检索仍是可选增强，Windows 桌面发布尚未启动。
+> 事实基准：§1–§3、§5–§9 是当前产品边界与架构真相；§4 是 2026-08 之前的历史阶段记录（含过期验收数字，勿引用）。
+> 当前批次、门禁和下一步只看 [`ROADMAP.md`](ROADMAP.md)（v1.5，2026-10-21）；文档地图只看 [`docs/README.md`](README.md)（校验：2026-10-28，docs/ROADMAP.md:3、docs/README.md:5）。
 > 本文中的“已完成”表示阶段验收已通过，不代表后续体验轮不再发现问题。
 
 ## 1. 产品定位
@@ -271,7 +270,7 @@ Library
 Roadmap
 ```
 
-Web MVP 不一次开放六个一级导航。第一版主导航收敛为：
+Web MVP 当时不一次开放六个一级导航，第一版主导航收敛为四项（历史记录；当前一级导航 6 项——对话 / 练习 / 复习 / 知识地图 / 笔记 / 资料库；校验：2026-10-28，web/frontend/src/components/shell/nav.ts:5-10）。
 
 ```text
 Chat
@@ -406,7 +405,7 @@ Bobodan 已经完成“学习 Agent 引擎”“Web 产品化基础”“本地�
 
 一句话结论：
 
-> 本地资料、可信联网证据与个人学习知识库已经形成闭环；知识地图已落地，下一步先核对并补齐学习闭环、导入与检索的真实缺口，再进入 Windows 桌面发布。
+> **（2026-08 时的判断，后续进展见 ROADMAP.md）** 本地资料、可信联网证据与个人学习知识库已经形成闭环；知识地图已落地，下一步先核对并补齐学习闭环、导入与检索的真实缺口，再进入 Windows 桌面发布。
 
 ### 3.2 当前成熟度
 
@@ -500,7 +499,7 @@ P5F.1 已补齐：
 - 以“用户完成一次学习闭环”为进度单位，不以页面或模块数量为进度单位。
 - 服务器端存储是学习状态真相源；浏览器只保存草稿、当前页面和 session 指针。
 - 来源必须是结构化数据，不能让前端从自然语言回答里猜引用。
-- 主流程只保留 Chat、Practice、Review、Library；Today 作为 Chat 的起始状态，Roadmap 后补。
+- 主流程只保留 Chat、Practice、Review、Library；Today 作为 Chat 的起始状态，Roadmap 后补（一级导航另有知识地图与笔记，共 6 项；校验：2026-10-28，web/frontend/src/components/shell/nav.ts:5-10）。
 - MCP、specialist、trace、模型切换继续保留，但不阻塞 Web 学习 MVP。
 - 新增代码优先扩展现有 service，不创建重复的前端业务层或第二套学习逻辑。
 
@@ -644,7 +643,7 @@ SourceRef
 - 资料选文可直接带入 Chat；当前学习范围会同时约束 Chat 检索和 Practice 出题，不只作为前端标签展示。
 - Practice 的“问 AI”在当前题目内打开轻量抽屉，桌面、窄屏与移动端均不会跳出练习流程。
 - Wiki 分类增加健康检查、断链 / 孤立页 / 过期页详情，以及只归档生成重复页的规范索引重建。
-- Chat composer 输入 `/` 可选择 Web 安全命令与 `course-learning / exam-prep / study-loop` 三个学习 Skills；CLI 管理能力继续隐藏。
+- Chat composer 输入 `/` 可选择 Web 安全命令与 `course-learning / exam-prep / study-loop` 三个学习 Skills（P5D 当时 3 个；2026-10 起为 4 个，含 `socratic-persona`，见 `web/backend/capabilities.py:3-9`）；CLI 管理能力继续隐藏。
 
 #### P5D.1 前端地基
 
@@ -654,7 +653,7 @@ SourceRef
 - Today 作为 Chat 无活动会话时的起始状态，不单独搭第二套首页。
 - Today 使用 Bobodan 正式头像或学习场景图，显示当前学习空间与记忆状态；只提供“开始提问、导入资料、开始练习”等真实可执行动作。
 - 增加四步首次配置：用户与目标、AI 连接、首个学习空间、记忆与联网边界；模型职责默认自动配置。
-- 第一批真实入口只开放 Chat、Practice、Review、Library；没有数据的入口显示“导入资料 / 开始对话”等可执行空状态，不放假按钮。
+- 第一批真实入口只开放 Chat、Practice、Review、Library；没有数据的入口显示“导入资料 / 开始对话”等可执行空状态，不放假按钮（历史：当时 4 项；当前 6 项，见 §2.3；校验：2026-10-28，web/frontend/src/components/shell/nav.ts:5-10）。
 
 #### P5D.2 最小 Library 与资料导入
 
@@ -719,7 +718,7 @@ P5D 验收结果：通过。
 1. 用户主动触发：上传资料本身不得自动创建 Wiki 页面。
 2. 范围发现：默认通过全库检索发现相关或未覆盖资料；用户选择项作为优先种子，只有明确启用严格模式时才限制为指定资料。
 3. 计划优先：`/wiki plan` 只输出新增、更新、合并、冲突和跳过计划，不写文件。
-4. 确认写入：`/wiki generate` 与 `/wiki update` 在用户确认后才执行。
+4. 确认写入：聊天侧命令只有 `/wiki plan`（出计划）与 `/wiki update`（增量计划），用户确认计划后才执行；`generate` 只是 `wiki/workflow.py` 的内部 action，不是命令（校验：2026-10-28，web/frontend/src/lib/commandRouter.ts:21-26、wiki/workflow.py:241-243）。
 5. 页面结构：生成概念页与实体页，保留摘要、相关概念、来源、更新时间和 AI 整理标记。
 6. 内部跳转：支持 Wiki 页面之间的双向链接和相关概念导航。
 7. 原文定位：每个重要结论可跳回资料标题、heading、PDF 页码、PPT 页或 RAG chunk。
@@ -744,7 +743,7 @@ P5E 验收：
 P5E 验收结果：通过。
 
 - 导入资料继续只建立原文索引，不会自动创建 Wiki。
-- Chat 支持 `/wiki plan`、`/wiki update` 和 `/wiki generate`；Library 支持从学习资料或已有 Wiki 页面发起。
+- Chat 支持 `/wiki plan`、`/wiki update`（`generate` 是内部 action，不是聊天命令）；Library 支持从学习资料或已有 Wiki 页面发起（校验：2026-10-28，web/frontend/src/lib/commandRouter.ts:21-26、web/backend/routers/chat.py:1222）。
 - 计划卡在确认前展示完整变更计数与页面预览，冲突用户页面不会被覆盖。
 - 生成页保存结构化 `source_refs`，相关概念与原始资料均可在 Web 阅读器内跳转定位。
 - 写入前检查点、显式撤销和失败自动恢复均有测试覆盖。
@@ -1268,7 +1267,7 @@ Library
 Roadmap
 ```
 
-Web MVP 一级导航只开放 Chat、Practice、Review、Library；Today 复用 Chat 起始状态，Roadmap 后补。
+Web MVP 一级导航只开放 Chat、Practice、Review、Library；Today 复用 Chat 起始状态，Roadmap 后补（历史：当时 4 项；当前 6 项，见 §2.3；校验：2026-10-28，web/frontend/src/components/shell/nav.ts:5-10）。
 
 页面边界：
 
@@ -2004,15 +2003,11 @@ Obsidian vault：
 
 ## 10. 常用专题文档
 
-日常只需要读本文。需要深入时再看：
+日常只需要读本文；完整文档地图见 [`docs/README.md`](README.md)——它是唯一索引，新增、改名或废弃文档先改它（校验：2026-10-28，docs/README.md:5）。最常读的三份：
 
-- `docs/ROADMAP.md`：**统一路线图**——现在做什么、接下来做什么、已拍板决策、明确不做。
+- `docs/ROADMAP.md`：**统一路线图**——现在做什么、接下来做什么、已拍板决策、明确不做（唯一排期依据）。
 - `docs/DESIGN.md`：Web / TUI / 官网视觉硬约束。任何界面设计开工前必须先读。
 - `docs/Bobodan参考项目调研报告.md`：DeepTutor / OpenMAIC / qiaomu 借鉴机制精讲与源码索引（ROADMAP 条目的论据）。
-- `docs/rag_design.md`：RAG v2 详细设计。
-- `docs/MCP.md`：MCP 客户端使用。
-- `docs/tools/skills.md`：Skills 系统说明。
-- `docs/archive/`：已完成任务书与历史审查报告，仅供考古。
 
 ## 11. 最终结论
 

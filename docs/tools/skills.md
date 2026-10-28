@@ -16,6 +16,8 @@ skills/
     SKILL.md
   obsidian-workspace/
     SKILL.md
+  socratic-persona/
+    SKILL.md
 ```
 
 ## SKILL.md 格式
@@ -69,5 +71,6 @@ Skills 是内部任务策略，不是一等产品入口。
 | `obsidian-workspace` | Obsidian / 本地知识库工作区管理 |
 | `course-learning` | 课程学习问答 |
 | `aihot` | AI 热点信息 |
+| `socratic-persona` | 苏格拉底式带学法：先问后讲、一次一个问题、用用户自己的话推进 |
 
-目录发现边界：CLI/runtime 会扫描 `skills/` 下所有包含合法 `SKILL.md` 的目录，因此当前共发现上表五个 skill。Web 设置和 Chat 只开放 `course-learning`、`exam-prep`、`study-loop` 三个经过白名单筛选的学习 skill；`obsidian-workspace` 与 `aihot` 不进入 Web 主流程。
+目录发现边界：CLI/runtime 会扫描 `skills/` 下所有包含合法 `SKILL.md` 的目录，因此当前共发现上表六个 skill。Web 设置和 Chat 只开放 `course-learning`、`exam-prep`、`study-loop`、`socratic-persona` 四个经过 `WEB_SKILL_NAMES` 白名单筛选的学习 skill（其中 `socratic-persona` 是 persona 载体，不作为用户可选项展示）；`obsidian-workspace` 与 `aihot` 不进入 Web 主流程（校验：2026-10-28，web/backend/capabilities.py:3-9；skills/socratic-persona/SKILL.md）。

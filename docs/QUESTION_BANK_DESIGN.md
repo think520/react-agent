@@ -1,6 +1,6 @@
 # 题库（Question Bank）立项设计
 
-> 状态：**D1–D9 已定稿；S1–S5 已交付**（2026-09-10，见 §5 状态列与 [`ROADMAP.md`](ROADMAP.md) 「E18 交付记录」）。
+> 状态：**D1–D9 已定稿；S1–S7 已交付**（2026-09-11，见 §5 状态列与 [`ROADMAP.md`](ROADMAP.md) 「E18 交付记录」；校验：2026-10-28，docs/QUESTION_BANK_DESIGN.md:166-172）。
 > 排期与批次以 [`ROADMAP.md`](ROADMAP.md) 为准。
 
 ---
@@ -12,7 +12,7 @@
 - 「做过的题不能看，也不能收藏，没有题库」；
 - 「有了题库对话感觉就可以联动了」。
 
-**一个刺眼的现状**：`web/frontend/src/pages/PracticePage.tsx:248` 的文案已经写着「留空时会从现有题库与资料重点中选择」——**UI 在承诺一个并不存在的东西**。
+**一个刺眼的现状**（2026-09-10 当时）：`web/frontend/src/pages/PracticePage.tsx:415` 的文案已经写着「留空时会从现有题库与资料重点中选择」——**UI 在承诺一个并不存在的东西**（E18 后题库入口已补在 `:351`；校验：2026-10-28，web/frontend/src/pages/PracticePage.tsx:351、:415）。
 
 ---
 

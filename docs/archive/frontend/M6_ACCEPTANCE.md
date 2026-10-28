@@ -1,6 +1,6 @@
 # M6 打包前验收报告（2026-10-17）
 
-> 依据 `docs/DESIGN.md` §16.3 契约表 + §17 性能预算 + §19 打包清单；执行 `docs/FRONTEND_OPTIMIZATION.md` 的 M6。
+> 依据 `docs/DESIGN.md` §16.3 契约表 + §17 性能预算 + §19 打包清单；执行 `docs/archive/frontend/FRONTEND_OPTIMIZATION.md` 的 M6。
 > 结论：**前端可交付打包阶段** ✓；唯一未开始的大项是 W5（Electron 桌面打包）。
 
 ## 0. 一句话结论

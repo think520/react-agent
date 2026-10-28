@@ -125,4 +125,4 @@ v2 **新增两项**：
 
 - openhanako（`liliMozi/openhanako`，本地方向已更新至 `9a6cabf8`）：`desktop/src/react/stores/index.ts`（slice 组合）、`desktop/src/react/stores/session-actions.ts` 头部注释（actions 无闭包原则）、`desktop/src/react/components/chat/`（区域化组件）、`desktop/src/themes/warm-paper.css`（主题令牌）。
 - open-claude-ui（`Caho1/open-claude-ui`，pin `ddf3aea`）：`docs/v1/01-设计哲学与设计令牌体系.md`、`04-动效物理学…`、`docs/v2/05-生产级参考实现代码.md`。
-- 项目现状证据：`docs/FRONTEND_OPTIMIZATION.md` §1/§6.1（实测体量与两档验收）、`CHANGELOG.md` 2026-10-17 各条（两次失败复盘）。
+- 项目现状证据：`docs/archive/frontend/FRONTEND_OPTIMIZATION.md` §1/§6.1（实测体量与两档验收）、`CHANGELOG.md` 2026-10-17 各条（两次失败复盘）。

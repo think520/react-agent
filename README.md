@@ -97,7 +97,7 @@ flowchart LR
 
 | 模块 | 能做什么 | 关键边界 |
 | --- | --- | --- |
-| 资料库 | 管理多个本地资料库，导入 Markdown、TXT、PDF、DOCX、PPTX，并在 Library 中阅读原件、定位引用片段 | 原始资料不会被 AI 擅自修改、移动或删除；任何移动或重命名都只在用户确认后执行，且永远可一键撤销 |
+| 资料库 | 管理多个本地资料库，导入 Markdown、TXT、PDF、DOCX、PPTX，并在 Library 中阅读原件、定位引用片段 | 原始资料不会被 AI 擅自修改、移动或删除；任何移动或重命名都只在用户确认后执行，且可一键撤销 |
 | 有证据边界的对话 | 调用资料检索、知识地图、个人知识、练习和学习工具 | 区分本地资料、网页来源、AI 补充和待核实内容 |
 | 本地 RAG | SQLite FTS5 中文检索，可选 Qdrant 向量索引和 RRF 混合检索 | 没有可用 embedding 时自动降级为 FTS-only，并把状态交给界面 |
 | 练习与复习 | 单选、判断、简答、自动批改、错题变式、掌握度和间隔复习 | 题目来源确定性保存，模型不能自行伪造来源 |
@@ -130,7 +130,7 @@ flowchart LR
 - 流式回答通过 SSE 传递状态、引用和结构化 artifact；界面只展示整理后的过程摘要。
 - 本地资料不足时，联网研究需要经过用户授权；候选来源可以选择后保存为网页证据快照。
 - Wiki 整理先生成 focus 和计划，用户确认后才写入，不是默认 RAG 的中间层。
-- Skills 从 `skills/*/SKILL.md` 加载；当前 Web runtime 暴露 `course-learning`、`exam-prep`、`study-loop`。
+- Skills 从 `skills/*/SKILL.md` 加载；当前 Web runtime 暴露 `course-learning`、`exam-prep`、`study-loop`、`socratic-persona`（校验：2026-10-28，web/backend/capabilities.py:3-9）。
 - Provider 统一为 `LLMProvider` 契约，内置 DeepSeek、MiniMax、OpenAI 和多个 OpenAI-compatible 配置。
 
 </details>
@@ -285,6 +285,8 @@ python agent.py -v
 | `/mcp status/restart/tools/reload` | MCP 管理 |
 | `/specialists status/tools` | specialist 状态和工具集 |
 
+以上是 CLI 命令。聊天侧另有 `/wiki plan`、`/wiki update`（在 Web 对话里发起 Wiki 计划与增量更新，不是 CLI 命令）；CLI 的 `/wiki init/lint/status` 只做本地目录初始化与只读健康检查（校验：2026-10-28，cli/repl.py:100-102、web/frontend/src/lib/commandRouter.ts:21-26）。
+
 </details>
 
 <a id="project-structure"></a>
@@ -296,11 +298,15 @@ python agent.py -v
 
 ```text
 agent.py             CLI 入口
+agents/              specialist Agent 配置、prompt 与运行
+cli/                 交互式 REPL、诊断和本地 Web 启动
 core/                AgentLoop、Session、SQLite、Skills 和运行时工具
 providers/           LLM Provider 与统一错误契约
 rag/                 多格式解析、切分、SQLite/Qdrant 检索与引用
 graph/               已审查概念图谱 SQLite
+knowledge/           资料库路径、清单、文档与导入报告
 memory/              个人知识存储和旧记忆只读适配
+note/                开发与测试用 Obsidian vault 样例（不是用户资料）
 quiz/ learning/      出题、批改、掌握度与间隔复习
 service/             CLI 与 Web 共用的业务服务
 web/backend/         FastAPI 路由、SSE 和错误信封
@@ -310,6 +316,8 @@ research/            联网搜索、来源读取和快照
 mcp_client/          MCP 连接、工具目录和事件循环
 obsidian/            Obsidian 资料解析与同步适配
 skills/              可加载的学习 Skill
+tools/               Agent 工具（检索、出题、题库、ask_user 等）
+scripts/             开发脚本（dev.py、图标、许可证检查）
 tests/               Python 测试
 docs/                产品指南、设计规范和专项设计
 ```

@@ -6,9 +6,9 @@ Bobodan（波波蛋）是一个本地优先、Chat-first 的个人学习助手�
 
 - Chat 是主入口；Library 负责导入、阅读和触发概念提取；Practice / Review 负责练习闭环。
 - 原始资料是知识型回答和练习的事实来源。Wiki、概念摘要和个人知识不能冒充原文证据。
-- 原始资料不会被 AI 擅自修改、移动或删除；任何移动/重命名都只在用户确认后执行，且永远可一键撤销（设计见 `docs/LIBRARY_TREE_DESIGN.md`）。
+- 原始资料不会被 AI 擅自修改、移动或删除；任何移动/重命名只在用户确认后执行，且可一键撤销（完整约束见 `docs/LIBRARY_TREE_DESIGN.md:81`）。
 - 知识地图只包含用户已审查的概念和关系。未审查候选只显示状态摘要，不参与回答。
-- Wiki 已降级为高级维护和历史整理能力，不是一级导航，也不是默认 RAG 中间层。
+- Wiki 是高级维护与历史整理能力，不是一级导航，也不是默认 RAG 中间层（边界见 `docs/PROJECT_GUIDE.md:489`）。
 - 个人知识使用结构化 SQLite 存储，按全局和资料库隔离；旧 Markdown memory / daily 只读保留用于迁移。
 - `.knowledge/` 是可重建运行时索引，但旧 `rag_index*.json`、`graph_store.json` 和旧记忆文件可能是用户唯一历史数据，迁移完成前不得静默删除。
 
@@ -51,6 +51,8 @@ npm test -- --run
 /wiki lint [vault]
 /wiki status [vault]
 ```
+
+聊天侧命令另有 `/wiki plan`、`/wiki update`（Web 对话内发起 Wiki 计划与增量更新，不是 CLI 命令；校验：2026-10-28，web/frontend/src/lib/commandRouter.ts:21-26）。
 
 旧 `/wiki ingest`、旧 memory save/recall/daily 工具和旧 `graph_query` 已退役，不要重新接回。
 

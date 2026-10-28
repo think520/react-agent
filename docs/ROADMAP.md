@@ -1,8 +1,10 @@
 # Bobodan 统一路线图
 
-> 版本：v1.4（2026-09-25）
+> 版本：v1.5（2026-10-21）
+> v1.5：Motion 改为受限使用；第一批前端止血完成（知识地图 resize、Library 标签与失效态、低高度 Settings 动作区），记录 W3.0 证据与门禁。
 > v1.4：完成 2026-09-25 项目审查整改（`ceb9cc2`），补入最终验收结果与 R13 会话草稿回归。
 > 定位：**唯一的"下一步"文档。** 想知道现在做什么、接下来做什么，只看这里。
+> **现在从哪读起（2026-10-28）**：下一步做什么 → §1.1「下一步候选」+ §2 的批次表；最近一批怎么验的 → [`../CHANGELOG.md`](../CHANGELOG.md) 的 `[未发布]`；文档本身怎么组织 → [`README.md`](README.md)。§0 是 2026-09-08 快照，只用于追溯。
 > 本文合并了以下来源并取代它们的前瞻部分（原文见 `docs/archive/`）：
 > - [`archive/PRE_DESKTOP_ROADMAP.md`](archive/PRE_DESKTOP_ROADMAP.md)（openhanako v0.450 研究 → R0-R3 路线，R0 已完成）
 > - `Bobodan参考项目调研报告.md` 第 3-10 章（DeepTutor / OpenMAIC / qiaomu 借鉴清单与 RAG 决策，**该报告保留为活文档**，是本文各条目的详细论据与源码索引）
@@ -92,7 +94,7 @@ R12 的覆盖式“导入为新版本”仍是独立产品能力，不能用当�
 
 ### W1 学习闭环升级（产品核心，最优先）
 
-> **收官状态（2026-10-02）：E1–E16 全部交付。** 每条的最终状态与仍未做的细节见 **§0.1 W1 收口结论**；逐条交付清单（含提交与验证数字）见 [`W1_DELIVERY.md`](W1_DELIVERY.md)。
+> **收官状态（2026-10-02）：E1–E16 全部交付。** 每条的最终状态与仍未做的细节见 **§0.1 W1 收口结论**；逐条交付清单（含提交与验证数字）见 [`archive/delivery/W1_DELIVERY.md`](archive/delivery/W1_DELIVERY.md)。
 
 | # | 事项 | 动哪里 | 来源 |
 |---|---|---|---|
@@ -164,18 +166,18 @@ E1–E16 逐条核对并交付后（截至 2026-10-02）：**16 条全部交付*
 
 ### W2 检索与 RAG（第十章决策落地）
 
-> **现状（2026-10-02 复测 —— 替换 2026-09-23 的旧结论）**：**索引已经在建**（46/47 `indexed`）—— 但**检索时向量腿不可用**（当前配置探活失败 + 索引签名与配置不一致 → 上报模式是 `fts_only`，见 G4 复测）；旧文字（「从未运行 / 1857 chunk 全 pending / qdrant 不存在 / 实际是 FTS5-only」）**已全部过期，别再当现状**。实测真实工作区：**47 份资料 / 1694 chunk，其中 46 份 `vector_status=indexed`、1 份 pending**；`.bobodan/qdrant` 存在（40.1 MB）；`.bobodan/embedding_signature.json` = provider `openai_compat` / model `embedding-3` / dim `2048`；`retrieval_runs` 最近三条都**请求**了 `mode=hybrid` —— 但那只是**请求**词表；**上报**的 `retrieval_mode` 实际是 `fts_only`（原因见 G4 的复测：探活失败 + 索引签名与当前配置不一致）。
+> **现状（2026-10-02 复测 —— 替换 2026-09-23 的旧结论）**：**索引已经在建**（46/47 `indexed`）—— 但**检索时向量腿不可用**（当时判断是探活失败 + 签名不一致；**2026-10-15 已定位并修复**：真因是本地 Qdrant 单进程互斥且与索引签名无关，停服实测 `mode=hybrid`、hit@5=1.000，见 §1.1）；旧文字（「从未运行 / 1857 chunk 全 pending / qdrant 不存在 / 实际是 FTS5-only」）**已全部过期，别再当现状**。实测真实工作区：**47 份资料 / 1694 chunk，其中 46 份 `vector_status=indexed`、1 份 pending**；`.bobodan/qdrant` 存在（40.1 MB）；`.bobodan/embedding_signature.json` = provider `openai_compat` / model `embedding-3` / dim `2048`；`retrieval_runs` 最近三条都**请求**了 `mode=hybrid` —— 但那只是**请求**词表；**上报**的 `retrieval_mode` 实际是 `fts_only`（原因见 G4 的复测：探活失败 + 索引签名与当前配置不一致）。
 > 
 > 复测方式（只读，不写库）：用 sqlite 以 `mode=ro` 打开 `note/vault/.bobodan/knowledge.db`，看 `documents.vector_status` 分组计数与 `retrieval_runs` 最新一条的 `mode`。
 > 
-> 逐条状态（2026-10-02，附代码证据）：**G1 已完成**（`rag/embedding_provider.py` 协议 + 预设含 zhipu dim=2048）｜**G2 基本完成**（签名版本化 `rag/embedding_signature.py` + 测试；429 退避带 Retry-After；维度不匹配被拒绝）｜**G3 已完成（2026-10-02）**（`rag/index_guard.py` + 两条向量腿接线）｜**G4 未做**（无 `tests/eval`、无 hit@5/MRR 评测）｜**G5 部分完成**（扫描页判定 `needs_ocr` ✓、第一行标题启发式 ✓；四级降级链 outline→heading→印刷目录→粗体 未做）。
+> 逐条状态（2026-10-02 快照；其中 G4 已于 2026-10-17 完成，下方就地更正，其余变化以 §1.1 为准）：**G1 已完成**（`rag/embedding_provider.py` 协议 + 预设含 zhipu dim=2048）｜**G2 基本完成**（签名版本化 `rag/embedding_signature.py` + 测试；429 退避带 Retry-After；维度不匹配被拒绝）｜**G3 已完成（2026-10-02）**（`rag/index_guard.py` + 两条向量腿接线）｜**G4 已完成（2026-10-17，首轮 2026-10-02）**（`rag/recall_eval.py` + `tests/eval/`；真实库 29 条基线 hit@5 0.958 / MRR 0.660，见 [`RAG_EVAL.md`](RAG_EVAL.md) 与 §1.1）｜**G5 部分完成**（扫描页判定 `needs_ocr` ✓、第一行标题启发式 ✓；四级降级链 outline→heading→印刷目录→粗体 未做）。
 
 | # | 事项 | 动哪里 | 来源 |
 |---|---|---|---|
 | G1 | `EmbeddingProvider` 协议泛化（OpenAI 兼容适配器 + 保留 Ollama 为注册表一项）+ 预置模板（SiliconFlow bge-m3 免费标推荐 / DashScope / OpenAI）+ 设置页「向量模型」+ Library 状态卡升级为开通引导 | rag/embedding_service.py、config、设置页 | ch10 决策 3/5/6 |
 | G2 | 防护三件：嵌入签名版本化（provider+model+dim 三元组，不匹配提示重建）+ 批次维度一致性校验 + 429 退避与断点续传 | rag/ | ch10 决策 4；D12 |
 | G3 | **已完成（2026-10-02）** 索引心跳守卫：`rag/index_guard.py::StallGuard`（默认 600s，可配 `rag.index_stall_seconds`）；`sync_sources` 的**两条**向量腿（主循环 + backfill）共用它 —— 卡住就报**可行动**错误（多久没进度 / 常见原因 / **没丢东西、剩下的仍是 pending、下次同步重试**），并**只停向量腿**，文本索引照常做完（产品本来就允许降级 FTS5-only）；说明进 `SyncSummary.vector_stall`。**边界（如实）**：单次请求仍有 provider 的 10s 传输超时，守卫管的是「整体无进度」。回归：纯函数 5 + 接线 1 | rag/index_guard.py + obsidian/sync.py | ch10；D12；报告 P0-5 |
-| G4 | **部分完成（2026-10-02）** 召回评测：① **度量与入口**已交付 —— `rag/recall_eval.py`（hit@k / MRR 纯函数 + JSONL 用例 + CLI + `resolved_modes` 如实报告），合成夹具 `tests/eval/`（**真实资料不进仓库**），8 条回归（含端到端：fts_only hit@5=1.0）② **真实库基线未取得**：当前配置的 embedding 后端（Ollama）探活失败、且与库内索引签名（openai_compat/embedding-3/2048）不一致；本地 Qdrant 单进程，服务在跑时外部进程打不开 ③ **未做**：三模式对比数字、RRF 权重由数据决定、结果落 `retrieval_runs` | rag/recall_eval.py + tests/eval | ch10 决策 4；D8/D9 |
+| G4 | **部分完成（2026-10-02）** 召回评测：① **度量与入口**已交付 —— `rag/recall_eval.py`（hit@k / MRR 纯函数 + JSONL 用例 + CLI + `resolved_modes` 如实报告），合成夹具 `tests/eval/`（**真实资料不进仓库**），8 条回归（含端到端：fts_only hit@5=1.0）② **真实库基线未取得**：当前配置的 embedding 后端（Ollama）探活失败、且与库内索引签名（openai_compat/embedding-3/2048）不一致；本地 Qdrant 单进程，服务在跑时外部进程打不开 ③ **未做**：三模式对比数字、RRF 权重由数据决定、结果落 `retrieval_runs`。**2026-10-17 收口**：真实库 29 条基线已取得（hit@5 0.875→0.958、MRR 0.550→0.660），保留向量腿，方法见 [`RAG_EVAL.md`](RAG_EVAL.md) | rag/recall_eval.py + tests/eval | ch10 决策 4；D8/D9 |
 | G5 | PDF 目录四级降级链（outline→heading→印刷目录文本匹配→粗体段）+ 扫描页判定 | rag/ PDF 导入 | Q4/Q6 |
 
 ### W3 前端体验第二批
@@ -273,7 +275,7 @@ P5G.3 的产品能力不再整体等待 Electron：Roadmap、复习提醒和部�
 
 ### A0 核对结果（2026-09-08 完成）
 
-> **这是历史快照，不代表当前状态**：本表记录的是 2026-09-08 的核对结论（所以 E4/E5/E6/E7 在这里仍写「未开始」）。W1 的最终状态看本文件的 **§0.1 W1 收口结论**（2026-10-02），逐条交付清单看 [`W1_DELIVERY.md`](W1_DELIVERY.md)。
+> **这是历史快照，不代表当前状态**：本表记录的是 2026-09-08 的核对结论（所以 E4/E5/E6/E7 在这里仍写「未开始」）。W1 的最终状态看本文件的 **§0.1 W1 收口结论**（2026-10-02），逐条交付清单看 [`archive/delivery/W1_DELIVERY.md`](archive/delivery/W1_DELIVERY.md)。
 
 核对方式：逐项在代码与测试中查找产物。结论为「部分存在」的条目只补缺口，不再重写已有实现；结论为「后端已存在」的条目从批次中收缩为收尾项。
 
@@ -317,7 +319,7 @@ P5G.3 的产品能力不再整体等待 Electron：Roadmap、复习提醒和部�
 
 ### E18 交付记录（2026-09-10 完成）
 
-范围是 `QUESTION_BANK_DESIGN.md` 的实现顺序 **S1–S5**（S6 联网搜题、S7 导出/备份、命名练习集、行内「问 AI」引用按设计留待后续）。E18 是用户 E2E 反馈驱动的独立小批次，不改变 A2 的在途顺序。
+范围是 `QUESTION_BANK_DESIGN.md` 的实现顺序 **S1–S5**（S6 联网搜题、S7 导出/备份、命名练习集、行内「问 AI」引用按设计留待后续 —— **后续 2026-09-11 收口轮已全部补齐 S6/S7 与命名练习集**，见本节「E18 收口轮」）。E18 是用户 E2E 反馈驱动的独立小批次，不改变 A2 的在途顺序。
 
 | 切片 | 状态 | 证据 |
 |---|---|---|
@@ -349,7 +351,7 @@ P5G.3 的产品能力不再整体等待 Electron：Roadmap、复习提醒和部�
 
 **收口后仍不做**：① 联网题的新概念只进候选（D9 的硬边界「不进知识地图」一直成立，缺的是候选钩子）；② 资料库整体备份 / 恢复（PROJECT_GUIDE 的数据保护专项，题库这份届时并入）。
 
-当前焦点仍是 A2（E5、E6、E9、E14）。A0/A1/E18 已确认的基础设施——全局错误位、交互生命周期、练习卡服务端绑定、题库真相源——在 A2 与后续批次中应复用，不要另起一套。
+**本节及 §2 各「交付记录」小节是历史记录，不是当前焦点。** 当前焦点只看 §1.1「下一步候选」与 §2 末尾的批次表（A2 已随 W1 于 2026-10-02 收口）。A0/A1/E18 已确认的基础设施——全局错误位、交互生命周期、练习卡服务端绑定、题库真相源——在 A2 与后续批次中应复用，不要另起一套。
 
 排序原则：学习闭环正确性 > 可恢复性 > 检索质量证据 > 界面质感 > 通用运行时能力 > 发布包装。任何条目开工前先对齐 `PROJECT_GUIDE.md` 的产品边界四问。
 
@@ -375,7 +377,7 @@ P5G.3 的产品能力不再整体等待 Electron：Roadmap、复习提醒和部�
 
 ### A4 止血轮（2026-09-14 立项）
 
-外部审计产出 [`TECH_AUDIT_2026-09-14.md`](TECH_AUDIT_2026-09-14.md)（15 P0 / 36 P1 / 33 P2 / 12 测试盲区），三路并行静态审计 + ROADMAP 自认技术债交叉核对，全部结论可定位到文件与函数。审计的三条贯穿判断：**不缺架构缺接线**（hooks / 上下文压缩 / 事件重放实现完整但生产路径从未启用）、**写路径装了门而删路径与并发路径敞开**、**取消机制整体缺失**。
+外部审计产出 [`archive/audits/TECH_AUDIT_2026-09-14.md`](archive/audits/TECH_AUDIT_2026-09-14.md)（15 P0 / 36 P1 / 33 P2 / 12 测试盲区），三路并行静态审计 + ROADMAP 自认技术债交叉核对，全部结论可定位到文件与函数。审计的三条贯穿判断：**不缺架构缺接线**（hooks / 上下文压缩 / 事件重放实现完整但生产路径从未启用）、**写路径装了门而删路径与并发路径敞开**、**取消机制整体缺失**。
 
 本轮按「先止血 → 再接线 → 横切原语单独立项」推进，P2 不排期。审计编号（`P0-x` / `P1-x`）成为稳定引用，提交信息一律带编号。
 
@@ -480,6 +482,21 @@ hooks 最小接线（✅ 结果上限落 `after_tool`、白名单门落 `before_
 4. 用户可见文案不泄露内部实现、模型思维链、本地绝对路径或密钥。
 5. `ROADMAP.md`、`PROJECT_GUIDE.md` 或专题真相源已同步，不保留相互矛盾的描述。
 
+### W3.0 前端止血与受控依赖边界（2026-10-21，归属 W3）
+
+> 状态：**第一批已完成**；Motion 仅获准受限使用，尚未安装。详细证据与后续批次见 [`FRONTEND_UPGRADE_PLAN.md`](FRONTEND_UPGRADE_PLAN.md)。
+
+| # | 事项 | 状态 | 验收 |
+|---|---|---|---|
+| F0-1 | 知识地图收起左栏后画布空白 | ✅ 已完成（2026-10-21） | Sigma resize 后强制刷新；IAB 收起左栏实拍图谱仍可见 |
+| F0-2 | Library 标签显示文档 hash、失效文档空白 | ✅ 已完成（2026-10-21） | 标签显示标题或明确占位；失效资料显示空态，标签由用户关闭 |
+| F0-3 | Settings 低高度视口动作区被裁切 | ✅ 已完成（2026-10-21） | `1280×600` 下保存按钮完整可见，固定在对话框底部 |
+| F0-4 | Motion 路线口径 | ✅ 已拍板（2026-10-21） | 仅限复杂进出场/布局变化/拖拽反馈；`LazyMotion` + `m`；未接入前不装包 |
+
+第一批门禁：前端 lint、production build 通过；Vitest `50 files / 325 tests` 全部通过。下一批从三组真实内容基准和主题/字号偏好核验开始。
+
+**第二批（待排期）**：先建立 Chat、Practice、Library/Reader 三组真实内容基准；再核验主题硬编码、字号偏好和 Reader 计算字号；之后才评估 shadcn 桥接与 Motion 的具体接入点。不得把“样式令牌改名”当成用户收益本身。
+
 ---
 
 ## 3. 已拍板决策（不再重复讨论）
@@ -489,7 +506,7 @@ hooks 最小接线（✅ 结果上限落 `after_tool`、白名单门落 `before_
 | RAG embedding | 向量库不动（qdrant 本地）；不内置 ONNX 模型（fastembed 搁置，+70~110MB 与 512 token 截断风险记录在案）；embedding 走用户自配 API（SiliconFlow bge-m3 免费标推荐）+ Ollama 可选离线档；fts_only 是一等公民形态不是降级 | 调研报告 ch10 |
 | 桌面版推迟 | P5G.2 门禁化；先 W3/W4（原 R1/R2）主体；sidecar/server-info/契约测试三结论必须吸收 | PRE_DESKTOP + 本次确认 |
 | 教学闭环哲学 | 模型管教学、引擎管算术；推进由已掌握内容计算，绝不用 stage counter | DeepTutor 对照 + Bobodan 证据门禁既有实践 |
-| 动效体系 | 三档 token（120/160/220ms）+ 两条缓动；2026-09-14 增三档 spring 预设（CSS `linear()` 近似、过冲 ≤2%）与 `scale` 0.96–1.02；应用内减动效 = OS 级语义；不为动画引 motion 库 | DESIGN.md §11 + 2026-08-28 体验轮 + 2026-09-14 设计规格轮 |
+| 动效体系 | 三档 token（120/160/220ms）+ 两条缓动；2026-09-14 增三档 spring 预设（CSS `linear()` 近似、过冲 ≤2%）与 `scale` 0.96–1.02；应用内减动效 = OS 级语义。**Motion 改为受限使用（2026-10-21 拍板）**：只用于复杂弹窗/抽屉进出场、消息出现、布局变化和有意义的拖拽反馈，必须 `LazyMotion` + `m` 并按需加载；基础 hover、焦点、骨架和短状态过渡继续用 CSS token。禁止全局包装、全站铺动画、与 CSS 同时控制同一属性；安装前必须保留本节边界。 | DESIGN.md §11 + 2026-08-28 体验轮 + 2026-09-14 设计规格轮 + 2026-10-21 前端口径 |
 | 测试政策 | 风险驱动分层；LLM 单缝 ScriptedProvider；浏览器只留冒烟；契约测试优先 | tests/README.md |
 
 ## 4. 明确不做（合并自三份来源，防止范围蔓延）
@@ -500,12 +517,12 @@ hooks 最小接线（✅ 结果上限落 `after_tool`、白名单门落 `before_
 - TTS / 语音克隆 / 视频渲染 / i18n×10
 - 思维链 / mood 展示（产品边界）；WS 传输层（SSE+seq 已覆盖）；会话分叉树
 - CSS multicol 真分页（chunk 滚动阅读即可）；Obsidian 深耦合；11702 行单文件式实现
-- framer-motion/motion 库引入；虚拟滚动库；Neo4j；PDF/DOCX 编辑
+- Motion 的全面引入与全站动画化（**受限使用已拍板，边界见 §3「动效体系」**）；虚拟滚动库；Neo4j；PDF/DOCX 编辑
 - 内置 ONNX embedding 模型（搁置，见 ch10.4）
 
 ## 5. 来源索引
 
 - **调研报告**（`Bobodan参考项目调研报告.md`，活文档）：D1–D13 = §3.3、O1–O10 = §4.3、Q1–Q10 = §5.3、F1–F18 = §9.3、RAG 决策 = §10；各条目的机制精讲与源码行号在其对应章节，精读文件优先级见其附录。
-- **归档文档**（`docs/archive/`，已完成或已被本文取代）：[`archive/AGENT_OPTIMIZATION_PLAN.md`](archive/AGENT_OPTIMIZATION_PLAN.md)（遗留已并入 W3/W4）、[`archive/PRE_DESKTOP_ROADMAP.md`](archive/PRE_DESKTOP_ROADMAP.md)（R0 完成，R1→W3、R2→W4、R3→W5）、[`archive/TASKS_LIBRARY_REWORK.md`](archive/TASKS_LIBRARY_REWORK.md)（已交付）、[`archive/knowledge_map_design.md`](archive/knowledge_map_design.md) 与 [`archive/knowledge_map_reliability_editing_design_2026-07-27.md`](archive/knowledge_map_reliability_editing_design_2026-07-27.md)（P5E.6 已交付，未竟项：跨文档候选/合并候选、evidence_level=cross 前端区分、提取计时 UI 核对 → 择机并入 W1/W3）、[`archive/project_review_2026-07-26.md`](archive/project_review_2026-07-26.md)（B1–B9 已整改）、[`archive/experience_review_2026-08-01.md`](archive/experience_review_2026-08-01.md)（未决项已并入 W1/W3）。
+- **归档文档**（`docs/archive/`，已完成或已被本文取代）：[`archive/AGENT_OPTIMIZATION_PLAN.md`](archive/AGENT_OPTIMIZATION_PLAN.md)（主体 2026-08-13 交付；**遗留项没有落点**：上滑分页/TailFade/顶层 reconcile/CardParser/动效配方 4–5/forceAtlas2 在 W3、W4 两表都查不到，重用前须按 §1 规则重新论证）、[`archive/PRE_DESKTOP_ROADMAP.md`](archive/PRE_DESKTOP_ROADMAP.md)（R0 完成但**不含 R0.7**；R0.7 数据 epoch 已并入 W4 H-R0.7，R1→W3、R2→W4、R3→W5）、[`archive/TASKS_LIBRARY_REWORK.md`](archive/TASKS_LIBRARY_REWORK.md)（已交付）、[`archive/knowledge_map_design.md`](archive/knowledge_map_design.md) 与 [`archive/knowledge_map_reliability_editing_design_2026-07-27.md`](archive/knowledge_map_reliability_editing_design_2026-07-27.md)（P5E.6 已交付；未竟项：跨文档候选/合并候选、evidence_level=cross 前端区分、提取计时 UI 核对 → **尚未并入任何工作池，仅「择机」，W1/W3 两表 0 条目**）、[`archive/project_review_2026-07-26.md`](archive/project_review_2026-07-26.md)（B1–B9 已整改）、[`archive/experience_review_2026-08-01.md`](archive/experience_review_2026-08-01.md)（未决项已并入 W1/W3）。
 - **本地参考项目**（[`REFERENCE_PROJECTS.md`](REFERENCE_PROJECTS.md)，活文档）：`F:\claude projects\DeepTutor`（Apache-2.0）、`F:\claude projects\OpenMAIC`（MIT）、`F:\claude projects\openhanako-reference`（Apache-2.0）。**遇到 bug 或设计取舍先查这里**；已确认的同构案例（含 agent 提问/作答/续跑的三家机制对比）随进展追加。参考不产生排期。
 - **仍在体系内**：`PROJECT_GUIDE.md`（产品边界与阶段验收）、`DESIGN.md`（视觉硬约束）、`rag_design.md`（RAG 架构真相源）、`MCP.md`、`tools/skills.md`。

@@ -198,7 +198,7 @@ config.yaml **会**进入 git（不像 .env），所以不要把 token 写明文
 │  └─────────────────────────────────────────────┘            │
 │         ↓                                                    │
 │  3 transports (stdio / SSE / streamable_http)               │
-│  all backed by official `mcp` Python SDK 1.19+             │
+│  backed by `mcp` SDK >=1.0,<2 (requirements.txt:7)          │
 └─────────────────────────────────────────────────────────────┘
 ```
 

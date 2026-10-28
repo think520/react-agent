@@ -1,6 +1,6 @@
 # W1「学习闭环升级」交付清单（2026-10-02）
 
-一页看完这次做完的事。详细逐条说明在 [`ROADMAP.md`](ROADMAP.md) 的 §0.1「W1 收口结论」，过程与回归数字在 [`CHANGELOG.md`](../CHANGELOG.md) 顶部。
+一页看完这次做完的事。详细逐条说明在 [`ROADMAP.md`](../../ROADMAP.md) 的 §0.1「W1 收口结论」，过程与回归数字在 [`CHANGELOG.md`](../../../CHANGELOG.md) 顶部。
 
 ## 结论
 

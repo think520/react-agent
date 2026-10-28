@@ -12,9 +12,9 @@
 
 | 现象 | 证据 |
 |---|---|
-| 平铺列表看不出层级 | 79 份资料摊成 50 行；`DocumentSummary` 不返回路径字段，前端只能拍平 |
+| 平铺列表看不出层级 | 79 份资料摊成 50 行；`DocumentSummary` 不返回路径字段，前端只能拍平（已修：`relative_path` 已进入类型，见 `web/frontend/src/types.ts:111`；校验：2026-10-28） |
 | **重复索引（真 bug）** | `.bobodan/source_roots.json` 把 `ai-agents-from-zero` 登记成独立来源根，而它是**库根的子目录**；库根扫描 `obsidian/sync.py:203`（`_scan_library_root`）**没有**像 vault 扫描 `obsidian/vault.py:64` 那样跳过已登记的来源根 → 同一份文件两条记录、两个 `document_id`。实测 7 组：`alibaba-java.docx` / `alibaba-more.docx` / `Doc21.docx` / `sample.pdf` / `sample.txt` / `textsplit/rag.txt` / `requirements.txt`；另有 `course/notes/…` 与 `course-3/…` 是同一文件 |
-| **App 里没有同步入口（真 bug）** | `web/frontend/src/lib/api.ts:117` 有 `syncLibrary()`，全前端**零调用**；资料页那个「刷新资料」只重读列表。用户把文件剪进资料库文件夹后，界面里没有任何办法发现它们 |
+| **App 里没有同步入口（真 bug）** | `web/frontend/src/lib/api.ts:117` 有 `syncLibrary()`，全前端**零调用**；资料页那个「刷新资料」只重读列表。用户把文件剪进资料库文件夹后，界面里没有任何办法发现它们（已修：`syncLibrary` 迁至 `web/frontend/src/lib/api/endpoints/library.ts:86`，调用点在 `pages/library/libraryActions.ts:377` 与 `LibraryPage.tsx:424`；校验：2026-10-28） |
 | 生成页混排 | 17 份 `obsidian/wiki/**` 生成页与 57 份 `course_document` 同列（E17 2026-09-10 记录已点明会被误读成重复索引） |
 | 来源标签不可读 | 标签按扫描根**下标**生成（`obsidian/sync.py:337,341`）：`course`(9) / `course-2`(47) / `course-3`(1) / `obsidian`(19)；47 份课程正文全被标成 `course-2` |
 | 非资料噪音 | 用户的 GitHub 包整包解压：1977 个文件 / 496 MB（1540 png、127 py、127 pyc）。扫描器只收白名单扩展名，所以噪音主要来自 `README.md` / `requirements.txt` 这类**元文件被当资料索引** |
@@ -43,7 +43,7 @@
 2. 资料白名单：`.md` / `.txt` / `.pdf` / `.docx` / `.pptx`（`.txt` 需要补齐：扫描器收、上传接口 `import_files` 拒收，属既有不一致）。
 3. **跳过仓库元文件**（任意层级）：`README.md` / `CONTRIBUTING.md` / `LICENSE` / `CHANGELOG.md` / `requirements*.txt` / `_sidebar.md` / `_navbar.md`。**保留**"教程目录大纲""全书术语表"这类可能真有用的内容文件。跳过的文件在同步摘要里列出。
 4. 非资料文件（源码、图片、编译产物）**不进索引**；树里在文件夹行标「另有 N 个文件已忽略」，可展开看清单。
-5. **wiki 彻底停用**：不再生成、从资料库与检索里排除、树里隐藏该目录；磁盘文件保留。**概念提取 → 知识地图保留**（那是另一条线）。
+5. **wiki 降级为高级维护能力**：资料库树隐藏该目录、索引扫描排除 `wiki/`；磁盘文件保留。wiki 的生成与维护仍保留在后端（`web/backend/routers/kb.py:297-598` 的 `/wiki/*` 路由），只是不再是资料库的一级内容。**概念提取 → 知识地图保留**（那是另一条线）。（校验：2026-10-28，`service/kb_service.py:1632`、`obsidian/sync.py:36`）
 6. 树里隐藏 `.bobodan/`、`wiki/` 与标记文件（`BOBODAN_LIBRARY.yaml`、`WIKI_SCHEMA.md`）；`raw/` 作为历史遗留照常显示。
 7. 上传落点 = **树里当前选中的文件夹**（默认库根），不再固定 `raw/inbox`。
 
@@ -90,8 +90,8 @@
 
 - `GET /api/kb/tree`（只读）：文件夹 / 资料文件 / 忽略计数 / 索引徽章；隐藏内部目录；**不暴露绝对路径**。
 - `GET /api/kb/archive` + `POST /api/kb/archive/{entry}/restore`（已归档列表与恢复）。
-- `POST /api/kb/documents/{id}/rename` 与 `/move`（**含身份迁移**，返回迁移报告）。
-- 同步摘要字段扩展：`skipped`（元文件）/ `duplicates_cleaned` / `pending_removal` / `failed[{source, reason}]`。
+- `POST /api/kb/documents/{id}/move`（**含身份迁移**，返回迁移报告；重命名能力并入 move）。`POST /api/kb/documents/{id}/rename` ⏳ **未交付**（2026-10-28 校验：`web/backend/routers/kb.py:714` 只有 `/move`）。
+- 同步摘要字段扩展（已交付）：`skipped_files`（元文件）/ `duplicates_cleaned` / `pending_removal` / `errors[{source, error}]`（`obsidian/sync.py:52-72`、`94-103`；校验：2026-10-28）。
 
 **身份迁移的引用面（③ 阶段第一步必须先跑一次实测枚举，本文不预设清单）**，候选包括：`documents(source, path, document_id)`、`chunks`、Qdrant 向量 payload（`document_id`/`source`）、概念证据（含 `chunk_id`）、题目 `source_ids`、笔记 `references`、阅读进度、学习事件。
 
@@ -136,7 +136,7 @@
 - 小节加载链已存在：`useEffect`（约 253-257 行）在 `selectedId` 变化时 `api.document(selectedId).then(r => setSections(r.sections))`。
 - **2026-09-24 实测**：把 material 分支改成"就地选中 + `setSearchParams({collection, document})`"后，URL 与标签条都对了（`tabs=1`），**但 `sections=0` 且 header 没渲染** → 说明 `selected` 仍为 null（`documents` 与 `selectedId` 没接上）。**先解决这一条，再动路由。**
 - 现有标签模型：`stores/readerTabsStore.ts`（`openIds`/`open`/`close`/`scrolls`/`setScroll`/`scrollFor`，persist 名 `bobodan:reader-tabs`）；`ReaderPage.tsx:133` 已用它恢复滚动位置。
-- **要删的重复实现**：`lib/readerTabs.ts`、`lib/readerTabs.test.ts`、`hooks/useReaderTabs.ts`（④a/④b 造的第二套，与既有 store 重叠且有 7 条测试）——等 LibraryPage 改用 `readerTabsStore` 之后再删。
+- **重复实现（已删除）**：`lib/readerTabs.ts`、`lib/readerTabs.test.ts`、`hooks/useReaderTabs.ts`（④a/④b 造的第二套，与既有 store 重叠且有 7 条测试）——已由 `stores/readerTabsStore.ts` 单套实现取代（校验：2026-10-28）。
 
 **动刀顺序（每步都要能独立验证）**：
 1. 修"选中 → 加载 → 渲染"这条链（先让测试 1 绿）；
