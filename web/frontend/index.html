@@ -4,11 +4,26 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#F5F4ED" />
-    <meta name="color-scheme" content="light" />
+    <meta name="color-scheme" content="light dark" />
     <link rel="icon" href="/assets/brand/bobodan.ico" sizes="any" />
     <link rel="icon" type="image/png" href="/assets/brand/avatar/bobodan-avatar-32.png" sizes="32x32" />
     <link rel="apple-touch-icon" href="/assets/brand/avatar/bobodan-avatar-256.png" />
     <title>Bobodan</title>
+    <!-- 首帧前置主题（2026-10-28）：偏好是异步拉的，等 React 写 dataset.theme 就晚了 ——
+         暗色用户会白闪一下。这里在 CSS 生效前用上次解析结果或系统偏好先把主题定下来。 -->
+    <script>
+      (function () {
+        try {
+          var cached = window.localStorage.getItem("bobodan:theme");
+          var prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+          var theme = cached === "light" || cached === "dark" ? cached : prefersDark ? "dark" : "light";
+          document.documentElement.dataset.theme = theme;
+          document.documentElement.style.colorScheme = theme;
+        } catch (error) {
+          /* localStorage 不可用时交给 AppShell 兜底 */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

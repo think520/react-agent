@@ -168,11 +168,26 @@
   --shadow-dialog: 0 24px 70px rgba(0, 0, 0, 0.65);
 }
 
-/* 高对比：不换色相，只把文字与描边推到更强。 */
+/* 高对比（2026-10-28 修订）：必须**按主题成对定义**。
+   初版只有一组深色系的浅色文字 ✗ —— 浅色用户打开高对比后 muted 掉到 1.10:1，
+   等于「无障碍开关把文字变没」。契约测试改为真的算 WCAG 比值（themeContrast.test.ts）。 */
 [data-contrast="high"] {
-  --muted: #efe9de;
-  --faint: #d6cec0;
-  --border-subtle: rgba(236, 231, 221, 0.16);
-  --border: rgba(236, 231, 221, 0.3);
-  --border-strong: rgba(236, 231, 221, 0.46);
+  --ink: #221e1a;
+  --ink-soft: #3a332c;
+  --muted: #38312a;
+  --faint: #453d34;
+  --border-subtle: rgba(46, 43, 39, 0.18);
+  --border: rgba(46, 43, 39, 0.3);
+  --border-strong: rgba(46, 43, 39, 0.46);
+}
+
+/* 暗色 + 高对比：反向提亮。特异性 (0,2,0) 高于上面，顺序无关。 */
+[data-theme="dark"][data-contrast="high"] {
+  --ink: #fbf7ee;
+  --ink-soft: #eee8dc;
+  --muted: #f0eade;
+  --faint: #d9d1c3;
+  --border-subtle: rgba(236, 231, 221, 0.2);
+  --border: rgba(236, 231, 221, 0.34);
+  --border-strong: rgba(236, 231, 221, 0.52);
 }

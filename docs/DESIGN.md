@@ -570,6 +570,7 @@ TUI 只服务开发与诊断，不做装饰。
 动效只用于帮助理解状态，不用于炫技；只过渡 `opacity` / `transform` 等低成本属性；高频键盘菜单不加明显开关动画。
 
 > **M4 物理弹簧（2026-10-17）**：`--spring-press/pop/panel/accent` 由参考仓库的 k/c/m 常数做**数值积分**生成 `linear()`（press 600/30/m1、pop 320/28/m1、panel 1200/80/m0.1、accent 380/18/m1），原始过冲 8.9% / 2% / 0% / 19.5%，统一**压到 ≤2%**（曲线停靠值上限 1.02）；契约测试在 `designTokens.test.ts` 的「M4 弹簧曲线契约」。
+> **时长口径（2026-10-28 更正）**：曲线是按各自稳定窗口（408 / 559 / 91 / 667ms）积分的，但落地时统一被压缩进 `--dur-fast` / `--dur-base` / `--dur-slow`（120 / 160 / 220ms）。**界面上的实际时长是令牌时长，不是稳定窗口** —— 旧 CHANGELOG 里「稳定窗口」的说法只描述采样口径，不代表屏幕上的时长。
 
 ### 11.2 时长与曲线 token
 
@@ -768,7 +769,8 @@ TUI 只服务开发与诊断，不做装饰。
 - 焦点必须可见：`outline: 2px solid var(--blue-soft)` + offset 2px；不许全局 `outline: none`。
 - 键盘：Tab 顺序符合视觉顺序；Esc 关闭浮层并把焦点还给触发元素；浮层内焦点不逃逸。
 - 语义：按钮用 `<button>`、导航用 `<nav>`、状态变化用 `aria-live`。
-- 动效：尊重 `prefers-reduced-motion` 与应用内开关。M4 已加 CSS 兜底：`@media (prefers-reduced-motion: reduce)` 下动画/过渡全部关闭 ✓；骨架屏微光循环上限 `--dur-shimmer: 1200ms` ✓。
+- 动效：尊重 `prefers-reduced-motion` 与应用内开关。全局开关只有一处（`app.css` 的 `@media (prefers-reduced-motion)`），**不要再加第二条 `!important` 重拳**。
+- 对比度：正文/次要/辅助文字 ≥ 4.5:1；**高对比必须按主题成对定义**（浅色压深、暗色提亮），由 `themeContrast.test.ts` 真算 WCAG 比值守住（2026-10-28 修订：初版只有深色系浅色文字，浅色下 muted 掉到 1.10:1）。M4 已加 CSS 兜底：`@media (prefers-reduced-motion: reduce)` 下动画/过渡全部关闭 ✓；骨架屏微光循环上限 `--dur-shimmer: 1200ms` ✓。
 - 输入法：合成期间不触发快捷键；不允许在 `compositionend` 前提交表单。
 - 颜色不是唯一信息载体（来源、状态、错误都必须有文字）。
 

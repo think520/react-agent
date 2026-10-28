@@ -254,7 +254,11 @@ export function AppShell() {
     root.dataset.paperTexture = appearance.paper_texture ? "on" : "off";
     root.dataset.sessionDensity = appearance.session_density;
     root.dataset.motion = appearance.motion;
-    root.dataset.theme = resolveTheme(appearance.theme ?? "system", systemPrefersDark());
+    const resolvedTheme = resolveTheme(appearance.theme ?? "system", systemPrefersDark());
+    root.dataset.theme = resolvedTheme;
+    root.style.colorScheme = resolvedTheme;
+    // 缓存解析结果：下次首帧由 index.html 的内联脚本直接读，避免暗色白闪。
+    try { localStorage.setItem("bobodan:theme", resolvedTheme); } catch { /* 无痕模式忽略 */ }
     root.dataset.contrast = appearance.contrast === "high" ? "high" : "normal";
     root.style.setProperty("--body-font-size", `${appearance.body_font_size}px`);
     root.style.setProperty("--content-width", `${appearance.content_width}px`);
@@ -265,7 +269,10 @@ export function AppShell() {
     if (!settings) return;
     if ((settings.preferences.appearance.theme ?? "system") !== "system") return;
     return watchSystemTheme((prefersDark) => {
-      document.documentElement.dataset.theme = prefersDark ? "dark" : "light";
+      const next = prefersDark ? "dark" : "light";
+      document.documentElement.dataset.theme = next;
+      document.documentElement.style.colorScheme = next;
+      try { localStorage.setItem("bobodan:theme", next); } catch { /* 忽略 */ }
     });
   }, [settings]);
 

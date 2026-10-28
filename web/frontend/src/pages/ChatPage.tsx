@@ -1,7 +1,7 @@
 import {} from "../lib/documentLinks";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUp, Command, FileText, Globe2, Library, MessageCircle, Paperclip, Square, Sparkles, X } from "lucide-react";
-import { useNavigate, useOutletContext, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useOutletContext, useParams } from "react-router-dom";
 
 import { createChatActions } from "./chat/chatActions";
 
@@ -37,7 +37,7 @@ import {
 } from "../stores/chatStore";
 import { notifyError } from "../stores/noticeStore";
 import { useUiStore } from "../stores/uiStore";
-import type { ChatArtifact, ChatMessage, KnowledgeContextArtifact, WikiPlanArtifact } from "../types";
+import type { ChatArtifact, KnowledgeContextArtifact, WikiPlanArtifact } from "../types";
 
 import { initialDraft } from "./chat/chatPrimitives";
 import { ChatTranscript } from "../components/chat/ChatTranscript";
@@ -101,10 +101,15 @@ export function ChatPage() {
   } = useChatStream();
   const ime = useCompositionGuard();
   // 流式刚结束时 URL 会从 /chat 变成 /chat/:id；此时消息已在本地，不要再闪 loading。
-  const messagesLatestRef = useRef<ChatMessage[]>([]);
-  useEffect(() => { messagesLatestRef.current = messages; }, [messages]);
   const [draft, setDraft] = useState(() => initialDraft(sessionId, true));
   const [loading, setLoading] = useState(Boolean(sessionId));
+  // 流式结束会把 /chat 写成 /chat/:id。只有这一次导航是「会话刚创建」，
+  // 消息已在本地 —— 别的会话切换必须照常进 loading，否则会先露出上一个会话的内容。
+  const location = useLocation();
+  const justCreatedRef = useRef(false);
+  useEffect(() => {
+    justCreatedRef.current = Boolean((location.state as { chatSessionJustCreated?: boolean } | null)?.chatSessionJustCreated);
+  }, [location.state]);
   const sending = useChatUiStore((state) => state.sending);
   const practiceStarting = useChatUiStore((state) => state.practiceStarting);
   const error = useChatUiStore((state) => state.inlineError);
@@ -162,7 +167,12 @@ export function ChatPage() {
       setLoading(false);
       return;
     }
-    setLoading(messagesLatestRef.current.length === 0);
+    if (justCreatedRef.current) {
+      // 刚完成流式：消息已在本地，不闪 loading，也不再重复拉一次。
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
     void api.session(sessionId)
       .then((session) => {
         if (cancelled) return;
@@ -473,7 +483,7 @@ export function ChatPage() {
           disabled={sending || !libraryReady}
           placeholder="说点什么…"
           aria-label="消息"
-      {...ime.compositionProps}
+          {...ime.compositionProps}
           onChange={(event) => { setDraft(event.target.value); setPaletteDismissed(false); setMentionDismissed(false); setPaletteIndex(0); setMentionIndex(0); }}
           onKeyDown={(event) => {
           if (ime.isComposing(event) || isImeKeyEvent(event)) return;

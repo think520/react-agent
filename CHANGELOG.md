@@ -12,6 +12,17 @@
 > 从 2026-10-15 起时间戳已正确（`177fbc2` / `c9e9b52` / `0a767bb` / `d123b43` 均为当日）。
 > 之前那次「把日期改成 10-02」的更正基于**当时错误的时钟**，方向是错的 —— 已在此说明，并把它作为教训记下：
 > **写日期前先跟一个外部时间源对一下**（例如 GitHub 服务端时间）。
+- **按外部审查报告修复真实缺陷（2026-10-28，main 本地提交 ✓ 未推送）**：审查指出 12 个提交里 3 个有真实缺陷（其中 2 个「测试全绿但功能不生效」），逐条核实成立 ✓ 并全部修复 + 补上能抓住它们的测试。
+  - **P0-① 图谱 4px 死区空转**：`dragOrigin` 从未在 `downNode` 赋值（只在 `finishDrag` 置空）✗，且即使赋值也会踩顺序坑（sigma 的 upNode/finishDrag 先于 clickNode）→ 改为 `downNode` 记录起点 + `moveBody` 累计 `dragMoved` + `clickNode` 直接拦断 ✓；新增**源码接线契约** `wiring.test.ts`（断言真的赋值/真的拦截）✓。
+  - **P0-② 高对比把文字变没**：初版只写了一套深色系浅色文字 ✗ —— 浅色用户打开高对比后 muted 实测 **1.10:1**（WCAG 要求 4.5）。改为按主题**成对定义**（浅色压深 / 暗色提亮）✓，并新增 `themeContrast.test.ts` **真算 WCAG 比值**（浅色 muted/faint ≥7，暗色 ≥7，且高对比必须强于普通）✓；浏览器实测 **muted 11.61 / faint 9.67** ✓。
+  - **P0-③ 暗色 + 关纸张纹理 = 1.14:1**：`[data-paper-texture="off"]` 无条件覆盖 `--paper` 为浅色 ✗，`[data-paper-texture="on"] body` 还硬编码 `#f5f4ed` ✗ → 纹理覆盖限定 `[data-theme="light"]` ✓、body 背景改 `var(--paper)` ✓；浏览器实测暗色关闭纹理后 `--paper = #1c1b19` ✓。
+  - **P1-④ 切换会话先露旧消息**：修闪烁时引入的 `setLoading(messagesLatestRef.length === 0)` 在换会话时不清 ref ✗ → 改为会话创建标记 `chatSessionJustCreated`（`chatActions` 写 URL 时带上）+ `justCreatedRef` 判断 ✓：只有流式结束那一次跳过 loading/重复请求，普通切换照常进 loading ✓；浏览器拦截接口延迟实测「加载态 true、旧消息未泄漏」✓。
+  - **P1-⑤ 暗色刷新白闪**：主题在 `AppShell` 的 useEffect 里才写 ✗，`index.html` 还硬写 `color-scheme: light` ✗ → `index.html` 加**首帧前内联脚本**（读 `localStorage.bobodan:theme` 或系统偏好先定主题 + colorScheme）✓、`meta` 改 `light dark` ✓、`AppShell` 把解析结果写回缓存 ✓；浏览器实测首帧 `theme=dark / colorScheme=dark / bg=rgb(28,27,25)` ✓。
+  - **P1-⑥ 全局 !important 减动效**：删除我加的第二条全局重拳（`app.css` 1370 行已有唯一开关）✓，保留组件级规则；新增契约「不得再出现第二条」✓。
+  - **P2 卫生**：修复 `App.tsx` / `ChatPage.tsx` 被正则编辑弄坏的缩进 ✓；练习「逐题生成」恢复**整行可点**（整行 `role="switch"`，内层开关 `pointer-events: none`）✓，浏览器点文字实测 false → true ✓；DESIGN §11 更正弹簧「稳定窗口」说法（曲线按窗口采样，但屏幕上走的是令牌时长）✓。
+  - **自我批评（必须记账）**：②的第一次修复我写成了字符串 `replace` 且**无条件打 ✓** —— 字符串没匹配上、磁盘没变，日志却报成功 ✗（这就是审查说的「改动没被逐行看过」）。第二次改成**按行替换 + 立即回读校验**（新值在/旧值不在）才真修好 ✓。教训：**声称成功前必须回读验证**。
+  - 验证：tsc / lint **0** ✓、vitest 新增 12 条（对比度 5 + 接线 7）✓、浏览器 5 项真实验收全过 ✓、build **0** ✓。
+
 - **练习页「逐题生成」控件返工（2026-10-17 用户反馈，main 本地提交 ✓ 未推送）**：两个问题都成立 ✓ —— ①原生 checkbox 与上方分段控件**左边缘没对齐**（勾选框比胶囊左沿内缩）；②全站开关都是「轨道 + 滑块」，这里却是原生 checkbox ✗。
   - **改法**：换成与设置页同一套 ``.setting-toggle`` 开关（`role="switch"` + `aria-checked` ✓），标题「逐题生成」+ 说明拆成两行 ✓；整行与分段控件共用同一个左起点 ✓。
   - **验证**：Playwright 量了三个左边缘 —— 分段控件 **313** / 开关行 **313** / 开关本体 **313** ✓（≤1px 视为对齐）；开/关两态各截一张卡片图核对 ✓。

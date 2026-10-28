@@ -528,8 +528,10 @@ html, body, #root { width: 100%; height: 100%; }
 body { margin: 0; overflow: hidden; background: var(--paper); }
 [data-reading-font="jin-kai"] { --font-reading: "TsangerJinKai02", "Noto Serif SC", "Source Han Serif SC", serif; }
 [data-reading-font="noto-serif"] { --font-reading: "Noto Serif SC", "Source Han Serif SC", "Songti SC", "STSong", serif; }
-[data-paper-texture="on"] body { background-color: #f5f4ed; }
-[data-paper-texture="off"] { --paper: #f7f6f1; --paper-soft: #f8f7f3; --paper-sunken: #f1f0ea; }
+[data-paper-texture="on"] body { background-color: var(--paper); }
+/* 2026-10-28：这组浅色覆盖曾无条件生效 ✗ —— 暗色下把 --paper 拉回浅色，整页 1.14:1。
+   现在只在「明确是浅色主题」时生效；暗色由 tokens.css 的 [data-theme="dark"] 负责。 */
+[data-theme="light"][data-paper-texture="off"] { --paper: #f7f6f1; --paper-soft: #f8f7f3; --paper-sunken: #f1f0ea; }
 [data-paper-texture="on"] .main-column, [data-paper-texture="on"] .sidebar, [data-paper-texture="on"] .context-panel, [data-paper-texture="on"] .settings-dialog { background-image: repeating-linear-gradient(0deg, rgba(61,53,43,.008) 0, rgba(61,53,43,.008) 1px, transparent 1px, transparent 5px); }
 /* 滚动条（2026-09-24 实测结论，别再试了）：
    Windows 11 + Chromium 上的滚动条**一定是覆盖式** —— `::-webkit-scrollbar { width: 20px }`、
@@ -2290,10 +2292,7 @@ mark.reader-anchor-mark {
 .notice { animation: notice-in var(--dur-base) var(--spring-pop); }
 @keyframes notice-in { from { opacity: 0; transform: translateY(6px) scale(0.99); } }
 
-/* ── M4 · 减少动效兜底（DESIGN.md §18）：系统偏好减少动效时，动画/过渡直接关掉。 ── */
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
-}
+/* M4 · 减少动效：单一全局开关见上方 @media（prefers-reduced-motion）—— 这里不再重复 !important 重拳。 */
 
 /* ── M4 · 骨架屏微光规则：只允许首屏与长列表，循环 ≤ 1.2s（--dur-shimmer）。 ──
    目前没有骨架屏组件，规则先落为令牌与约定，等组件出现时直接用。 */
@@ -2321,3 +2320,8 @@ mark.reader-anchor-mark {
 .practice-stepwise strong { color: var(--ink); font-size: 13px; font-weight: 650; }
 .practice-stepwise small { color: var(--muted); font-size: 12px; line-height: 1.5; }
 .practice-stepwise .setting-toggle { flex: 0 0 auto; margin-top: 1px; }
+
+/* ── 练习「逐题生成」整行可点（2026-10-28 审查 P2）：原来只有 38×22 开关本体可点 ✗ ── */
+.practice-stepwise { display: flex; align-items: flex-start; gap: 10px; width: 100%; border: 0; margin: 0 0 14px; padding: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.practice-stepwise:disabled { cursor: not-allowed; opacity: .6; }
+.practice-stepwise .setting-toggle { pointer-events: none; }

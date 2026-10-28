@@ -226,10 +226,14 @@ export function GraphCanvas({
     let draggedNode: string | null = null;
     let isDragging = false;
   let dragOrigin: PointerPosition | null = null;
+  // 指针死区（M4 修订 2026-10-28）：必须在 downNode 记录起点、moveBody 里累计是否越过 4px ——
+  // 只靠 clickNode 时再比较会踩顺序坑：sigma 的 upNode/finishDrag 先于 clickNode 触发。
+  let dragMoved = false;
 
     renderer.on("clickNode", ({ node, event }) => {
     // M4 指针死区：拖拽节点后松手不算点击（位移 ≥ 4px）。
     if (event && exceedsDragDeadZone(dragOrigin, { x: event.x, y: event.y })) return;
+      if (dragMoved) return;
     onNodeClick(node);
   });
     renderer.on("clickStage", () => {
@@ -278,7 +282,9 @@ export function GraphCanvas({
       renderer.refresh({ skipIndexation: true });
     });
     let dragOriginalSize: number | null = null;
-    renderer.on("downNode", ({ node }) => {
+    renderer.on("downNode", ({ node, event }) => {
+      dragOrigin = event ? { x: event.x, y: event.y } : null;
+      dragMoved = false;
       isDragging = true;
       draggedNode = node;
       dragOriginalSize = graph.getNodeAttribute(node, "size") as number;
@@ -289,6 +295,7 @@ export function GraphCanvas({
     });
     renderer.on("moveBody", ({ event }) => {
       if (!isDragging || !draggedNode) return;
+      if (event && exceedsDragDeadZone(dragOrigin, { x: event.x, y: event.y })) dragMoved = true;
       const position = renderer.viewportToGraph(event);
       graph.setNodeAttribute(draggedNode, "x", position.x);
       graph.setNodeAttribute(draggedNode, "y", position.y);
@@ -324,7 +331,15 @@ export function GraphCanvas({
       }
     });
 
-    const resizeObserver = new ResizeObserver(() => renderer.resize());
+    let resizeFrame: number | null = null;
+    const resizeObserver = new ResizeObserver(() => {
+      if (resizeFrame !== null) cancelAnimationFrame(resizeFrame);
+      resizeFrame = requestAnimationFrame(() => {
+        resizeFrame = null;
+        renderer.resize(true);
+        renderer.refresh();
+      });
+    });
     resizeObserver.observe(containerRef.current);
 
     if (actionsRef) {
@@ -361,6 +376,7 @@ export function GraphCanvas({
         cancelAnimationFrame(hoverRafRef.current);
         hoverRafRef.current = null;
       }
+      if (resizeFrame !== null) cancelAnimationFrame(resizeFrame);
       resizeObserver.disconnect();
       if (actionsRef) actionsRef.current = null;
       renderer.kill();

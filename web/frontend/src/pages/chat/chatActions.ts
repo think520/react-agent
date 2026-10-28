@@ -171,7 +171,7 @@ export function createChatActions(ctx: ChatActionContext) {
       setError("");
       try {
         const result = await api.createSettingsProposal(message, sessionId);
-        if (!sessionId) navigate(`/chat/${result.chat_session_id}`, { replace: true });
+        if (!sessionId) navigate(`/chat/${result.chat_session_id}`, { replace: true, state: { chatSessionJustCreated: true } });
         await refreshChatSession(result.chat_session_id);
         return;
       } catch (reason) {
@@ -229,7 +229,7 @@ export function createChatActions(ctx: ChatActionContext) {
       if (nextSessionId) {
         void api.generateSessionTitle(nextSessionId).then(refreshSessions).catch(() => undefined);
       }
-      if (!sessionId && nextSessionId && !leaveChatRef.current) navigate(`/chat/${nextSessionId}`, { replace: true });
+      if (!sessionId && nextSessionId && !leaveChatRef.current) navigate(`/chat/${nextSessionId}`, { replace: true, state: { chatSessionJustCreated: true } });
     } catch (reason) {
       if (reason instanceof DOMException && reason.name === "AbortError") {
         setStatus("");
@@ -264,7 +264,7 @@ export function createChatActions(ctx: ChatActionContext) {
     setBrandState("reading");
     try {
       const result = await api.createWebSearch(query, sessionId, consentArtifactId, appendUserMessage);
-      if (!sessionId) navigate(`/chat/${result.chat_session_id}`, { replace: true });
+      if (!sessionId) navigate(`/chat/${result.chat_session_id}`, { replace: true, state: { chatSessionJustCreated: true } });
       await refreshChatSession(result.chat_session_id);
     } catch (reason) {
       setError(toErrorMessage(reason, "联网搜索暂时不可用。"));
@@ -354,7 +354,7 @@ export function createChatActions(ctx: ChatActionContext) {
         instruction,
       });
       useHandoffStore.getState().clearWikiScope();
-      if (!sessionId) navigate(`/chat/${result.chat_session_id}`, { replace: true });
+      if (!sessionId) navigate(`/chat/${result.chat_session_id}`, { replace: true, state: { chatSessionJustCreated: true } });
       await refreshChatSession(result.chat_session_id);
     } catch (reason) {
       setError(toErrorMessage(reason, "无法整理 Wiki 重点。"));
@@ -507,7 +507,7 @@ export function createChatActions(ctx: ChatActionContext) {
       navigate(`/practice/${result.practice_session_id}`);
     } catch (reason) {
       leaveChatRef.current = false;
-      if (!sessionId) navigate(`/chat/${activeSessionId}`, { replace: true });
+      if (!sessionId) navigate(`/chat/${activeSessionId}`, { replace: true, state: { chatSessionJustCreated: true } });
       setError(toErrorMessage(reason, "暂时无法开始这轮练习。"));
     } finally {
       setPracticeStarting("");
