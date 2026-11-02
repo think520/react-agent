@@ -6,6 +6,15 @@
 
 ## [未发布]
 
+### L2 计算样式契约补齐 L2-2 / L2-3 / L2-4，并登记 L2-5（2026-11-02，main 本地提交 ✓ 未推送）
+
+- **三条「🟡 待建」的 L2 契约补齐**：新增 `web/frontend/e2e/design-computed.spec.ts`（6 条用例，desktop **6 passed** ✓）——
+  - **L2-2 对比度**：高对比暗色主题下，从浏览器算出的 `--ink` / `--muted` / `--faint` 对 `--paper` 的 WCAG 比值都要求 ≥ 7:1，失败信息里直接带实测值，不再靠颜色名猜。
+  - **L2-3 表面阶梯与发丝环**：`.sidebar` = surface 0、`.settings-main` = surface 1、`.settings-section` = surface 2、`.ui-modal-panel` = surface 3（`backgroundColor` 精确等于令牌解析值）；浮层与 `.composer` 边框 0px 且 `box-shadow` 含 `0px 0px 0px 1px`。
+  - **L2-4 字号下限**：对话 / 练习 / 资料库 / 设置四页遍历所有可见文字节点，`fontSize < 12px` 的违规必须为 0（L1 只管「源码不许写小字号」，管不到继承值与浏览器默认字号）。
+- **L2-3 立刻抓到一个真缺陷（诚实记账）**：`.welcome-view .composer`（`app.css:782`，两个类）特异性高于 M3 的 `.composer`（`app.css:2250`，一个类），把「surface 3 + 发丝外环」的 `box-shadow` **整条覆盖**成 `0 10px 28px` —— 首页输入区根本没有发丝环，而 L1 契约全程绿灯。修法：welcome 变体把 `var(--hairline)` 外环并进自己的 `box-shadow`，不再整体覆盖；L2-3 从红转绿 ✓。
+- **文档**：`docs/DESIGN.md` §16.3.3 的 L2 表从 3 条扩到 5 条 —— L2-2 / L2-3 / L2-4 由 🟡 改 ✅ 并写清断言与预算，新增 L2-5（1280×600 不裁切 / 1440×960 高度 ≤ 840px），另补一段「L2-3 抓到的第一个真缺陷」说明为什么必须分两层：**L1 证明写了，L2 证明生效**。
+- **验证**：`design-computed.spec.ts` desktop **6 passed** ✓、`settings-fit.spec.ts` desktop **2 passed** ✓。
 ### 前端止血第二批（2026-11-02，main 本地提交 ✓ 未推送）
 
 - **Library 标签不再泄露 document_id**：资料未就绪时标签显示「正在读取资料…」，数据到了显示标题或来源，查不到时显示「未命名的资料」（`LibraryReadingArea.tsx` 的 `tabTitle()`，标签文字与 aria-label 共用）；`LibraryPage.tsx:534` 给 `LibraryReadingArea` 传 `tabsReady={!loading}`。资料失效时给可恢复空态「这份资料已不可用」，标签仍由用户手动关闭，不自动清阅读状态。新增回归用例「标签栏不泄露 document_id，资料失效时显示可恢复的空态」（`src/pages/LibraryPage.test.tsx`，用 `useReaderTabsStore.setState({ openIds: ["56068ee874e4750e"] })` 复现）。

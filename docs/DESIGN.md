@@ -919,9 +919,12 @@ TUI 只服务开发与诊断，不做装饰。
 | # | 契约 | 用例 | 预算 vs 实测 |
 |---|---|---|---|
 | L2-1 | 阅读器正文字号必须跟随设置里的「正文字号」（15 / 18 都等于偏好值，且 `--body-font-size` 同步） | `web/frontend/e2e/reader-font-size.spec.ts`：阅读器正文跟随设置的正文字号（15 与 18 都等于偏好值） | 精确相等 |
-| L2-2 | 主题 / 高对比下正文对比度按 §18 达 AA（运行时取值，不靠颜色名判断） | 🟡 待建（可复用 `themeContrast.test.ts` 的算色函数） | — |
-| L2-3 | 表面阶梯与发丝边在真实渲染里的计算值：`--surface-0..3` 逐层抬升、`--hairline` 在 1dppx/2dppx 分别 1px / 0.5px | 🟡 待建 | — |
-| L2-4 | UI 控件不得渲染小于 12px 的计算字号 | 🟡 待建 | — |
+| L2-2 | 主题 / 高对比下正文对比度按 §18 达 AA（运行时取值，不靠颜色名判断） | `web/frontend/e2e/design-computed.spec.ts`：高对比暗色主题下 `--ink` / `--muted` / `--faint` 对 `--paper` 的实测比值 | 要求 ≥ 7:1（三项都断言，比值写进失败信息） |
+| L2-3 | 表面阶梯与发丝边在真实渲染里的计算值：`--surface-0..3` 逐层抬升、`--hairline` 外环真的落成 1px 环 | 同一 spec：`.sidebar` / `.settings-main` / `.settings-section` / `.ui-modal-panel` 的 `backgroundColor` 必须等于对应 `--surface-*`；浮层与 `.composer` 边框为 0 且 `box-shadow` 含 `0px 0px 0px 1px` | 精确相等 |
+| L2-4 | UI 控件不得渲染小于 12px 的计算字号 | 同一 spec：对话 / 练习 / 资料库 / 设置四页遍历所有可见文字节点的 `fontSize` | 违规条数 = 0 |
+| L2-5 | 设置对话框在低高度窗口不被裁切：1280×600 全在视口内、保存按钮可见；1440×960 高度 ≤ 840px 且底部主操作贴底 | `web/frontend/e2e/settings-fit.spec.ts` | ≤ 601px / ≤ 840.5px / 底边差 ≤ 1.5px |
+
+**L2-3 抓到的第一个真缺陷（2026-11-02）**：`.welcome-view .composer`（`app.css:782`，两个类）特异性高于 M3 的 `.composer`（`app.css:2250`，一个类），把「surface 3 + 发丝外环」的 `box-shadow` **整条覆盖**成 `0 10px 28px`，于是首页输入区根本没有发丝环 —— 而 L1 文本契约只检查「源码里有那条声明」，全程绿灯。修法：welcome 变体把外环并进自己的 `box-shadow`，不再整体覆盖。这正是 L2 存在的理由：**L1 证明写了，L2 证明生效**。
 
 **L2-1 为什么必须存在**：`.reader-prose` 曾经有 5 处 `font-size` 互相覆盖（`app.css:985/1296/1360/1401/1635`），特异性最高的 `.reader-article .reader-prose { font-size: 18px }` 让设置里的字号完全不生效，而 L1 文本契约全程绿灯。2026-10-28 删掉 3 处硬编码（保留 `max-width: 800px` 的宽度意图），唯一到达正文字号的声明变成 `var(--body-font-size)`。L2-1 是这条 bug 的回归探针。
 
