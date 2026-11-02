@@ -877,7 +877,7 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 
 /* Backdrop visuals for all dialogs live under .ui-modal-backdrop; this class
    remains as a media-query hook and full-bleed mobile override target. */
-.settings-dialog { display: flex; width: min(1060px, calc(100vw - 56px)); max-height: 84vh; min-height: 620px; flex-direction: column; overflow: hidden; border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--paper-soft); box-shadow: var(--shadow-dialog); }
+.settings-dialog { display: flex; width: min(1060px, calc(100vw - 56px)); max-height: min(84vh, 840px); min-height: min(620px, calc(100dvh - 40px)); flex-direction: column; overflow: hidden; border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--paper-soft); box-shadow: var(--shadow-dialog); }
 .settings-dialog:focus { outline: 0; }
 .settings-dialog-header { display: grid; min-height: 64px; grid-template-columns: 38px 178px minmax(0,1fr) 38px; align-items: center; gap: 8px; border-bottom: 1px solid var(--border); padding: 0 14px; }
 .settings-dialog-header > strong { color: var(--blue); font-family: var(--font-brand); font-size: 18px; font-weight: 400; }
@@ -1370,7 +1370,8 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 }
 
 /* 减动效（2026-10-28 审查 P1-⑥ 修订）：只把**时长令牌**归零，不再用 !important 压属性 ——
-   这样组件级 @media 规则重新生效。无限循环动画单独关掉，否则 0ms 循环会变成高频抖动。 */
+   这样组件级 @media 规则（见上方 .wiki-run-thinking / .settings-dialog 等）重新生效。
+   无限循环动画单独关掉，否则 0ms 循环会变成高频抖动。 */
 @media (prefers-reduced-motion: reduce) {
   :root {
     --dur-fast: 0ms; --dur-base: 0ms; --dur-slow: 0ms;
@@ -2136,6 +2137,7 @@ mark.reader-anchor-mark {
 .settings-section-head p { margin: 5px 0 0; max-width: 62ch; color: var(--muted); font-size: 12.5px; line-height: 1.6; }
 .settings-section-body { display: flex; flex-direction: column; gap: 12px; padding: 16px 20px; }
 .settings-section-footer { display: flex; justify-content: flex-end; gap: 8px; border-top: 1px solid var(--border); background: color-mix(in oklab, var(--paper-soft) 70%, var(--paper)); padding: 12px 20px; }
+.settings-dialog-footer { display: flex; flex: 0 0 auto; justify-content: flex-end; gap: 8px; border-top: 1px solid var(--border); padding: 10px 20px; background: color-mix(in oklab, var(--paper-soft) 94%, var(--paper)); box-shadow: 0 -10px 24px color-mix(in srgb, var(--paper) 72%, transparent); }
 .settings-section-body .setting-row:first-child { padding-top: 0; }
 
 /* ── 设置区 v2 · S3：供应商主从 + 模型区 ── */
@@ -2302,8 +2304,7 @@ mark.reader-anchor-mark {
 .ui-modal-panel { animation-timing-function: var(--spring-pop); }
 .notice { animation: notice-in var(--dur-base) var(--spring-pop); }
 @keyframes notice-in { from { opacity: 0; transform: translateY(6px) scale(0.99); } }
-
-/* M4 · 减少动效：单一全局开关见上方 @media（prefers-reduced-motion）—— 这里不再重复 !important 重拳。 */
+/* M4 · 减少动效：单一全局开关见上方 1370 行的 @media（prefers-reduced-motion）——  这里不再重复 !important 重拳。 */
 
 /* ── M4 · 骨架屏微光规则：只允许首屏与长列表，循环 ≤ 1.2s（--dur-shimmer）。 ──
    目前没有骨架屏组件，规则先落为令牌与约定，等组件出现时直接用。 */
@@ -2326,13 +2327,10 @@ mark.reader-anchor-mark {
 
 /* ── 练习页「逐题生成」：原生 checkbox 与全站开关不一致 ✗（2026-10-17）──
    改成与设置页同一套轨道+滑块开关，并与上方分段控件左边缘对齐。 */
-.practice-stepwise { display: flex; align-items: flex-start; gap: 10px; margin: 0 0 14px; }
+.practice-stepwise { display: flex; align-items: flex-start; gap: 10px; width: 100%; border: 0; margin: 0 0 14px; padding: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.practice-stepwise:disabled { cursor: not-allowed; opacity: .6; }
+.practice-stepwise .setting-toggle { pointer-events: none; }
 .practice-stepwise > span { display: grid; gap: 2px; }
 .practice-stepwise strong { color: var(--ink); font-size: 13px; font-weight: 650; }
 .practice-stepwise small { color: var(--muted); font-size: 12px; line-height: 1.5; }
 .practice-stepwise .setting-toggle { flex: 0 0 auto; margin-top: 1px; }
-
-/* ── 练习「逐题生成」整行可点（2026-10-28 审查 P2）：原来只有 38×22 开关本体可点 ✗ ── */
-.practice-stepwise { display: flex; align-items: flex-start; gap: 10px; width: 100%; border: 0; margin: 0 0 14px; padding: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
-.practice-stepwise:disabled { cursor: not-allowed; opacity: .6; }
-.practice-stepwise .setting-toggle { pointer-events: none; }

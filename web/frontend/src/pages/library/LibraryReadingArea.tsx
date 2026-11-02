@@ -58,6 +58,7 @@ export interface LibraryReadingAreaProps {
   setSelectedId: Dispatch<SetStateAction<string | null>>;
   startingExtractionId: string | null;
   wikiTypeLabels: Record<NonNullable<DocumentSummary["wiki_type"]>, string>;
+  tabsReady?: boolean;
 }
 
 export function LibraryReadingArea(props: LibraryReadingAreaProps) {
@@ -91,7 +92,13 @@ export function LibraryReadingArea(props: LibraryReadingAreaProps) {
     setError,
     setSections,
     readerReloadToken,
+    tabsReady = true,
   } = props;
+
+  const tabTitle = (tabId: string) => {
+    const document = documents.find((item) => item.document_id === tabId);
+    return document?.title || document?.source || (tabsReady ? "未命名的资料" : "正在读取资料…");
+  };
 
   return (
     <>
@@ -172,12 +179,12 @@ export function LibraryReadingArea(props: LibraryReadingAreaProps) {
               selectDocument(tabId);
             }}
           >
-            {documents.find((item) => item.document_id === tabId)?.title || tabId}
+            {tabTitle(tabId)}
           </button>
           <button
             type="button"
             className="reader-tab-close"
-            aria-label={`关闭 ${documents.find((item) => item.document_id === tabId)?.title || tabId}`}
+            aria-label={`关闭 ${tabTitle(tabId)}`}
             onClick={() => {
               const wasActive = selectedId === tabId;
               closeTab(tabId);
@@ -197,6 +204,13 @@ export function LibraryReadingArea(props: LibraryReadingAreaProps) {
     </div>
   )}
   <article className="document-reader">
+    {tabsReady && selectedId && !selected && (
+      <EmptyState
+        state="reading"
+        title="这份资料已不可用"
+        description="它可能已被移动、归档或删除。请从左侧重新选择一份资料，或关闭这个标签。"
+      />
+    )}
     {selected && <header>
       <span>{selected.collection === "wiki" ? `历史整理 · ${selected.wiki_type ? wikiTypeLabels[selected.wiki_type] : "页面"}` : selected.kind || "本地资料"}{selected.course ? ` · ${selected.course}` : ""}</span>
       <h2>{selected.title || selected.source}</h2>

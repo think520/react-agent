@@ -232,7 +232,7 @@ export function SettingsDialog({
   }
 
   function sectionContent() {
-    if (active === "assistant") return <AssistantSection assistant={assistant} setAssistant={setAssistant} saving={saving} onSave={saveAssistant} />;
+    if (active === "assistant") return <AssistantSection assistant={assistant} setAssistant={setAssistant} />;
     if (active === "me") return <MeSection profile={profile} setProfile={setProfile} saving={saving} onSave={saveProfile} />;
     if (active === "appearance") return <AppearanceSection appearance={preferences.appearance} patch={(patch) => void patchPreferences(patch)} />;
     if (active === "models") return <ModelsSection settings={settings} preferences={preferences} usage={usage} usageDays={usageDays} setUsageDays={setUsageDays} patch={(patch) => void patchPreferences(patch)} searchTest={searchTest} testSearchProvider={testSearchProvider} onSettingsChange={onSettingsChange} />;
@@ -261,6 +261,13 @@ export function SettingsDialog({
     <section className="settings-dialog">
       <header className="settings-dialog-header"><button className="settings-back" onClick={onClose} aria-label="返回"><ChevronLeft /></button><strong>设置</strong><h2>{sections.find((item) => item.id === active)?.label}</h2><IconButton label="关闭设置" onClick={onClose}><X /></IconButton></header>
       <div className="settings-dialog-body"><nav className="settings-nav" aria-label="设置分类"><label className="settings-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (ime.isComposing(event)) return; if (!matches.length) return; if (event.key === "ArrowDown") { event.preventDefault(); setSearchIndex((current) => (current + 1) % matches.length); } else if (event.key === "ArrowUp") { event.preventDefault(); setSearchIndex((current) => (current - 1 + matches.length) % matches.length); } else if (event.key === "Enter") { event.preventDefault(); jumpTo(matches[Math.min(searchIndex, matches.length - 1)].tab, matches[Math.min(searchIndex, matches.length - 1)].label); } }} placeholder="搜索设置" />{query && <button onClick={() => setQuery("")} aria-label="清空搜索"><X size={13} /></button>}</label>{matches.map(({ id, label, icon: Icon, tab, hint }, index) => <button ref={active === id ? activeNavRef : undefined} className={`${active === tab ? "active" : ""} ${query && searchIndex === index ? "search-active" : ""}`} key={id} onClick={() => jumpTo(tab, query ? label : undefined)} title={hint || undefined}><Icon size={17} /><span>{label}</span>{hint && <small>{hint}</small>}{id === "memory" && Boolean(memoryOverview?.pending_candidate_count) && <i className="settings-nav-badge">{memoryOverview?.pending_candidate_count}</i>}</button>)}</nav><main className="settings-main">{error && <div className="settings-error">{error}</div>}{notice && <div className="settings-notice"><Check size={14} />{notice}</div>}<SettingsHeading eyebrow="Bobodan Settings" title={sections.find((item) => item.id === active)?.label || ""} /><SettingsPage tab={active}>{sectionContent()}</SettingsPage></main></div>
+      {active === "assistant" && (
+        <footer className="settings-dialog-footer">
+          <button className="primary-button" disabled={saving} onClick={() => void saveAssistant()}>
+            <Check size={15} />{saving ? "正在保存…" : "保存助手设置"}
+          </button>
+        </footer>
+      )}
     </section>
   </Modal>;
 }

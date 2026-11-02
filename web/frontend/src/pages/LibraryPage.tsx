@@ -531,7 +531,7 @@ export function LibraryPage() {
               extractAndReview={extractAndReview} extractionStatuses={extractionStatuses} filteredDocuments={filteredDocuments} hits={hits}
               navigate={navigate} openExtractionReview={openExtractionReview} readerScrollRef={readerScrollRef} sections={sections}
               selectDocument={selectDocument} selected={selected} selectedId={selectedId} setSelectedId={setSelectedId}
-              startingExtractionId={startingExtractionId} wikiTypeLabels={wikiTypeLabels}
+              startingExtractionId={startingExtractionId} wikiTypeLabels={wikiTypeLabels} tabsReady={!loading}
             />
           </div>
         ) : (

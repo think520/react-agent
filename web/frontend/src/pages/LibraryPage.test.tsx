@@ -461,6 +461,35 @@ describe("资料库文件夹同步", () => {
     expect(document.querySelector(".document-rail")).toBeNull();
   });
 
+  it("标签栏不泄露 document_id，资料失效时显示可恢复的空态", async () => {
+    vi.mocked(api.knowledgeTree).mockResolvedValue(treeWith([
+      treeFile("有效资料.md", "doc-valid", "有效资料"),
+    ]) as never);
+    vi.mocked(api.documents).mockResolvedValue([{
+      document_id: "doc-valid", source: "有效资料.md", relative_path: "有效资料.md",
+      kind: "course_document", title: "有效资料", collection: "material", content_role: "content",
+    }] as never);
+    useReaderTabsStore.setState({
+      openIds: ["56068ee874e4750e"],
+      scrolls: {},
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/library"]}>
+        <LibraryPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByText("有效资料.md"));
+    const staleTab = Array.from(document.querySelectorAll<HTMLButtonElement>(".reader-tab > button:first-child"))
+      .find((button) => button.textContent?.includes("未命名的资料"));
+    expect(staleTab).toBeTruthy();
+    fireEvent.click(staleTab!);
+    expect(await screen.findByText("这份资料已不可用")).toBeTruthy();
+    expect(screen.queryByText("56068ee874e4750e")).toBeNull();
+    expect(document.querySelector(".reader-tab")?.textContent).toContain("未命名的资料");
+  });
+
   // 审查 F07：部分失败时服务端的"已经搬走哪几份"会在 HTTP 边界被丢掉，界面因此既看不到
   // 已搬走的资料，也拿不到撤销入口。这条钉住"当场读回台账 + 当场能撤销"。
   it("整理部分失败：当场说明搬走了几份，并且当场能撤销", async () => {

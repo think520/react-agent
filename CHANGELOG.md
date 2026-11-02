@@ -6,6 +6,15 @@
 
 ## [未发布]
 
+### 前端止血第二批（2026-11-02，main 本地提交 ✓ 未推送）
+
+- **Library 标签不再泄露 document_id**：资料未就绪时标签显示「正在读取资料…」，数据到了显示标题或来源，查不到时显示「未命名的资料」（`LibraryReadingArea.tsx` 的 `tabTitle()`，标签文字与 aria-label 共用）；`LibraryPage.tsx:534` 给 `LibraryReadingArea` 传 `tabsReady={!loading}`。资料失效时给可恢复空态「这份资料已不可用」，标签仍由用户手动关闭，不自动清阅读状态。新增回归用例「标签栏不泄露 document_id，资料失效时显示可恢复的空态」（`src/pages/LibraryPage.test.tsx`，用 `useReaderTabsStore.setState({ openIds: ["56068ee874e4750e"] })` 复现）。
+- **低高度窗口下设置主操作不再被裁切**：`.settings-dialog` 高度改 `max-height: min(84vh, 840px)` + `min-height: min(620px, calc(100dvh - 40px))` —— 原来硬写 `min-height: 620px`，1280×600 这类小窗口会把对话框底部挤出视口 ✗。助手设置的「保存助手设置」从分节底部搬到对话框底部 `.settings-dialog-footer`（`flex: 0 0 auto` + 上边框 + 20px 内边距 + 轻微上投影），内容区滚动不再带走主操作；`AssistantSection` 相应去掉 `saving/onSave` 这两个只为放按钮而存在的 prop。
+- **新增 L2-5 计算样式契约（数字是自己量的，不转述）**：`e2e/settings-fit.spec.ts` 两条 —— ① **1280×600**：对话框完全在视口内（`y ≥ -1` 且 `y+height ≤ 601`）、「保存助手设置」可见且底边 ≤ 601、footer 在 `.settings-dialog` 内且 `.settings-main` 可滚动；② **1440×960**：对话框高度 ≤ 840.5、footer 底边与对话框底边差 ≤ 1.5px。desktop 项目实测 **2 passed** ✓。配 `src/lib/settingsLayout.test.ts` 2 条用例 / 4 个断言（高度上限、底部主操作、内容区滚动、footer 结构），锁住的是源码里的声明，运行时行为由上一条 e2e 负责。
+- **补记（不重复入账）**：知识地图收起左栏后的空白（`GraphCanvas.tsx:334-343` 把 `ResizeObserver` 回调合并到下一帧、`resize(true)` 后强制 `refresh()`）与 Motion 受限使用边界（`DESIGN.md` §11.8）在此前提交里已落地，本次只记录、未改代码。
+- **验证**：`npx tsc --noEmit` **0** ✓、`npm run lint` **0** ✓、`vitest run` **53 文件 / 341 passed** ✓、`npm run build` **0** ✓、mock e2e **15 passed** ✓、`settings-fit` **2 passed** ✓。**诚实记账**：本轮第一次全量 `vitest run` 在机器高负载下出现 1 failed / 2 failed tests，聚焦重跑 3 次与随后两次全量重跑全绿，判为环境抖动而非逻辑错误 —— 但我不把「首跑即绿」写成事实。
+
+
 ### 第二轮前端审查：契约从「文本一致」升到「计算样式一致」（2026-10-28，main 本地提交 ✓ 未推送）
 
 - **先修一个可感知 bug：设置里的「正文字号」在阅读视图完全不生效** ✓ 已复现。`.reader-prose` 的字号被写了 5 次（`app.css:985/1296/1360/1401/1635`），特异性最高的 `.reader-article .reader-prose { font-size: 18px }` 全胜 ✗ —— 用户调到 15 / 18，文章正文纹丝不动。修法：删掉 3 处硬编码（保留 `max-width: 800px` 的宽度意图），唯一到达正文字号的声明变成 `var(--body-font-size)` ✓。顺带把 `--body-font-size` 从 **17px 改成 16px**（实测后端 `service/preference_service.py:46` 默认 16，枚举 15/16/17/18；原来的 17 是死值，因为运行时总被 `AppShell.tsx:263` 的内联偏好覆盖）✓。

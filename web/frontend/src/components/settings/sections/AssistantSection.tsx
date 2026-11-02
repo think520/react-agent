@@ -1,5 +1,3 @@
-import { Check } from "lucide-react";
-
 import { BrandIllustration } from "../../common";
 import type { UserPreferences } from "../../../types";
 import { SettingsField, SettingsRow, SettingsSection, SettingsSegmented } from "../SettingsPrimitives";
@@ -7,11 +5,9 @@ import { SettingsField, SettingsRow, SettingsSection, SettingsSegmented } from "
 type AssistantPrefs = UserPreferences["assistant"];
 
 /** 设置 · Bobodan（2026-10-17 S2：搬进设计系统原语，行为不变）。 */
-export function AssistantSection({ assistant, setAssistant, saving, onSave }: {
+export function AssistantSection({ assistant, setAssistant }: {
   assistant: AssistantPrefs;
   setAssistant: (next: AssistantPrefs) => void;
-  saving: boolean;
-  onSave: () => Promise<void> | void;
 }) {
   return <>
     <div className="settings-identity">
@@ -21,7 +17,6 @@ export function AssistantSection({ assistant, setAssistant, saving, onSave }: {
     <SettingsSection
       title="称呼与教学方式"
       description="这些设置影响表达，不改变事实、来源和安全规则。"
-      footer={<button className="primary-button" disabled={saving} onClick={() => void onSave()}><Check size={15} />保存助手设置</button>}
     >
       <SettingsField label="助手昵称">
         <input maxLength={60} value={assistant.display_name} onChange={(event) => setAssistant({ ...assistant, display_name: event.target.value })} />
