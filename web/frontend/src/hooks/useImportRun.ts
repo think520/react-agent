@@ -39,7 +39,13 @@ export function useImportRun(pollMs: number = DEFAULT_POLL_MS) {
   const runIdRef = useRef<string | null>(null);
   const disposedRef = useRef(false);
 
-  useEffect(() => () => { disposedRef.current = true; }, []);
+  // StrictMode 在开发期会「挂载 → 清理 → 再挂载」跑一遍 effect：清理把 disposedRef 置 true 后，
+  // 真正的挂载必须把它复位，否则每次导入都会在第一个进度快照处被当成「已卸载」直接返回 null，
+  // 界面报「导入没有返回结果。」（2026-11-02 由修正后的 app.spec 首次暴露）。
+  useEffect(() => {
+    disposedRef.current = false;
+    return () => { disposedRef.current = true; };
+  }, []);
 
   const start = useCallback(async (
     files: File[],
@@ -56,7 +62,10 @@ export function useImportRun(pollMs: number = DEFAULT_POLL_MS) {
       runIdRef.current = import_id;
       for (;;) {
         const snapshot = await api.importStatus(import_id);
-        if (disposedRef.current) return null;
+        if (disposedRef.current) {
+          // 组件已卸载：没有人能再看到这条进度，收尾由卸载负责；这里只放弃结果。
+          return null;
+        }
         setProgress({
           phase: snapshot.phase,
           filesDone: snapshot.files_done,

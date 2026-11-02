@@ -1,3 +1,5 @@
+import { StrictMode } from "react";
+
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
@@ -87,4 +89,17 @@ it("失败时把原因说出来，不装作成功", async () => {
   expect((await started) as Error).toMatchObject({ message: "磁盘满了" });
   expect(result.current.running).toBe(false);
   expect(result.current.error).toBe("磁盘满了");
+});
+
+it("StrictMode 的挂载-清理-再挂载不会被误判成卸载（否则每次导入都返回 null）", async () => {
+  const payload = { imported: ["a.md"], rejected: [], library_sync: {} };
+  vi.mocked(api.importStatus).mockResolvedValue(snapshot({ status: "completed", result: payload }));
+
+  // 开发期 React 会把 effect 跑两遍：清理函数先执行，真正的挂载随后执行。
+  const { result } = renderHook(() => useImportRun(10), { wrapper: StrictMode });
+  let started!: Promise<unknown>;
+  await act(async () => { started = result.current.start([file]); });
+  expect(await started).toEqual(payload);
+  expect(result.current.running).toBe(false);
+  expect(result.current.error).toBe("");
 });

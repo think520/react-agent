@@ -1,28 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-function settingsPayload(overrides: Record<string, unknown> = {}) {
-  return {
-    workspace_name: "测试空间",
-    default_provider: "deepseek",
-    providers: [{ name: "deepseek", configured: true, model: "deepseek-chat" }],
-    search_providers: [{ name: "auto", configured: true }, { name: "tavily", configured: false }, { name: "exa", configured: true }],
-    mcp_enabled: false,
-    skills: [],
-    preferences: {
-      schema_version: 4,
-      revision: 0,
-      assistant: { display_name: "Bobodan", teaching_style: "guided", answer_depth: "standard", feedback_strength: "gentle" },
-      user: { display_name: "", profile: "", long_term_goal: "" },
-      appearance: { reading_font: "jin-kai", body_font_size: 16, content_width: 720, paper_texture: true, session_density: "comfortable", motion: "system" },
-      ai: { default_provider: "deepseek", task_providers: { wiki_discovery: "default", wiki_drafting: "default" } },
-      wiki: { default_mode: "standard", guide_completed: false, budget: { max_requests: 24, max_input_tokens: 300000, max_output_tokens: 40000 } },
-      memory: { enabled: true },
-      search: { provider: "auto", permission: "ask", jina_fallback: true },
-      skills: { enabled_names: [] },
-    },
-    ...overrides,
-  };
-}
+import { settingsPayload } from "./fixtures/mockApi";
 
 test.beforeEach(async ({ page }) => {
   await page.route("**/api/health", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ ok: true }) }));
@@ -56,10 +34,28 @@ test("first upload creates a portable library before indexing the file", async (
   await page.route("**/api/chat/sessions", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ sessions: [] }) }));
   await page.route("**/api/kb/documents?collection=material", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ documents: [] }) }));
   await page.route("**/api/learning/review-queue", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ due_concepts: [], wrong_answers: [], weaknesses: [] }) }));
-  await page.route("**/api/kb/import", (route) => {
+  // E8 起导入走「POST /api/kb/imports + 轮询 /api/kb/imports/{id}」的可观察运行，
+  // 旧用例只 mock 了同步端点 /api/kb/import，于是请求漏到真实后端并报
+  // 「Unknown or unregistered Bobodan library」（2026-11-02 修复：这是挂在 HEAD 上的红）。
+  await page.route("**/api/kb/imports", (route) => {
     importLibraryHeader = route.request().headers()["x-bobodan-library-id"] || "";
-    return route.fulfill({ contentType: "application/json", body: JSON.stringify({ imported: ["lesson.md"], rejected: [], sync: {} }) });
+    return route.fulfill({ contentType: "application/json", body: JSON.stringify({ ok: true, import_id: "imp-1" }) });
   });
+  await page.route("**/api/kb/imports/imp-1", (route) => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify({
+      import_id: "imp-1",
+      status: "completed",
+      phase: "done",
+      files_total: 1,
+      files_done: 1,
+      current: "",
+      sources_total: 0,
+      sources_done: 0,
+      error: "",
+      result: { imported: ["lesson.md"], rejected: [], library_sync: {} },
+    }),
+  }));
 
   await page.goto("/chat");
   const fileChooserPromise = page.waitForEvent("filechooser");
