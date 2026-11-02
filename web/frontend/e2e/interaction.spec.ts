@@ -1,5 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
+import { settingsPayload } from "./fixtures/mockApi";
+
 /**
  * E4 interaction flow: the card, the answer, and the resumed turn. Follows the
  * suite convention (see app.spec.ts): every /api call is mocked with a precise
@@ -8,29 +10,6 @@ import { expect, test, type Page } from "@playwright/test";
  */
 
 const QUESTIONS = [{ id: "q1", prompt: "你系统学算法主要为了什么？", options: ["求职面试", "打牢基础"] }];
-
-function settingsPayload() {
-  return {
-    workspace_name: "测试空间",
-    default_provider: "deepseek",
-    providers: [{ name: "deepseek", configured: true, model: "deepseek-chat" }],
-    search_providers: [{ name: "auto", configured: true }],
-    mcp_enabled: false,
-    skills: [],
-    preferences: {
-      schema_version: 4,
-      revision: 0,
-      assistant: { display_name: "Bobodan", teaching_style: "guided", answer_depth: "standard", feedback_strength: "gentle" },
-      user: { display_name: "", profile: "", long_term_goal: "" },
-      appearance: { reading_font: "jin-kai", body_font_size: 16, content_width: 720, paper_texture: true, session_density: "comfortable", motion: "system" },
-      ai: { default_provider: "deepseek", task_providers: { wiki_discovery: "default", wiki_drafting: "default" } },
-      wiki: { default_mode: "standard", guide_completed: false, budget: { max_requests: 24, max_input_tokens: 300000, max_output_tokens: 40000 } },
-      memory: { enabled: true },
-      search: { provider: "auto", permission: "ask", jina_fallback: true },
-      skills: { enabled_names: [] },
-    },
-  };
-}
 
 const json = (body: unknown) => ({ contentType: "application/json", body: JSON.stringify(body) });
 

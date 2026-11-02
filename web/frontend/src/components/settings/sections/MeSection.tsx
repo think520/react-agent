@@ -1,21 +1,16 @@
-import { Check } from "lucide-react";
-
 import type { UserPreferences } from "../../../types";
 import { SettingsField, SettingsSection } from "../SettingsPrimitives";
 
 type Profile = UserPreferences["user"];
 
 /** 设置 · 我与学习（2026-10-17 S2）。 */
-export function MeSection({ profile, setProfile, saving, onSave }: {
+export function MeSection({ profile, setProfile }: {
   profile: Profile;
   setProfile: (next: Profile) => void;
-  saving: boolean;
-  onSave: () => Promise<void> | void;
 }) {
   return <SettingsSection
     title="你的学习资料"
     description="用于调整讲解起点，不会作为公开资料或自动写入 Wiki。"
-    footer={<button className="primary-button" disabled={saving} onClick={() => void onSave()}><Check size={15} />保存我的资料</button>}
   >
     <SettingsField label="怎么称呼你">
       <input maxLength={60} value={profile.display_name} onChange={(event) => setProfile({ ...profile, display_name: event.target.value })} />

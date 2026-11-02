@@ -1,44 +1,9 @@
 import { expect, test } from "@playwright/test";
 
-function settingsPayload() {
-  return {
-    workspace_name: "测试空间",
-    default_provider: "deepseek",
-    providers: [{ name: "deepseek", configured: true, model: "deepseek-chat" }],
-    search_providers: [{ name: "auto", configured: true }, { name: "tavily", configured: false }, { name: "exa", configured: true }],
-    mcp_enabled: false,
-    skills: [],
-    preferences: {
-      schema_version: 4,
-      revision: 0,
-      assistant: { display_name: "Bobodan", teaching_style: "guided", answer_depth: "standard", feedback_strength: "gentle" },
-      user: { display_name: "", profile: "", long_term_goal: "" },
-      appearance: { reading_font: "jin-kai", body_font_size: 16, content_width: 720, paper_texture: true, session_density: "comfortable", motion: "system" },
-      ai: { default_provider: "deepseek", task_providers: { wiki_discovery: "default", wiki_drafting: "default" } },
-      wiki: { default_mode: "standard", guide_completed: false, budget: { max_requests: 24, max_input_tokens: 300000, max_output_tokens: 40000 } },
-      memory: { enabled: true },
-      search: { provider: "auto", permission: "ask", jina_fallback: true },
-      skills: { enabled_names: [] },
-    },
-  };
-}
+import { mockApi } from "./fixtures/mockApi";
 
 test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem("bobodan:onboarding:v1", "complete"));
-  await page.route("**/api/health", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ ok: true }) }));
-  await page.route("**/api/libraries", (route) => route.fulfill({
-    contentType: "application/json",
-    body: JSON.stringify({
-      active_library_id: "library-1",
-      libraries: [{ library_id: "library-1", name: "测试资料库", created_at: "", last_opened_at: "", active: true, available: true }],
-    }),
-  }));
-  await page.route("**/api/settings", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(settingsPayload()) }));
-  await page.route("**/api/chat/sessions", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ sessions: [] }) }));
-  await page.route("**/api/kb/documents?collection=all", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ documents: [] }) }));
-  await page.route("**/api/kb/documents?collection=material", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ documents: [] }) }));
-  await page.route("**/api/kb/wiki/coverage", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ documents: [], counts: { uncovered: 0, partial: 0, covered: 0, stale: 0 } }) }));
-  await page.route("**/api/learning/review-queue", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ due_concepts: [], wrong_answers: [], weaknesses: [] }) }));
+  await mockApi(page);
 });
 
 // L2-5（计算样式契约）：设置对话框的高度上限与底部主操作，必须在低高度视口里真的可见。

@@ -1,5 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
+import { json as sharedJson, settingsPayload as baseSettingsPayload } from "./fixtures/mockApi";
+
 /**
  * L2 契约：「设置 → 外观 → 正文字号」（appearance.body_font_size，15/16/17/18）
  * 必须真的到达阅读器正文的计算字号。
@@ -23,29 +25,12 @@ const DOCUMENT = {
 };
 
 function settingsPayload(bodyFontSize: number) {
-  return {
-    workspace_name: "测试空间",
-    default_provider: "deepseek",
-    providers: [{ name: "deepseek", configured: true, model: "deepseek-chat" }],
-    search_providers: [{ name: "auto", configured: true }],
-    mcp_enabled: false,
-    skills: [],
-    preferences: {
-      schema_version: 4,
-      revision: 0,
-      assistant: { display_name: "Bobodan", teaching_style: "guided", answer_depth: "standard", feedback_strength: "gentle" },
-      user: { display_name: "", profile: "", long_term_goal: "" },
-      appearance: { reading_font: "jin-kai", body_font_size: bodyFontSize, content_width: 720, paper_texture: true, session_density: "comfortable", motion: "system" },
-      ai: { default_provider: "deepseek", task_providers: { wiki_discovery: "default", wiki_drafting: "default" } },
-      wiki: { default_mode: "standard", guide_completed: false, budget: { max_requests: 24, max_input_tokens: 300000, max_output_tokens: 40000 } },
-      memory: { enabled: true },
-      search: { provider: "auto", permission: "ask", jina_fallback: true },
-      skills: { enabled_names: [] },
-    },
-  };
+  const body = baseSettingsPayload();
+  body.preferences.appearance.body_font_size = bodyFontSize;
+  return body;
 }
 
-const json = (body: unknown) => ({ contentType: "application/json", body: JSON.stringify(body) });
+const json = sharedJson;
 
 async function mockShell(page: Page, currentSize: () => number) {
   await page.route("**/api/health", (route) => route.fulfill(json({ ok: true })));

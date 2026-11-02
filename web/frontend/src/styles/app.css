@@ -779,7 +779,7 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 .welcome-context span { display: inline-flex; align-items: center; gap: 6px; }
 .welcome-view > .error-notice { width: min(100%, 720px); margin: 20px 0 0; }
 .welcome-view .composer-wrap { position: static; width: min(100%, var(--content-width)); margin-top: var(--space-6); padding: 0; background: none; transform: none; }
-.welcome-view .composer { box-shadow: 0 0 0 var(--hairline) var(--ring), 0 10px 28px rgba(46,43,39,0.07); }
+.welcome-view .composer { box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-float); }
 .starter-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 7px; margin-top: 15px; }
 .starter-actions button { display: inline-flex; min-height: 34px; align-items: center; gap: 6px; border: 1px solid transparent; border-radius: 7px; padding: 0 9px; background: transparent; color: var(--muted); font-size: 12px; }
 .starter-actions button:hover { border-color: var(--border); background: var(--paper-soft); color: var(--blue); }

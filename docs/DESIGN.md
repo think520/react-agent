@@ -919,11 +919,14 @@ TUI 只服务开发与诊断，不做装饰。
 | # | 契约 | 用例 | 预算 vs 实测 |
 |---|---|---|---|
 | L2-1 | 阅读器正文字号必须跟随设置里的「正文字号」（15 / 18 都等于偏好值，且 `--body-font-size` 同步） | `web/frontend/e2e/reader-font-size.spec.ts`：阅读器正文跟随设置的正文字号（15 与 18 都等于偏好值） | 精确相等 |
-| L2-2 | 主题 / 高对比下正文对比度按 §18 达 AA（运行时取值，不靠颜色名判断） | `web/frontend/e2e/design-computed.spec.ts`：高对比暗色主题下 `--ink` / `--muted` / `--faint` 对 `--paper` 的实测比值 | 要求 ≥ 7:1（三项都断言，比值写进失败信息） |
+| L2-2 | 主题 / 高对比下正文对比度按 §18 达 AA：**四个组合全测**（浅色/暗色 × 普通/高对比），因为真出过事的组合是「浅色 + 高对比」（muted 曾被压到 1.10:1），只测暗色等于漏掉它 | `web/frontend/e2e/design-computed.spec.ts`：每个组合都断言 `--ink` / `--muted` / `--faint` 对 `--paper` 的实测比值 | 普通：ink ≥ 12/10、muted、faint ≥ 4.5；高对比：muted、faint ≥ 7（比值写进失败信息） |
 | L2-3 | 表面阶梯与发丝边在真实渲染里的计算值：`--surface-0..3` 逐层抬升、`--hairline` 外环真的落成 1px 环 | 同一 spec：`.sidebar` / `.settings-main` / `.settings-section` / `.ui-modal-panel` 的 `backgroundColor` 必须等于对应 `--surface-*`；浮层与 `.composer` 边框为 0 且 `box-shadow` 含 `0px 0px 0px 1px` | 精确相等 |
-| L2-4 | UI 控件不得渲染小于 12px 的计算字号 | 同一 spec：对话 / 练习 / 资料库 / 设置四页遍历所有可见文字节点的 `fontSize` | 违规条数 = 0 |
+| L2-4 | UI 控件不得渲染小于 12px 的计算字号 | 同一 spec：**七页**（对话 / 练习 / 题库 / 复习 / 资料库 / 笔记 / 设置）遍历所有可见文字节点的 `fontSize`。**知识地图不在覆盖范围内**：节点与标签由 Sigma 画在 canvas 上，DOM 里没有文字节点，字号只能靠 GraphCanvas 的渲染参数保证 —— 不写成「全站已验」 | 违规条数 = 0 |
 | L2-5 | 设置对话框在低高度窗口不被裁切：1280×600 全在视口内、保存按钮可见；1440×960 高度 ≤ 840px 且底部主操作贴底 | `web/frontend/e2e/settings-fit.spec.ts` | ≤ 601px / ≤ 840.5px / 底边差 ≤ 1.5px |
 
+**用例共用一套 mock（2026-11-02）**：`web/frontend/e2e/fixtures/mockApi.ts` 提供偏好默认值（含 `theme` / `contrast`）、`settingsPayload(overrides)` 与 `mockApi(page, options)`。此前 `settingsPayload` 在 5 个 spec 里各写一份并已漂移（`settings-fit` 缺 `theme` / `contrast`），L2 主题契约在某些 spec 里静默失义。
+
+**修正过期导入 mock 时挖出的真 bug（2026-11-02）**：`app.spec.ts` 的「首次上传建库并导入」一直只 mock 同步端点 `/api/kb/import`，而 E8 之后导入走 `POST /api/kb/imports` + 轮询；请求漏到真实后端，报「Unknown or unregistered Bobodan library」——**这条用例自 E8 起就是红的，只是没人跑**。补上 mock 后它立刻暴露 `web/frontend/src/hooks/useImportRun.ts` 的真缺陷：`disposedRef` 只在 effect 清理里置 `true`、从不在挂载时复位，开发期 StrictMode 的「挂载 → 清理 → 再挂载」把它永久锁死，于是**开发模式下每次导入都在第一个进度快照处被当成已卸载、返回 `null`**，界面报「导入没有返回结果。」，进度条也永远卡在 0/1。修法：effect 挂载时复位 `disposedRef`，并给「提前返回 null」补注释说明收尾归卸载负责。回归探针是 `src/hooks/useImportRun.test.ts` 里 `wrapper: StrictMode` 那条（回退修复会红，已验证）。
 **L2-3 抓到的第一个真缺陷（2026-11-02）**：`.welcome-view .composer`（`app.css:782`，两个类）特异性高于 M3 的 `.composer`（`app.css:2250`，一个类），把「surface 3 + 发丝外环」的 `box-shadow` **整条覆盖**成 `0 10px 28px`，于是首页输入区根本没有发丝环 —— 而 L1 文本契约只检查「源码里有那条声明」，全程绿灯。修法：welcome 变体把外环并进自己的 `box-shadow`，不再整体覆盖。这正是 L2 存在的理由：**L1 证明写了，L2 证明生效**。
 
 **L2-1 为什么必须存在**：`.reader-prose` 曾经有 5 处 `font-size` 互相覆盖（`app.css:985/1296/1360/1401/1635`），特异性最高的 `.reader-article .reader-prose { font-size: 18px }` 让设置里的字号完全不生效，而 L1 文本契约全程绿灯。2026-10-28 删掉 3 处硬编码（保留 `max-width: 800px` 的宽度意图），唯一到达正文字号的声明变成 `var(--body-font-size)`。L2-1 是这条 bug 的回归探针。

@@ -6,6 +6,17 @@
 
 ## [未发布]
 
+### 审查意见落地：四组对比度、七页字号、e2e mock 收敛，并修掉开发模式导入永远失败（2026-11-02，本地提交 ✓ 未推送）
+
+- **L2-2 补齐最容易出事的组合（优先项）**：原来只断言「暗色 + 高对比」≥ 7:1，而真出过事的组合是**浅色 + 高对比**（muted 一度被压到 1.10:1）。现在 `design-computed.spec.ts` 按 2×2 全测：普通主题 ink / muted / faint 对 `--paper` ≥ 12 / 10、4.5、4.5，高对比主题 muted、faint ≥ 7 —— 阈值与 `src/lib/themeContrast.test.ts` 的 AA 表逐条对齐，失败信息里直接带实测比值。desktop **4 条 passed** ✓。
+- **L2-4 从四页扩到七页**：新增题库（`/practice/bank`）、复习（`/review`）、笔记（`/notes`），违规仍为 0 ✓。**知识地图明确排除**：节点与标签由 Sigma 画在 canvas 上，DOM 里没有文字节点 —— 这条限制写进用例注释与 `DESIGN.md` §16.3.3，不再让人误以为「全站都验过了」。
+- **e2e mock 收敛成一份（审查 P2）**：新增 `web/frontend/e2e/fixtures/mockApi.ts`，导出 `preferences()` / `settingsPayload(overrides)` / `mockApi(page, options)`。此前 `settingsPayload` 在 5 个 spec 里各写一份并已漂移 —— `settings-fit.spec.ts` 的偏好缺 `theme` / `contrast`，主题契约在那些 spec 里静默失义；现在 5 个 spec（`app` / `interaction` / `question-bank` / `reader-font-size` / `settings-fit` / `design-computed`）统一从 fixture 取。
+- **修掉一条自 E8 起就红的用例，并顺着它挖出一个真 bug（诚实记账）**：`app.spec.ts` 的「首次上传建库并导入」只 mock 了同步端点 `/api/kb/import`，而 E8 之后导入走 `POST /api/kb/imports` + 轮询，请求漏到真实后端报「Unknown or unregistered Bobodan library」。补上 mock 后立刻暴露 `src/hooks/useImportRun.ts` 的缺陷：`disposedRef` 只在 effect 清理里置 `true`、从不在挂载时复位，开发期 StrictMode 的「挂载 → 清理 → 再挂载」把它永久锁死，于是**开发模式下每次导入都在第一个进度快照处被当成已卸载、返回 `null`**，界面报「导入没有返回结果。」，进度条永远卡在 0/1。修法：effect 挂载时复位 `disposedRef`；回归探针是 `useImportRun.test.ts` 里 `wrapper: StrictMode` 那条（回退修复即变红，已实测验证）。
+- **两处手动保存表单位置统一（审查 P3）**：「我与学习」的「保存我的资料」也从分节底部搬到对话框底部 `.settings-dialog-footer`（与「保存助手设置」一致），`MeSection` 相应去掉 `saving` / `onSave` 两个只为放按钮而存在的 prop。
+- **首页输入区投影改用主题令牌（审查 P3）**：`.welcome-view .composer` 原来硬编码浅色墨色 `rgba(46,43,39,0.07)`，暗色下几乎看不见；改为 `var(--shadow-float)`（暗色有独立重定义），发丝外环保持不动。
+- **去掉脆弱等待 + 记下基础设施坑（审查 P3）**：L2 用例不再用固定 `page.waitForTimeout`，改为确定性等待（`.sidebar` 可见 → `document.fonts.ready` → 双 `requestAnimationFrame`）；`playwright.config.ts` 注明 `reuseExistingServer: true` 复用旧 dev server 时可能拿到过期 CSS、本地会出假阴性（2026-11-02 验证 L2-3 时踩过），改样式后需重跑确认。
+- **文档**：`docs/DESIGN.md` §16.3.3 更新 L2-2 / L2-4 的覆盖面与预算，并补两段 —— 用例共用 fixture 的理由、以及上面那个 StrictMode 导入缺陷的来龙去脉。
+- **验证**：`npx tsc --noEmit` **0** ✓、`npm run lint` **0** ✓、`vitest run` **53 文件 / 342 passed** ✓、`npm run build` **0** ✓、mock e2e 全项目 **120 passed / 36 skipped / 0 failed** ✓（三项目都含之前红的导入用例）。后端本轮只读未改，沿用上一次 **1860 passed** 的结果（未重跑，如实说明）。
 ### L2 计算样式契约补齐 L2-2 / L2-3 / L2-4，并登记 L2-5（2026-11-02，main 本地提交 ✓ 未推送）
 
 - **三条「🟡 待建」的 L2 契约补齐**：新增 `web/frontend/e2e/design-computed.spec.ts`（6 条用例，desktop **6 passed** ✓）——
