@@ -6,6 +6,9 @@ from datetime import datetime, timezone
 
 from .base import ToolResult, _is_within_workspace, _resolve_path, register_tool
 
+# E6.2：掌握度来源的人话标签（导出进用户笔记，不能说成系统自己算的）。
+_STATUS_SOURCE_LABELS = {"history": "作答历史推导", "manual": "手动标记", "stored": "旧快照", "none": "无记录"}
+
 
 def _format_concept_link(concept: str) -> str:
     """Wrap a concept name in Obsidian wikilink format."""
@@ -127,6 +130,7 @@ def obsidian_export_quiz_summary(
 ) -> ToolResult:
     """Export quiz summary (wrong answers, weakness analysis, mastery) to Obsidian Markdown."""
     from quiz.store import QuizStore
+    from learning.contract import mastery_states
     from learning.store import LearningStore
 
     resolved_vault = _resolve_path(vault_path, cwd)
@@ -139,7 +143,8 @@ def obsidian_export_quiz_summary(
     # Gather data
     wrong_answers = quiz_store.get_wrong_answers(limit=50)
     weakness = quiz_store.get_weakness_analysis()
-    all_mastery = learning_store.list_mastery(limit=200)
+    # E6.2：导出也走统一契约，避免把库里的旧 status/score 当成现状写进用户笔记。
+    all_mastery = mastery_states(learning_store)[:200]
 
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
@@ -225,8 +230,8 @@ def obsidian_export_quiz_summary(
     lines.append("## 掌握度概览")
     lines.append("")
     if all_mastery:
-        lines.append("| 知识点 | 状态 | 分数 |")
-        lines.append("|--------|------|------|")
+        lines.append("| 知识点 | 状态 | 掌握度 | 来源 |")
+        lines.append("|--------|------|--------|------|")
         for m in all_mastery:
             status_cn = {
                 "unseen": "未接触",
@@ -234,7 +239,7 @@ def obsidian_export_quiz_summary(
                 "mastered": "已掌握",
                 "needs_review": "需复习",
             }.get(m.status, m.status)
-            lines.append(f"| {_format_concept_link(m.concept)} | {status_cn} | {m.score:.2f} |")
+            lines.append(f"| {_format_concept_link(m.concept)} | {status_cn} | {m.mastery:.2f} | {_STATUS_SOURCE_LABELS.get(m.status_source, m.status_source)} |")
         lines.append("")
     else:
         lines.append("暂无掌握度数据。")

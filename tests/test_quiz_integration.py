@@ -1,6 +1,7 @@
 """Tests for learning.quiz_integration — quiz → mastery bridge."""
 
 from learning.quiz_integration import record_quiz_learning_effect, record_quiz_session_summary
+from learning.contract import mastery_state
 from learning.store import LearningStore
 from quiz.store import QuizStore
 from quiz.schema import Question, QuizAttempt
@@ -19,8 +20,12 @@ def test_record_quiz_learning_effect_updates_mastery(tmp_path):
     assert len(results) == 2
     concepts = {m.concept for m in results}
     assert concepts == {"二叉树", "排序"}
-    assert all(m.status == "learning" for m in results)
-    assert all(m.score > 0 for m in results)
+    store = LearningStore(ws)
+    for concept in ("二叉树", "排序"):
+        state = mastery_state(store, concept)
+        assert state.status == "learning"
+        assert state.status_source == "history"
+        assert state.mastery > 0
     assert all(m.review_count == 1 for m in results)
 
 
@@ -35,8 +40,8 @@ def test_record_quiz_learning_effect_wrong_answer(tmp_path):
     )
 
     assert len(results) == 1
-    assert results[0].status == "needs_review"
     assert results[0].consecutive_correct == 0
+    assert mastery_state(LearningStore(ws), "图算法").status == "needs_review"
 
 
 def test_record_quiz_learning_effect_two_correct_makes_mastered(tmp_path):
@@ -46,8 +51,8 @@ def test_record_quiz_learning_effect_two_correct_makes_mastered(tmp_path):
     results = record_quiz_learning_effect(ws, ["DP"], True, "正确")
 
     assert len(results) == 1
-    assert results[0].status == "mastered"
     assert results[0].consecutive_correct == 2
+    assert mastery_state(LearningStore(ws), "DP").status == "mastered"
 
 
 def test_record_quiz_learning_effect_keeps_legacy_daily_memory_read_only(tmp_path):
@@ -85,7 +90,7 @@ def test_record_quiz_learning_effect_independent_of_agent(tmp_path):
     store = LearningStore(ws)
     m = store.get_mastery("进程调度")
     assert m is not None
-    assert m.status == "needs_review"
+    assert mastery_state(store, "进程调度").status == "needs_review"
 
 
 def test_record_quiz_learning_effect_empty_concepts(tmp_path):
@@ -112,7 +117,7 @@ def test_record_quiz_learning_effect_multiple_calls_accumulate(tmp_path):
     m = results[0]
     assert m.review_count == 3
     assert m.consecutive_correct == 1  # reset after wrong, then 1 correct
-    assert m.status == "learning"
+    assert mastery_state(LearningStore(ws), "A").status == "learning"
 
 
 # --- P0-2: Session summary tests ---

@@ -219,7 +219,11 @@ export const practiceApi = {
   conceptMastery: (concept: string) => request<{
     concept: string;
     status?: string;
-    score?: number;
+    /** E6.2：状态来源，manual / history / stored / none。 */
+    status_source?: string;
+    mastery?: number;
+    mastery_source?: string;
+    evidence?: number;
     review_count?: number;
     next_review?: string | null;
   }>(`/api/learning/progress?concept=${encodeURIComponent(concept)}`),

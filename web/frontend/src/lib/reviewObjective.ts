@@ -15,6 +15,8 @@ export interface MasteryFields {
   mastery?: number;
   evidence?: number;
   mastery_source?: "history" | "stored" | string;
+  /** E6.2：状态来源（manual / history / stored / none），用来区分「你标的」和「算出来的」。 */
+  status_source?: "manual" | "history" | "stored" | "none" | string;
 }
 
 export function nextObjectiveText(objective?: NextObjective | null): string {
@@ -34,6 +36,10 @@ export function nextObjectiveText(objective?: NextObjective | null): string {
 
 export function masteryLabel(item: MasteryFields): string {
   if (typeof item.mastery !== "number") return "";
+  if (item.status_source === "manual") {
+    // 用户自己标的，不冒充系统推导；顺带说清它之后还有没有新证据。
+    return `掌握度 ${item.mastery}（你手动标记）`;
+  }
   if (item.mastery_source === "history") {
     const evidence = item.evidence || 0;
     return `掌握度 ${item.mastery}（${evidence} 次作答记录）`;

@@ -28,7 +28,10 @@ class TestMasteredStillDue:
         # Two consecutive correct answers → mastered
         scheduler.record_review("Dijkstra", correct=True)
         m = scheduler.record_review("Dijkstra", correct=True)
-        assert m.status == "mastered"
+        # E6.2：状态从证据推导（schedule 字段仍由调度器写）。
+        from learning.contract import mastery_state
+
+        assert mastery_state(store, "Dijkstra").status == "mastered"
         assert m.next_review is not None
 
         # Force the review date into the past, as if 7 days elapsed

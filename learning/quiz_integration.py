@@ -21,17 +21,21 @@ def record_quiz_learning_effect(
     is_correct: bool,
     feedback: str,
     verdict: str | None = None,
+    evidence_key: str | None = None,
 ) -> list[Mastery]:
     """Record quiz result into mastery tracking.
 
-    Updates mastery for each concept via ProgressTracker and returns the result.
+    Updates the review schedule for each concept and stores one piece of evidence.
+    ``evidence_key`` 是幂等键（E6.2）：同一练习会话里同一道题重复提交只算一次证据。
 
     This function is standalone — no dependency on Agent tool context.
     """
     store = LearningStore(workspace)
     scheduler = ReviewScheduler(store)
     tracker = ProgressTracker(store, scheduler)
-    results = tracker.update_from_quiz(question_concepts, is_correct, verdict)
+    results = tracker.update_from_quiz(
+        question_concepts, is_correct, verdict, evidence_key=evidence_key,
+    )
 
     logger.info(
         "Quiz learning effect recorded: concepts=%s correct=%s mastery_updated=%d",

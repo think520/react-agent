@@ -3,7 +3,8 @@
 import logging
 from datetime import datetime, timezone
 
-from .schema import LearningPlan, Mastery
+from .contract import mastery_state, mastery_states
+from .schema import MASTERY_MASTERED, LearningPlan
 from .store import LearningStore
 
 logger = logging.getLogger(__name__)
@@ -91,9 +92,12 @@ class PlanWorkflowTracker:
         return newly_completed
 
     def _is_topic_mastered(self, topic: str) -> bool:
-        """Check if a topic's mastery status is 'mastered'."""
-        m = self.store.get_mastery(topic)
-        return m is not None and m.status == "mastered"
+        """Check the **derived** status of a topic (E6.2).
+
+        计划步骤完成是一个业务判断，因此只能看推导状态：只有一条历史证据、
+        或用户手动标记、或旧快照，都不能让推导结果伪造成「已掌握」。
+        """
+        return mastery_state(self.store, topic).status == MASTERY_MASTERED
 
     def _all_steps_done(self, plan: LearningPlan, progress: dict) -> bool:
         """Check if every task in every step is completed.
@@ -202,13 +206,18 @@ class PlanWorkflowTracker:
 
         # Due reviews
         try:
-            from .scheduler import ReviewScheduler
-            scheduler = ReviewScheduler(self.store)
-            due = scheduler.get_due_concepts(limit=20)
+            now = datetime.now(timezone.utc).isoformat()
+            due = mastery_states(self.store)
             result["reviews"] = [
-                {"concept": m.concept, "score": round(m.score, 2), "status": m.status}
-                for m in due
-            ]
+                {
+                    "concept": item.concept,
+                    "mastery": item.mastery,
+                    "status": item.status,
+                    "evidence": item.evidence,
+                }
+                for item in due
+                if item.next_review and item.next_review <= now
+            ][:20]
         except Exception:
             pass
 

@@ -7,6 +7,7 @@ Covers the two inconsistencies found in the A0 reconciliation:
 
 from __future__ import annotations
 
+from learning.contract import mastery_state
 from learning.progress import ProgressTracker
 from learning.scheduler import ReviewScheduler
 from learning.store import LearningStore
@@ -19,18 +20,19 @@ def test_partial_verdict_keeps_concept_in_learning(tmp_path):
     results = tracker.update_from_quiz(["极限"], is_correct=False, verdict="partial")
 
     assert len(results) == 1
-    assert results[0].status == "learning"
     assert results[0].interval_days == 1
     assert results[0].consecutive_correct == 0
+    # E6.2：状态从证据推导 —— partial 是弱证据，不判错也不判掌握。
+    assert mastery_state(store, "极限").status == "learning"
 
 
 def test_incorrect_verdict_still_resets_to_needs_review(tmp_path):
     store = LearningStore(str(tmp_path))
     tracker = ProgressTracker(store, ReviewScheduler(store))
 
-    results = tracker.update_from_quiz(["极限"], is_correct=False, verdict="incorrect")
+    tracker.update_from_quiz(["极限"], is_correct=False, verdict="incorrect")
 
-    assert results[0].status == "needs_review"
+    assert mastery_state(store, "极限").status == "needs_review"
 
 
 def test_partial_does_not_compound_into_mastery(tmp_path):
@@ -40,8 +42,9 @@ def test_partial_does_not_compound_into_mastery(tmp_path):
     tracker.update_from_quiz(["极限"], is_correct=False, verdict="partial")
     again = tracker.update_from_quiz(["极限"], is_correct=False, verdict="partial")
 
-    assert again[0].status == "learning"
     assert again[0].consecutive_correct == 0
+    # 连续 partial 不应把概念推到已掌握（推导规则里 partial 不算连续答对）。
+    assert mastery_state(store, "极限").status == "learning"
 
 
 def _attempt(store, question, session, *, verdict, is_correct, answer="答"):

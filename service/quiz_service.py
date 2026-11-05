@@ -387,13 +387,15 @@ class QuizService:
                 is_correct=is_correct,
                 feedback=feedback,
                 verdict=verdict,
+                # E6.2：同一会话反复答同一道题只算一条证据。
+                evidence_key=f"quiz:{session_id}:{question_id}",
             )
+            from learning.contract import mastery_state
+            from learning.store import LearningStore
+            learning_store = LearningStore(self.workspace)
             mastery_changes = [
                 {
-                    "concept": item.concept,
-                    "status": item.status,
-                    "score": item.score,
-                    "next_review": item.next_review,
+                    **mastery_state(learning_store, item.concept).as_dict(),
                 }
                 for item in updated
             ]

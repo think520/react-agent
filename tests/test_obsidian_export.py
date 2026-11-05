@@ -241,7 +241,10 @@ def test_export_quiz_summary_mastery_overview(tmp_path):
 
     assert "## 掌握度概览" in content
     assert "[[概念X]]" in content
-    assert "| 知识点 | 状态 | 分数 |" in content
+    # E6.2：表格改成「掌握度 + 来源」，导出给用户看的不能是库里的旧快照值。
+    assert "| 知识点 | 状态 | 掌握度 | 来源 |" in content
+    assert "作答历史推导" in content
+    assert "学习中 | 0.50" in content
 
 
 def test_export_quiz_summary_empty_data(tmp_path):

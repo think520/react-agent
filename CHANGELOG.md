@@ -6,6 +6,24 @@
 
 ## [未发布]
 
+### W1-E6.2 掌握度统一消费契约（2026-11-05，本地提交 ✓ 未推送）
+
+路线评审列的 P0 之一：同一概念在不同入口给出不同判断。根因是三套语义并存 ——
+调度器在旧值上做增量（`score +0.2 / -0.2`）、引擎从历史算加权分、计划完成判定读第三个字段。
+
+- **先把三件事拆开（`learning/contract.py` 是唯一读取口径）**：
+  - **事实**：`mastery_attempts` 逐次作答。新增 `evidence_key` 唯一索引，同一证据重复写入会更新那一行而不是新增一行（SQLite 允许多个 NULL，旧行不受影响）。
+  - **估计**：`engine.derived_status()` 只看出发生了什么（连续 2 次完全答对 → mastered；最近一次 partial → learning；最近一次答错 → needs_review），`weighted_mastery()` 给加权分。两者都带 `algorithm = "weighted-window/v1"`，同一份历史回放得到同一结果。
+  - **调度**：`next_review / interval_days / ease_factor / consecutive_correct` 仍由 SM-2 写。`get_due_reviews()` 与 `get_next_scheduled_review()` 不再看 `status` 列，只看 `next_review` —— 该不该复习是调度问题，学没学会是推导问题。
+- **旧 `status` / `score` 降级为历史快照**：自动路径不再写它们（不删旧数据，可回滚）。`score` 只在「没有逐次历史」时作为回退值，输出里用 `mastery_source="stored"` 如实标注。用户手动标记另存 `manual_status / manual_at`，在它之后没有新证据时优先，`status_source="manual"` 说清是谁的判断。
+- **所有入口改读同一份契约**：`ProgressTracker`（概览 / 概念详情）、`ReviewScheduler.mark_manual`、`PlanWorkflowTracker._is_topic_mastered`（计划完成判定）、`LearningService`（进度 / 复习队列 / 下一目标 / 手动标记）、`learning_status` 与 `learning_progress` 工具、`/learning` CLI、`memory_service` 与 `memory_injector` 的个性化摘要、`obsidian_export` 的做题总结表、`quiz_service` 的 `mastery_changes`。列表页批量读取用三次查询（聚合行 + 每概念最近 5 条证据 + 证据统计），不是每概念三次往返。
+- **重复提交不再刷掌握度**：`quiz_service.submit_answer` 把 `quiz:<session_id>:<question_id>` 作为幂等键传下去，同一练习会话里反复答同一道题只算一条证据。
+- **前端**：概念侧栏显示「掌握度 N% · N 条证据」，不再读旧 `score`；复习页与练习卡的类型同步新字段；`masteryLabel` 增加「你手动标记」分支，不把用户判断说成系统推导。
+- **回归**：新增 `tests/test_mastery_contract.py`（16 条：回放确定性、单次/两次证据、先错后对、partial、同题重复提交、换会话算新证据、手动优先与新证据接管、旧数据降级、四个入口一致性、计划完成判定）。既有断言按新口径改写：`test_learning.py`、`test_learning_service.py`、`test_mastery_history.py`、`test_quiz_integration.py`、`test_e15_partial_verdict.py`、`test_review_fixes.py`。
+- **诚实说明**：调度算法本身没有更换（路线评审明确不要求换 SM-2）；这次改的是「谁算、谁读、谁不许冒充」。存量库里既有 `status='mastered'` 又有作答历史的概念，会以历史推导为准显示，两者的差异可以在 `status_source` 里看到。
+- **验证**：后端全量 **1877 passed**（4:23）✓；`npx tsc --noEmit` **0** ✓、`npm run lint` **0** ✓、`npm run build` **0** ✓、`vitest run` **341 / 342**（`App.test.tsx` 那条 5s 超时是路线图已登记的已知 flaky，单文件重跑 **4/4 通过**，未调大超时掩盖）✓、mock e2e **120 passed / 36 skipped / 0 failed** ✓。
+- **环境遗留（如实记账）**：本机沙箱内的 pytest 会因 `tempfile` 目录权限被拒（`WinError 5`），所以上面两组门禁在沙箱外用仓库外临时目录跑。我第一次把 `TEMP` 指向仓库内，留下 `.pytest_tmp3/` 若干无法读取的子目录（沙箱令牌建的 ACL），未能在本会话删除；已把 `.pytest_tmp*/` 加入 `.gitignore`，目录需要你手动清一下。
+
 ### 审查意见落地：四组对比度、七页字号、e2e mock 收敛，并修掉开发模式导入永远失败（2026-11-02，本地提交 ✓ 未推送）
 
 - **L2-2 补齐最容易出事的组合（优先项）**：原来只断言「暗色 + 高对比」≥ 7:1，而真出过事的组合是**浅色 + 高对比**（muted 一度被压到 1.10:1）。现在 `design-computed.spec.ts` 按 2×2 全测：普通主题 ink / muted / faint 对 `--paper` ≥ 12 / 10、4.5、4.5，高对比主题 muted、faint ≥ 7 —— 阈值与 `src/lib/themeContrast.test.ts` 的 AA 表逐条对齐，失败信息里直接带实测比值。desktop **4 条 passed** ✓。

@@ -12,6 +12,7 @@ from typing import Any
 from learning.store import LearningStore
 from learning.scheduler import ReviewScheduler
 from learning.schema import MASTERY_LEARNING, MASTERY_MASTERED, MASTERY_NEEDS_REVIEW
+from learning.contract import mastery_state, mastery_states, state_from_row
 from learning.progress import ProgressTracker
 from learning.path import LearningPathGenerator
 from learning.workflow import PlanWorkflowTracker
@@ -98,54 +99,39 @@ class LearningService:
         due = scheduler.get_due_concepts(limit=limit)
         concepts = []
         for m in due:
+            state = state_from_row(store, m)
             concepts.append({
-                "concept": m.concept,
-                "status": m.status,
-                "score": m.score,
-                "consecutive_correct": m.consecutive_correct,
+                "concept": state.concept,
+                "status": state.status,
+                "status_source": state.status_source,
+                "mastery": state.mastery,
+                "mastery_source": state.mastery_source,
+                "evidence": state.evidence,
+                "next_review": state.next_review,
             })
         return _ok(count=len(due), concepts=concepts)
 
-    # --- W1 E6：掌握度引擎接线 ---
+    # --- W1 E6 / E6.2：掌握度引擎接线 ---
 
     ATTEMPT_WINDOW = 5
 
-    def _derived_mastery(self, record: dict[str, Any], store: LearningStore) -> dict[str, Any]:
-        """给队列条目补上「推导出来的掌握度」。
+    def _state_fields(self, record: dict[str, Any], store: LearningStore) -> dict[str, Any]:
+        """给任意「带 concept 的条目」补上统一契约字段。
 
-        - 有逐次历史 → 用纯函数引擎算（并给出证据条数）；
-        - 老数据没有历史 → 退回存量 score，但**如实标注** «mastery_source="stored"»，
-          不把存量冒充推导结果。
+        合并规则：推导结果**覆盖**条目里的旧字段（例如队列里带的 score），
+        但不会删掉本来就在的无关字段（question_ids / last_attempt_id 之类）。
         """
-        from learning.engine import weighted_mastery
-
-        concept = str(record.get("concept") or "")
-        history = store.recent_mastery_attempts(concept, limit=self.ATTEMPT_WINDOW) if concept else []
-        if history:
-            return {
-                **record,
-                "mastery": weighted_mastery(history),
-                "evidence": len(history),
-                "mastery_source": "history",
-            }
-        return {
-            **record,
-            "mastery": round(float(record.get("score") or 0.0), 4),
-            "evidence": 0,
-            "mastery_source": "stored",
-        }
+        state = state_from_row(store, record)
+        merged = {**record, **state.as_dict()}
+        # 旧口径的 score 不再向外传递：它与 mastery 两个名字容易读混。
+        merged.pop("score", None)
+        return merged
 
     def mastery_overview(self, limit: int = 5) -> dict[str, Any]:
-        """掌握度总览（W1 E6）：最弱的几个概念 + **推导**分数，并标注来源。
-
-        «list_mastery» 按分数升序 —— 最需要推进的排在最前面。
-        """
+        """掌握度总览（W1 E6）：最弱的几个概念 + **推导**分数，并标注来源。"""
         store = LearningStore(self.workspace)
-        rows = store.list_mastery(limit=max(1, int(limit)))
-        return _ok(overview=[
-            self._derived_mastery({"concept": row.concept, "score": row.score, "status": row.status}, store)
-            for row in rows
-        ])
+        states = mastery_states(store, limit=max(1, int(limit)))
+        return _ok(overview=[state.as_dict() for state in states])
 
     def get_next_objective(self) -> dict[str, Any] | None:
         """今天下一件该做的事（纯函数引擎给优先级）。
@@ -165,8 +151,11 @@ class LearningService:
                 "prompt": prompt,
             }
         store = LearningStore(self.workspace)
+        # 只看推导状态：旧快照里的「已掌握」不算数。
         unmastered = [
-            row.concept for row in store.list_mastery(limit=50) if row.status != MASTERY_MASTERED
+            state.concept
+            for state in mastery_states(store)
+            if state.status != MASTERY_MASTERED
         ]
         return next_objective(
             pending_question=pending_payload,
@@ -195,15 +184,15 @@ class LearningService:
         # W1 E9：带上"最近一次答错是哪次"，让界面能走 E3 已交付的**变式**通道，
         # 而不是把原题重放一遍（变式通道只认 attempt_id）。
         due_concepts = [
-            self._derived_mastery({
+            {
                 **record,
                 "question_ids": quiz_store.find_question_ids_by_concept(record["concept"]),
                 "last_attempt_id": quiz_store.last_wrong_attempt_id_for_concept(record["concept"]),
-            }, learning_store)
+            }
             for record in due_result.get("concepts", [])
         ]
         weaknesses = [
-            self._derived_mastery({
+            self._state_fields({
                 **record,
                 "question_ids": quiz_store.find_question_ids_by_concept(record["concept"]),
                 "last_attempt_id": quiz_store.last_wrong_attempt_id_for_concept(record["concept"]),
@@ -219,7 +208,7 @@ class LearningService:
             next_review=(
                 {
                     "concept": next_review.concept,
-                    "status": next_review.status,
+                    "status": mastery_state(learning_store, next_review.concept).status,
                     "next_review": next_review.next_review,
                 }
                 if next_review else None
@@ -237,11 +226,15 @@ class LearningService:
             return _err(f"Invalid status: {status}. Use: {', '.join(sorted(self._VALID_STATUSES))}")
         store = LearningStore(self.workspace)
         scheduler = ReviewScheduler(store)
-        m = scheduler.mark_manual(concept, status)
+        scheduler.mark_manual(concept, status)
+        state = mastery_state(store, concept)
         return _ok(
-            concept=m.concept,
-            status=m.status,
-            score=m.score,
+            concept=state.concept,
+            status=state.status,
+            status_source=state.status_source,
+            mastery=state.mastery,
+            mastery_source=state.mastery_source,
+            evidence=state.evidence,
         )
 
     # --- Plans ---

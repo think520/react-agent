@@ -5,6 +5,17 @@ from .base import register_tool, ToolResult
 
 logger = logging.getLogger(__name__)
 
+_STATUS_SOURCE_LABELS = {
+    "history": "由作答历史推导",
+    "manual": "你手动标记的",
+    "stored": "旧快照，没有逐次记录",
+    "none": "尚无记录",
+}
+
+
+def _status_source_label(source: str | None) -> str:
+    return _STATUS_SOURCE_LABELS.get(str(source or ""), "来源未知")
+
 
 def learning_path(
     goal: str,
@@ -75,10 +86,14 @@ def learning_status(workspace: str = ".") -> ToolResult:
             lines.append("")
             lines.append("掌握度（最近 5 次作答加权；证据越少越保守）：")
             for item in mastery:
-                if item.get("mastery_source") == "history":
-                    lines.append(f"- {item['concept']}：{item['mastery']}（{item.get('evidence', 0)} 次作答记录）")
-                else:
-                    lines.append(f"- {item['concept']}：{item['mastery']}（存量分数，没有逐次记录）")
+                source = item.get("status_source")
+                suffix = "已有新作答，以推导为准" if source == "history" else (
+                    "来自你的手动标记" if source == "manual" else "存量分数，没有逐次记录"
+                )
+                lines.append(
+                    f"- {item['concept']}：{item['status']} / 掌握度 {item['mastery']}"
+                    f"（{item.get('evidence', 0)} 次作答记录，{suffix}）"
+                )
 
         return ToolResult(ok=True, content="\n".join(lines), data={
             "next_objective": objective,
@@ -106,11 +121,9 @@ def learning_progress(
         if concept:
             lines = [
                 f"知识点: {result['concept']}",
-                f"状态: {result['status']}",
-                f"掌握度: {result['score']:.0%}",
+                f"状态: {result['status']}（{_status_source_label(result.get('status_source'))}）",
+                f"掌握度: {result['mastery']:.0%}（{result.get('evidence', 0)} 次作答记录）",
                 f"复习次数: {result['review_count']}",
-                f"连续正确: {result['consecutive_correct']}",
-                f"来源: {result['source']}",
             ]
             if result.get("next_review"):
                 lines.append(f"下次复习: {result['next_review'][:16]}")
@@ -122,19 +135,19 @@ def learning_progress(
         lines = [
             f"学习进度概览",
             f"已跟踪知识点: {result['total_concepts']}",
-            f"平均掌握度: {result['average_score']:.0%}",
+            f"平均掌握度: {result['average_mastery']:.0%}",
             f"状态分布: {json.dumps(result['by_status'], ensure_ascii=False)}",
         ]
 
         if result.get("weakest"):
             lines.append("\n最薄弱知识点:")
             for w in result["weakest"]:
-                lines.append(f"  - {w['concept']}: {w['score']:.0%} ({w['status']})")
+                lines.append(f"  - {w['concept']}: {w['mastery']:.0%} ({w['status']})")
 
         if result.get("strongest"):
             lines.append("\n掌握最好:")
             for s in result["strongest"]:
-                lines.append(f"  - {s['concept']}: {s['score']:.0%} ({s['status']})")
+                lines.append(f"  - {s['concept']}: {s['mastery']:.0%} ({s['status']})")
 
         return ToolResult(ok=True, content="\n".join(lines), data=result)
     except Exception as e:
@@ -156,7 +169,10 @@ def learning_review(
 
         lines = [f"今日复习清单 ({result['count']} 个知识点):\n"]
         for i, r in enumerate(result["concepts"], 1):
-            lines.append(f"{i}. {r['concept']} — 掌握度 {r['score']:.0%}, 连续正确 {r['consecutive_correct']}")
+            lines.append(
+                f"{i}. {r['concept']} — {r['status']}, 掌握度 {r['mastery']:.0%}"
+                f"（{r.get('evidence', 0)} 次作答记录）"
+            )
 
         lines.append("\n使用 quiz_start 开始针对性练习。")
         return ToolResult(ok=True, content="\n".join(lines), data={"due_count": result["count"], "concepts": [r["concept"] for r in result["concepts"]]})
@@ -206,7 +222,7 @@ def learning_plan_progress(
             if today["reviews"]:
                 lines.append(f"复习清单 ({len(today['reviews'])} 个知识点):")
                 for i, r in enumerate(today["reviews"], 1):
-                    lines.append(f"  {i}. {r['concept']} — 掌握度 {r['score']:.0%} ({r['status']})")
+                    lines.append(f"  {i}. {r['concept']} — 掌握度 {r['mastery']:.0%} ({r['status']})")
 
             return ToolResult(ok=True, content="\n".join(lines), data=today)
 

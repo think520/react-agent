@@ -1290,7 +1290,7 @@ class REPL:
             print()
             print("  \033[1;37m今日复习清单:\033[0m")
             for item in result["concepts"]:
-                print(f"    [{item['status']}] {item['concept']} (score: {item['score']:.1f})")
+                print(f"    [{item['status']}] {item['concept']} (掌握度 {item['mastery']:.2f}, {item.get('evidence', 0)} 条证据)")
             print()
         except Exception as e:
             print_error(f"获取复习清单失败: {e}")
@@ -2531,11 +2531,10 @@ class REPL:
         if concept:
             lines = [
                 f"知识点: {result['concept']}",
-                f"状态: {result['status']}",
-                f"掌握度: {result['score']:.0%}",
+                f"状态: {result['status']}（{result.get('status_source', '')}）",
+                f"掌握度: {result['mastery']:.0%}",
                 f"复习次数: {result['review_count']}",
-                f"连续正确: {result['consecutive_correct']}",
-                f"来源: {result['source']}",
+                f"作答证据: {result.get('evidence', 0)} 条",
             ]
             if result.get("next_review"):
                 lines.append(f"下次复习: {result['next_review'][:16]}")
@@ -2546,17 +2545,17 @@ class REPL:
             lines = [
                 f"学习进度概览",
                 f"已跟踪知识点: {result['total_concepts']}",
-                f"平均掌握度: {result['average_score']:.0%}",
+                f"平均掌握度: {result['average_mastery']:.0%}",
                 f"状态分布: {json.dumps(result['by_status'], ensure_ascii=False)}",
             ]
             if result.get("weakest"):
                 lines.append("\n最薄弱知识点:")
                 for w in result["weakest"]:
-                    lines.append(f"  - {w['concept']}: {w['score']:.0%} ({w['status']})")
+                    lines.append(f"  - {w['concept']}: {w['mastery']:.0%} ({w['status']})")
             if result.get("strongest"):
                 lines.append("\n掌握最好:")
                 for s in result["strongest"]:
-                    lines.append(f"  - {s['concept']}: {s['score']:.0%} ({s['status']})")
+                    lines.append(f"  - {s['concept']}: {s['mastery']:.0%} ({s['status']})")
 
         print()
         print_markdown("\n".join(lines))
@@ -2572,7 +2571,7 @@ class REPL:
         print()
         print(f"  \033[1;37m今日复习清单 ({result['count']} 个知识点):\033[0m\n")
         for i, r in enumerate(result["concepts"], 1):
-            print(f"  {i}. {r['concept']} — 掌握度 {r['score']:.0%}, 连续正确 {r['consecutive_correct']}")
+            print(f"  {i}. {r['concept']} — 掌握度 {r['mastery']:.0%} ({r['status']}, {r.get('evidence', 0)} 条证据)")
         print("\n  使用 quiz_start 开始针对性练习。")
 
     def handle_learning_today(self):
@@ -2600,7 +2599,7 @@ class REPL:
         if today["reviews"]:
             print(f"  \033[1;37m复习清单 ({len(today['reviews'])} 个知识点):\033[0m")
             for i, r in enumerate(today["reviews"], 1):
-                print(f"    {i}. {r['concept']} — 掌握度 {r['score']:.0%} ({r['status']})")
+                print(f"    {i}. {r['concept']} — 掌握度 {r['mastery']:.0%} ({r['status']})")
             print()
 
     def handle_learning_mark(self, args: list[str]):
@@ -2620,7 +2619,7 @@ class REPL:
         try:
             svc = LearningService(self.session.workspace_root)
             result = svc.mark_mastery(concept, status)
-            print_success(f"Marked '{result['concept']}' as {result['status']} (score: {result['score']:.0%})")
+            print_success(f"Marked '{result['concept']}' as {result['status']} (mastery: {result['mastery']:.0%})")
         except Exception as e:
             print_error(f"Failed to mark concept: {e}")
 

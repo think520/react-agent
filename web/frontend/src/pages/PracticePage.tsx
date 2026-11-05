@@ -31,7 +31,7 @@ interface AnswerResult {
   explanation: string;
   attribution?: PracticeSession["questions"][number]["attribution"];
   session_completed: boolean;
-  mastery_changes?: Array<{ concept?: string; status?: string; score?: number }>;
+  mastery_changes?: Array<{ concept?: string; status?: string; status_source?: string; mastery?: number; evidence?: number }>;
   progress: PracticeSession["progress"];
 }
 

@@ -6,6 +6,7 @@ from learning.schema import Mastery, LearningPlan
 from learning.store import LearningStore
 from learning.scheduler import ReviewScheduler
 from learning.progress import ProgressTracker
+from learning.contract import mastery_state
 from learning.path import LearningPathGenerator
 
 
@@ -140,11 +141,16 @@ def test_scheduler_record_correct(tmp_path):
     scheduler = ReviewScheduler(store)
 
     m = scheduler.record_review("二叉树", correct=True)
-    assert m.status == "learning"
+    # E6.2：调度器只写调度；状态与掌握度由契约从证据推导。
     assert m.consecutive_correct == 1
-    assert m.score > 0
     assert m.next_review is not None
     assert m.interval_days == 1
+
+    state = mastery_state(store, "二叉树")
+    assert state.status == "learning"
+    assert state.status_source == "history"
+    assert state.mastery == 0.5  # 一次证据被置信缩放打折
+    assert state.evidence == 1
 
 
 def test_scheduler_two_correct_makes_mastered(tmp_path):
@@ -153,10 +159,13 @@ def test_scheduler_two_correct_makes_mastered(tmp_path):
 
     scheduler.record_review("堆", correct=True)
     m = scheduler.record_review("堆", correct=True)
-    assert m.status == "mastered"
     assert m.consecutive_correct == 2
     assert m.interval_days == 6
-    assert m.score >= 0.3
+
+    state = mastery_state(store, "堆")
+    assert state.status == "mastered"
+    assert state.status_source == "history"
+    assert state.mastery == 0.8
 
 
 def test_scheduler_wrong_resets_consecutive(tmp_path):
@@ -166,18 +175,24 @@ def test_scheduler_wrong_resets_consecutive(tmp_path):
     scheduler.record_review("图", correct=True)
     m = scheduler.record_review("图", correct=False)
     assert m.consecutive_correct == 0
-    assert m.status == "needs_review"
     assert m.interval_days == 1
     assert m.ease_factor < 2.5
-    assert m.score < 0.5
+
+    state = mastery_state(store, "图")
+    assert state.status == "needs_review"
+    assert 0 < state.mastery < 0.5
 
 
-def test_scheduler_wrong_decreases_score(tmp_path):
+def test_wrong_answer_lowers_derived_mastery(tmp_path):
     store = LearningStore(str(tmp_path))
     scheduler = ReviewScheduler(store)
 
-    m = scheduler.record_review("哈希", correct=False)
-    assert m.score == 0.0  # can't go below 0
+    scheduler.record_review("哈希", correct=True)
+    after_correct = mastery_state(store, "哈希").mastery
+    scheduler.record_review("哈希", correct=False)
+    after_wrong = mastery_state(store, "哈希").mastery
+
+    assert after_wrong < after_correct
 
 
 def test_scheduler_get_due_concepts(tmp_path):
@@ -196,9 +211,14 @@ def test_scheduler_mark_manual(tmp_path):
     scheduler = ReviewScheduler(store)
 
     m = scheduler.mark_manual("DP", "mastered")
-    assert m.status == "mastered"
+    assert m.manual_status == "mastered"
+    assert m.manual_at
     assert m.source == "manual"
-    assert m.score >= 0.8
+
+    state = mastery_state(store, "DP")
+    assert state.status == "mastered"
+    assert state.status_source == "manual"
+    assert state.mastery >= 0.8
 
 
 # --- Progress tests ---
@@ -232,7 +252,7 @@ def test_progress_update_from_quiz(tmp_path):
 
     results = progress.update_from_quiz(["概念X", "概念Y"], is_correct=True)
     assert len(results) == 2
-    assert all(m.score > 0 for m in results)
+    assert all(mastery_state(store, m.concept).mastery > 0 for m in results)
 
 
 def test_progress_concept_detail(tmp_path):

@@ -145,6 +145,7 @@ web/frontend/         React 桌面 UI；Zustand 管理跨页状态；路由按�
 - 批改解析失败重试一次；仍失败返回 `grading_unavailable`，不能记为答错。
 - 错题重练使用“原题 + 用户错误答案 + 原文证据”生成不同问法，不能只重放原题。
 - 复习调度使用保守 SM-2：首次 1 天、第二次 6 天、之后按 ease factor 增长；答错重置为 1 天，ease 最低 1.3。
+- 掌握度只有一个读取口径：`learning/contract.py`。事实是 `mastery_attempts`（`evidence_key` 幂等），估计是 `engine` 的纯函数（带 `algorithm` 版本），调度是 SM-2 的 `next_review`。库里的 `mastery.status` / `mastery.score` 只是历史快照与无历史时的回退值，不得用于判断；手动标记存 `manual_status` / `manual_at`。
 
 ### Provider
 

@@ -124,11 +124,11 @@ class LearningPathGenerator:
         overview = self.progress.get_overview()
         if overview["total_concepts"] == 0:
             return ""
-        lines = [f"已跟踪 {overview['total_concepts']} 个知识点，平均掌握度 {overview['average_score']:.0%}"]
+        lines = [f"已跟踪 {overview['total_concepts']} 个知识点，平均掌握度 {overview['average_mastery']:.0%}"]
         if overview["weakest"]:
             lines.append("最薄弱:")
             for w in overview["weakest"]:
-                lines.append(f"  - {w['concept']}: {w['score']:.0%}")
+                lines.append(f"  - {w['concept']}: {w['mastery']:.0%}")
         return "\n".join(lines)
 
     def _get_course_info(self, workspace: str, course: str | None = None) -> str:

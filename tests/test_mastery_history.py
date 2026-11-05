@@ -58,7 +58,11 @@ def test_history_keeps_concepts_apart(tmp_path):
 
 
 def test_the_aggregate_still_updates(tmp_path):
-    """补历史不能改变既有调度行为（SM-2 聚合照旧）。"""
+    """补历史不能改变既有调度行为（SM-2 聚合照旧）。
+
+    E6.2 之后：调度字段（间隔/连续计数）仍然由调度器写；
+    掌握状态不再是聚合字段，而是从历史推导。
+    """
     store = LearningStore(str(tmp_path))
     scheduler = ReviewScheduler(store)
 
@@ -68,5 +72,10 @@ def test_the_aggregate_still_updates(tmp_path):
     assert m.review_count == 2, m
     assert m.consecutive_correct == 2, m
     assert m.interval_days == 6, m
-    assert m.status == "mastered", m
     assert len(store.recent_mastery_attempts("堆")) == 2
+
+    from learning.contract import mastery_state
+
+    state = mastery_state(store, "堆")
+    assert state.status == "mastered", state
+    assert state.status_source == "history", state

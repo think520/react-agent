@@ -54,7 +54,7 @@ def test_get_progress_overview_with_data(store, svc):
     result = svc.get_progress()
     assert result["ok"]
     assert result["total_concepts"] == 2
-    assert 0 < result["average_score"] < 1
+    assert 0 < result["average_mastery"] < 1
 
 
 def test_get_progress_concept_found(store, svc):
@@ -64,7 +64,10 @@ def test_get_progress_concept_found(store, svc):
     assert result["ok"]
     assert result["concept"] == "进程调度"
     assert result["status"] == "mastered"
-    assert result["score"] == 0.9
+    # E6.2：没有逐次历史 → 状态与分数都回退到存量，并如实标注来源。
+    assert result["status_source"] == "stored"
+    assert result["mastery"] == 0.9
+    assert result["mastery_source"] == "stored"
 
 
 def test_get_progress_concept_not_found(svc):
@@ -122,12 +125,15 @@ def test_get_review_queue_aggregates_learning_and_quiz_data(store, svc, monkeypa
     assert result["wrong_answers"] == [{"question_id": 1}]
     # W1 E9：队列要带上"最近一次答错是哪次"（这里没有作答历史 → None）。
     # W1 E6：还要带上推导出来的掌握度，并说明来源（这里是存量分数 → stored）。
-    assert result["weaknesses"] == [
-        {
-            "concept": "A", "question_ids": [question_id], "last_attempt_id": None,
-            "mastery": 0.0, "evidence": 0, "mastery_source": "stored",
-        },
-    ]
+    weakness = result["weaknesses"][0]
+    assert weakness["concept"] == "A"
+    assert weakness["question_ids"] == [question_id]
+    assert weakness["last_attempt_id"] is None
+    assert weakness["mastery"] == 0.0
+    assert weakness["evidence"] == 0
+    assert weakness["mastery_source"] == "stored"
+    # E6.2：队列不再向界面透传旧口径的 score，避免两个"分数"并存。
+    assert "score" not in weakness
     assert result["due_concepts"][0]["last_attempt_id"] is None
     assert result["due_concepts"][0]["mastery_source"] == "stored"
 
@@ -217,7 +223,8 @@ def test_mark_mastery(svc):
     assert result["ok"]
     assert result["concept"] == "新知识点"
     assert result["status"] == "mastered"
-    assert result["score"] >= 0.8
+    assert result["status_source"] == "manual"
+    assert result["mastery"] >= 0.8
 
 
 def test_mark_mastery_learning(svc):

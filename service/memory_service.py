@@ -193,8 +193,10 @@ class MemoryService:
             })
 
         try:
+            from learning.contract import mastery_states
             from learning.store import LearningStore
-            mastery = LearningStore(self.workspace).list_mastery(limit=30)
+            # E6.2：个性化上下文里的「薄弱点」也走统一契约，不再读库里的旧 status/score。
+            mastery = mastery_states(LearningStore(self.workspace), limit=30)
             normalized_query = query.casefold()
             asks_for_status = any(word in normalized_query for word in ("复习", "练习", "薄弱", "掌握", "review", "practice"))
             relevant_mastery = [
@@ -207,14 +209,14 @@ class MemoryService:
                 relevant_mastery,
                 key=lambda item: (
                     0 if item.concept.casefold() in normalized_query else 1,
-                    item.score,
+                    item.mastery,
                     item.updated_at,
                 ),
             )[:5]
             if ranked:
                 lines.append("掌握度摘要：")
             for item in ranked:
-                line = f"- {item.concept}: {item.status}, {round(item.score * 100)}%"
+                line = f"- {item.concept}: {item.status}, {round(item.mastery * 100)}%"
                 if used + len(line) > max_chars:
                     break
                 lines.append(line)
@@ -224,7 +226,7 @@ class MemoryService:
                     "title": item.concept,
                     "scope": "library",
                     "kind": "mastery",
-                    "content": f"{item.status}, {round(item.score * 100)}%",
+                    "content": f"{item.status}, {round(item.mastery * 100)}%",
                     "updated_at": item.updated_at,
                 })
         except Exception:

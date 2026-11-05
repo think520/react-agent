@@ -58,9 +58,12 @@ export function ConceptSidebar({ conceptId, onClose, onConceptUpdated, onNavigat
   const [allConcepts, setAllConcepts] = useState<ConceptNode[]>([]);
   const [busy, setBusy] = useState(false);
   // Live mastery for this concept (null = 尚未练习).
+  // E6.2：显示推导出来的 mastery，而不是库里那份旧 score。
   const [mastery, setMastery] = useState<{
     status?: string;
-    score?: number;
+    status_source?: string;
+    mastery?: number;
+    evidence?: number;
     next_review?: string | null;
   } | null>(null);
   const sidebarRef = useRef<HTMLElement>(null);
@@ -72,7 +75,7 @@ export function ConceptSidebar({ conceptId, onClose, onConceptUpdated, onNavigat
     if (!conceptName) return;
     let cancelled = false;
     void api.conceptMastery(conceptName)
-      .then((result) => { if (!cancelled) setMastery({ status: result.status, score: result.score, next_review: result.next_review }); })
+      .then((result) => { if (!cancelled) setMastery({ status: result.status, status_source: result.status_source, mastery: result.mastery, evidence: result.evidence, next_review: result.next_review }); })
       .catch(() => { if (!cancelled) setMastery(null); });
     return () => { cancelled = true; };
   }, [conceptName]);
@@ -370,7 +373,7 @@ export function ConceptSidebar({ conceptId, onClose, onConceptUpdated, onNavigat
             <div className="mastery-row">
               <BookOpen size={14} />
               <span className="mastery-label">{masteryText}</span>
-              {mastery?.score !== undefined && <small className="mastery-score">评分 {Math.round(mastery.score * 100)}%</small>}
+              {mastery?.mastery !== undefined && <small className="mastery-score">掌握度 {Math.round(mastery.mastery * 100)}%{mastery.evidence ? ` · ${mastery.evidence} 条证据` : ""}</small>}
               {mastery?.next_review && <small className="mastery-next">下次复习 {new Date(mastery.next_review).toLocaleDateString("zh-CN")}</small>}
               <a href="/practice" className="btn-sm btn-ghost mastery-practice"><PenLine size={13} />生成练习题</a>
             </div>

@@ -12,8 +12,22 @@ from __future__ import annotations
 
 from typing import Any, Iterable
 
+from .schema import (
+    MASTERY_LEARNING,
+    MASTERY_MASTERED,
+    MASTERY_NEEDS_REVIEW,
+    MASTERY_UNSEEN,
+)
+
+# E6.2：推导算法的版本号。历史可回放，结果要能说明是哪一版算出来的 ——
+# 改权重、改阈值、改三态处理都必须同时改这个字符串。
+MASTERY_ALGORITHM_VERSION = "weighted-window/v1"
+
 # 近 5 次，新 → 旧（越近权重越大）。
 ATTEMPT_WEIGHTS: tuple[float, ...] = (0.4, 0.25, 0.15, 0.12, 0.08)
+
+# 「已掌握」要求连续几次**完全答对**（partial 打断连续，见 E15 三态口径）。
+MASTERED_STREAK = 2
 
 # 置信缩放：证据越少，越不许声称"掌握"。3 次及以上才允许满分。
 # 注意这里是**按比例打折**而不是单纯取上界 —— 若取上界，单次答对与单次"基本正确"
@@ -46,6 +60,52 @@ def weighted_mastery(attempts: Iterable[dict[str, Any]]) -> float:
     earned = sum(weight * _credit(row) for row, weight in zip(window, weights))
     score = (earned / total_weight) * CONFIDENCE_SCALE.get(len(window), 1.0)
     return round(min(1.0, score), 4)
+
+
+def _verdict(attempt: dict[str, Any]) -> str:
+    return str(attempt.get("verdict") or "").strip().lower()
+
+
+def _is_full_credit(attempt: dict[str, Any]) -> bool:
+    """partial 既不算对也不算错，因此不参与「连续答对」的计数。"""
+    if _verdict(attempt) == "partial":
+        return False
+    return bool(int(attempt.get("is_correct") or 0))
+
+
+def correct_streak(attempts: Iterable[dict[str, Any]]) -> int:
+    """从最新一次往前数，连续「完全答对」的次数。«attempts» 新 → 旧。"""
+    streak = 0
+    for attempt in attempts:
+        if not _is_full_credit(attempt):
+            break
+        streak += 1
+    return streak
+
+
+def derived_status(attempts: Iterable[dict[str, Any]]) -> str:
+    """由作答历史推导业务状态。«attempts» 新 → 旧，空历史返回 «unseen»。
+
+    规则（与调度无关，只看发生了什么）：
+    - 连续 2 次完全答对 → mastered
+    - 最近一次完全答对（连续只有 1 次）→ learning
+    - 最近一次 partial → learning（弱证据，不判错）
+    - 最近一次答错 → needs_review
+
+    这条规则刻意与旧计数器的语义对齐（consecutive_correct ≥ 2 → 已掌握），
+    区别在于它从事件历史算出来，可回放、可单测，不依赖上一次写入的值。
+    """
+    rows = list(attempts)
+    if not rows:
+        return MASTERY_UNSEEN
+    streak = correct_streak(rows)
+    if streak >= MASTERED_STREAK:
+        return MASTERY_MASTERED
+    if streak >= 1:
+        return MASTERY_LEARNING
+    if _verdict(rows[0]) == "partial":
+        return MASTERY_LEARNING
+    return MASTERY_NEEDS_REVIEW
 
 
 def next_objective(

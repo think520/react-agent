@@ -16,8 +16,7 @@ __pycache__/
 *.pyo
 .pytest_cache/
 .pytest_cache_local/
-.pytest_tmp/
-.pytest_tmp2/
+.pytest_tmp*/
 .tmp_test/
 venv/
 .venv/
@@ -47,3 +46,6 @@ obsidian/.obsidian/
 .DS_Store
 Thumbs.db
 .zcode/
+
+# Other agents' local memory (not part of this project)
+.workbuddy/
