@@ -177,6 +177,21 @@ class LearningStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def has_mastery_attempt(self, concept: str, evidence_key: str | None) -> bool:
+        """这条证据（concept, evidence_key）是否已经记录过。
+
+        调度器用它区分「新的一次作答」和「同一份证据重复提交」——
+        后者只更新证据，不再推进 SM-2。
+        """
+        if not concept or not evidence_key:
+            return False
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM mastery_attempts WHERE concept = ? AND evidence_key = ? LIMIT 1",
+                (concept, evidence_key),
+            ).fetchone()
+        return row is not None
+
     def count_mastery_attempts(self, concept: str) -> int:
         """这个概念一共有多少条作答证据（不被推导窗口截断）。"""
         if not concept:
@@ -203,18 +218,28 @@ class LearningStore:
         """一次查出每个概念最近的 N 条作答（新 → 旧）。
 
         列表页需要给每个概念都算一次推导；逐个查库是 N 次往返，这里一次拿完。
+        用窗口函数在库里就把每个概念截到 N 条，避免把整张表读进内存。
         """
         cap = max(1, int(limit_per_concept))
         with self._conn() as conn:
             rows = conn.execute(
-                """SELECT concept, is_correct, verdict, source, created_at
-                   FROM mastery_attempts ORDER BY id DESC"""
+                """SELECT concept, is_correct, verdict, source, created_at FROM (
+                       SELECT concept, is_correct, verdict, source, created_at,
+                              ROW_NUMBER() OVER (PARTITION BY concept ORDER BY id DESC) AS rn
+                       FROM mastery_attempts
+                   ) WHERE rn <= ?
+                   ORDER BY concept, rn""",
+                (cap,),
             ).fetchall()
         grouped: dict[str, list[dict]] = {}
         for row in rows:
-            bucket = grouped.setdefault(row["concept"], [])
-            if len(bucket) < cap:
-                bucket.append(dict(row))
+            grouped.setdefault(row["concept"], []).append({
+                "concept": row["concept"],
+                "is_correct": row["is_correct"],
+                "verdict": row["verdict"],
+                "source": row["source"],
+                "created_at": row["created_at"],
+            })
         return grouped
 
     def mastery_attempt_stats(self) -> dict[str, dict]:

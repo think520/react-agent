@@ -39,7 +39,7 @@ PARTIAL_CREDIT = 0.5
 
 
 def _credit(attempt: dict[str, Any]) -> float:
-    if str(attempt.get("verdict") or "") == "partial":
+    if _verdict(attempt) == "partial":
         return PARTIAL_CREDIT
     return 1.0 if int(attempt.get("is_correct") or 0) else 0.0
 

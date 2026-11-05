@@ -33,6 +33,13 @@ class ReviewScheduler:
         不再写「掌握状态」—— 状态是推导结果，由 ``learning.contract`` 从证据算出来。
         旧 status / score 列保留为历史快照，不再被自动路径覆盖。
         """
+        # 同一份证据重复提交（双击、重试、同一题再交一次）只更新证据本身，
+        # 不再推进 SM-2：否则同一次作答会被当成多次复习，间隔被无端拉长。
+        if evidence_key and self.store.has_mastery_attempt(concept, evidence_key):
+            self.store.record_mastery_attempt(
+                concept, correct, verdict or "", evidence_key=evidence_key,
+            )
+            return self.store.get_mastery(concept) or Mastery(concept=concept)
         m = self.store.get_mastery(concept)
         if not m:
             m = Mastery(concept=concept)

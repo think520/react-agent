@@ -372,3 +372,65 @@ def test_multi_concept_submission_keeps_evidence_for_each_concept(tmp_path):
         assert store.count_mastery_attempts(concept) == 1, concept
         assert mastery_state(store, concept).status == "needs_review"
 
+
+# --- 6. 重复提交不推进调度；读入口与契约同口径 ---
+
+
+def test_resubmitting_the_same_evidence_does_not_advance_scheduling(tmp_path):
+    """双击/重试/同题再交一次是**同一份证据**，不该被当成又一次复习。"""
+    store = _store(tmp_path)
+    first = _answer(store, "RAG", True, "correct", key="quiz:s1:q1")
+    assert first.review_count == 1
+    first_interval = first.interval_days
+    first_next = first.next_review
+
+    for _ in range(2):
+        again = _answer(store, "RAG", True, "correct", key="quiz:s1:q1")
+        assert again.review_count == 1
+        assert again.interval_days == first_interval
+        assert again.next_review == first_next
+
+    assert store.count_mastery_attempts("RAG") == 1
+
+    # 新的证据才是新的一次复习。
+    second = _answer(store, "RAG", True, "correct", key="quiz:s1:q2")
+    assert second.review_count == 2
+    assert second.interval_days > first_interval
+
+
+def test_recent_attempts_are_capped_per_concept(tmp_path):
+    """列表页只用最近几条；查询在库内截断，不把整张表读进内存。"""
+    store = _store(tmp_path)
+    for i in range(8):
+        _answer(store, "RAG", i % 2 == 0, key=f"quiz:s1:q{i}")
+
+    recent = store.recent_attempts_by_concept(3)
+
+    assert len(recent["RAG"]) == 3
+    # 新 → 旧：最后一次是 i=7（错），再往前 i=6（对）、i=5（错）。
+    assert [row["is_correct"] for row in recent["RAG"]] == [0, 1, 0]
+
+
+def test_partial_verdict_is_normalised_before_credit(tmp_path):
+    """' Partial ' 与 'partial' 是同一件事，不能因为带空格就当成答错。"""
+    from learning.engine import weighted_mastery
+
+    assert weighted_mastery([{"verdict": " Partial ", "is_correct": 0}]) == 0.25
+
+
+def test_progress_detail_reads_evidence_without_aggregate_row(tmp_path):
+    """只有证据、没有聚合行时，进度入口也要能答上来（与契约同口径）。"""
+    from service.learning_service import LearningService
+
+    store = _store(tmp_path)
+    store.record_mastery_attempt("只有证据", True, "correct", evidence_key="quiz:s9:q1")
+    assert store.get_mastery("只有证据") is None
+
+    detail = ProgressTracker(store, ReviewScheduler(store)).get_concept_detail("只有证据")
+    assert detail is not None
+    assert detail["status"] == "learning"
+    assert detail["evidence"] == 1
+
+    result = LearningService(str(tmp_path)).get_progress("只有证据")
+    assert result["ok"] is True
+    assert result["concept"] == "只有证据"

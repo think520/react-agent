@@ -82,10 +82,17 @@ class ProgressTracker:
         }
 
     def get_concept_detail(self, concept: str) -> dict | None:
-        """Get detailed mastery info for a single concept."""
-        if not self.store.get_mastery(concept):
+        """Get detailed mastery info for a single concept.
+
+        与 ``learning.contract`` 同口径：只要有作答证据就算「有这个知识点」，
+        不要求先有一条聚合行（旧库或直接写证据的路径可能没有它）。
+        """
+        name = str(concept or "")
+        if not name:
             return None
-        state = mastery_state(self.store, concept)
+        if not self.store.get_mastery(name) and not self.store.count_mastery_attempts(name):
+            return None
+        state = mastery_state(self.store, name)
         return {
             "concept": state.concept,
             "status": state.status,
