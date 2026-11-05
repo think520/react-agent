@@ -19,10 +19,20 @@
 - **所有入口改读同一份契约**：`ProgressTracker`（概览 / 概念详情）、`ReviewScheduler.mark_manual`、`PlanWorkflowTracker._is_topic_mastered`（计划完成判定）、`LearningService`（进度 / 复习队列 / 下一目标 / 手动标记）、`learning_status` 与 `learning_progress` 工具、`/learning` CLI、`memory_service` 与 `memory_injector` 的个性化摘要、`obsidian_export` 的做题总结表、`quiz_service` 的 `mastery_changes`。列表页批量读取用三次查询（聚合行 + 每概念最近 5 条证据 + 证据统计），不是每概念三次往返。
 - **重复提交不再刷掌握度**：`quiz_service.submit_answer` 把 `quiz:<session_id>:<question_id>` 作为幂等键传下去，同一练习会话里反复答同一道题只算一条证据。
 - **前端**：概念侧栏显示「掌握度 N% · N 条证据」，不再读旧 `score`；复习页与练习卡的类型同步新字段；`masteryLabel` 增加「你手动标记」分支，不把用户判断说成系统推导。
-- **回归**：新增 `tests/test_mastery_contract.py`（16 条：回放确定性、单次/两次证据、先错后对、partial、同题重复提交、换会话算新证据、手动优先与新证据接管、旧数据降级、四个入口一致性、计划完成判定）。既有断言按新口径改写：`test_learning.py`、`test_learning_service.py`、`test_mastery_history.py`、`test_quiz_integration.py`、`test_e15_partial_verdict.py`、`test_review_fixes.py`。
+- **回归**：新增 `tests/test_mastery_contract.py`（17 条：回放确定性、单次/两次证据、先错后对、partial、同题重复提交、换会话算新证据、手动优先与新证据接管、旧数据降级、四个入口一致性、计划完成判定）。既有断言按新口径改写：`test_learning.py`、`test_learning_service.py`、`test_mastery_history.py`、`test_quiz_integration.py`、`test_e15_partial_verdict.py`、`test_review_fixes.py`。
 - **诚实说明**：调度算法本身没有更换（路线评审明确不要求换 SM-2）；这次改的是「谁算、谁读、谁不许冒充」。存量库里既有 `status='mastered'` 又有作答历史的概念，会以历史推导为准显示，两者的差异可以在 `status_source` 里看到。
 - **验证**：后端全量 **1877 passed**（4:23）✓；`npx tsc --noEmit` **0** ✓、`npm run lint` **0** ✓、`npm run build` **0** ✓、`vitest run` **341 / 342**（`App.test.tsx` 那条 5s 超时是路线图已登记的已知 flaky，单文件重跑 **4/4 通过**，未调大超时掩盖）✓、mock e2e **120 passed / 36 skipped / 0 failed** ✓。
 - **环境遗留（如实记账）**：本机沙箱内的 pytest 会因 `tempfile` 目录权限被拒（`WinError 5`），所以上面两组门禁在沙箱外用仓库外临时目录跑。我第一次把 `TEMP` 指向仓库内，留下 `.pytest_tmp3/` 若干无法读取的子目录（沙箱令牌建的 ACL），未能在本会话删除；已把 `.pytest_tmp*/` 加入 `.gitignore`，目录需要你手动清一下。
+
+### 修 E6.2 的两个真缺陷：旧库迁移会崩、多概念题证据互相覆盖（2026-11-05，本地提交 ✓ 未推送）
+
+E6.2 合入后按真实数据复查，复现出两个缺陷（原提交的 1877 条测试全绿，因为它们都用 `tmp_path` 空库，恰好绕开这两处前提）：
+
+- **P0：旧库迁移直接崩**。`idx_mastery_attempts_evidence_key` 原本写在 `_LEARNING_SCHEMA_SQL` 里，而 `executescript()` 先于 `ensure_columns()` 执行 —— 升级时表已存在但没有 `evidence_key` 列，`CREATE INDEX` 报 `sqlite3.OperationalError: no such column: evidence_key`，复习列表、学习进度、做题提交在旧库上全部 500。现在索引只在补列之后创建，并在迁移时 `DROP INDEX IF EXISTS` 掉旧名字。已用真实库副本（`note/vault/.bobodan/bobodan.db` → 临时工作区）实测迁移成功：`mastery` 补出 `manual_status / manual_at`，`mastery_attempts` 补出 `evidence_key`，旧行仍可读。
+- **P1：多概念题只有一个概念留下证据**。唯一索引只建在 `evidence_key` 上，而 `ProgressTracker.update_from_quiz` 把同一个 `quiz:<session>:<question>` 传给该题涉及的每个概念，`INSERT OR REPLACE` 会在同一次提交里依次顶掉前一个概念的行。真实库里题目普遍是多概念（`["传统 RAG","Agentic RAG"]` 之类），后果是只有最后一个概念累积证据、掌握度系统性偏低。索引改为复合 `UNIQUE(concept, evidence_key)`；同一证据重复提交仍然幂等。
+- **回归（`tests/test_mastery_contract.py` 17 → 19 条）**：新增「旧 schema 库能原地迁移（补列、索引改名、旧数据仍可读）」与「多概念同一次作答每个概念各留一条证据、重复提交幂等」两条；顺带把该文件里 16 条的旧计数改成实际条数。
+- **未改（如实说明）**：同一证据重复提交时，SM-2 仍会推进 `review_count / interval_days`（掌握度分数不变，复习计划会变）。这属于既有行为且会改变调度口径，单独评估，不并进这次修复。
+- **验证**：后端全量 **1879 passed**（3:12）✓；本轮只动后端与测试，前端门禁未重跑（上一轮 `tsc` **0** / `lint` **0** / `build` **0** / `vitest` **53 文件 342 passed** 仍然有效）。
 
 ### 审查意见落地：四组对比度、七页字号、e2e mock 收敛，并修掉开发模式导入永远失败（2026-11-02，本地提交 ✓ 未推送）
 

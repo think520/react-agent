@@ -1,15 +1,19 @@
 """E6.2：掌握度统一消费契约的回归。
 
-这一组用例锁住四件事：
+这一组用例锁住五件事：
 
 1. **可回放** —— 同一份作答历史，无论算多少次都得到同一个状态与分数，且带算法版本。
 2. **三件事分开** —— 事实（证据）、估计（掌握度/状态）、调度（下次复习）各归各的；
    同一次作答只产生一条证据，反复答同一道题不会把掌握度推上去。
 3. **手动与推断分开** —— 用户标记优先，但之后出现新证据时推导结果接管，并且说清是谁说的。
 4. **一个结论** —— 进度、复习队列、手动标记、计划完成判定读到的是同一个判断。
+5. **能升级、不互相覆盖** —— 旧库（没有 ``evidence_key`` 列）原地迁移成功；一道多概念题的同一次作答，每个概念各留一条证据。
 """
 
 from __future__ import annotations
+
+import os
+import sqlite3
 
 from datetime import datetime, timedelta, timezone
 
@@ -272,3 +276,99 @@ def test_overview_counts_status_from_derivation(tmp_path):
     assert states["C"].status == "mastered"
     # 最弱优先：全错的概念排在最前面。
     assert mastery_states(store)[0].concept == "B"
+
+
+# --- 5. 旧库迁移与多概念证据 ---
+
+
+_LEGACY_SCHEMA_SQL = """
+CREATE TABLE mastery (
+    concept TEXT PRIMARY KEY,
+    status TEXT NOT NULL DEFAULT 'unseen',
+    score REAL NOT NULL DEFAULT 0.0,
+    review_count INTEGER NOT NULL DEFAULT 0,
+    consecutive_correct INTEGER NOT NULL DEFAULT 0,
+    last_reviewed TEXT,
+    next_review TEXT,
+    source TEXT NOT NULL DEFAULT 'auto',
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE mastery_attempts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    concept TEXT NOT NULL,
+    is_correct INTEGER NOT NULL DEFAULT 0,
+    verdict TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT 'quiz',
+    created_at TEXT NOT NULL
+);
+INSERT INTO mastery (concept, status, score, updated_at)
+VALUES ('旧概念', 'mastered', 0.9, '2026-09-01T00:00:00+00:00');
+"""
+
+
+def _legacy_database(tmp_path):
+    """造一个 E6.2 之前的库：没有 evidence_key，也没有 manual_* 列。"""
+    store = _store(tmp_path)
+    db_path = store.db_path
+    os.remove(db_path)
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.executescript(_LEGACY_SCHEMA_SQL)
+        conn.commit()
+    finally:
+        conn.close()
+    return db_path
+
+
+def test_old_database_without_evidence_key_migrates(tmp_path):
+    """E6.2 之前建的库必须能原地升级。
+
+    唯一索引若写进 ``_LEARNING_SCHEMA_SQL``，executescript 会先于补列执行，
+    在旧表上引用不存在的列 —— no such column: evidence_key，学习模块直接打不开。
+    """
+    db_path = _legacy_database(tmp_path)
+
+    store = LearningStore(str(tmp_path))  # 不能抛异常
+
+    conn = sqlite3.connect(db_path)
+    try:
+        mastery_cols = {row[1] for row in conn.execute("PRAGMA table_info(mastery)")}
+        attempt_cols = {row[1] for row in conn.execute("PRAGMA table_info(mastery_attempts)")}
+        indexes = {
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='mastery_attempts'"
+            )
+        }
+    finally:
+        conn.close()
+
+    assert {"manual_status", "manual_at"} <= mastery_cols
+    assert "evidence_key" in attempt_cols
+    assert "idx_mastery_attempts_concept_evidence" in indexes
+    assert "idx_mastery_attempts_evidence_key" not in indexes
+    # 旧数据照旧可读：没有逐次证据时回退到存下来的状态。
+    assert mastery_state(store, "旧概念").status == "mastered"
+
+
+def test_multi_concept_submission_keeps_evidence_for_each_concept(tmp_path):
+    """一道题常同时考多个概念；同一次作答要给每个概念各留一条证据。"""
+    store = _store(tmp_path)
+    tracker = ProgressTracker(store, ReviewScheduler(store))
+    concepts = ["传统 RAG", "Agentic RAG", "RAG"]
+
+    tracker.update_from_quiz(concepts, is_correct=True, evidence_key="quiz:s1:q1")
+
+    for concept in concepts:
+        assert store.count_mastery_attempts(concept) == 1, concept
+        assert mastery_state(store, concept).evidence == 1
+
+    # 同一条证据重复提交仍然幂等：每个概念都只有一行，最新结果胜出。
+    tracker.update_from_quiz(
+        concepts, is_correct=False, verdict="incorrect", evidence_key="quiz:s1:q1"
+    )
+
+    for concept in concepts:
+        assert store.count_mastery_attempts(concept) == 1, concept
+        assert mastery_state(store, concept).status == "needs_review"
+

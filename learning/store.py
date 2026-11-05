@@ -45,10 +45,6 @@ CREATE TABLE IF NOT EXISTS mastery_attempts (
 CREATE INDEX IF NOT EXISTS idx_mastery_attempts_concept
     ON mastery_attempts(concept, id DESC);
 
--- SQLite 的唯一索引允许多个 NULL，所以旧行（无幂等键）照旧各算一条证据。
-CREATE UNIQUE INDEX IF NOT EXISTS idx_mastery_attempts_evidence_key
-    ON mastery_attempts(evidence_key);
-
 CREATE TABLE IF NOT EXISTS learning_plans (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     title TEXT NOT NULL,
@@ -107,11 +103,15 @@ class LearningStore:
             ensure_columns(conn, "mastery_attempts", {
                 "evidence_key": "TEXT",
             })
-        # 旧库建表时没有幂等键；唯一索引必须在补列之后建。
+        # 旧库建表时没有幂等键；唯一索引必须在补列之后建 —— 放进上面的 executescript
+        # 会在旧表上引用不存在的列，整个学习模块直接打不开。
+        # 粒度是 (concept, evidence_key)：一道题可能同时考多个概念，同一次作答要为每个
+        # 概念各写一条证据，只按 evidence_key 唯一会让它们互相覆盖（后写的顶掉先写的）。
         with self._conn() as conn:
+            conn.execute("DROP INDEX IF EXISTS idx_mastery_attempts_evidence_key")
             conn.execute(
-                "CREATE UNIQUE INDEX IF NOT EXISTS idx_mastery_attempts_evidence_key "
-                "ON mastery_attempts(evidence_key)"
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_mastery_attempts_concept_evidence "
+                "ON mastery_attempts(concept, evidence_key)"
             )
 
     # --- Mastery ---
