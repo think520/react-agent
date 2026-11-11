@@ -828,19 +828,32 @@ TUI 只服务开发与诊断，不做装饰。
 
 | 组件 | 表面 | 边框 | 圆角 | 内距 | 字号 | 高度 | 四态 |
 |---|---|---|---|---|---|---|---|
-| 页面容器 | `--paper` | 无 | — | `--space-6` 40px `--space-7` | — | — | §16.1 |
-| 停靠栏（侧栏/右栏） | `--paper-sunken` | `--border` 竖线 | — | `--space-4` 起 | 标签 ≥12px | — | §16.1 |
-| 顶栏 | `--paper` + blur ≤16px | `--border-subtle` 下边 | — | 横向 `--space-4` | 标题 17px | 68px | §16.1 |
-| 卡片 | `--paper-soft` | `--border` 或发丝边 | `--radius-lg` | `--space-4` | 正文 ≥13.5px | — | §16.1 |
-| 列表行 | 停靠面透明行 | `--border-subtle` 分隔 | `--radius-md` | `--space-2` `--space-3` | ≥13px | ≥44px | §16.1 |
-| 主按钮 | `--blue` | 同色 | `--radius-md` | 0 13px | 13px/650 | ≥40px | §16.1 |
-| 次要按钮 | 透明 → hover `--blue-wash` | `--border-strong` | `--radius-md` | 0 13px | 13px/650 | ≥40px | §16.1 |
-| 图标按钮 | 透明 → hover `--blue-wash` | hover `--border-subtle` | `--radius-md` | — | — | 36–40px | §16.1 |
-| 输入框 | `--paper-soft` | `--border-strong` | `--radius-md` | 0 `--space-3` | ≥13px | ≥36px | §16.1 |
-| chip / 标签 | `*-wash` 或 ink 5% | 无 | `--radius-sm` | 0 `--space-2` | ≥12px | ≥24px | §16.1 |
-| 状态块 | `*-wash` | 左边框 3px 同色 | 0 `--radius-sm` `--radius-sm` 0 | `--space-3` `--space-4` | ≥13.5px | — | §16.1 |
-| 浮层 | `--paper-soft` | `--hairline` 外环 | `--radius-lg` | `--space-2` | ≥12.5px | — | §16.1 |
-| 弹窗/抽屉 | `--paper-soft` | `--border` 或发丝边 | `--radius-xl` | `--space-5` | — | — | §16.1 |
+| 页面容器 | `--paper` | 无 | — | `--space-6` 40px `--space-7` | — | — |
+ §16.1 |
+| 停靠栏（侧栏/右栏） | `--paper-sunken` | `--border` 竖线 | — | `--space-4` 起 | 标签 ≥12px | — |
+ §16.1 |
+| 顶栏 | `--paper` + blur ≤16px | `--border-subtle` 下边 | — | 横向 `--space-4` | 标题 17px | 68px |
+ §16.1 |
+| 卡片 | `--paper-soft` | `--border` 或发丝边 | `--radius-lg` | `--space-4` | 正文 ≥13.5px | — |
+ §16.1 |
+| 列表行 | 停靠面透明行 | `--border-subtle` 分隔 | `--radius-md` | `--space-2` `--space-3` | ≥13px | ≥44px |
+ §16.1 |
+| 主按钮 | `--blue` | 同色 | `--radius-md` | 0 13px | 13px/650 | ≥40px |
+ §16.1 |
+| 次要按钮 | 透明 → hover `--blue-wash` | `--border-strong` | `--radius-md` | 0 13px | 13px/650 | ≥40px |
+ §16.1 |
+| 图标按钮 | 透明 → hover `--blue-wash` | hover `--border-subtle` | `--radius-md` | — | — | 36–40px |
+ §16.1 |
+| 输入框 | `--paper-soft` | `--border-strong` | `--radius-md` | 0 `--space-3` | ≥13px | ≥36px |
+ §16.1 |
+| chip / 标签 | `*-wash` 或 ink 5% | 无 | `--radius-sm` | 0 `--space-2` | ≥12px | ≥24px |
+ §16.1 |
+| 状态块 | `*-wash` | 左边框 3px 同色 | 0 `--radius-sm` `--radius-sm` 0 | `--space-3` `--space-4` | ≥13.5px | — |
+ §16.1 |
+| 浮层 | `--paper-soft` | `--hairline` 外环 | `--radius-lg` | `--space-2` | ≥12.5px | — |
+ §16.1 |
+| 弹窗/抽屉 | `--paper-soft` | `--border` 或发丝边 | `--radius-xl` | `--space-5` | — | — |
+ §16.1 |
 | 用户消息气泡 | `rgba(232,237,243,.68)` | `rgba(27,54,93,.12)` 1px | `--radius-md --radius-md 2px`（右下切角） | `--space-3` `--space-4` | 16px/500 | — | `app.css:692` |
 
 ### 16.3 契约测试（分两层：L1 文本 / L2 计算样式）
@@ -910,7 +923,9 @@ TUI 只服务开发与诊断，不做装饰。
 
 **`web/frontend/src/lib/themeContrast.test.ts`（5 条）**：浅色正文/次要/辅助 ≥ 4.5:1（L60）；浅色+高对比不能把静音文字变没（L66）；暗色 ≥ 4.5:1（L74）；暗色+高对比 ≥ 7:1（L80）；高对比必须按主题成对定义（L85）。
 
-**`web/frontend/src/lib/cssLayers.test.ts`（4 条）**：入口 `styles.css` ≤ 120 行且只做 `@import`（L19）；字体声明只在 `fonts.css`、全本地 URL（L29）；字体异步加载、不在 `main.tsx` 静态导入（L40）；令牌只定义一份——`tokens.css` 有 `:root`、`app.css` 没有（L47）。
+**`web/frontend/src/lib/cssLayers.test.ts`（4 条）**：入口 `styles.css` ≤ 120 行且只做 `@import`（L19）；字体声明只在 `fonts.css`、全本地 URL（L29）；字体异步加载、不在 `main.tsx` 静态导入（L40）；令牌只定义一份——`tokens.css` 有 `:root`、页面样式里没有（L47）；页面样式里没有死选择器；`app.css` 只做 `@import` 编排（2026-11-11 起）。
+
+**页面样式的文件布局（2026-11-11 拆分）**：`styles/app.css` 只按顺序 `@import` 七个文件——`wiki-plan` → `knowledge-map` → `base` → `features` → `practice` → `settings` → `polish`。拆分按**原文件顺序**切块（只在顶层规则边界切），构建产物逐字节不变；层叠顺序就是 `@import` 顺序，**别调换**。`polish.css` 放 M3 / M4 / 审计 / 主题修复，它们按设计覆盖前面的规则，必须最后加载。契约测试通过 `src/lib/cssSources.ts::readAppCss()` 读拼接结果。下文 `app.css:NNN` 形式的行号都是拆分前的历史定位。
 
 **`web/frontend/src/lib/wiring.test.ts`（9 条，接线契约）**：图谱死区（L18）；会话切换必须 `setLoading(true)`（L28）；会话创建的 URL 标记（L36）；首帧主题在 CSS 之前（L42）；主题解析写回缓存（L51）；暗色纸张纹理覆盖限定浅色（L56）；减动效只零化时长令牌（L62）；缩进契约（L74）；不得出现第二条全局 `!important` 减动效重拳（L84）。
 
@@ -957,7 +972,7 @@ TUI 只服务开发与诊断，不做装饰。
 - 焦点必须可见：`outline: 2px solid var(--blue-soft)` + offset 2px；不许全局 `outline: none`。
 - 键盘：Tab 顺序符合视觉顺序；Esc 关闭浮层并把焦点还给触发元素；浮层内焦点不逃逸。
 - 语义：按钮用 `<button>`、导航用 `<nav>`、状态变化用 `aria-live`。
-- 动效：尊重 `prefers-reduced-motion` 与应用内开关。全局开关只有一处（`app.css` 的 `@media (prefers-reduced-motion)`），**不要再加第二条 `!important` 重拳**。
+- 动效：尊重 `prefers-reduced-motion` 与应用内开关。全局开关只有一处（`styles/base.css` 的 `@media (prefers-reduced-motion)`，经 `app.css` 引入），**不要再加第二条 `!important` 重拳**。
 - 对比度：正文/次要/辅助文字 ≥ 4.5:1；**高对比必须按主题成对定义**（浅色压深、暗色提亮），由 `themeContrast.test.ts` 真算 WCAG 比值守住（2026-10-28 修订：初版只有深色系浅色文字，浅色下 muted 掉到 1.10:1）。M4 已加 CSS 兜底：`@media (prefers-reduced-motion: reduce)` 下动画/过渡全部关闭 ✓；骨架屏微光循环上限 `--dur-shimmer: 1200ms` ✓。
 - 输入法：合成期间不触发快捷键；不允许在 `compositionend` 前提交表单。
 - 颜色不是唯一信息载体（来源、状态、错误都必须有文字）。

@@ -340,7 +340,7 @@ web/frontend/src/
   components/           # 现有业务组件，逐步组合 ui/
   styles/tokens.css     # Bobodan token 真相源
   styles/shadcn.css     # Bobodan token -> shadcn CSS 变量桥
-  styles/app.css        # 现有语义样式，逐页收缩
+  styles/app.css        # 只做 @import 编排（2026-11-11 拆成 7 个按原顺序的文件，见 DESIGN.md §16.3）
 ```
 
 不得让 shadcn 默认变量形成第二套设计系统。`THIRD_PARTY_NOTICES.md` 与 lockfile 必须同步更新。

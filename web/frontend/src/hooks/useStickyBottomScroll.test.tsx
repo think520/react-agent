@@ -1,10 +1,9 @@
 import { act, cleanup, render, screen } from "@testing-library/react";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useStickyBottomScroll, WHEEL_RELEASE_MS } from "./useStickyBottomScroll";
+import { readAppCss } from "../lib/cssSources";
 
 /**
  * W3 F7：自动滚动的**行为**（jsdom 没有布局，所以测量值由我们在真元素上伪造）。
@@ -171,8 +170,8 @@ describe("useStickyBottomScroll（W3 F7）", () => {
   });
 
   it("聊天滚动容器关掉浏览器自带的滚动锚定", () => {
-    // M1 分层后规则在 styles/app.css（styles.css 只剩 @import 编排）。
-    const css = readFileSync(resolve(process.cwd(), "src", "styles", "app.css"), "utf8");
+    // 规则分散在 app.css 编排的各个文件里（2026-11-11 拆分），读拼接结果。
+    const css = readAppCss();
     const start = css.indexOf(".chat-scroll {");
     expect(start).toBeGreaterThan(-1);
     const rule = css.slice(start, css.indexOf("}", start));

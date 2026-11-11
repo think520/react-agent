@@ -1,0 +1,459 @@
+/* 题库、导入清单、W1 学习闭环各卡片。
+   拆自 app.css（2026-11-11），层叠顺序由 app.css 里的 @import 顺序保证 —— 别调换。 */
+/* --- E18 question bank --- */
+/* Type scale follows DESIGN.md §5: 正文 16-18 / UI 标签 13-14 / 辅助说明 12-13. */
+.practice-view-tabs { margin-top: 0; }
+.practice-view-tabs button { font-size: 13px; }
+.review-container > .page-heading { margin-bottom: 20px; }
+
+/* One wrapping filter row instead of three stacked ones. */
+.bank-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; margin-bottom: 12px; }
+.bank-filters { min-height: 0; flex: 1 1 420px; border-bottom: 1px solid var(--border); }
+.bank-toolbar .mention-tabs button { font-size: 13px; }
+.bank-toolbar .mention-tabs small { font-size: 12px; opacity: 0.75; }
+.bank-search { display: flex; min-width: 200px; flex: 1 1 220px; min-height: 36px; align-items: center; gap: 7px; border: 1px solid var(--border); border-radius: 8px; padding: 0 10px; background: var(--paper-soft); color: var(--faint); }
+.bank-search:focus-within { border-color: rgba(27,54,93,0.18); background: var(--paper); color: var(--blue); }
+.bank-search input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; font-size: 13.5px; }
+.bank-search input::placeholder { color: var(--faint); }
+.bank-search .icon-button { width: 24px; height: 24px; }
+.bank-toolbar .dropdown-trigger { min-height: 36px; border: 1px solid var(--border); border-radius: 8px; padding: 0 10px; background: var(--paper-soft); font-size: 13px; }
+.bank-restore { cursor: pointer; }
+.bank-restore input { display: none; }
+
+.bank-sets { border: 1px solid var(--border); border-radius: 8px; padding: 0 14px; margin: 0 0 12px; background: var(--paper-soft); }
+.bank-sets > summary { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; min-height: 44px; cursor: pointer; color: var(--blue); font-family: var(--font-reading); font-size: 14px; font-weight: 500; list-style: none; }
+.bank-sets > summary::-webkit-details-marker { display: none; }
+.bank-sets > summary small { color: var(--faint); font-family: var(--font-ui); font-size: 12.5px; font-weight: 400; }
+.bank-sets-open { padding-bottom: 12px; }
+.bank-sets-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; justify-content: space-between; }
+.bank-sets-head form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.bank-sets-head input { min-height: 36px; min-width: 180px; border: 1px solid var(--border-strong); border-radius: 8px; padding: 0 10px; background: var(--paper); color: var(--ink); font-size: 13px; }
+.bank-sets-empty { margin: 0 0 12px; color: var(--muted); font-size: 12.5px; }
+.bank-set-list { display: grid; gap: 4px; padding: 4px 0 12px; }
+.bank-set-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; border-radius: 6px; padding: 4px 6px; }
+.bank-set-row.active { background: var(--blue-wash); }
+.bank-set-row input { min-height: 34px; min-width: 160px; border: 1px solid var(--border-strong); border-radius: 6px; padding: 0 8px; background: var(--paper); font-size: 13px; }
+.bank-set-name { display: inline-flex; min-height: 34px; align-items: center; gap: 7px; border: 0; padding: 0 6px; background: transparent; color: var(--ink); font-size: 13px; text-align: left; }
+.bank-set-name:hover { color: var(--blue); }
+.bank-set-name small { color: var(--faint); font-size: 12px; }
+.bank-set-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 12px; border-left: 2px solid var(--blue-soft); padding: 10px 14px; background: var(--blue-wash); color: var(--muted); font-size: 12.5px; }
+.bank-set-banner .text-link { border: 0; padding: 0; background: transparent; font-size: 12.5px; }
+
+.bank-concepts { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-bottom: 12px; }
+.bank-concept { display: inline-flex; min-height: 30px; align-items: center; gap: 5px; border: 0; border-radius: 6px; padding: 0 10px; background: rgba(46,43,39,0.05); color: var(--muted); font-size: 12.5px; }
+.bank-concept:hover { background: var(--blue-wash); color: var(--blue); }
+.bank-concept small { color: var(--faint); font-size: 12px; }
+.bank-bulk { display: flex; justify-content: flex-end; margin-bottom: 10px; }
+
+/* A question is a light sheet: real border, tinted state rail, no shadow. */
+.bank-list { display: grid; gap: 10px; }
+.bank-row { display: grid; gap: 8px; border: 1px solid var(--border); border-left: 3px solid var(--border); border-radius: 8px; padding: 14px 18px; background: var(--paper-soft); }
+
+/* E8：导入结果的**逐文件**清单（需要处理的排最前，带可行动原因与重试）。 */
+.import-report {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--paper);
+}
+
+.import-report-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.import-report-head > div:first-child {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.import-report-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.import-report-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.import-report-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.import-report-name {
+  min-width: 0;
+  max-width: 42%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+}
+
+/* E8：拖拽热区 —— 计数器 + 窗口级兜底，松手在窗口外也能退掉覆盖层。 */
+.import-drop-zone { position: relative; }
+
+.import-drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 2px dashed var(--blue);
+  border-radius: var(--radius-lg);
+  background: var(--paper);
+  color: var(--blue);
+  font-size: 14px;
+  pointer-events: none;
+}
+
+.import-report-icon { flex: 0 0 auto; }
+.import-report-icon.is-ok { color: var(--blue); }
+.import-report-icon.is-warning { color: var(--blue); opacity: 0.85; }
+
+.bank-row.state-incorrect { border-left-color: var(--clay); }
+.bank-row.state-partial, .bank-row.state-correct { border-left-color: var(--sage); }
+.bank-row-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.bank-row-head > small { color: var(--muted); font-size: 12.5px; }
+.bank-state { display: inline-grid; min-height: 24px; place-items: center; border-radius: 5px; padding: 0 9px; background: var(--blue-wash); color: var(--blue); font-size: 12.5px; font-weight: 650; }
+.bank-state.unanswered { background: rgba(46,43,39,0.06); color: var(--faint); }
+.bank-state.partial { background: var(--sage-wash); color: var(--sage-deep); }
+.bank-state.correct { background: var(--sage-wash); color: var(--sage-deep); }
+.bank-state.incorrect { background: var(--clay-wash); color: var(--clay); }
+.bank-row h3 { margin: 0; color: var(--ink); font-family: var(--font-reading); font-size: var(--body-font-size); font-weight: 500; line-height: 1.6; }
+.bank-answer { border-left: 3px solid var(--sage); border-radius: 0 6px 6px 0; padding: 12px 14px; background: var(--sage-wash); }
+.bank-answer.incorrect { border-left-color: var(--clay); background: var(--clay-wash); }
+.bank-answer-grid { display: grid; gap: 10px; }
+.bank-answer-label { color: var(--sage-deep); font-size: 12px; font-weight: 650; }
+.bank-answer.incorrect .bank-answer-label { color: var(--clay); }
+.bank-answer-value { margin: 3px 0 0; color: var(--ink); font-size: 13.5px; line-height: 1.7; }
+.bank-reveal { border-left: 2px solid var(--border); padding-left: 12px; }
+.bank-reveal summary { color: var(--blue); font-size: 13px; font-weight: 650; cursor: pointer; }
+.bank-reveal p { margin: 8px 0 0; color: var(--ink); font-size: 13.5px; line-height: 1.7; }
+.bank-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 14px; }
+.bank-mine { color: var(--muted); }
+.bank-mine strong { color: var(--ink); font-weight: 500; }
+.bank-row-meta { display: flex; flex-wrap: wrap; gap: 12px; color: var(--muted); font-size: 12.5px; }
+.bank-row-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.bank-row .source-row { margin-top: 0; }
+.bank-row .source-chip { font-size: 12.5px; }
+.bank-row .dropdown-trigger { min-height: 40px; border: 1px solid var(--border-strong); border-radius: 8px; padding: 0 12px; background: transparent; color: var(--muted); font-size: 13px; }
+.bank-pager { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 2px 0; color: var(--muted); font-size: 12.5px; }
+.bank-pager > span:last-child { display: flex; gap: 8px; }
+@media (min-width: 768px) { .bank-answer-grid { grid-template-columns: repeat(2, minmax(0,1fr)); } }
+@media (max-width: 767px) {
+  .bank-row { padding: 14px 14px; }
+  .bank-row-actions { width: 100%; }
+  .bank-search { flex: 1 1 100%; }
+  .bank-answer-grid { grid-template-columns: minmax(0,1fr); }
+}
+
+/* 阅读视图切换：与相邻的 .quiet-button 完全同一套度量（:1146 的 40px / --radius-md /
+   0 13px / 13px 650），选中态按 DESIGN.md §913 用墨蓝浅底 + 墨蓝文字 + 清楚边线。 */
+.reader-view-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.reader-view-switch button {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  padding: 0 13px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: background var(--dur-base) var(--ease-out), border-color var(--dur-base) var(--ease-out), box-shadow var(--dur-base) var(--ease-out), transform var(--dur-fast) var(--spring-micro);
+}
+
+.reader-view-switch button:hover {
+  border-color: rgba(27, 54, 93, 0.2);
+  background: var(--blue-wash);
+  color: var(--blue);
+  box-shadow: var(--shadow-lift);
+}
+
+.reader-view-switch button:active {
+  transform: scale(0.97);
+}
+
+.reader-view-switch button.active {
+  border-color: rgba(27, 54, 93, 0.2);
+  background: var(--blue-wash);
+  color: var(--blue);
+  box-shadow: inset 0 0 0 1px rgba(27, 54, 93, 0.18);
+}
+/* 阅读控件行：视图切换（原文/按小节）与「用系统打开」跟着正文列宽右对齐
+   （控件由 components/DocumentReader.tsx 持有）。 */
+.reader-view-row { display: flex; align-items: center; justify-content: flex-end; gap: 6px; max-width: 800px; margin: 0 auto 12px; }
+
+/* 从引用跳进来时的定位提示：同样走墨蓝浅底，与选中态同一族。 */
+.reader-citation-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--border, #ddd);
+  border-radius: 6px;
+  background: var(--blue-wash, #edf1f6);
+  color: var(--blue, #1b365d);
+  font-size: 13px;
+}
+
+/* E8：运行中的导入进度（进度条 + 当场取消）。 */
+.import-progress {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--paper);
+}
+
+.import-progress-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.import-progress-line { display: flex; align-items: baseline; gap: 8px; font-size: 13px; }
+
+.import-progress-track {
+  height: 4px;
+  border-radius: var(--radius-sm);
+  background: var(--blue-wash);
+  overflow: hidden;
+}
+
+.import-progress-fill {
+  height: 100%;
+  background: var(--blue);
+  transition: width var(--dur-base) var(--ease-out);
+}
+
+/* W1 E2：「保存到这个目录」填的是父目录，这里把**最终**会创建的目录说清楚。 */
+.library-root-preview {
+  margin: 0;
+  font-size: 12px;
+  color: var(--faint);
+  word-break: break-all;
+}
+
+.library-root-preview code {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* W1 E1：错误码带来的"下一步"（可重试 / 去设置 / 重新接入资料库）。 */
+.error-hint {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* W1 E6：复习页的"下一步"与推导掌握度。 */
+.review-objective {
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  border-left: 3px solid var(--blue);
+  background: var(--blue-wash);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}
+
+.review-mastery {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--faint);
+}
+
+/* W1 E5：逐题生成的开关与实时列表（每出一道立刻显示）。 */
+.practice-stepwise {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.practice-stepwise-live {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--paper);
+}
+
+.practice-stepwise-live header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.practice-stepwise-live ol {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+/* W1 E7：我的划线（引文 + 现状 + 定位/删除）。 */
+.reader-anchors {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--paper);
+}
+
+.reader-anchors header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.reader-anchors ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.reader-anchor {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.reader-anchor.stale .reader-anchor-quote {
+  color: var(--faint);
+  text-decoration: line-through;
+}
+
+.reader-anchor-quote {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: left;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.reader-anchor-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--faint);
+}
+
+/* W1 E11：回答被输出上限截断时的提示与"接着写"。 */
+.answer-truncated {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 8px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--blue);
+  border-radius: var(--radius-sm);
+  background: var(--paper);
+  font-size: 13px;
+}
+
+/* W1 E7：正文里的划线上色（DOM 装饰，引文定位）。 */
+mark.reader-anchor-mark {
+  background: color-mix(in srgb, var(--blue) 18%, transparent);
+  border-bottom: 1px solid var(--blue);
+  color: inherit;
+  padding: 0 1px;
+}
+
+/* W1 E7：划线汇总写入后的提示。 */
+.document-editor-notice {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* W1 E5：逐题生成时每道题的实时卡片。 */
+.practice-stepwise-questions {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.practice-stepwise-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  background: var(--paper);
+}
+
+.practice-stepwise-card header {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.practice-card-question {
+  margin: 0;
+  font-size: 13px;
+}
+
+.practice-card-options {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: var(--muted);
+}

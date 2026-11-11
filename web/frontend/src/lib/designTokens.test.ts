@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
+import { readAppCss } from "./cssSources";
 
 /**
  * DESIGN.md is only a constraint if something checks it. This file makes the
@@ -25,7 +26,7 @@ const tokensText = readFileSync(TOKENS_PATH, "utf8");
 const cssText = [
   readFileSync(ENTRY_PATH, "utf8"),
   readFileSync(resolve(SRC, "styles", "tokens.css"), "utf8"),
-  readFileSync(resolve(SRC, "styles", "app.css"), "utf8"),
+  readAppCss(),
   readFileSync(resolve(SRC, "styles", "fonts.css"), "utf8"),
 ].join("\n");
 const docText = readFileSync(DOC_PATH, "utf8");
@@ -354,7 +355,7 @@ describe("M3 视觉技法令牌（DESIGN.md §4.4 / §4.5）", () => {
   });
 });
 
-const APP_CSS = readFileSync(resolve(SRC, "styles", "app.css"), "utf8");
+const APP_CSS = readAppCss();
 
 function lastRuleBody(css: string, selector: string): string {
   const escaped = selector.replace(/[.*+?^{}()|[\]\\$]/g, "\\$&");

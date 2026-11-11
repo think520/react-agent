@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
+import { appCssFiles, readAppCss } from "./cssSources";
 
 /**
  * M1 CSS 分层的**结构契约**（2026-10-17）。
@@ -23,7 +24,7 @@ describe("CSS 分层契约（M1）", () => {
     expect(entry).toContain("./styles/tokens.css");
     expect(entry).toContain("./styles/app.css");
     expect(entry).not.toContain("@font-face");
-    expect(read("styles/app.css")).not.toContain("@font-face");
+    expect(readAppCss()).not.toContain("@font-face");
   });
 
   it("字体声明只在 fonts.css，且全部本地 URL、无公共 CDN", () => {
@@ -44,15 +45,15 @@ describe("CSS 分层契约（M1）", () => {
     expect(main).not.toContain('import "./styles/fonts.css"');
   });
 
-  it("令牌只定义一份：tokens.css 有 :root，app.css 没有", () => {
+  it("令牌只定义一份：tokens.css 有 :root，页面样式里没有", () => {
     expect(read("styles/tokens.css")).toContain(":root");
     expect(read("styles/tokens.css")).toContain("--paper:");
-    expect(read("styles/app.css")).not.toMatch(/^:root\s*\{/m);
+    expect(readAppCss()).not.toMatch(/^:root\s*\{/m);
   });
 });
 
 describe("没有死选择器（2026-11-11）", () => {
-  it("app.css 里的每个类名都在源码里出现（动态前缀除外）", async () => {
+  it("页面样式里的每个类名都在源码里出现（动态前缀除外）", async () => {
     const { readdirSync, statSync } = await import("node:fs");
     const walk = (dir: string): string[] => readdirSync(dir).flatMap((name) => {
       const full = resolve(dir, name);
@@ -66,10 +67,22 @@ describe("没有死选择器（2026-11-11）", () => {
     const DYNAMIC = /^(confidence|level|notice|diff|state)-/;
     // 测试与契约直接引用、源码里只以前缀出现的类名。
     const ALLOWED = new Set(["skeleton"]);
-    const css = read("styles/app.css").replace(/\/\*[\s\S]*?\*\//g, "");
+    const css = readAppCss().replace(/\/\*[\s\S]*?\*\//g, "");
     const classes = new Set([...css.matchAll(/\.([a-zA-Z][a-zA-Z0-9_-]*)/g)].map((match) => match[1]));
     const dead = [...classes].filter((name) => !DYNAMIC.test(name) && !ALLOWED.has(name)
       && !new RegExp(`(?<![a-zA-Z0-9_-])${name}(?![a-zA-Z0-9_-])`).test(source));
     expect(dead).toEqual([]);
+  });
+});
+
+describe("app.css 只做编排（2026-11-11 拆分）", () => {
+  it("app.css 只有 @import，拆出的每个文件都被引入且存在", async () => {
+    const { existsSync, readdirSync } = await import("node:fs");
+    const index = read("styles/app.css").replace(/\/\*[\s\S]*?\*\//g, "").trim();
+    expect(index.split(/\r?\n/).every((line) => line.startsWith("@import"))).toBe(true);
+    const imported = appCssFiles();
+    for (const name of imported) expect(existsSync(resolve(SRC, "styles", name)), name).toBe(true);
+    const onDisk = readdirSync(resolve(SRC, "styles")).filter((name) => name.endsWith(".css") && !["app.css", "tokens.css", "fonts.css"].includes(name));
+    expect(onDisk.sort()).toEqual([...imported].sort());
   });
 });
