@@ -8,6 +8,7 @@ import type { NodeLabelDrawingFunction } from "sigma/rendering";
 import forceAtlas2 from "graphology-layout-forceatlas2";
 import { prefersReducedMotion } from "../lib/motion";
 import { exceedsDragDeadZone, type PointerPosition } from "../lib/pointer";
+import { currentGraphPalette, LIGHT_GRAPH_PALETTE, type GraphPalette } from "../lib/graphPalette";
 import type { ConceptNode, RelationshipEdge } from "../types";
 
 /** Fallback seed for a node without a saved position: spread around the
@@ -34,21 +35,9 @@ function positionOrSeedY(positioned: ConceptNode[], angle: number, radius: numbe
   return (min + max) / 2 + Math.sin(angle) * radius * 0.4;
 }
 
-const C = {
-  inkBlue: "#1b365d",
-  inkBlueFaint: "#4a6fa5",
-  paperSoft: "#faf8f4",
-  paperLabel: "rgba(250,248,244,.94)",
-  faintNode: "#bdbab2",
-  faintEdge: "#d4cfc4",
-  sageSoft: "#5f8f84",
-  slateNode: "#6f879f",
-  detailNode: "#94a1aa",
-  selectedNode: "#c7664f",
-  hoverNode: "#d98a68",
-  // W1 E16：刚确认的概念 —— 比"选中"更醒目，几秒后自己回到常态。
-  newConcept: "#b45309",
-} as const;
+// 调色板随主题变化（lib/graphPalette.ts）。模块级可变对象：渲染器的 reducer 与标签绘制
+// 每帧读它，主题切换时整体替换内容后 refresh 一次即可。
+const C: GraphPalette = { ...LIGHT_GRAPH_PALETTE };
 
 function nodeColor(level: string): string {
   if (level === "cluster") return C.inkBlue;
@@ -219,9 +208,27 @@ export function GraphCanvas({
       },
     };
 
+    Object.assign(C, currentGraphPalette());
+    settings.defaultNodeColor = C.paperSoft;
+    settings.defaultEdgeColor = C.inkBlueFaint;
     const renderer = new Sigma(graph, containerRef.current, settings);
     sigmaRef.current = renderer;
     graphRef.current = graph;
+
+    // 主题切换：重新取色，把存在图属性里的基础色（节点层级色、边证据色）一起换掉，再刷新。
+    const themeObserver = new MutationObserver(() => {
+      Object.assign(C, currentGraphPalette());
+      renderer.setSetting("defaultNodeColor", C.paperSoft);
+      renderer.setSetting("defaultEdgeColor", C.inkBlueFaint);
+      graph.forEachNode((node, attributes) => {
+        graph.mergeNodeAttributes(node, { color: nodeColor(String(attributes.level || "")), labelColor: C.inkBlue });
+      });
+      graph.forEachEdge((edge, attributes) => {
+        graph.mergeEdgeAttributes(edge, { color: edgeColor(String(attributes.evidenceLevel || "")) });
+      });
+      renderer.refresh();
+    });
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-contrast"] });
 
     let draggedNode: string | null = null;
     let isDragging = false;
@@ -378,6 +385,7 @@ export function GraphCanvas({
       }
       if (resizeFrame !== null) cancelAnimationFrame(resizeFrame);
       resizeObserver.disconnect();
+      themeObserver.disconnect();
       if (actionsRef) actionsRef.current = null;
       renderer.kill();
       sigmaRef.current = null;
@@ -452,13 +460,14 @@ export function GraphCanvas({
       const color = edgeColor(relationship.evidence_level);
       const existingKey = edgeKeysRef.current.get(key);
       if (existingKey !== undefined && graph.hasEdge(existingKey)) {
-        graph.mergeEdgeAttributes(existingKey, { label: relationship.rel_type, color });
+        graph.mergeEdgeAttributes(existingKey, { label: relationship.rel_type, color, evidenceLevel: relationship.evidence_level });
         continue;
       }
       try {
         const edgeKey = graph.addEdge(relationship.from_id, relationship.to_id, {
           label: relationship.rel_type,
           color,
+          evidenceLevel: relationship.evidence_level,
           size: 1.15,
           type: "arrow",
         });
