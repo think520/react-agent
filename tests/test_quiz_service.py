@@ -8,6 +8,7 @@ from quiz.store import QuizStore
 from quiz.schema import Question, QuizSession, QuizAttempt
 from rag.sqlite_store import KBSQLiteStore, make_chunk_row
 from service.quiz_service import QuizService
+from tests.llm_fake import ScriptedProvider
 
 
 @pytest.fixture
@@ -56,11 +57,9 @@ def test_generate_questions_no_llm(svc, monkeypatch):
 
 
 def test_generate_questions_from_confirmed_web_evidence(svc, monkeypatch):
-    class LLM:
-        def complete(self, _messages):
-            return type("Response", (), {"content": '[{"type":"true_false","question":"网页证据是否可追溯？","answer":"true","explanation":"来源包含快照。","concepts":["来源"],"difficulty":"easy","source_ids":["S1"]}]'})()
+    provider = ScriptedProvider(['[{"type":"true_false","question":"网页证据是否可追溯？","answer":"true","explanation":"来源包含快照。","concepts":["来源"],"difficulty":"easy","source_ids":["S1"]}]'] * 4)
 
-    monkeypatch.setattr("service.quiz_service._get_llm_provider", lambda config=None: LLM())
+    monkeypatch.setattr("service.quiz_service._get_llm_provider", lambda config=None: provider)
     monkeypatch.setattr("service.research_service.ResearchService.evidence", lambda self, research_id: {
         "content": "[Web source 1: Official guide]\n网页证据包含访问时间和快照。",
         "sources": [{
@@ -372,22 +371,15 @@ def test_wrong_answer_variant_uses_original_question_and_user_answer(store, svc,
         is_correct=False,
     ))
 
-    class LLM:
-        prompt = ""
-
-        def complete(self, messages):
-            self.prompt = messages[0]["content"]
-            return type("Response", (), {"content": '[{"type":"single_choice","question":"在最短路计算中，每一步优先处理哪个节点？","options":["A. 当前距离最小的未访问节点","B. 编号最大的节点"],"answer":"A","explanation":"这是贪心选择。","concepts":["Dijkstra","贪心算法"],"difficulty":"medium","source_ids":["S1"]}]'})()
-
-    llm = LLM()
+    llm = ScriptedProvider(['[{"type":"single_choice","question":"在最短路计算中，每一步优先处理哪个节点？","options":["A. 当前距离最小的未访问节点","B. 编号最大的节点"],"answer":"A","explanation":"这是贪心选择。","concepts":["Dijkstra","贪心算法"],"difficulty":"medium","source_ids":["S1"]}]'] * 4)
     monkeypatch.setattr("service.quiz_service._get_llm_provider", lambda config=None: llm)
     result = svc.generate_wrong_answer_variant(attempt_id)
 
     assert result["ok"] is True
     assert result["reason"] == "evidence_used", result
     assert result["question"]["question"] != question.question
-    assert "用户错误答案：A" in llm.prompt
-    assert "Dijkstra 使用哪种策略" in llm.prompt
+    assert "用户错误答案：A" in llm.requests[0]["messages"][0]["content"]
+    assert "Dijkstra 使用哪种策略" in llm.requests[0]["messages"][0]["content"]
     saved = store.get_question(result["question_id"])
     assert saved.sources[0]["chunk_id"] == "chunk1"
 
@@ -426,11 +418,9 @@ def test_wrong_answer_variant_falls_back_to_concept_regen_without_chunks(store, 
         is_correct=False,
     ))
 
-    class LLM:
-        def complete(self, messages):
-            return type("Response", (), {"content": '[{"type":"true_false","question":"Dijkstra 适合负权图吗？","options":[],"answer":"错误","explanation":"贪心失效","concepts":["Dijkstra"],"difficulty":"easy","source_ids":[]}]' })()
+    provider = ScriptedProvider(['[{"type":"true_false","question":"Dijkstra 适合负权图吗？","options":[],"answer":"错误","explanation":"贪心失效","concepts":["Dijkstra"],"difficulty":"easy","source_ids":[]}]'] * 4)
 
-    monkeypatch.setattr("service.quiz_service._get_llm_provider", lambda config=None: LLM())
+    monkeypatch.setattr("service.quiz_service._get_llm_provider", lambda config=None: provider)
     result = svc.generate_wrong_answer_variant(attempt_id)
 
     assert result["ok"] is True
@@ -460,12 +450,10 @@ def test_wrong_answer_variant_replays_original_as_last_resort(store, svc, worksp
         is_correct=False,
     ))
 
-    class LLM:
-        def complete(self, messages):
-            # No valid question JSON → both fallback paths fail.
-            return type("Response", (), {"content": "not json" })()
+    # No valid question JSON → both fallback paths fail.
+    provider = ScriptedProvider(["not json"] * 4)
 
-    monkeypatch.setattr("service.quiz_service._get_llm_provider", lambda config=None: LLM())
+    monkeypatch.setattr("service.quiz_service._get_llm_provider", lambda config=None: provider)
     result = svc.generate_wrong_answer_variant(attempt_id)
 
     assert result["ok"] is True
@@ -540,11 +528,9 @@ def test_variant_failure_is_not_reported_as_missing_evidence(store, svc, workspa
         user_answer="A", is_correct=False, verdict="incorrect",
     ))
 
-    class LLM:
-        def complete(self, messages):
-            return type("Response", (), {"content": '[{"type":"true_false","question":"Dijkstra 适合负权图吗？","options":[],"answer":"错误","explanation":"负权会破坏贪心选择。","concepts":["Dijkstra"]}]'})()
+    provider = ScriptedProvider(['[{"type":"true_false","question":"Dijkstra 适合负权图吗？","options":[],"answer":"错误","explanation":"负权会破坏贪心选择。","concepts":["Dijkstra"]}]'] * 4)
 
-    monkeypatch.setattr("service.quiz_service._get_llm_provider", lambda config=None: LLM())
+    monkeypatch.setattr("service.quiz_service._get_llm_provider", lambda config=None: provider)
     monkeypatch.setattr(
         "service.quiz_service.QuestionGenerator.generate_wrong_answer_variant",
         lambda self, *args, **kwargs: (_ for _ in ()).throw(RuntimeError("model output unusable")),
