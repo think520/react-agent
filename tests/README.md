@@ -8,6 +8,7 @@
 | 层 | 位置 | 覆盖什么 | 不覆盖什么 |
 |---|---|---|---|
 | 单元 | `tests/test_*.py` | 纯函数、存储、服务逻辑；LLM 一律走 `tests/llm_fake.py` 的 `ScriptedProvider` | 网络、真实模型 |
+| 真实闭环 | `tests/test_live_core_loop.py` | 真实 app + 服务 + SQLite + 临时资料库，只替换模型；导入 → 检索 → 练习 → 复习 → 重启 | 向量检索、真实模型、浏览器 |
 | 路由契约 | `tests/test_web_backend.py` | 挂真实 FastAPI app + mock 服务依赖，断言状态码/错误信封/SSE 帧形状 | 浏览器渲染 |
 | 前端单元 | `web/frontend/src/**/*.test.ts(x)` | 纯逻辑（selector、缓冲、折叠、命令路由）与小组件 | 跨页流程 |
 | 冒烟 e2e | `web/frontend/e2e/smoke.spec.ts` | 2-4 条：应用可启动、主路由可渲染、核心交互（composer/设置）可用 | 业务深流程 |

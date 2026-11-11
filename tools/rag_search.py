@@ -46,6 +46,10 @@ def rag_search(
             collection="material",
             config=config,
         )
+        if result.get("ok") and result.get("retrieval_mode") == "unavailable":
+            # 服务层把「缺索引」改成了 ok + unavailable（HTTP 不再报 400）；对 Agent 来说
+            # 它仍是失败而不是「没命中」—— 否则证据门禁会把它当成查过但没有。
+            result = {**result, "ok": False, "error": "RAG index not found. Run obsidian_sync first."}
         if not result["ok"]:
             # 审查 F6：失败路径也要带"为什么"，否则界面只有"失败"两个字。
             return ToolResult(

@@ -105,9 +105,12 @@ def test_status_with_manifest(svc, workspace):
 # --- search ---
 
 def test_search_no_index(svc):
+    # 契约：缺 knowledge.db 不是请求错误，而是 unavailable + 可行动的原因。
     result = svc.search(query="test")
-    assert not result["ok"]
-    assert "RAG index" in result["error"]
+    assert result["ok"]
+    assert result["results"] == []
+    assert result["retrieval_mode"] == "unavailable"
+    assert result["semantic_reason"]["action"]
 
 
 def test_search_does_not_treat_retired_dense_index_as_available(svc, workspace):
@@ -118,8 +121,8 @@ def test_search_does_not_treat_retired_dense_index_as_available(svc, workspace):
 
     result = svc.search(query="test")
 
-    assert not result["ok"]
-    assert "RAG index" in result["error"]
+    assert result["results"] == []
+    assert result["retrieval_mode"] == "unavailable"
 
 
 def test_delete_document_returns_structured_not_found_code(svc):
@@ -319,7 +322,9 @@ def test_legacy_index_is_not_used_as_live_library_data(svc, workspace):
         }]}, handle)
 
     assert svc.list_documents()["documents"] == []
-    assert not svc.search("Legacy knowledge")["ok"]
+    legacy = svc.search("Legacy knowledge")
+    assert legacy["results"] == []
+    assert legacy["retrieval_mode"] == "unavailable"
     assert os.path.exists(index_path)
 
 

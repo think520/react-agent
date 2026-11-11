@@ -6,6 +6,17 @@
 
 ## [未发布]
 
+### QA-LIVE-01 真实后端核心闭环门禁（2026-11-11，分支 feat/qa-live-gate）
+
+路线评审 P0：单元测试各自用空库、各自 mock 邻居，E6.2 就是这样全绿上线又在真实数据上崩的。这一层把核心闭环串成一条线，每一步只吃上一步通过 HTTP 真实返回的数据。
+
+- **新增 `tests/test_live_core_loop.py`（3 条）**：真实 `create_app()`、资料库注册表、异步导入后台线程、SQLite / FTS5、出题与批改服务、`learning.contract`、复习队列；唯一替身是 `ProviderFactory.create` → `ScriptedProvider`，`rag.embedding_backend: local` 让检索确定性落在 `fts_only`。
+  - 闭环：建库 → 导入 Markdown → 检索命中且如实报 `fts_only` → 出题且来源落到导入的 `document_id` → 选择题不调模型、同一题重复提交不新增证据也不推进 SM-2、简答题模型批改 → 进度 `status_source=history` → 错题进复习队列 → **新 app + 清缓存后**进度、会话进度、复习队列原样读回。
+  - 批改两次都解析失败 → 503 `grading_unavailable`，不写证据、不进错题本。
+  - 两个资料库互不可见：资料、检索、错题、复习各自隔离；切库不是清库。
+- **它当场抓到一个契约违背（已修）**：没有 `knowledge.db` 时 `KBService.search` 返回错误，HTTP 映射成 400 `request_failed`；CLAUDE.md 的契约是返回 `retrieval_mode="unavailable"`。资料库页的搜索框因此在空库上静默吞错。现在服务层返回 `ok` + 检索层统一给出的 unavailable 状态与原因；`rag_search` 工具对 Agent 仍按失败处理，避免证据门禁把「没索引」当成「查过但没命中」。`test_kb_service.py` 三条旧断言按契约改写。
+- **验证**：后端全量 **1886 passed** ✓；新门禁连跑 3 次均 **3 passed**（约 11 秒）✓。本轮未动前端代码，前端门禁沿用本日 `tsc` 0 / `lint` 0 / `build` 0 / `vitest` 342 passed。
+
 ### W1-E6.2 掌握度统一消费契约（2026-11-05，本地提交 ✓ 未推送）
 
 路线评审列的 P0 之一：同一概念在不同入口给出不同判断。根因是三套语义并存 ——

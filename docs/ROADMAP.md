@@ -231,7 +231,7 @@ E1–E16 逐条核对并交付后（截至 2026-10-02）：**16 条全部交付*
 
 ### W5 发布通道（P5G.2 / P5G.3）
 
-**门禁（2026-10-15 复测）**：W1 的 E1–E7 ✅ **已完成**；W2 的 G1 ✅ / G2 ✅ / **G3 ✅**（心跳守卫已交付并合入 main `fbac192`）；W3 FE-P0 **✅ 全部完成**（F3 ✅ 订阅对账 / F14 ✅ 字体契约 / F7 ✅ 自动滚动 / F1 ✅ 纯 fold + seq 幂等，均在分支 `feat/stream-correctness`，待用户验收）。桌面版调试测试难题已由 R0（契约测试替代浏览器 e2e、dev.py、diagnose）正面解决，启动时再吸收 openhanako 三条结论：
+**门禁（2026-10-15 复测）**：W1 的 E1–E7 ✅ **已完成**；W2 的 G1 ✅ / G2 ✅ / **G3 ✅**（心跳守卫已交付并合入 main `fbac192`）；W3 FE-P0 **✅ 全部完成**（F3 ✅ 订阅对账 / F14 ✅ 字体契约 / F7 ✅ 自动滚动 / F1 ✅ 纯 fold + seq 幂等，已合入 main）。桌面版调试测试难题已由 R0（契约测试替代浏览器 e2e、dev.py、diagnose）正面解决，启动时再吸收 openhanako 三条结论：
 
 1. **sidecar 范式**：服务端独立进程 + stock runtime spawn（零 ABI 地狱）+ 启动心跳 + 崩溃诊断（契约测试保护）。
 2. **release digest 生成器**：双语结构化发布说明作为数据（现在就可给 CHANGELOG 用，将来喂给更新 UI）。
@@ -250,6 +250,7 @@ P5G.3 的产品能力不再整体等待 Electron：Roadmap、复习提醒和部�
 | **W2 G4 召回评测集** | ✅ **已完成（2026-10-17）**：L1 自动关键词（CI）+ L3 真实库 29 条（24 条换述 + 5 条关键词对照，存 `note/vault/.bobodan/eval/cases.jsonl`，gitignore ✓）。**实测**：换述 hit@5 0.875→**0.958**、MRR 0.550→**0.660（+20%）**、关键词零退化 → **保留向量腿**；原「≥15pp」判据不可达已修正。方法见 `docs/RAG_EVAL.md` | — |
 | ~~**W3 FE-P0（F1/F3/F7/F14）**~~ | ✅ **已完成（2026-10-15，分支 feat/stream-correctness）** | W5 门禁的最后一项。F3 订阅对账（类型级 + 逐事件行为级 + 明确忽略清单，当场抓出 `practice`/`learning_update` 漏订阅）／F14 字体契约 5 条（并修掉 `select` 不继承字体）／F7 单写者 + 合帧 + 手势释放 + 用户消息才回底（修掉「内容变长被误读成用户滚走」）／F1 纯 `foldEvent` + **seq 幂等**（去重发生在入缓冲之前）| — |
 | ~~**W1-E6.2 掌握度统一消费契约**~~ | ✅ **已完成（2026-11-05）** | 评审列的 P0：同一概念在不同入口给出不同判断。现在 **事实（`mastery_attempts`，`UNIQUE(concept, evidence_key)` 幂等）→ 估计（`learning.contract`，带 `algorithm` 版本与 `status_source`）→ 调度（SM-2 只写 next_review）** 三分；旧 `status`/`score` 降级为历史快照，手动标记单存 `manual_status/manual_at`。计划完成、复习队列、进度、Agent 工具、CLI、个性化摘要、导出全读同一份契约。回归 `tests/test_mastery_contract.py` 23 条（含旧库原地迁移、多概念各留证据、同一证据重复提交不推进调度、只有证据没有聚合行时读入口仍返回） | — |
+| **QA-LIVE-01 真实后端核心闭环门禁**（路线评审 P0） | ✅ **第一版完成（2026-11-11，分支 feat/qa-live-gate）** | `tests/test_live_core_loop.py`：真实 FastAPI + 资料库注册表 + 异步导入线程 + SQLite/FTS5 + 出题/批改 + 掌握度契约 + 复习队列，只有模型是 `ScriptedProvider`。3 条：① 导入 → 检索（fts_only）→ 出题（来源落到导入的资料）→ 作答（含重复提交幂等）→ 复习队列 → **重启后原样读回** ② 批改两次解析失败 → 503 `grading_unavailable`，不记错题 ③ 跨资料库不串数据。**当场抓到一个契约违背**：空库搜索返回 HTTP 400 `request_failed`，而契约是 `retrieval_mode="unavailable"` + 原因；已修（Agent 工具侧仍按失败处理）。**未做**：资料更新后引用失效、资料移动撤销冲突、整体备份恢复（属 W4-RESTORE-01） | 随默认 `pytest -q` 运行（约 11 秒） |
 | **W1 残留三处** | 🟡 见 §0.1 收口表 | 剩两处（掌握度调度仍用 SM-2 **是刻意保留的**：E6.2 只统一“谁读什么”，不换调度算法）：练习页课程选择器 / 划线只能同步进正在编辑的笔记 | 无 |
 | **W2 G5 PDF 四级降级链** | 🟡 扫描页判定与首行标题启发式已有 | 收益取决于是否导入 PDF —— 真实库现在没有 PDF | 有 PDF 数据再谈 |
 
