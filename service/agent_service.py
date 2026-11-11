@@ -14,9 +14,12 @@ directly. Callers that need rollback (e.g. REPL timeout) must pass a copy.
 from __future__ import annotations
 
 import os
+import re
 from typing import Any, Iterator
 
 from service._result import err as _err, ok as _ok
+
+_SESSION_UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
 
 class AgentService:
@@ -128,6 +131,19 @@ class AgentService:
         query = query.strip()
         if query.endswith(".json"):
             query = query[:-5]
+
+        # 快路径：完整 UUID 直接打开 «save_dir/<id>.json»，不再为了找一个会话把**所有**会话 JSON
+        # 解析一遍（每次发消息都会走这里，延迟随会话数线性增长，2026-11-11 审查）。
+        # 只接受 UUID 形态（不含路径字符），防路径穿越的初衷不变；文件里的 id 必须对得上。
+        if _SESSION_UUID.fullmatch(query):
+            direct_path = os.path.join(save_dir, f"{query}.json")
+            if os.path.isfile(direct_path):
+                try:
+                    session = Session.load_from_file(direct_path)
+                except Exception as e:
+                    return _err(f"Failed to load session: {e}")
+                if session.session_id == query:
+                    return _ok(session=session)
 
         # W1 E14：**加载**不是列列表 —— 必须能看见所有类别，否则练习/复习的辅导会话
         # 会加载不到（这正是加了默认过滤后回归测试抓到的）。
