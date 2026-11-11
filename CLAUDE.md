@@ -8,7 +8,7 @@ Bobodan（波波蛋）是一个本地优先、Chat-first 的个人学习助手�
 - 原始资料是知识型回答和练习的事实来源。Wiki、概念摘要和个人知识不能冒充原文证据。
 - 原始资料不会被 AI 擅自修改、移动或删除；任何移动/重命名只在用户确认后执行，且可一键撤销（完整约束见 `docs/LIBRARY_TREE_DESIGN.md:81`）。
 - 知识地图只包含用户已审查的概念和关系。未审查候选只显示状态摘要，不参与回答。
-- Wiki 是高级维护与历史整理能力，不是一级导航，也不是默认 RAG 中间层（边界见 `docs/PROJECT_GUIDE.md` §3.3.1 的 Wiki 行；四问决策草案在 `docs/ROADMAP.md` §5 D-WIKI）。
+- Wiki 是高级维护与历史整理能力，不是一级导航，也不是默认 RAG 中间层（决策见 `docs/ROADMAP.md` §5「D-WIKI」：旧数据只读保留、可生成但只作高级维护入口、底座服务 AI 整理、绝不作为回答或出题证据）。
 - 个人知识使用结构化 SQLite 存储，按全局和资料库隔离；旧 Markdown memory / daily 只读保留用于迁移。
 - `.knowledge/` 是可重建运行时索引，但旧 `rag_index*.json`、`graph_store.json` 和旧记忆文件可能是用户唯一历史数据，迁移完成前不得静默删除。
 

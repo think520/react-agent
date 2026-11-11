@@ -16,7 +16,7 @@
 | QA-LIVE-01 | 横贯 | 真实后端核心闭环门禁（只替换模型） | `已验证`（第一版） | `tests/test_live_core_loop.py` 12 条：导入→检索→出题→作答→复习→重启、批改失败、跨库隔离、引用链路、预检索范围。**余项**：资料移动撤销冲突、整体备份恢复（并入 W4-RESTORE-01） |
 | W2-EVID-01 | W2 检索 | 引用校验第一阶段：确定性引用标签 + 运行时引用门禁 | `已验证` | `rag/citations.py`、`CitationPolicy`；`tests/test_citation_policy.py` 12 条 + 真实链路 5 条。**真实模型未抽查**（标签是否被照抄）——见 §2 |
 | W2-EVID-02 | W2 检索 | 引用支持度：引用真实但结论与原文矛盾时给风险信号 | `未开始` | 评审原始复现（原文「非负权」→ 回答「支持负权」+ 真实标签）**现在仍会通过**。规则/模型辅助 + 人工抽样，结果只作风险信号 |
-| GOV-01 | 治理 | 单一状态表、历史归档、Wiki 边界决策记录 | `进行中` | 本文即单一状态表；历史已归档。**D-WIKI 待负责人拍板**（§5 草案） |
+| GOV-01 | 治理 | 单一状态表、历史归档、Wiki 边界决策记录 | `已验证` | 本文即单一状态表；历史已归档；D-WIKI 已拍板（§5）；CHANGELOG 已切 0.13 / 0.14 / 0.15 |
 | W1-RES | W1 | 残留：练习页课程选择器；划线只能同步进正在编辑的笔记 | `未开始` | 无依赖，体验改进 |
 | W1-QUALITY-01 | W1 | 题目 / 批改人工审阅集 + 模型评测记录 | `未开始` | 依赖 E6.2（已满足）；预算上限 + 人工复核 |
 | W2-G4.2 | W2 | 召回评测扩充：人工集、去 basename 歧义、片段级指标、冻结判据 | `未开始` | 现有 G4 基线见 [`RAG_EVAL.md`](RAG_EVAL.md) |
@@ -30,7 +30,7 @@
 
 同一时间只有**一个主交付批次 + 一个不互相阻塞的验证批次**。
 
-- **主批次：GOV-01 收尾 + 审查余项（§3 的 P1）**。完成标准：D-WIKI 拍板并回写 `PROJECT_GUIDE.md` / `LIBRARY_TREE_DESIGN.md` / `DESIGN.md` 的相应段落；§3 P1 全部关闭或明确降级。
+- **主批次：审查余项（§3 的 P1）**。完成标准：§3 P1 全部关闭或明确降级。
 - **验证批次：真实模型抽查引用标签**。用真实模型问 3–5 个基于资料的问题，确认回答带 `[Sxxxxxx]` 且门禁不误伤；不照抄就改提示位置，而不是放宽门禁。
 
 ## 3. 下一批候选（按依赖排序）
@@ -61,20 +61,7 @@
 
 ---
 
-## 5. 待拍板：D-WIKI Wiki 边界（草案，等负责人确认）
-
-四份文档对 Wiki 有四种说法（旧 ROADMAP「彻底停用」/ `LIBRARY_TREE_DESIGN.md` 与 `PROJECT_GUIDE.md`「高级维护」/ 代码仍可生成）。路线评审 §4.2 要求逐条回答下面四问。**草案按代码现状填写，不是决定**：
-
-| 问题 | 代码现状（2026-11-11 核对） | 草案 |
-|---|---|---|
-| ① 旧 Wiki 数据是否只读保留 | 保留；文件树隐藏，不进检索（`rag_search` 固定 `collection="material"`，预检索同口径） | 保留，只读 |
-| ② 新 Wiki 生成是否允许、是否在正式 UI 暴露 | 允许：聊天 `/wiki plan` / `/wiki update` / `/wiki generate`；设置页有 Wiki 模型与整理方式 | 允许，但只作为高级维护入口，不进一级导航 |
-| ③ Wiki 底座能否继续服务 AI 文件整理 | 能；编排与检查点被资料整理复用 | 能 |
-| ④ Wiki 能否成为回答 / 出题证据 | 不能；证据门禁只认 `rag_search` 原文 | 不能（与 CLAUDE.md 一致） |
-
-拍板后：把结论写进 §6，删掉本节，并把 `PROJECT_GUIDE.md` §3.3.1 的 Wiki 行改成指向这里。
-
-## 6. 已拍板决策（不再重复讨论）
+## 5. 已拍板决策（不再重复讨论）
 
 | 决策 | 内容 | 依据 |
 |---|---|---|
@@ -82,12 +69,13 @@
 | 桌面版推迟 | P5G.2 门禁化；sidecar / server-info / 契约测试三结论必须吸收 | PRE_DESKTOP |
 | 教学闭环 | 模型管教学、引擎管算术；推进由已掌握内容计算，不用 stage counter | DeepTutor 对照 |
 | 掌握度 | 事实（`mastery_attempts`）→ 估计（`learning.contract`）→ 调度（SM-2 只写 `next_review`）；保留 SM-2 是刻意的 | E6.2（2026-11-05） |
+| D-WIKI Wiki 边界 | ① 旧 Wiki 数据只读保留（文件树隐藏、不进检索）② 允许新生成，但只作为高级维护入口（对话 `/wiki plan` · `/wiki update` · `/wiki generate` 与设置页），不进一级导航 ③ Wiki 编排底座继续服务 AI 资料整理 ④ Wiki 页**不能**作为回答或出题证据——证据只认 `rag_search` 原文（`collection="material"`，预检索同口径） | 路线评审 §4.2 四问；2026-11-11 负责人确认 |
 | 引用 | 确定性标签 `[Sxxxxxx]` + 运行时门禁只核对「引用真实」；「引用支持结论」单列 EVID-02，结果只作风险信号 | EVID-01（2026-11-11） |
 | 动效 | 三档 token + 两条缓动 + 三档 spring；Motion 受限使用（复杂弹窗 / 抽屉 / 消息出现 / 布局变化 / 拖拽），`LazyMotion` + `m` 按需加载 | `DESIGN.md` §11 |
 | 测试政策 | 风险驱动分层；LLM 单缝 `ScriptedProvider`；真实后端闭环门禁只替换模型；浏览器只留冒烟与稳定流程 | `tests/README.md` |
 | Lint | Python 只开抓真 bug 的规则（`ruff.toml`）；未用 import 存量单独一批清 | 2026-11-11 |
 
-## 7. 明确不做
+## 6. 明确不做
 
 - 八引擎 RAG 矩阵、GraphRAG / LightRAG（FTS5 + Qdrant + RRF 够用，新增手段须评测证明失败）
 - LangGraph / Postgres 租约 / 多 worker durable runner / S3
@@ -98,7 +86,7 @@
 - Motion 全站动画化；内置 ONNX embedding 模型
 - 移动端验收（当前发布目标是 Windows 桌面端）
 
-## 8. 状态口径与完成定义
+## 7. 状态口径与完成定义
 
 状态只用：`待核对`（开工前先核对代码）· `未开始` · `进行中` · `已验证` · `暂缓` · `取消`。
 
@@ -112,10 +100,10 @@
 
 同一时间只允许一个主交付批次和一个验证批次；参考项目不能直接往本文增项，必须先证明现有能力无法满足用户目标。**模型负责语言，代码负责事实**——新增机制都不得动摇这条线。
 
-## 9. 来源索引
+## 8. 来源索引
 
 - 交付经过：[`../CHANGELOG.md`](../CHANGELOG.md)；v1.5 及以前完整路线：[`archive/delivery/ROADMAP_HISTORY_2026-09_11.md`](archive/delivery/ROADMAP_HISTORY_2026-09_11.md)
 - 评审：[`reviews/2026-10-20-roadmap-review.md`](reviews/2026-10-20-roadmap-review.md)（本版 P0 批次与 GOV-01 的来源）
-- 工作池细项（H-R2.x、FE-P1/P2、O7/O8 等未关闭的长尾）：保留在归档版 §1 的 W3 / W4 表里，重新启用前按 §8 先 `待核对`
+- 工作池细项（H-R2.x、FE-P1/P2、O7/O8 等未关闭的长尾）：保留在归档版 §1 的 W3 / W4 表里，重新启用前按 §7 先 `待核对`
 - 专题真相源：[`PROJECT_GUIDE.md`](PROJECT_GUIDE.md) · [`DESIGN.md`](DESIGN.md) · [`FRONTEND_UPGRADE_PLAN.md`](FRONTEND_UPGRADE_PLAN.md) · [`rag_design.md`](rag_design.md) · [`RAG_EVAL.md`](RAG_EVAL.md) · [`LIBRARY_TREE_DESIGN.md`](LIBRARY_TREE_DESIGN.md) · [`QUESTION_BANK_DESIGN.md`](QUESTION_BANK_DESIGN.md) · [`CANCELLATION_DESIGN.md`](CANCELLATION_DESIGN.md)
 - 参考：[`REFERENCE_PROJECTS.md`](REFERENCE_PROJECTS.md) → [`Bobodan参考项目调研报告.md`](Bobodan参考项目调研报告.md)（2026-09-02 快照，历史参考）

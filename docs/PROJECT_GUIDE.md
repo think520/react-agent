@@ -486,7 +486,7 @@ P5F.1 已补齐：
 | RAG | `knowledge.db` 是唯一检索入口；`rag_index*.json` 不读取、不更新、不作为 fallback。缺少 SQLite 索引时明确返回 `unavailable` |
 | Knowledge Map | `concept_graph.db` 只保存用户审查后的概念、关系和证据；旧 `graph_store.json` 不参与回答，设置页仅惰性检测并提供迁移预览 |
 | Legacy graph migration | Concept / 语义关系进入候选审查；Memory 永不进入概念图谱，可作为个人知识导入候选；可能重复只提示不自动丢弃；成功校验后才归档旧 JSON 并记录 SHA-256 与迁移时间 |
-| Wiki | 旧 `WikiCompiler` 和 `wiki_ingest` 入口退役；保留 workflow / orchestration 作为高级维护、历史整理、lint 和状态查看，不把 Wiki 页面当作 RAG 证据。**完整边界（四问）待拍板，草案见 [`ROADMAP.md`](ROADMAP.md) §5 D-WIKI** |
+| Wiki | 旧 `WikiCompiler` 和 `wiki_ingest` 入口退役；保留 workflow / orchestration 作为高级维护、历史整理、lint 和状态查看，不把 Wiki 页面当作 RAG 证据。完整边界（四问）见 [`ROADMAP.md`](ROADMAP.md) §5「D-WIKI」（2026-11-11 拍板） |
 | Provider | Provider 暴露完整同步 / 流式契约，并使用 `ProviderTimeout`、`ProviderConnectionError`、`ProviderConfigError` 等类型化错误；factory 使用注册表装配 |
 | Service | Service 共用 `service/_result.py` 返回 `ok/code/error` 结构，Web 错误适配按 code 映射状态码，不再依赖错误文案字符串 |
 | Learning | 复习调度升级为带 `ease_factor`、`interval_days` 的保守 SM-2；错题重练把原题与用户错误答案交给生成器，产出针对同一误区的不同问法 |
