@@ -9,6 +9,7 @@ import type {
 import { IconButton, LoadingState } from "../../common";
 import { DropdownSelect } from "../../DropdownSelect";
 import { useConfirm } from "../../../ui/Modal";
+import { userMessageFor } from "../../../lib/errorHints";
 
 type Tab = "knowledge" | "candidates" | "events" | "legacy";
 
@@ -139,7 +140,7 @@ export function MemoryManagerPanel({ onClose, memoryEnabled }: { onClose: () => 
       setNotice("个人知识已保存");
       await loadAll();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "个人知识没有保存成功。" );
+      setError(userMessageFor(reason, "个人知识没有保存成功。"));
     } finally {
       setWorking(false);
     }
@@ -151,7 +152,7 @@ export function MemoryManagerPanel({ onClose, memoryEnabled }: { onClose: () => 
       await api.updateMemoryKnowledge(item.id, item.revision, patch);
       await loadAll();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "更新失败。" );
+      setError(userMessageFor(reason, "更新失败。"));
     } finally {
       setWorking(false);
     }
@@ -164,7 +165,7 @@ export function MemoryManagerPanel({ onClose, memoryEnabled }: { onClose: () => 
       await api.deleteMemoryKnowledge(item.id);
       await loadAll();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "删除失败。" );
+      setError(userMessageFor(reason, "删除失败。"));
     } finally {
       setWorking(false);
     }

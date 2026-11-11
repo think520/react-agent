@@ -8,6 +8,22 @@
 
 > 只有 `feat/qa-live-gate` 上 2026-11-11 的条目尚未合入 main。0.13–0.15 由原先约 1600 行的「未发布」段按日期切出（2026-11-11），条目原文未改；其中「本地提交 ✓ 未推送」「分支 X，未推送」是写下当时的状态，这些版本的内容均已合入并推送到 `origin/main`。
 
+### 外部审查（DeepSeek）对 P2 批次的整改（2026-11-11，分支 feat/qa-live-gate）
+
+逐条核实后处理；审查结论「主体属实」与我的复核一致，下面是确认属实并已修的部分：
+
+- **阻塞 · DESIGN.md 表格断行（属实）**：`f9b13c5` 让 §16.2 表格 13 行的末格 ` §16.1 |` 换到下一行。根因：原文件那 13 行里有**孤立的 CR**（`` 不跟 `
+`），我的脚本按 `
+` 切行、写回时把 CR 当成了换行。已并回单行，并逐行比对与 `main` 一致（去掉 CR 后）。
+- **阻塞 · 工作区 CRLF 噪音（属实，但没进历史）**：本机 `core.autocrlf=true` 让工作区被写成 CRLF；用 `git cat-file` 逐字节扫描本分支 21 个提交的全部 blob，**没有一个含 CR**（`git show | grep` 会误报，因为输出时又被转换）。新增 `.gitattributes`（`* text=auto eol=lf`，二进制显式标注），`git add --renormalize .` 无任何改动。
+- **前端没消费新错误码（属实）**：`SessionRail` 改名 / 删除会话没有 catch，失败只是未处理的 rejection；笔记页与个人知识面板只显示后端原文。新增 `userMessageFor(reason, fallback)`（有可行动提示用提示，否则后端文案，否则兜底），接入这三处；补 `session_delete_failed` 提示。
+- **`session_delete_failed` 映射 409 → 500（采纳）**：删除失败是文件系统错误，不是冲突。顺手删掉没有任何服务产出的 `session_save_failed` 映射。
+- **CSS 死选择器棘轮的免检太宽（属实）**：前缀正则整类免检，前缀下新增的死类名也会放过。改成逐个列出动态类名（对应 `CandidateConfidence / ConceptLevel / NoticeTone / QuestionBankState` 与 diff 行类型）；植入 `.state-review-probe` 验证能拦住。
+- **`ScriptedProvider([...] * 4)` 的 4 没依据（属实）**：逐条实测调用次数后改为精确轮次并断言 `call_count`。其中「原题重练是最后回退」那条**实际一次都不调用模型**（原题无 chunk、概念回退检索不到资料，都在调模型之前放弃），旧注释写的「模型返回坏 JSON」并非它走的路径——改正注释，断言为 0。
+- **小项**：`DESIGN.md` 的 `cssLayers.test.ts（4 条）` → 6 条；`LIBRARY_TREE_DESIGN.md` 的 `kb_service.py:1632` 改为指向符号（`LibraryFilesMixin.tree` 的 `hidden_names`），不再写行号；`tests/test_web_backend.py` 两处三连空行。
+- **未改（范围外，审查也标注了）**：`settings.py` / `research.py` 里仍固定 404 的分支。
+- **验证**：后端 **1918 passed** ✓、`ruff` ✓；前端 `tsc` 0 / `lint` 0 / `build` ✓ / `vitest` **372 passed** ✓、桌面 mock e2e **94 passed / 0 failed** ✓。
+
 ### 审查 P2：错误码、导入状态、CSS 清理与拆分、测试替身、kb_service 拆分（2026-11-11，分支 feat/qa-live-gate）
 
 - **增量同步 mtime 短路：实测后降级为 P3，没做**。真实库副本（538 MB 磁盘）无变化同步 0.1 s，每次只哈希 8.9 MB（47 份已索引资料）；省下的不到 0.1 s 换不来「内容变了但 mtime 没变」的漏检风险。

@@ -45,7 +45,7 @@ def unwrap_service_result(
             "session_not_found": 404,
             "session_corrupt": 422,
             "session_ambiguous": 409,
-            "session_delete_failed": 409,
+            "session_delete_failed": 500,
             "knowledge_item_not_found": 404,
             "concept_name_conflict": 409,
             "relationship_not_found": 404,

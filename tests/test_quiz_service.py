@@ -57,7 +57,7 @@ def test_generate_questions_no_llm(svc, monkeypatch):
 
 
 def test_generate_questions_from_confirmed_web_evidence(svc, monkeypatch):
-    provider = ScriptedProvider(['[{"type":"true_false","question":"网页证据是否可追溯？","answer":"true","explanation":"来源包含快照。","concepts":["来源"],"difficulty":"easy","source_ids":["S1"]}]'] * 4)
+    provider = ScriptedProvider(['[{"type":"true_false","question":"网页证据是否可追溯？","answer":"true","explanation":"来源包含快照。","concepts":["来源"],"difficulty":"easy","source_ids":["S1"]}]'])
 
     monkeypatch.setattr("service.quiz_service._get_llm_provider", lambda config=None: provider)
     monkeypatch.setattr("service.research_service.ResearchService.evidence", lambda self, research_id: {
@@ -74,6 +74,8 @@ def test_generate_questions_from_confirmed_web_evidence(svc, monkeypatch):
     assert result["ok"] is True
     assert result["questions"][0]["attribution"]["kind"] == "web"
     assert result["questions"][0]["attribution"]["sources"][0]["snapshot_id"] == "snapshot-1"
+    # 恰好一次模型调用：重试 / 回退行为一变就会在这里显形（以前 * 4 会把多出的调用吞掉）。
+    assert provider.call_count == 1, provider.call_count
 
 
 def test_generate_questions_requests_web_consent_when_local_evidence_is_missing(svc, monkeypatch):
@@ -371,7 +373,7 @@ def test_wrong_answer_variant_uses_original_question_and_user_answer(store, svc,
         is_correct=False,
     ))
 
-    llm = ScriptedProvider(['[{"type":"single_choice","question":"在最短路计算中，每一步优先处理哪个节点？","options":["A. 当前距离最小的未访问节点","B. 编号最大的节点"],"answer":"A","explanation":"这是贪心选择。","concepts":["Dijkstra","贪心算法"],"difficulty":"medium","source_ids":["S1"]}]'] * 4)
+    llm = ScriptedProvider(['[{"type":"single_choice","question":"在最短路计算中，每一步优先处理哪个节点？","options":["A. 当前距离最小的未访问节点","B. 编号最大的节点"],"answer":"A","explanation":"这是贪心选择。","concepts":["Dijkstra","贪心算法"],"difficulty":"medium","source_ids":["S1"]}]'])
     monkeypatch.setattr("service.quiz_service._get_llm_provider", lambda config=None: llm)
     result = svc.generate_wrong_answer_variant(attempt_id)
 
@@ -382,6 +384,8 @@ def test_wrong_answer_variant_uses_original_question_and_user_answer(store, svc,
     assert "Dijkstra 使用哪种策略" in llm.requests[0]["messages"][0]["content"]
     saved = store.get_question(result["question_id"])
     assert saved.sources[0]["chunk_id"] == "chunk1"
+    # 恰好一次模型调用：重试 / 回退行为一变就会在这里显形（以前 * 4 会把多出的调用吞掉）。
+    assert llm.call_count == 1, llm.call_count
 
 
 def test_wrong_answer_variant_falls_back_to_concept_regen_without_chunks(store, svc, workspace, monkeypatch):
@@ -418,7 +422,7 @@ def test_wrong_answer_variant_falls_back_to_concept_regen_without_chunks(store, 
         is_correct=False,
     ))
 
-    provider = ScriptedProvider(['[{"type":"true_false","question":"Dijkstra 适合负权图吗？","options":[],"answer":"错误","explanation":"贪心失效","concepts":["Dijkstra"],"difficulty":"easy","source_ids":[]}]'] * 4)
+    provider = ScriptedProvider(['[{"type":"true_false","question":"Dijkstra 适合负权图吗？","options":[],"answer":"错误","explanation":"贪心失效","concepts":["Dijkstra"],"difficulty":"easy","source_ids":[]}]'])
 
     monkeypatch.setattr("service.quiz_service._get_llm_provider", lambda config=None: provider)
     result = svc.generate_wrong_answer_variant(attempt_id)
@@ -429,6 +433,8 @@ def test_wrong_answer_variant_falls_back_to_concept_regen_without_chunks(store, 
     # 与"有证据但生成失败"必须区分开。
     assert result["reason"] == "evidence_missing", result
     assert result["question"]["question"] != question.question
+    # 恰好一次模型调用：重试 / 回退行为一变就会在这里显形（以前 * 4 会把多出的调用吞掉）。
+    assert provider.call_count == 1, provider.call_count
 
 
 def test_wrong_answer_variant_replays_original_as_last_resort(store, svc, workspace, monkeypatch):
@@ -450,8 +456,10 @@ def test_wrong_answer_variant_replays_original_as_last_resort(store, svc, worksp
         is_correct=False,
     ))
 
-    # No valid question JSON → both fallback paths fail.
-    provider = ScriptedProvider(["not json"] * 4)
+    # 原题没有 chunk、空工作区里概念回退也检索不到任何资料：两级回退都在调用模型**之前**
+    # 就放弃了，所以模型一次都不会被调用（2026-11-11 迁移时用调用计数核实；旧注释写的
+    # 「模型返回坏 JSON 导致失败」并不是这条用例实际走的路径）。
+    provider = ScriptedProvider(["not json"])
 
     monkeypatch.setattr("service.quiz_service._get_llm_provider", lambda config=None: provider)
     result = svc.generate_wrong_answer_variant(attempt_id)
@@ -459,6 +467,8 @@ def test_wrong_answer_variant_replays_original_as_last_resort(store, svc, worksp
     assert result["ok"] is True
     assert result["mode"] == "replay"
     assert result["question_id"] == question.id
+    # 调用次数钉死：回退链若改成先调模型，这里会显形。
+    assert provider.call_count == 0, provider.call_count
 
 
 def test_wrong_answer_variant_replays_when_no_provider_is_configured(store, svc, monkeypatch):
@@ -528,7 +538,7 @@ def test_variant_failure_is_not_reported_as_missing_evidence(store, svc, workspa
         user_answer="A", is_correct=False, verdict="incorrect",
     ))
 
-    provider = ScriptedProvider(['[{"type":"true_false","question":"Dijkstra 适合负权图吗？","options":[],"answer":"错误","explanation":"负权会破坏贪心选择。","concepts":["Dijkstra"]}]'] * 4)
+    provider = ScriptedProvider(['[{"type":"true_false","question":"Dijkstra 适合负权图吗？","options":[],"answer":"错误","explanation":"负权会破坏贪心选择。","concepts":["Dijkstra"]}]'])
 
     monkeypatch.setattr("service.quiz_service._get_llm_provider", lambda config=None: provider)
     monkeypatch.setattr(
@@ -544,6 +554,8 @@ def test_variant_failure_is_not_reported_as_missing_evidence(store, svc, workspa
 
 
 # --- get_weakness_analysis ---
+    # 恰好一次模型调用：重试 / 回退行为一变就会在这里显形（以前 * 4 会把多出的调用吞掉）。
+    assert provider.call_count == 1, provider.call_count
 
 def test_get_weakness_analysis_empty(svc):
     result = svc.get_weakness_analysis()

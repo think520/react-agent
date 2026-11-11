@@ -63,13 +63,20 @@ describe("没有死选择器（2026-11-11）", () => {
       .filter((file) => /\.(ts|tsx)$/.test(file) && !/\.test\.(ts|tsx)$/.test(file))
       .map((file) => readFileSync(file, "utf8"))
       .join("\n") + readFileSync(resolve(process.cwd(), "index.html"), "utf8");
-    // 运行时拼出来的类名前缀：`confidence-${x}`、`level-${x}`、`notice-${tone}`、"diff-" + kind、`state-${x}`。
-    const DYNAMIC = /^(confidence|level|notice|diff|state)-/;
+    // 运行时拼出来的类名：逐个列出，取值对应 types.ts / noticeStore.ts 里的联合类型。
+    // 以前用前缀正则整类免检，前缀下新增的死类名也会被放过（2026-11-11 外部审查指出）。
+    const DYNAMIC = new Set([
+      "confidence-high", "confidence-medium", "confidence-low",  // CandidateConfidence
+      "level-cluster", "level-core", "level-detail",             // ConceptLevel
+      "notice-error", "notice-info", "notice-success",           // NoticeTone
+      "diff-add", "diff-remove", "diff-context",                 // DocumentProposalCard diff 行
+      "state-correct", "state-incorrect", "state-partial",       // QuestionBankState
+    ]);
     // 测试与契约直接引用、源码里只以前缀出现的类名。
     const ALLOWED = new Set(["skeleton"]);
     const css = readAppCss().replace(/\/\*[\s\S]*?\*\//g, "");
     const classes = new Set([...css.matchAll(/\.([a-zA-Z][a-zA-Z0-9_-]*)/g)].map((match) => match[1]));
-    const dead = [...classes].filter((name) => !DYNAMIC.test(name) && !ALLOWED.has(name)
+    const dead = [...classes].filter((name) => !DYNAMIC.has(name) && !ALLOWED.has(name)
       && !new RegExp(`(?<![a-zA-Z0-9_-])${name}(?![a-zA-Z0-9_-])`).test(source));
     expect(dead).toEqual([]);
   });

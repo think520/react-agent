@@ -1331,7 +1331,6 @@ def test_chat_run_uses_the_configured_grace_period(backend_client, monkeypatch):
     assert captured["grace"] == resolve_grace_seconds(config)
 
 
-
 def test_chat_stream_finalizer_retries_failed_session_save(backend_client, monkeypatch):
     runtime = SimpleNamespace(
         workspace=str(backend_client.workspace),
@@ -2618,7 +2617,6 @@ def test_model_organization_route_only_proposes_validated_groups(backend_client,
     rules = backend_client.post("/api/kb/organize/proposals", headers=headers, json={})
     assert rules.status_code == 200, rules.text
     assert rules.json()["source"] == "rules"
-
 
 
 def test_session_errors_keep_their_structured_code(backend_client, tmp_path):

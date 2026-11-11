@@ -7,6 +7,8 @@ import { sessionGroup, SESSION_GROUP_LABELS } from "../lib/sessionGroup";
 import { useConfirm } from "../ui/Modal";
 import type { ChatSessionSummary } from "../types";
 import { formatSessionTime, IconButton, LoadingState } from "./common";
+import { userMessageFor } from "../lib/errorHints";
+import { notifyError } from "../stores/noticeStore";
 
 export function SessionRail({ sessions, loading, activeSessionId, refreshSessions }: {
   sessions: ChatSessionSummary[];
@@ -32,14 +34,26 @@ export function SessionRail({ sessions, loading, activeSessionId, refreshSession
   async function saveRename(id: string) {
     const name = editingName.trim();
     if (!name) return;
-    await api.renameSession(id, name);
+    try {
+      await api.renameSession(id, name);
+    } catch (reason) {
+      // 以前没有 catch：失败只是一条未处理的 rejection，界面毫无反应（2026-11-11 审查）。
+      notifyError(userMessageFor(reason, "会话没有改名成功。"));
+      return;
+    }
     setEditingId(null);
     await refreshSessions();
   }
 
   async function removeSession(session: ChatSessionSummary) {
     if (!(await confirm({ title: `删除会话「${session.name || "未命名会话"}」？`, detail: "此操作无法撤销。", confirmLabel: "删除会话", danger: true }))) return;
-    await api.deleteSession(session.chat_session_id);
+    try {
+      await api.deleteSession(session.chat_session_id);
+    } catch (reason) {
+      notifyError(userMessageFor(reason, "会话没有删除成功。"));
+      await refreshSessions();
+      return;
+    }
     if (activeSessionId === session.chat_session_id) navigate("/chat");
     await refreshSessions();
   }
