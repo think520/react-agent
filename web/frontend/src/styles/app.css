@@ -1253,6 +1253,7 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 .document-search:focus-within { border-color: rgba(27,54,93,0.18); background: var(--paper-soft); color: var(--blue); }
 .document-search input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; font-size: 12px; }
 .document-search input::placeholder { color: var(--faint); }
+.document-hits-error { margin: -4px 6px 9px; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .document-search-empty { margin: 14px 8px; color: var(--faint); font-size: 12px; }
 .document-row-wrap { position: relative; display: flex; width: 100%; align-items: center; border-radius: var(--radius-sm); }
 .document-row-wrap:hover, .document-row-wrap.active { background: var(--blue-wash); }

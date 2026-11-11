@@ -59,6 +59,25 @@ describe("Bobodan app shell", () => {
     vi.unstubAllGlobals();
   });
 
+  it("does not mistake a failed document load for a brand-new user", async () => {
+    // 2026-11-11 审查：资料列表读取失败以前被当成「没有资料」，老用户会被弹出初次设置。
+    const realFetch = globalThis.fetch as unknown as (input: RequestInfo | URL) => Promise<Response>;
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      if (String(input).includes("/api/kb/documents")) {
+        return Promise.resolve(new Response(JSON.stringify({ error: { code: "request_failed", message: "boom" } }), {
+          status: 500, headers: { "Content-Type": "application/json" },
+        }));
+      }
+      return realFetch(input);
+    }));
+    render(<MemoryRouter initialEntries={["/chat"]}><App /></MemoryRouter>);
+
+    expect((await screen.findAllByText("Study Library")).length).toBeGreaterThan(0);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(screen.queryByText(/初次设置/)).not.toBeInTheDocument();
+    expect(localStorage.getItem("bobodan:onboarding:v1")).not.toBe("complete");
+  });
+
   it("shows the real study navigation and Today state", async () => {
     render(<MemoryRouter initialEntries={["/chat"]}><App /></MemoryRouter>);
 

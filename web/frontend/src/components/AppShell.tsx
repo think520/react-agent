@@ -36,6 +36,7 @@ export function AppShell() {
   const [settings, setSettings] = useState<SettingsSummary | null>(null);
   const [documents, setDocuments] = useState<DocumentSummary[]>([]);
   const [initialDataLoaded, setInitialDataLoaded] = useState(false);
+  const [documentsUnavailable, setDocumentsUnavailable] = useState(false);
   const [review, setReview] = useState<ReviewQueue | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
@@ -124,7 +125,11 @@ export function AppShell() {
   const loadScopedData = useCallback(async () => {
     await Promise.all([
       refreshSessions(),
-      api.documents("material").then(setDocuments).catch(() => setDocuments([])),
+      // 读取失败不能当成「没有资料」：保留上一次的列表并标记不可用 —— 否则后端抖一下，
+      // 老用户会被当成新用户弹出引导、资料范围也会被清空（2026-11-11 审查）。
+      api.documents("material")
+        .then((next) => { setDocuments(next); setDocumentsUnavailable(false); })
+        .catch(() => setDocumentsUnavailable(true)),
       api.reviewQueue().then(setReview).catch(() => setReview(null)),
     ]);
   }, [refreshSessions]);
@@ -363,13 +368,13 @@ export function AppShell() {
   }, [activeLibraryId, uploadDocuments]);
 
   useEffect(() => {
-    if (!initialDataLoaded || !activeLibrary || localStorage.getItem("bobodan:onboarding:v1") === "complete") return;
+    if (!initialDataLoaded || !activeLibrary || documentsUnavailable || localStorage.getItem("bobodan:onboarding:v1") === "complete") return;
     if (sessions.length || documents.length) {
       localStorage.setItem("bobodan:onboarding:v1", "complete");
       return;
     }
     setOnboardingOpen(true);
-  }, [activeLibrary, documents.length, initialDataLoaded, sessions.length, setOnboardingOpen]);
+  }, [activeLibrary, documents.length, documentsUnavailable, initialDataLoaded, sessions.length, setOnboardingOpen]);
 
   async function createLibrary(name: string, parentPath: string) {
     const library = await api.createLibrary(name, parentPath);
@@ -580,6 +585,7 @@ export function AppShell() {
           clearKnowledgeContext,
           showSourceContext,
           documents,
+          documentsUnavailable,
           selectedDocumentIds,
           selectedDocuments,
           toggleDocumentScope,

@@ -116,6 +116,7 @@ export function LibraryPage() {
   // ④ 搜索命中 → 定位：标题过滤之外，再问一次后端的原文检索，命中直接深链到阅读器
   // 的那一段（?chunk= 通道已在 2026-09-23 验证可用）。
   const [hits, setHits] = useState<Array<{ chunk_id: string; document_id: string; collection?: string; title?: string; source?: string; text?: string }>>([]);
+  const [hitsError, setHitsError] = useState(false);
   const [maintenanceOpen, setMaintenanceOpen] = useState(false);
   const [maintenanceLoading, setMaintenanceLoading] = useState(false);
   const [wikiHealth, setWikiHealth] = useState<WikiHealth | null>(null);
@@ -384,12 +385,12 @@ export function LibraryPage() {
   });
   useEffect(() => {
     const query = documentQuery.trim();
-    if (query.length < 2) { setHits([]); return; }
+    if (query.length < 2) { setHits([]); setHitsError(false); return; }
     let cancelled = false;
     const timer = window.setTimeout(() => {
       void api.searchKnowledge(query, collection)
-        .then((result) => { if (!cancelled) setHits((result.results || []).slice(0, 5)); })
-        .catch(() => { if (!cancelled) setHits([]); });
+        .then((result) => { if (!cancelled) { setHits((result.results || []).slice(0, 5)); setHitsError(false); } })
+        .catch(() => { if (!cancelled) { setHits([]); setHitsError(true); } });
     }, 300);
     return () => { cancelled = true; window.clearTimeout(timer); };
   }, [documentQuery, collection]);
@@ -508,7 +509,7 @@ export function LibraryPage() {
             {collection === "material" && tree && !treeCollapsed && (
             <LibraryTreePanel
               archive={archive} restoreArchived={restoreArchived} tree={tree} documentQuery={documentQuery}
-              setDocumentQuery={setDocumentQuery} hits={hits} navigate={navigate} collection={collection}
+              setDocumentQuery={setDocumentQuery} hits={hits} hitsError={hitsError} navigate={navigate} collection={collection}
               selectedFolder={selectedFolder} setSelectedFolder={setSelectedFolder} selectedId={selectedId} selectDocument={selectDocument}
               moveDocument={moveDocument} archiveDocument={archiveDocument} createFolder={createFolder} deleteFolder={deleteFolder}
               organizeProposals={organizeProposals} organizeBusy={organizeBusy} organizeSource={organizeSource} organizeDegraded={organizeDegraded}
@@ -528,7 +529,7 @@ export function LibraryPage() {
               setEditingDocumentId={setEditingDocumentId}
               closeTab={closeTab} openIds={openIds} collection={collection} wikiView={wikiView}
               documentQuery={documentQuery} setDocumentQuery={setDocumentQuery} documents={documents} effectiveExtractionStatus={effectiveExtractionStatus}
-              extractAndReview={extractAndReview} extractionStatuses={extractionStatuses} filteredDocuments={filteredDocuments} hits={hits}
+              extractAndReview={extractAndReview} extractionStatuses={extractionStatuses} filteredDocuments={filteredDocuments} hits={hits} hitsError={hitsError}
               navigate={navigate} openExtractionReview={openExtractionReview} readerScrollRef={readerScrollRef} sections={sections}
               selectDocument={selectDocument} selected={selected} selectedId={selectedId} setSelectedId={setSelectedId}
               startingExtractionId={startingExtractionId} wikiTypeLabels={wikiTypeLabels} tabsReady={!loading}

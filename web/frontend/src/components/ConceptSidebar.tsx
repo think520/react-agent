@@ -15,6 +15,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { BookOpen, Edit2, FileText, Link2, MessageCircle, PenLine, Plus, Trash2, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
+import { errorCodeOf } from "../lib/errorHints";
 import { useHandoffStore } from "../stores/handoffStore";
 import { useConfirm } from "../ui/Modal";
 import type { ConceptDetail, ConceptNode, RelationshipEdge } from "../types";
@@ -65,6 +66,8 @@ export function ConceptSidebar({ conceptId, onClose, onConceptUpdated, onNavigat
     mastery?: number;
     evidence?: number;
     next_review?: string | null;
+    /** 读取失败（不是「没练过」）：界面说「暂时读不到」，不说「尚未练习」。 */
+    unavailable?: boolean;
   } | null>(null);
   const sidebarRef = useRef<HTMLElement>(null);
   const navigate = useNavigate();
@@ -76,7 +79,11 @@ export function ConceptSidebar({ conceptId, onClose, onConceptUpdated, onNavigat
     let cancelled = false;
     void api.conceptMastery(conceptName)
       .then((result) => { if (!cancelled) setMastery({ status: result.status, status_source: result.status_source, mastery: result.mastery, evidence: result.evidence, next_review: result.next_review }); })
-      .catch(() => { if (!cancelled) setMastery(null); });
+      .catch((reason) => {
+        if (cancelled) return;
+        // 只有「确实没有掌握度记录」才是尚未练习；其它失败不能冒充成事实（2026-11-11 审查）。
+        setMastery(errorCodeOf(reason) === "mastery_not_found" ? null : { unavailable: true });
+      });
     return () => { cancelled = true; };
   }, [conceptName]);
 
@@ -86,7 +93,9 @@ export function ConceptSidebar({ conceptId, onClose, onConceptUpdated, onNavigat
       ? "学习中"
       : mastery?.status === "needs_review"
         ? "需要复习"
-        : "尚未练习";
+        : mastery?.unavailable
+          ? "暂时读不到掌握度"
+          : "尚未练习";
 
   function askAboutConcept(name: string) {
     useHandoffStore.getState().setChatDraft(`请帮我讲讲「${name}」这个概念。`);

@@ -444,3 +444,13 @@ def test_kb_seed_respects_the_selected_document_scope(live):
     assert "[Knowledge Base Context]" in sent, "seed should be present for a knowledge question"
     assert "图论杂记" not in sent and out_of_scope["document_id"] not in sent, "out-of-scope material leaked into the seed"
     client.close()
+
+
+def test_an_unpracticed_concept_is_a_404_not_a_generic_failure(live):
+    """界面要能区分「还没练过」与「读取失败」：前者是 404 mastery_not_found，不是 400 request_failed。"""
+    client = _client()
+    headers = _create_library_and_import(client, live)
+    response = client.get("/api/learning/progress", headers=headers, params={"concept": "从未练过的概念"})
+    assert response.status_code == 404, response.text
+    assert response.json()["error"]["code"] == "mastery_not_found", response.text
+    client.close()
