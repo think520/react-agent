@@ -913,7 +913,7 @@ RAG = 原文证据和文档检索层
 
 - sync pipeline 不再构建 `graph_store.json` 或 Neo4j 图。
 - 已审查知识地图由 `concept_graph.db` 和 `concept_map_query` 提供；候选概念不参与 Agent 回答。
-- Orchestrator 不直接融合 graph results。知识型问题以 `library_search` 的原文证据为骨架，概念图谱只做结构增强。
+- Orchestrator 不直接融合 graph results。知识型问题以 `rag_search` 的原文证据为骨架，概念图谱只做结构增强。
 
 原因：
 

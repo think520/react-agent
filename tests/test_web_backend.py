@@ -1331,7 +1331,6 @@ def test_chat_run_uses_the_configured_grace_period(backend_client, monkeypatch):
     assert captured["grace"] == resolve_grace_seconds(config)
 
 
-
 def test_chat_stream_finalizer_retries_failed_session_save(backend_client, monkeypatch):
     runtime = SimpleNamespace(
         workspace=str(backend_client.workspace),
@@ -2619,3 +2618,32 @@ def test_model_organization_route_only_proposes_validated_groups(backend_client,
     assert rules.status_code == 200, rules.text
     assert rules.json()["source"] == "rules"
 
+
+def test_session_errors_keep_their_structured_code(backend_client, tmp_path):
+    """会话错误按结构化 code 映射（以前「不存在 / 文件损坏 / id 有歧义」一律 404，2026-11-11 审查）。"""
+    import uuid
+
+    from core.session import Session
+    from web.backend.deps import get_config, get_session_save_dir
+
+    save_dir = get_session_save_dir(get_config(), str(backend_client.workspace))
+    os.makedirs(save_dir, exist_ok=True)
+
+    missing = backend_client.get(f"/api/chat/sessions/{uuid.uuid4()}")
+    assert missing.status_code == 404, missing.text
+    assert missing.json()["error"]["code"] == "session_not_found"
+
+    broken_id = str(uuid.uuid4())
+    with open(os.path.join(save_dir, f"{broken_id}.json"), "w", encoding="utf-8") as handle:
+        handle.write("{not json")
+    corrupt = backend_client.get(f"/api/chat/sessions/{broken_id}")
+    assert corrupt.status_code == 422, corrupt.text
+    assert corrupt.json()["error"]["code"] == "session_corrupt"
+
+    for name in ("周一复习", "周二复习"):
+        session = Session.new(str(backend_client.workspace))
+        session.name = name
+        session.save_to_file(os.path.join(save_dir, f"{session.session_id}.json"))
+    ambiguous = backend_client.get("/api/chat/sessions/复习")
+    assert ambiguous.status_code == 409, ambiguous.text
+    assert ambiguous.json()["error"]["code"] == "session_ambiguous"

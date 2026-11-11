@@ -15,6 +15,7 @@ import { EmptyState, ErrorNotice, LoadingState } from "../components/common";
 import { DocumentEditor } from "../components/DocumentEditor";
 import { DocumentReader } from "../components/DocumentReader";
 import { ApiError, api } from "../lib/api";
+import { shouldIgnoreShortcut } from "../lib/ime";
 import { useReaderTabsStore } from "../stores/readerTabsStore";
 import { useConfirm } from "../ui/Modal";
 import type { DocumentExtractionStatus, DocumentSection, DocumentSummary } from "../types";
@@ -102,7 +103,8 @@ export function ReaderPage() {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { navigate("/library?collection=" + collection); return; }
+      if (e.key === "Escape") { if (!shouldIgnoreShortcut(e)) navigate("/library?collection=" + collection); return; }
+      if (shouldIgnoreShortcut(e)) return;
       if (e.shiftKey && (e.key === "J" || e.key === "j")) goTo(1);
       if (e.shiftKey && (e.key === "K" || e.key === "k")) goTo(-1);
     };

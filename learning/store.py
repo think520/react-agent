@@ -3,7 +3,7 @@ import os
 from knowledge.paths import knowledge_path
 from datetime import datetime, timezone
 
-from core.db import ensure_columns, open_connection
+from core.db import ensure_columns, mark_schema_migrated, open_connection, schema_migrated
 
 from .schema import Mastery, LearningPlan
 
@@ -88,6 +88,9 @@ class LearningStore:
         return open_connection(self.db_path)
 
     def _init_schema(self):
+        # 按库文件只迁移一次（core.db.schema_migrated）：复习队列一个请求就会新建好几个 store。
+        if schema_migrated("learning", self.db_path):
+            return
         with self._conn() as conn:
             conn.executescript(_LEARNING_SCHEMA_SQL)
             ensure_columns(conn, "learning_plans", {
@@ -113,6 +116,7 @@ class LearningStore:
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_mastery_attempts_concept_evidence "
                 "ON mastery_attempts(concept, evidence_key)"
             )
+        mark_schema_migrated("learning", self.db_path)
 
     # --- Mastery ---
 

@@ -501,3 +501,48 @@ class TestHelpers:
         query = _build_fts_query("注意力机制")
         assert '"注意"' in query
         assert '"机制"' in query
+
+
+def test_wiki_document_query_matches_the_python_classifier(tmp_path):
+    """SQL 端的 Wiki 判定必须与 kb_service._document_classification 一致（含 Windows 反斜杠路径）。"""
+    from rag.sqlite_store import KBSQLiteStore
+    from service.kb_service import _document_classification
+
+    bs = chr(92)
+    sources = [
+        "obsidian/wiki/a.md", f"course{bs}wiki{bs}b.md", "course/notes/c.md", "obsidian/WIKI/d.md",
+        "x/wiki/e.md", "wikipedia/f.md", f"obsidian{bs}wiki{bs}g.md",
+    ]
+    store = KBSQLiteStore(str(tmp_path))
+    store.init_db()
+    try:
+        for index, source in enumerate(sources):
+            store.upsert_document(document_id=f"d{index}", source=source, content_hash="h", title="t")
+        got = sorted(row["source"] for row in store.list_wiki_documents())
+        by_source = sorted(row["source"] for row in store.get_documents_by_sources(sources))
+    finally:
+        store.close()
+    assert got == sorted(s for s in sources if _document_classification(s)["collection"] == "wiki")
+    assert by_source == sorted(sources)
+
+
+def test_schema_migration_reruns_after_the_database_is_recreated(tmp_path):
+    """init_db 的迁移按库文件只跑一次；库被 reset 删掉重建后必须重新建表。"""
+    from rag.sqlite_store import KBSQLiteStore
+
+    store = KBSQLiteStore(str(tmp_path))
+    store.init_db()
+    store.close()
+    db_path = store.db_path
+    for suffix in ("", "-wal", "-shm"):
+        candidate = db_path.with_name(db_path.name + suffix)
+        if candidate.exists():
+            candidate.unlink()
+
+    fresh = KBSQLiteStore(str(tmp_path))
+    fresh.init_db()
+    try:
+        fresh.upsert_document(document_id="d1", source="a.md", content_hash="h", title="t")
+        assert fresh.get_document("d1") is not None
+    finally:
+        fresh.close()

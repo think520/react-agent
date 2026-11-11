@@ -20,6 +20,8 @@ export interface LibraryTreePanelProps {
   documentQuery: string;
   setDocumentQuery: (value: string) => void;
   hits: Array<{ chunk_id: string; document_id: string; collection?: string; title?: string; source?: string; text?: string }>;
+  /** 原文搜索失败（不是「没命中」）：要让用户看见，而不是显示成空结果。 */
+  hitsError?: boolean;
   navigate: NavigateFunction;
   collection: "material" | "wiki";
   selectedFolder: string;
@@ -47,6 +49,7 @@ export function LibraryTreePanel(props: LibraryTreePanelProps) {
     documentQuery,
     setDocumentQuery,
     hits,
+    hitsError,
     navigate,
     collection,
     selectedFolder,
@@ -75,6 +78,7 @@ export function LibraryTreePanel(props: LibraryTreePanelProps) {
     <div className="rail-label"><FolderOpen size={15} />文件夹 <span>{tree.material_count}</span></div>
     
     <label className="document-search"><Search size={14} /><input value={documentQuery} onChange={(event) => setDocumentQuery(event.target.value)} placeholder="搜索资料" aria-label="搜索资料" /></label>
+    {hitsError && <p className="document-hits-error" role="status">原文搜索暂时不可用，下面只按标题筛选。</p>}
     {hits.length > 0 && (
       <div className="document-hits" aria-label="原文命中">
         {hits.map((hit) => (

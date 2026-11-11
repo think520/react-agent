@@ -129,3 +129,21 @@ def test_delete_folder_ungroup_keeps_identity_and_migrates_references(library, m
     assert new_ids and chunk_id not in new_ids
     evidence = concepts.evidence_for_relationship("rel-1")
     assert evidence[0]["chunk_id"] in new_ids, "证据必须跟着迁移"
+
+
+def test_delete_folder_resyncs_with_the_real_config(library, monkeypatch):
+    """移回库根的资料要按用户配置重新索引；空配置会悄悄换成默认 embedding（2026-11-11 审查）."""
+    (library / "课程包").mkdir()
+    (library / "课程包" / "第一课.md").write_text("# 第一课", encoding="utf-8")
+    seen: list[dict] = []
+    service = _service(library)
+    real_sync = service._sync_registered_sources
+
+    def spy(*args, **kwargs):
+        seen.append(kwargs.get("config"))
+        return real_sync(*args, **kwargs)
+
+    monkeypatch.setattr(service, "_sync_registered_sources", spy)
+    config = {"rag": {"embedding_backend": "local"}}
+    assert service.delete_folder("课程包", config=config)["ok"]
+    assert seen and seen[-1] == config, seen

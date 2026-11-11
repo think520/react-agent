@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
+import { readAppCss } from "./cssSources";
 
 /**
  * DESIGN.md is only a constraint if something checks it. This file makes the
@@ -25,7 +26,7 @@ const tokensText = readFileSync(TOKENS_PATH, "utf8");
 const cssText = [
   readFileSync(ENTRY_PATH, "utf8"),
   readFileSync(resolve(SRC, "styles", "tokens.css"), "utf8"),
-  readFileSync(resolve(SRC, "styles", "app.css"), "utf8"),
+  readAppCss(),
   readFileSync(resolve(SRC, "styles", "fonts.css"), "utf8"),
 ].join("\n");
 const docText = readFileSync(DOC_PATH, "utf8");
@@ -111,6 +112,20 @@ describe("DESIGN.md 与 styles.css 的 token 契约", () => {
 });
 
 describe("漂移棘轮（只允许变小）", () => {
+  it("样式里引用的每个 CSS 变量都必须有定义（2026-11-11）", () => {
+    // 曾有 9 个变量（--bg-card / --text / --wheat …）从未在 tokens 里定义，靠写死的浅色兜底值渲染：
+    // 暗色主题下知识地图对话框是一块米白底。兜底值让这类漏洞在浅色主题里完全看不出来。
+    const defined = new Set((cssText.match(/--[a-z0-9-]+(?=\s*:)/g) ?? []));
+    const used = new Set((cssText.match(/var\(\s*(--[a-z0-9-]+)/g) ?? []).map((ref: string) => ref.replace(/var\(\s*/, "")));
+    const undefinedVars = [...used].filter((name) => !defined.has(name));
+    expect(undefinedVars).toEqual([]);
+  });
+
+  it("颜色兜底值只减不增：var(--x, #hex) 会在暗色主题里漏出浅色", () => {
+    const BUDGET = 135; // 2026-11-11 实测；变量都已定义，兜底值是冗余而非漏洞，清理时同步下调
+    const fallbacks = (cssText.match(/var\(--[a-z0-9-]+,\s*#/g) ?? []).length;
+    expect(fallbacks).toBeLessThanOrEqual(BUDGET);
+  });
   it("低于 12px 的 font-size 必须是 0（§5 硬下限）", () => {
     // 2026-09-14 走完整条棘轮：226 → 208 → 195 → 167 → 43 → 0。
     // 从这一步起这不是预算而是门禁：任何新增的低于 12px 的字号都会直接失败。
@@ -340,7 +355,7 @@ describe("M3 视觉技法令牌（DESIGN.md §4.4 / §4.5）", () => {
   });
 });
 
-const APP_CSS = readFileSync(resolve(SRC, "styles", "app.css"), "utf8");
+const APP_CSS = readAppCss();
 
 function lastRuleBody(css: string, selector: string): string {
   const escaped = selector.replace(/[.*+?^{}()|[\]\\$]/g, "\\$&");

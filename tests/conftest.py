@@ -61,3 +61,20 @@ def scripted_provider():
 
     provider = ScriptedProvider()
     yield provider
+
+
+@pytest.fixture(autouse=True)
+def _no_local_ollama(request, monkeypatch):
+    """Default: there is no Ollama on this machine.
+
+    Without this, every test that builds the default embedding provider probes
+    localhost:11434 and waits out the 3 s timeout -- about 100 s of a full run
+    on a machine without Ollama, and a different code path on one that has it.
+    Tests of the probe itself patch ``rag.ollama.httpx`` and keep working;
+    a test that needs the real probe can opt out with ``@pytest.mark.real_ollama_probe``.
+    """
+    if request.node.get_closest_marker("real_ollama_probe"):
+        return
+    if request.node.module.__name__.endswith("test_ollama_embedding"):
+        return
+    monkeypatch.setattr("rag.ollama.OllamaEmbeddingClient.check_health", lambda self: False)

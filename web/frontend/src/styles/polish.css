@@ -1,0 +1,109 @@
+/* M3 / M4 / 审计 / 主题修复：必须最后加载，它们按设计覆盖前面的规则。
+   拆自 app.css（2026-11-11），层叠顺序由 app.css 里的 @import 顺序保证 —— 别调换。 */
+/* ── M3 · 浮层：发丝边 + 外环（DESIGN.md §4.5），背景见下方表面阶梯 ──
+   用 --ring 取代硬 rgba 描边；阴影仍用既有档位，不新增概念。 */
+
+/* ── M3 · 表面阶梯落位（DESIGN.md §4.4）──
+   0 = 停靠栏（纸沉） / 1 = 画布（纸） / 2 = 卡片（纸软 + 发丝边） / 3 = 浮层（纸软 + 外环）。
+   只给关键表面换令牌，不批量替换旧色值。 */
+.page-scroll, .settings-main { background: var(--surface-1); }
+.sidebar { background: var(--surface-0); }
+.context-panel { background: var(--surface-0); }
+.settings-nav { background: var(--surface-0); }
+.library-tree-pane, .document-rail { background: var(--surface-0); }
+.settings-section { border-color: var(--border-subtle); background: var(--surface-2); }
+.ui-modal-panel { background: var(--surface-3); box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-dialog); }
+.slash-palette, .mention-palette { border: 0; background: var(--surface-3); box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-lift); }
+.library-more-menu > div { border: 0; background: var(--surface-3); box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-float); }
+.notice { border: 0; background: var(--surface-3); box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-float); }
+
+
+/* ── M3 · 输入区统一：Surface 3 + 发丝边 + 外环（DESIGN.md §4.4 / §4.5）──
+   输入区（composer / 设置字段 / 搜索框）统一成「纸软表面 + ring」，焦点不再用裸 rgba。 */
+.composer { border: 0; background: var(--surface-3); box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-lift); }
+.composer:focus-within { box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-float); }
+.settings-field input, .settings-field textarea { border-color: var(--border-strong); background: var(--surface-3); }
+.settings-field input:focus, .settings-field textarea:focus { border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+.settings-search:focus-within, .document-search:focus-within { border-color: color-mix(in srgb, var(--accent) 18%, transparent); }
+
+/* ── M3 · 长列表滚动遮罩（DESIGN.md §4.5 / W-F3）──
+   只对会滚动的长列表生效；不支持 mask-image 时自动降级为无遮罩。 */
+@supports (mask-image: linear-gradient(black, transparent)) {
+  .settings-nav, .providers-list {
+    mask-image: linear-gradient(to bottom, transparent 0, black 8px, black calc(100% - 16px), transparent 100%);
+  }
+}
+
+/* ── UI 审计修复 · 第 1 批（2026-10-17）──────────────────────────
+   ① 练习页：去掉 tab 下方「多余的分隔线 + 28px 空白」，把出题区变成一张卡；
+   ② 复习页：容器不再在 .page-container 里二次居中（宽屏不再左右空一大块）；
+   ③ 按钮中文不再被挤成两行（标题栏/题库/笔记页最明显）。 */
+
+/* ③ 按钮与分段控件：中文不换行 */
+.primary-button, .quiet-button, .heading-actions button, .wiki-view-tabs button,
+.setting-segmented button, .practice-mode button, .settings-nav button,
+.review-row button, .danger-text-button, .text-link { white-space: nowrap; }
+
+/* ① 练习页出题区：卡片表面，而不是两条全宽分隔线夹一条空白 */
+.practice-create { border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); margin-top: 6px; padding: 16px 18px; background: var(--surface-2); }
+.practice-start { max-width: none; }
+
+/* ① 出题方式：与设置页一致的分段控件（原来是大圆角 chip，视觉不一致） */
+.practice-mode { display: inline-flex; width: fit-content; gap: 2px; border: 1px solid var(--border); border-radius: var(--radius-md); margin-bottom: 16px; padding: 2px; background: rgba(46,43,39,.025); }
+.practice-mode button { min-height: 28px; border: 0; border-radius: var(--radius-sm); padding: 0 12px; background: transparent; color: var(--muted); font-size: 12.5px; }
+.practice-mode button.active { background: var(--paper); color: var(--blue); box-shadow: 0 1px 4px rgba(46,43,39,.08); font-weight: 650; }
+
+/* ② 复习页：与页面容器同宽，不再二次居中 */
+.review-container { max-width: none; }
+
+/* ── UI 审计修复 · 第 2 批（2026-10-17）──
+   题库「练习集」在没有集合时是一个带边框的空框，看起来像坏掉的输入框 ✗
+   → 折叠态改成「轻分隔行」，展开态才显示完整容器。 */
+.bank-sets { border: 0; border-top: 1px solid var(--border-subtle); border-radius: 0; margin: 0 0 10px; padding: 0; background: transparent; }
+.bank-sets[open] { border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0 14px; background: var(--paper-soft); }
+.bank-sets:not([open]) > summary { min-height: 38px; color: var(--muted); font-size: 13px; }
+
+/* ── UI 审计修复 · 第 3 批（2026-10-17）──
+   runtime-grid 是 2 列，奇数条状态（RAG 3 条 / 状态与关于 7 条）会留半格空白 ✗
+   → 最后一条如果是奇数位，就横跨整行。 */
+.runtime-grid > div:last-child:nth-child(odd) { grid-column: 1 / -1; border-right: 0; padding-right: 0; }
+
+/* ── M4 · 交互物理：按令牌曲线收口（2026-10-17）──
+   按压用 --spring-press；浮层入场用 --spring-pop；抽屉/面板用 --spring-panel；
+   选中/复制反馈用 --spring-accent。曲线在 tokens.css（k/c/m 数值积分 → linear()，过冲 ≤2%）。 */
+.new-chat-button:active, .icon-button:active, .quiet-button:active, .primary-button:active,
+.send-button:active, .settings-nav button:active, .wiki-view-tabs button:active { transition-timing-function: var(--spring-press); }
+@keyframes ui-modal-in { from { opacity: 0; transform: translateY(8px) scale(0.985); } }
+.ui-modal-panel { animation-timing-function: var(--spring-pop); }
+.notice { animation: notice-in var(--dur-base) var(--spring-pop); }
+@keyframes notice-in { from { opacity: 0; transform: translateY(6px) scale(0.99); } }
+/* M4 · 减少动效：单一全局开关见上方 1370 行的 @media（prefers-reduced-motion）——  这里不再重复 !important 重拳。 */
+
+/* ── M4 · 骨架屏微光规则：只允许首屏与长列表，循环 ≤ 1.2s（--dur-shimmer）。 ──
+   目前没有骨架屏组件，规则先落为令牌与约定，等组件出现时直接用。 */
+.skeleton { background: linear-gradient(90deg, var(--paper-soft), var(--paper-sunken), var(--paper-soft)); background-size: 200% 100%; animation: skeleton-sheen var(--dur-shimmer) var(--ease-out) infinite; }
+@keyframes skeleton-sheen { from { background-position: 200% 0; } to { background-position: 0 0; } }
+
+/* ── W-F6 主题修复：浅色底色的半透明面板改用令牌（否则暗色下仍是白条）── */
+.topbar { background: color-mix(in srgb, var(--paper) 86%, transparent); }
+.selection-toolbar { background: color-mix(in srgb, var(--paper) 92%, transparent); }
+.wiki-plan-compose, .wiki-plan-card { background: color-mix(in srgb, var(--paper-soft) 72%, transparent); }
+.slash-palette, .mention-palette { background: color-mix(in srgb, var(--surface-3) 98%, transparent); }
+
+/* ── 视觉返工（2026-10-17 用户反馈）──
+   ① 练习出题卡：限制到舒适阅读宽度，不再拉满整页（右侧大片空白 ✗）；
+   ② 复习「下一步」提示：去掉整块蓝色洗底 + 蓝色竖条（太抢眼 ✗），改成安静的中性卡。 */
+.practice-create { max-width: 720px; padding: 18px 20px; }
+.practice-create .practice-mode { margin-bottom: 12px; }
+.practice-create .practice-stepwise { margin: 0 0 12px; }
+.review-objective { margin: 0 0 16px; border: 1px solid var(--border-subtle); border-left: 2px solid var(--clay-wash); border-radius: var(--radius-md); padding: 10px 14px; background: var(--surface-2); color: var(--muted); font-size: 13px; }
+
+/* ── 练习页「逐题生成」：原生 checkbox 与全站开关不一致 ✗（2026-10-17）──
+   改成与设置页同一套轨道+滑块开关，并与上方分段控件左边缘对齐。 */
+.practice-stepwise { display: flex; align-items: flex-start; gap: 10px; width: 100%; border: 0; margin: 0 0 14px; padding: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.practice-stepwise:disabled { cursor: not-allowed; opacity: .6; }
+.practice-stepwise .setting-toggle { pointer-events: none; }
+.practice-stepwise > span { display: grid; gap: 2px; }
+.practice-stepwise strong { color: var(--ink); font-size: 13px; font-weight: 650; }
+.practice-stepwise small { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.practice-stepwise .setting-toggle { flex: 0 0 auto; margin-top: 1px; }

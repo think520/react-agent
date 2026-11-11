@@ -85,7 +85,8 @@ def web_research(
             "Search snippets are not evidence. Cite the attached sources for web-grounded claims.\n\n"
             + result["content"]
         ),
-        data={"web_research_id": result["research_id"]},
+        # W2-EVID-01：引用门禁只看 tool_history 的 data，网页证据的身份必须放在这里。
+        data={"web_research_id": result["research_id"], "sources": result["sources"]},
         artifacts=[candidates_artifact, evidence_artifact, citation_artifact],
     )
 

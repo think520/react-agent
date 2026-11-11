@@ -1,0 +1,13 @@
+# 仓库里的文本一律 LF（index 本来就全是 LF）。本机 core.autocrlf=true 会把工作区写成 CRLF，
+# 再被脚本整文件读写时就会混进 CR —— 2026-11-11 DESIGN.md 的表格就是这样断成两行的。
+* text=auto eol=lf
+*.png binary
+*.webp binary
+*.jpg binary
+*.ico binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.pdf binary
+*.docx binary
+*.pptx binary

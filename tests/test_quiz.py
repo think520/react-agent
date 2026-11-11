@@ -10,6 +10,7 @@ from quiz.store import QuizStore
 from quiz.generator import QuestionGenerator
 from quiz.evaluator import QuizEvaluator
 from quiz.review import QuizReviewer
+from tests.llm_fake import ScriptedProvider
 
 
 # --- Schema tests ---
@@ -713,14 +714,10 @@ def test_evaluator_short_answer_no_llm():
 
 def test_evaluator_short_answer_with_mock_llm():
     """Test short answer grading with a mock LLM provider."""
-    class MockProvider:
-        class Response:
-            content = '{"is_correct": true, "feedback": "Correct!"}'
-        def complete(self, messages):
-            return self.Response()
+    provider = ScriptedProvider(['{"is_correct": true, "feedback": "Correct!"}'])
 
     q = Question(type="short_answer", question="What algo?", answer="Dijkstra")
-    ev = QuizEvaluator(llm_provider=MockProvider())
+    ev = QuizEvaluator(llm_provider=provider)
     correct, feedback = ev.evaluate(q, "Dijkstra algorithm")
     assert correct is True
     assert "Correct" in feedback
@@ -728,14 +725,11 @@ def test_evaluator_short_answer_with_mock_llm():
 
 def test_evaluator_three_state_verdict_partial():
     """Partial short answers get verdict=partial while is_correct stays False."""
-    class MockProvider:
-        class Response:
-            content = '{"verdict": "partial", "feedback": "提到要点但缺少推导"}'
-        def complete(self, messages):
-            return self.Response()
+    # 同一个 evaluator 批改两次（evaluate_with_verdict 与 evaluate），各消耗一轮。
+    provider = ScriptedProvider(['{"verdict": "partial", "feedback": "提到要点但缺少推导"}'] * 2)
 
     q = Question(type="short_answer", question="Q?", answer="A")
-    ev = QuizEvaluator(llm_provider=MockProvider())
+    ev = QuizEvaluator(llm_provider=provider)
     correct, feedback, verdict = ev.evaluate_with_verdict(q, "基本答对但漏了")
     assert correct is False
     assert verdict == "partial"
@@ -748,14 +742,10 @@ def test_evaluator_three_state_verdict_partial():
 
 def test_evaluator_verdict_backward_compatible_old_format():
     """Old two-state grading output (is_correct only) still parses."""
-    class MockProvider:
-        class Response:
-            content = '{"is_correct": false, "feedback": "错误"}'
-        def complete(self, messages):
-            return self.Response()
+    provider = ScriptedProvider(['{"is_correct": false, "feedback": "错误"}'])
 
     q = Question(type="short_answer", question="Q?", answer="A")
-    ev = QuizEvaluator(llm_provider=MockProvider())
+    ev = QuizEvaluator(llm_provider=provider)
     correct, _feedback, verdict = ev.evaluate_with_verdict(q, "B")
     assert correct is False
     assert verdict == "incorrect"
@@ -872,22 +862,18 @@ def test_generator_validate_question():
 
 def test_generator_from_chunks_mock():
     """Test question generation with mock LLM."""
-    class MockProvider:
-        class Response:
-            content = json.dumps([{
-                "type": "single_choice",
-                "question": "Test Q?",
-                "options": ["A. 1", "B. 2", "C. 3", "D. 4"],
-                "answer": "B",
-                "explanation": "Because",
-                "concepts": ["test"],
-                "difficulty": "easy",
-            }])
-        def complete(self, messages):
-            return self.Response()
+    provider = ScriptedProvider([json.dumps([{
+            "type": "single_choice",
+            "question": "Test Q?",
+            "options": ["A. 1", "B. 2", "C. 3", "D. 4"],
+            "answer": "B",
+            "explanation": "Because",
+            "concepts": ["test"],
+            "difficulty": "easy",
+        }])])
 
     from quiz.generator import QuestionGenerator
-    gen = QuestionGenerator(str("/tmp"), MockProvider())
+    gen = QuestionGenerator(str("/tmp"), provider)
     chunks = [{"text": "some content", "source": "test.md"}]
     questions = gen.generate_from_chunks(chunks, count=1)
     assert len(questions) == 1
@@ -898,20 +884,15 @@ def test_generator_from_chunks_mock():
 
 
 def test_generator_uses_selected_source_ids():
-    class MockProvider:
-        class Response:
-            content = json.dumps([{
-                "type": "true_false",
-                "question": "Q?",
-                "answer": "true",
-                "source_ids": ["S2"],
-            }])
-
-        def complete(self, messages):
-            return self.Response()
+    provider = ScriptedProvider([json.dumps([{
+            "type": "true_false",
+            "question": "Q?",
+            "answer": "true",
+            "source_ids": ["S2"],
+        }])])
 
     from quiz.generator import QuestionGenerator
-    gen = QuestionGenerator(str("/tmp"), MockProvider())
+    gen = QuestionGenerator(str("/tmp"), provider)
     questions = gen.generate_from_chunks([
         {"text": "first", "source": "first.md", "chunk_id": "c1"},
         {"text": "second", "source": "second.md", "chunk_id": "c2"},
@@ -921,33 +902,23 @@ def test_generator_uses_selected_source_ids():
 
 
 def test_generator_repairs_invalid_model_output_once():
-    class MockProvider:
-        def __init__(self):
-            self.calls = 0
-
-        def complete(self, _messages):
-            self.calls += 1
-            content = "not json" if self.calls == 1 else json.dumps([{
-                "type": "true_false", "question": "Q?", "answer": "true",
-            }])
-            return type("Response", (), {"content": content})()
+    provider = ScriptedProvider(["not json", json.dumps([{
+        "type": "true_false", "question": "Q?", "answer": "true",
+    }])])
 
     from quiz.generator import QuestionGenerator
-    provider = MockProvider()
     questions = QuestionGenerator(str("/tmp"), provider).generate_from_chunks([
         {"text": "source material", "source": "lesson.md"},
     ], count=1)
 
-    assert provider.calls == 2
+    assert provider.call_count == 2
     assert len(questions) == 1
 
 
 def test_generator_fuzzy_matches_langchian_to_local_document(monkeypatch):
-    class MockProvider:
-        def complete(self, _messages):
-            return type("Response", (), {"content": json.dumps([{
-                "type": "true_false", "question": "LangChain uses runnables?", "answer": "true",
-            }])})()
+    provider = ScriptedProvider([json.dumps([{
+        "type": "true_false", "question": "LangChain uses runnables?", "answer": "true",
+    }])])
 
     monkeypatch.setattr("quiz.generator.search_index", lambda *args, **kwargs: [])
     monkeypatch.setattr("service.kb_service.KBService.list_documents", lambda self, collection="all": {
@@ -964,7 +935,7 @@ def test_generator_fuzzy_matches_langchian_to_local_document(monkeypatch):
     })
 
     from quiz.generator import QuestionGenerator
-    generator = QuestionGenerator(str("/tmp"), MockProvider())
+    generator = QuestionGenerator(str("/tmp"), provider)
     questions = generator.generate_from_query("langchian", count=1)
 
     assert len(questions) == 1

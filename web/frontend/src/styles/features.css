@@ -1,0 +1,265 @@
+/* 阅读偏好覆盖、错误兜底、编辑器、资料库返工、阅读器标签。
+   拆自 app.css（2026-11-11），层叠顺序由 app.css 里的 @import 顺序保证 —— 别调换。 */
+/* User reading preferences intentionally win over legacy page-size rules. */
+.answer-prose { font-size: var(--body-font-size); }
+
+
+/* Route-level error boundary fallback (warm-paper style). */
+.error-boundary { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; min-height: 100dvh; padding: 32px 20px; text-align: center; background: var(--paper); color: var(--ink); }
+.error-boundary h1 { margin: 4px 0 0; font-family: var(--font-brand); font-size: 24px; font-weight: 600; }
+.error-boundary p { margin: 0; max-width: 420px; color: var(--muted); font-size: 14px; line-height: 1.7; }
+.error-boundary .primary-button { margin-top: 6px; }
+.error-boundary details { margin-top: 10px; max-width: 560px; color: var(--faint); font-size: 12px; }
+.error-boundary details summary { cursor: pointer; }
+.error-boundary pre { overflow: auto; max-width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--paper-soft); text-align: left; white-space: pre-wrap; word-break: break-word; }
+
+.migration-check { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--ink-soft); }
+.migration-check input { accent-color: var(--accent); }
+.migration-preview { border: 1px solid var(--border); border-radius: 6px; background: rgba(255,255,255,.36); }
+.migration-preview summary { cursor: pointer; padding: 9px 11px; color: var(--ink-soft); font-size: 13px; font-weight: 650; }
+.migration-preview > div { display: grid; max-height: 220px; overflow: auto; border-top: 1px solid var(--border); }
+.migration-preview label { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 9px; padding: 9px 11px; border-bottom: 1px solid rgba(73,91,74,.1); }
+.migration-preview label:last-child { border-bottom: 0; }
+.migration-preview label.disabled { opacity: .58; }
+.migration-preview input { margin-top: 3px; accent-color: var(--accent); }
+.migration-preview span { display: grid; gap: 2px; min-width: 0; }
+.migration-preview strong { overflow-wrap: anywhere; color: var(--ink); font-size: 13px; }
+.migration-preview small { color: var(--muted); font-size: 12px; line-height: 1.45; }
+.migration-actions { display: flex; justify-content: flex-end; align-items: center; gap: 10px; margin-top: 4px; }
+.settings-warning { margin: 0; color: var(--danger); font-size: 12px; line-height: 1.5; }
+
+
+/* FE-1 animation primitives (@/ui). Business components import from @/ui only;
+   swapping the animation implementation is a one-file change. */
+.ui-anim { will-change: opacity, transform; }
+.ui-fade-in { animation: ui-fade-in var(--dur-slow) var(--ease-out) both; }
+@keyframes ui-fade-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+
+/* Block-level error fallback: quiet, keeps the message around it intact. */
+.ui-block-error { display: inline-block; padding: 8px 11px; border-left: 2px solid var(--clay); border-radius: 4px; background: var(--clay-wash); color: var(--muted); font-size: 12px; }
+
+/* Keyboard shortcut reference (ShortcutsDialog). */
+.shortcuts-dialog { display: grid; gap: 14px; width: min(460px, 100%); max-height: 80vh; overflow-y: auto; border: 1px solid var(--border-strong); border-radius: 8px; padding: 20px 22px 24px; background: var(--paper-soft); box-shadow: var(--shadow-dialog); }
+.shortcuts-header { display: flex; align-items: center; justify-content: space-between; }
+.shortcuts-header > div > span { color: var(--clay); font-size: 12px; font-weight: 700; text-transform: uppercase; }
+.shortcuts-header h2 { margin: 3px 0 0; color: var(--blue); font-family: var(--font-reading); font-size: 21px; font-weight: 500; }
+.shortcuts-group h3 { margin: 0 0 8px; color: var(--muted); font-size: 13px; font-weight: 650; text-transform: uppercase; letter-spacing: .04em; }
+.shortcuts-group dl { margin: 0; display: grid; gap: 6px; }
+.shortcuts-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.shortcuts-row dd { margin: 0; color: var(--ink); font-size: 12px; }
+
+
+/* FE-3 process disclosure: fold runs of process steps. */
+.process-fold { margin: 8px 0 4px; }
+.process-fold-inline { display: flex; flex-wrap: wrap; gap: 6px; }
+.process-fold-inline span { border: 1px solid var(--border); border-radius: 6px; padding: 2px 8px; background: var(--paper-soft); color: var(--muted); font-size: 12px; }
+.process-fold-collapsed { border-left: 2px solid var(--sage); padding: 2px 0 2px 10px; }
+.process-fold-collapsed summary { cursor: pointer; color: var(--sage-deep); font-size: 12px; font-weight: 650; list-style: none; }
+.process-fold-collapsed summary::-webkit-details-marker { display: none; }
+.process-fold-collapsed > div { display: grid; gap: 2px; margin-top: 6px; }
+.process-fold-collapsed p { display: flex; justify-content: space-between; gap: 10px; margin: 0; color: var(--muted); font-size: 12px; }
+.process-fold-collapsed p small { color: var(--faint); font-size: 12px; }
+
+
+/* LB-1.1 document editor (Markdown materials). */
+/* document-editor-backdrop lives under .ui-modal-backdrop; panel class below. */
+.document-editor { display: flex; flex-direction: column; width: min(860px, 100%); height: min(640px, 84vh); overflow: hidden; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--paper); box-shadow: var(--shadow-dialog); }
+.document-editor > header { display: flex; flex: 0 0 auto; align-items: flex-start; justify-content: space-between; gap: 20px; padding: 18px 22px 14px; border-bottom: 1px solid var(--border); }
+.document-editor > header span { color: var(--clay); font-size: 12px; font-weight: 700; text-transform: uppercase; }
+.document-editor > header h3 { margin: 4px 0 0; color: var(--blue); font-family: var(--font-reading); font-size: 20px; font-weight: 500; }
+.document-editor > main { flex: 1 1 auto; min-height: 0; overflow: auto; }
+.document-editor-textarea { display: block; width: 100%; height: 100%; min-height: 320px; border: 0; padding: 18px 22px; resize: none; outline: 0; background: transparent; color: var(--ink); font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 13px; line-height: 1.7; }
+.document-editor-hint { padding: 18px 22px; color: var(--muted); font-size: 13px; }
+.document-editor-conflict { border-left: 2px solid var(--clay); margin: 18px 22px; padding: 12px 14px; background: var(--clay-wash); }
+.document-editor-conflict strong { color: var(--blue); font-size: 14px; }
+.document-editor-conflict p { margin: 6px 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.document-editor-conflict > div { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.document-editor-error { margin: 0; padding: 10px 22px; color: var(--danger); font-size: 12px; }
+.document-editor-versions { flex: 0 0 auto; max-height: 200px; overflow-y: auto; border-top: 1px solid var(--border); padding: 10px 22px; }
+.document-editor-versions > header { display: flex; align-items: center; gap: 6px; color: var(--sage-deep); font-size: 12px; font-weight: 650; }
+.document-editor-versions > div { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--border); color: var(--muted); font-size: 12px; }
+.document-editor-versions > div:last-child { border-bottom: 0; }
+.document-editor > footer { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 22px; border-top: 1px solid var(--border); }
+.document-editor > footer > div { display: flex; gap: 8px; }
+
+
+/* LB-1.2 AI document proposal card. */
+.document-proposal-card { width: min(100%, 700px); border-left: 2px solid var(--blue); margin: 16px 0 8px; padding: 13px 15px; background: var(--blue-wash); }
+.document-proposal-card header { display: flex; align-items: center; gap: 7px; color: var(--blue); }
+.document-proposal-card header strong { font-size: 13px; }
+.document-proposal-card header span { margin-left: auto; overflow: hidden; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.document-proposal-reason { margin: 8px 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.document-proposal-diff { margin: 8px 0; }
+.document-proposal-diff summary { cursor: pointer; color: var(--blue); font-size: 12px; font-weight: 650; }
+.document-proposal-diff pre { overflow-x: auto; margin: 8px 0 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--paper-soft); font-family: var(--font-mono); font-size: 12px; line-height: 1.6; white-space: pre; }
+.document-proposal-diff .diff-add { color: var(--sage-deep); }
+.document-proposal-diff .diff-remove { color: var(--danger); }
+.document-proposal-diff .diff-context { color: var(--faint); }
+.document-proposal-impact { margin: 8px 0; color: var(--clay); font-size: 12px; }
+.document-proposal-error { margin: 8px 0; color: var(--danger); font-size: 12px; }
+.document-proposal-card footer { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+.document-proposal-applied { color: var(--sage-deep); font-size: 12px; font-weight: 650; }
+
+/* FE-4 page transition wrapper. */
+.route-fade { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+
+/* FE-4 knowledge-map -> chat linkage. */
+.sidebar-ask { align-self: flex-start; }
+
+/* FE-4 graph entrance fade (disabled by the global prefers-reduced-motion rule). */
+.graph-canvas { animation: graph-enter var(--dur-enter) var(--ease-out) both; }
+@keyframes graph-enter { from { opacity: 0; } to { opacity: 1; } }
+
+/* FE-4 force params (center / repel / link). */
+.km-force-params { position: relative; }
+.km-force-params > summary { list-style: none; cursor: pointer; border: 1px solid var(--border); border-radius: 6px; padding: 6px 9px; color: var(--muted); font-size: 12px; }
+.km-force-params > summary::-webkit-details-marker { display: none; }
+.km-force-params[open] > summary { color: var(--blue); }
+.km-force-params > div { position: absolute; z-index: 20; top: calc(100% + 6px); right: 0; display: grid; min-width: 180px; gap: 8px; border: 1px solid var(--border-strong); border-radius: 8px; padding: 10px 12px; background: var(--paper-soft); box-shadow: var(--shadow-float); }
+.km-force-params label { display: grid; grid-template-columns: 34px minmax(0,1fr); align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
+.km-force-params input { width: 100%; accent-color: var(--sage); }
+
+/* ConceptSidebar graph editing (TASKS_LIBRARY_REWORK task 4). */
+.sidebar-title-actions { display: flex; gap: 4px; align-items: center; }
+.sidebar-edit-form { display: grid; gap: 8px; border: 1px solid var(--border); border-radius: 7px; padding: 10px; margin: 8px 0; }
+.sidebar-edit-form label { display: grid; gap: 4px; color: var(--blue); font-size: 12px; font-weight: 650; }
+.sidebar-edit-form input, .sidebar-edit-form textarea { width: 100%; border: 1px solid var(--border-strong); border-radius: 6px; padding: 7px 9px; background: var(--paper-soft); color: var(--ink); font: inherit; font-size: 12px; }
+.sidebar-edit-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.sidebar-add-relation { display: grid; gap: 6px; margin-top: 8px; }
+.sidebar-add-relation input, .sidebar-add-relation select { width: 100%; border: 1px solid var(--border-strong); border-radius: 6px; padding: 6px 8px; background: var(--paper-soft); color: var(--ink); font-size: 12px; }
+.sidebar-rel-candidates { display: grid; gap: 2px; max-height: 140px; overflow-y: auto; }
+.sidebar-rel-candidates button { display: flex; align-items: center; gap: 6px; border: 0; border-radius: 5px; padding: 5px 7px; background: transparent; color: var(--ink); font-size: 12px; text-align: left; }
+.sidebar-rel-candidates button:hover { background: var(--blue-wash); color: var(--blue); }
+.rel-delete { opacity: 0; }
+.sidebar-rel-item:hover .rel-delete { opacity: 1; }
+
+/* Library rework (task 1): list/reader split + reader page. */
+/* ②（E17）：只读文件夹树。树是导航层——它出问题时资料列表照常可用。
+   （这里原来还有一条 `.library-workspace.with-tree { 260px 270px 1fr }` 的三列声明：
+   中间的"我的资料"列表早在 2026-09-24 就删了，它只会在某些类名组合下凭空多出一个空列，
+   所以一并删除；列宽统一由文件下方"资料库分栏"那一段负责。） */
+.library-tree-pane { border-right: 1px solid var(--border); padding: var(--space-4) var(--space-3) var(--space-4) 0; min-width: 0; }
+/* ④：标签条 + 阅读区是**一个**网格列。它俩以前是网格的两个孩子，一开标签就变成 4 个，
+   3 列网格自动换行，整个分栏塌陷（2026-09-24 用户截图）。 */
+.library-reader-column { display: flex; flex-direction: column; min-width: 0; }
+.library-tree { list-style: none; margin: 0; padding: 0; font-size: 13px; }
+.library-tree ul { list-style: none; margin: 0; padding: 0; }
+.library-tree-row { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 28px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--ink); text-align: left; cursor: pointer; }
+.library-tree-row:hover { background: var(--paper-soft); }
+.library-tree-row.selected { background: var(--blue-wash); color: var(--blue); }
+.library-tree-row.active { background: var(--blue-wash); color: var(--blue); font-weight: 650; }
+.library-tree-row.file:disabled { cursor: default; color: var(--muted); }
+.library-tree-row .library-tree-name { display: inline-flex; align-items: center; gap: 6px; min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.library-tree-row .library-tree-meta { flex: 0 0 auto; color: var(--muted); font-size: 12px; }
+.library-tree-row .library-tree-meta em { font-style: normal; color: var(--clay); }
+.library-tree-disclosure { display: inline-flex; width: 18px; height: 18px; align-items: center; justify-content: center; border: 0; border-radius: 4px; background: transparent; color: var(--muted); cursor: pointer; }
+.library-tree-dot { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; background: var(--border-strong); }
+.library-tree-dot.complete { background: var(--sage-deep); }
+.library-tree-dot.pending { background: var(--clay); }
+.library-tree-dot.failed { background: var(--danger); }
+.library-tree-dot.empty { background: var(--border-strong); }
+.library-tree-ignored { margin: 2px 0 6px; color: var(--muted); font-size: 12px; }
+.library-tree-ignored > summary { cursor: pointer; }
+.library-tree-ignored ul { margin: 4px 0 0; padding-left: 22px; }
+.library-tree-ignored li { display: flex; gap: 6px; overflow-wrap: anywhere; }
+.library-tree-ignored small { color: var(--faint); }
+
+/* ④：阅读区目录浮层（每份资料自己的小节列表，点击跳段）。 */
+/* ④：工具条只放「读」的动作，「改」的收进 ⋯ 菜单。 */
+.reader-more-actions { position: relative; }
+.reader-more-actions > summary { display: inline-flex; min-height: 40px; align-items: center; border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0 11px; background: var(--paper); color: var(--muted); font-size: 14px; list-style: none; cursor: pointer; }
+.reader-more-actions > summary::-webkit-details-marker { display: none; }
+.reader-more-actions > summary:hover { background: var(--paper-soft); color: var(--ink); }
+.reader-more-actions > div { position: absolute; z-index: 30; right: 0; top: 44px; display: grid; min-width: 180px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); padding: 4px; background: var(--paper); box-shadow: var(--shadow-float); }
+/* ④：阅读区标签条（参考项目：tab 条就是面板 header 的名字那一半）。 */
+.reader-tabs { display: flex; gap: 4px; overflow-x: auto; border-bottom: 1px solid var(--border); padding: 0 var(--space-3) var(--space-2); }
+.reader-tab { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 2px; max-width: 220px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--paper); }
+.reader-tab.active { border-color: rgba(27,54,93,0.28); background: var(--blue-wash); color: var(--blue); }
+.reader-tab > button:first-child { min-width: 0; max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 0; background: transparent; color: inherit; padding: 6px 8px; font-size: 12.5px; cursor: pointer; }
+.reader-tab-close { border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--muted); padding: 4px 6px; font-size: 14px; line-height: 1; cursor: pointer; }
+.reader-tab-close:hover { background: var(--paper-soft); color: var(--ink); }
+/* ③：树上的写操作（新建文件夹 / 行内重命名 / 行操作菜单）与已归档列表。 */
+.library-tree-create { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; color: var(--muted); font-size: 12.5px; }
+.library-tree-create input { min-width: 0; flex: 1; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 5px 8px; background: var(--paper); color: var(--ink); font-size: 12.5px; }
+.library-tree-rename { min-width: 0; flex: 1; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 4px 6px; background: var(--paper); color: var(--ink); font-size: 13px; }
+.library-tree-open { display: inline-flex; align-items: center; gap: 6px; min-width: 0; flex: 1; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.library-tree-actions { position: relative; flex: 0 0 auto; }
+.library-tree-actions > summary { display: inline-flex; width: 20px; height: 20px; align-items: center; justify-content: center; border-radius: var(--radius-sm); color: var(--muted); cursor: pointer; list-style: none; }
+.library-tree-actions > summary::-webkit-details-marker { display: none; }
+.library-tree-actions > div { position: absolute; z-index: 20; right: 0; top: 22px; display: grid; min-width: 190px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); padding: 4px; background: var(--paper); box-shadow: var(--shadow-float); }
+.library-tree-actions button { border: 0; border-radius: var(--radius-sm); padding: 7px 9px; background: transparent; color: var(--ink); text-align: left; font-size: 12.5px; cursor: pointer; }
+.library-tree-actions button:hover { background: var(--paper-soft); }
+.note-editor-hint.over-limit { color: var(--danger); }
+/* ⑤：整理建议面板（树上，只提议 → 执行 → 撤销）。 */
+.library-organize { margin-top: 10px; color: var(--muted); font-size: 12.5px; }
+.library-organize > summary { cursor: pointer; }
+.library-organize > div { display: grid; gap: 8px; margin-top: 6px; }
+.library-organize strong { color: var(--ink); font-size: 12.5px; }
+.library-organize p { margin: 2px 0; }
+.library-organize ul { margin: 4px 0; padding-left: 18px; }
+.library-organize-undo { display: grid; gap: 4px; margin-top: 10px; }
+.library-archive { margin-top: 10px; color: var(--muted); font-size: 12.5px; }
+.library-archive > summary { cursor: pointer; }
+.library-archive ul { margin: 6px 0 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.library-archive li { display: flex; align-items: center; gap: 6px; }
+.library-archive li span { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.library-workspace.list-only { grid-template-columns: minmax(0, 1fr); }
+.library-workspace.list-only .document-rail { max-width: 880px; margin: 0 auto; }
+/* 资料库分栏（④，2026-09-24 按用户要求收敛）：
+   · **资料**：文件夹树 | 正文 —— 原来中间还有一栏"我的资料"平铺列表，
+     它和树功能重复、还白占一栏，已经删掉；搜索框搬进了树面板；
+   · **wiki**：列表 | 正文（树只在资料集合里渲染）。
+   这条必须排在 list-only 那条之后：同优先级下后写的才生效。 */
+.library-workspace.with-tree,
+.library-workspace.list-only.with-tree { grid-template-columns: 240px minmax(0, 1fr); }
+.library-reader-placeholder { display: flex; align-items: center; justify-content: center; min-width: 0; }
+.library-workspace.list-only.with-tree .document-rail { max-width: none; margin: 0; }
+
+.reader-container { max-width: 900px; }
+.reader-topbar { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+.reader-topbar-nav { display: flex; gap: 2px; }
+.reader-topbar-title { min-width: 0; flex: 1; }
+.reader-topbar-title span { color: var(--clay); font-size: 12px; font-weight: 700; text-transform: uppercase; }
+.reader-topbar-title h2 { margin: var(--space-1) 0 0; overflow: hidden; color: var(--blue); font-family: var(--font-reading); font-size: 20px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.reader-topbar-actions { display: flex; align-items: center; gap: 6px; }
+.reader-article { padding: 24px 0 60px; }
+/* 阅读量度（2026-09-24 用户反馈"文章不够大"）：正文列 720 → 800px 保留；
+   字号不再写死 18px（2026-10-28 修）：那会让设置里的「正文字号」15/16/17/18 全部失效，
+   改为跟随 --body-font-size（由设置偏好决定）。
+   正文与顶部的视图行、页头保持同一条中轴。 */
+.reader-article .reader-prose { max-width: 800px; margin: 0 auto; }
+
+/* DocumentEditor split-pane (TASKS_LIBRARY_REWORK task 3.4.2). */
+.document-editor-header-actions { display: flex; gap: 2px; }
+.document-editor > main.document-editor-split { display: flex; flex-direction: row; overflow: hidden; padding: 0; }
+.document-editor-textarea.split { flex: 1 1 auto; min-width: 0; min-height: 0; }
+.document-editor-divider { flex: 0 0 5px; cursor: col-resize; background: var(--border); }
+.document-editor-divider:hover { background: var(--border-strong); }
+.document-editor-preview { flex: 0 0 45%; min-width: 0; overflow-y: auto; border-left: 1px solid var(--border); background: var(--paper-soft); }
+.document-editor-preview-body { max-width: 720px; margin: 0 auto; padding: 18px 22px; }
+
+/* Chapter rail (TASKS_LIBRARY_REWORK task 2.3.2): right-edge hover zone. */
+/* 右边缘的 64px 悬停带已在 2026-09-24 删除：它压在 8px 滚动条上，鼠标一进去就弹目录，
+   用户根本拖不了滚动条。目录改由工具条按钮 / ] 打开。 */
+.chapter-rail { position: fixed; z-index: 31; top: 0; right: 0; bottom: 0; width: 220px; display: flex; flex-direction: column; border-left: 1px solid var(--border); background: var(--paper-soft); box-shadow: var(--shadow-float); }
+.chapter-rail > header { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid var(--border); color: var(--blue); font-size: 12px; font-weight: 650; }
+.chapter-rail > div { flex: 1 1 auto; overflow-y: auto; padding: 8px 10px; }
+.chapter-rail > div > button { display: block; width: 100%; border: 0; border-radius: 6px; padding: 7px 9px; background: transparent; color: var(--muted); font-size: 12px; text-align: left; }
+.chapter-rail > div > button:hover { background: var(--blue-wash); color: var(--blue); }
+.chapter-rail > div > button.active { background: var(--blue-wash); color: var(--blue); font-weight: 650; }
+.reader-toc-button.active { border-color: rgba(27,54,93,.2); background: var(--blue-wash); color: var(--blue); }
+
+/* 阅读区自绘滚动条：常驻可见、可拖，滚动或悬停时加深加宽（绝对定位，不撑动正文）。 */
+.scroll-indicator { position: absolute; z-index: 25; top: 0; right: 0; bottom: 0; width: 12px; }
+.scroll-indicator-thumb { position: absolute; right: 2px; width: 6px; border-radius: var(--radius-sm); background: rgba(122,112,101,.38); transition: width var(--dur-base) var(--ease-out), background var(--dur-base) var(--ease-out); }
+.scroll-indicator:hover .scroll-indicator-thumb, .scroll-indicator.active .scroll-indicator-thumb { width: 8px; background: rgba(90,82,73,.6); }
+
+/* Reader tabs (TASKS_LIBRARY_REWORK task 2.3.1). */
+/* 吸顶标签栏必须**不透明**：原来写的是不存在的 `--bg`（无 fallback → 声明被丢掉），
+   于是滚动时正文从它下面透出来，看着就是一条挡视野的"透明条"（2026-09-24 用户反馈）。 */
+/* flex: 0 0 auto 是必须的：阅读列是 flex 容器，标签条作为子项会被压缩 ——
+   实测它曾被压成 18px 高（按钮 31px 直接溢出），用户看到的就是"导航条变窄了"（2026-09-24）。 */
+.reader-tabs { position: sticky; top: 0; z-index: 20; display: flex; flex: 0 0 auto; gap: 4px; overflow-x: auto; border-bottom: 1px solid var(--border); padding: 8px 0; background: var(--paper); }
+.reader-tab { flex: 0 0 auto; max-width: 200px; overflow: hidden; border: 1px solid var(--border); border-radius: 6px 6px 0 0; padding: 6px 12px; background: transparent; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.reader-tab.active { background: var(--paper-soft); color: var(--blue); border-bottom-color: var(--paper-soft); font-weight: 650; }

@@ -2,7 +2,7 @@ import json
 import os
 import sqlite3
 from knowledge.paths import knowledge_path
-from core.db import create_connection
+from core.db import create_connection, mark_schema_migrated, schema_migrated
 from datetime import datetime, timezone
 
 from .schema import Question, QuizSession, QuizAttempt
@@ -207,6 +207,11 @@ class QuizStore:
         return create_connection(self.db_path)
 
     def _ensure_db(self) -> None:
+        # 以前每次构造都执行建表 + 补列 + 两条 UPDATE 回填并提交 —— 纯读请求也在抢写锁
+        # （quiz_service 里每个方法都新建一个 store，2026-11-11 审查）。回填只修旧数据：
+        # 新写入路径本身就会写 updated_at / status，所以按库文件做一次就够。
+        if schema_migrated("quiz", self.db_path):
+            return
         conn = self._connect()
         try:
             conn.executescript(_SCHEMA_SQL)
@@ -264,6 +269,7 @@ class QuizStore:
             conn.commit()
         finally:
             conn.close()
+        mark_schema_migrated("quiz", self.db_path)
 
     # --- Questions ---
 

@@ -2,7 +2,7 @@
 
 > **现在按哪份走？** 排期看 [`ROADMAP.md`](ROADMAP.md)，能不能做看 [`PROJECT_GUIDE.md`](PROJECT_GUIDE.md)，界面硬约束看 [`DESIGN.md`](DESIGN.md)，前端实施顺序看 [`FRONTEND_UPGRADE_PLAN.md`](FRONTEND_UPGRADE_PLAN.md)，RAG 事实看 [`rag_design.md`](rag_design.md) + [`RAG_EVAL.md`](RAG_EVAL.md)。其余文档都是这几层的专题展开，冲突按第 1 节顺序裁决。
 >
-> 本页是文档的**唯一入口**；不要靠记忆或旧链接找文档。版本：2026-10-28。
+> 本页是文档的**唯一入口**；不要靠记忆或旧链接找文档。版本：2026-11-11（GOV-01：ROADMAP 重写为单一状态表，历史移入 `archive/`）。
 
 ## 0. 按任务查文档（30 秒定位）
 
@@ -37,7 +37,7 @@
 ## 2. 状态口径（读任何文档前先看这一节）
 
 - 每份文档写于某一天，里面的**行号、测试数量、分支名、文件名都是当时的快照**，不是当前验收结果。
-- 当前状态只有一个答案：[`ROADMAP.md`](ROADMAP.md) 的 §0 门禁数字、§1.1「下一步候选」、以及 [`../CHANGELOG.md`](../CHANGELOG.md) 的 `[未发布]` 段。
+- 当前状态只有一个答案：[`ROADMAP.md`](ROADMAP.md) §1「当前基线」那一张表；交付经过看 [`../CHANGELOG.md`](../CHANGELOG.md) 的 `[未发布]` 段。
 - 文档里的标记含义固定：`✅` 已落地且有代码或测试；`🟡 / ⏳` 计划中或未交付；`待核对` 表示描述可能已部分完成，开工前必须先看代码。
 - 发现文档与代码不一致：**先修文档**，再跑 `web/frontend/src/lib/designTokens.test.ts`（设计类）或对应回归（功能类）确认。
 - 契约测试分两层，别混用（详见 `DESIGN.md` §16.3）：**L1 文本契约**（vitest 读 CSS/组件源码比对字符串）只能证明「文档与源码文本一致」，证明不了运行时生效的值；**L2 计算样式契约**（Playwright `getComputedStyle`）才证明「浏览器里真的是这个值」。改样式覆盖关系时必须同时补 L2。
@@ -46,8 +46,8 @@
 
 | 位置 | 为什么过期 | 现在的真相在 |
 |---|---|---|
-| `PROJECT_GUIDE.md` 的历史阶段/验收段 | 记录的是 2026-08 前后的阶段与数字 | `ROADMAP.md` §0 门禁与 §2 交付记录 |
-| `ROADMAP.md` §0 的 2026-09-08 快照段 | 那是复测快照，后续条目（如 G4 召回评测）已在 §1.1 / §2 更新 | `ROADMAP.md` §1.1、§2 |
+| [`archive/PROJECT_GUIDE_PHASES_P5.md`](archive/PROJECT_GUIDE_PHASES_P5.md) | 原 `PROJECT_GUIDE.md` §4：2026-08 前后的阶段与数字（2026-11-11 移出） | `PROJECT_GUIDE.md` §4 发布验收 + `ROADMAP.md` §4 |
+| [`archive/delivery/ROADMAP_HISTORY_2026-09_11.md`](archive/delivery/ROADMAP_HISTORY_2026-09_11.md) | ROADMAP v1.5 原文：W1–W5 交付长表、A0–A4、各轮复测（2026-11-11 移出） | `ROADMAP.md` §1 |
 | [`rag_design.md`](rag_design.md) 开头状态段与 §4.1 schema / §7 路由 / §14 测试清单 | 状态段停在 2026-09-08；schema 与路由有未回写的增量 | [`RAG_EVAL.md`](RAG_EVAL.md) + `rag/` 代码 + 文首的事实基准横幅 |
 | `reviews/` 全部评审 | 按当时基线与范围写的，不自动代表当前代码 | `ROADMAP.md` |
 | `archive/` 全部 | 已完成、已交付或被取代 | 同名专题的当前版本 |
@@ -58,7 +58,7 @@
 
 | 文档 | 用途 |
 |---|---|
-| [`ROADMAP.md`](ROADMAP.md) | 唯一执行路线：W1–W5 工作池、状态口径、已拍板决策、明确不做、来源索引 |
+| [`ROADMAP.md`](ROADMAP.md) | 唯一执行路线（两屏）：当前基线、当前批次、下一批候选、发布阻塞项、待拍板与已拍板决策 |
 | [`PROJECT_GUIDE.md`](PROJECT_GUIDE.md) | 产品定位、成熟度、架构真相、数据边界、发布门槛与编码纪律 |
 | [`DESIGN.md`](DESIGN.md) | 可执行设计规范：token、排版、表面阶梯、动效、可访问性、性能预算、打包清单、契约测试 |
 | [`FRONTEND_UPGRADE_PLAN.md`](FRONTEND_UPGRADE_PLAN.md) | 前端唯一整合方案：token 落地、组件行为、页面配方、依赖矩阵、迁移顺序与验收 |
@@ -80,7 +80,7 @@
 | 文档 | 用途 |
 |---|---|
 | [`REFERENCE_PROJECTS.md`](REFERENCE_PROJECTS.md) | 本地参考项目索引、许可证与可借鉴范围 |
-| [`Bobodan参考项目调研报告.md`](Bobodan参考项目调研报告.md) | D/O/Q/F/H 条目的机制精讲与源码索引（活文档） |
+| [`Bobodan参考项目调研报告.md`](Bobodan参考项目调研报告.md) | D/O/Q/F/H 条目的机制精讲与源码索引（2026-09-02 快照，历史参考） |
 | [`assets/brand/BOBODAN_MASCOT.md`](assets/brand/BOBODAN_MASCOT.md) | 品牌吉祥物与品牌色来源（hex 以 `web/frontend/src/styles/tokens.css` 为准） |
 
 ### 追溯与历史
@@ -91,5 +91,6 @@
 | [`reviews/README.md`](reviews/README.md) | 项目审查与整改复审索引 |
 | [`../CHANGELOG.md`](../CHANGELOG.md) | 变更流水：每批改了什么、怎么验证的、哪些尝试被回滚 |
 | [`../CLAUDE.md`](../CLAUDE.md) | Agent 编码契约（命令、架构骨架、关键不变量） |
+| [`../tests/README.md`](../tests/README.md) | 测试分层、LLM 单缝、真实后端闭环门禁、Playwright 政策 |
 
 历史文档可能保留当时有效的行号、测试数量、分支状态或产品名称。需要追溯决策时读它们，不要拿其中的旧数字当作当前验收结果。

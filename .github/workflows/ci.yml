@@ -28,6 +28,9 @@ jobs:
           pip install -r requirements.txt -r requirements-dev.txt
       # tests/conftest.py 的 tripwire 会断言真实工作区库未被测试改动，
       # 这是防止测试写坏用户数据的唯一机制，必须在 CI 里同样生效。
+      # 最小 lint 门禁（ruff.toml）：未定义名之类的真 bug 在测试绿的时候也会潜伏。
+      - name: Lint (ruff)
+        run: python -m ruff check .
       - name: Run tests
         run: python -m pytest -q
 
@@ -68,4 +71,5 @@ jobs:
       # 每个 spec 都用 page.route 全量 mock /api，webServer 自己起 Vite，
       # 不需要后端；channel=chrome 用 runner 预装的 Chrome，不需要 playwright install。
       # --retries=1 是因为这套 spec 对时序敏感（见 playwright.config.ts 的 workers 注释）。
-      - run: npx playwright test --retries=2
+      # 只跑桌面项目：当前发布目标是 Windows 桌面端（CLAUDE.md），mobile 项目不做验收。
+      - run: npx playwright test --project=desktop --project=narrow-desktop --retries=2

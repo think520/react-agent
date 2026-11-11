@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
+import { readAppCss } from "./cssSources";
 
 /**
  * 接线契约（2026-10-28）。
@@ -49,18 +50,19 @@ describe("源码接线契约", () => {
   });
 
   it("主题解析结果要写回缓存（否则首帧脚本没有真值可用）", () => {
-    const shell = read("components/AppShell.tsx");
-    expect(shell).toContain('localStorage.setItem("bobodan:theme"');
+    // 2026-11-11：外观同步从 AppShell 拆进 useAppearanceSync —— 两头都要钉住：hook 写缓存，外壳真的调用它。
+    expect(read("hooks/useAppearanceSync.ts")).toContain('localStorage.setItem("bobodan:theme"');
+    expect(read("components/AppShell.tsx")).toContain("useAppearanceSync(settings)");
   });
 
   it("暗色下纸张纹理的浅色覆盖必须限定浅色主题", () => {
-    const css = read("styles/app.css");
+    const css = readAppCss();
     expect(css).toMatch(/\[data-theme="light"\]\[data-paper-texture="off"\]/);
     expect(css).toContain('[data-paper-texture="on"] body { background-color: var(--paper); }');
   });
 
   it("减动效只零化时长令牌，不用 !important 压属性（组件级规则才能生效）", () => {
-    const css = read("styles/app.css");
+    const css = readAppCss();
     expect(css).toMatch(/--dur-fast: 0ms/);
     expect(css).toMatch(/\[data-motion="reduced"\] \{[\s\S]{0,300}--dur-shimmer: 0ms/);
     expect(css).not.toContain("animation-duration: 0.01ms !important");
@@ -82,7 +84,7 @@ describe("源码接线契约", () => {
     expect(composition!.startsWith("          {...ime.compositionProps}")).toBe(true);
   });
   it("不要再出现第二条全局 !important 减动效重拳", () => {
-    const css = read("styles/app.css");
+    const css = readAppCss();
     const hits = (css.match(/animation: none !important; transition: none !important/g) ?? []).length;
     expect(hits).toBe(0);
   });

@@ -48,7 +48,7 @@ class MemoryService:
 
     def get_knowledge(self, item_id: str) -> dict[str, Any]:
         item = self._personal_store().get_item(item_id)
-        return _ok(item=item) if item else _err("Personal knowledge item not found")
+        return _ok(item=item) if item else _err("Personal knowledge item not found", code="knowledge_item_not_found")
 
     def update_knowledge(self, item_id: str, revision: int, patch: dict[str, Any]) -> dict[str, Any]:
         proposed_text = "\n".join(str(patch.get(key) or "") for key in ("title", "content") if key in patch)
@@ -57,7 +57,7 @@ class MemoryService:
         try:
             item = self._personal_store().update_item(item_id, revision, patch)
         except FileNotFoundError as exc:
-            return _err(str(exc))
+            return _err(str(exc), code="knowledge_item_not_found")
         except RuntimeError:
             return _err(
                 "Personal knowledge changed in another request. Reload and try again.",
@@ -69,7 +69,7 @@ class MemoryService:
 
     def delete_knowledge(self, item_id: str) -> dict[str, Any]:
         if not self._personal_store().delete_item(item_id):
-            return _err("Personal knowledge item not found")
+            return _err("Personal knowledge item not found", code="knowledge_item_not_found")
         return _ok(deleted=True, item_id=item_id)
 
     def list_candidates(self, status: str = "pending", scope: str = "all", limit: int = 100) -> dict[str, Any]:

@@ -82,3 +82,36 @@ def ensure_columns(
     for name, ddl in columns.items():
         if name not in existing:
             connection.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
+
+
+# ── 一次性迁移记账 ─────────────────────────────────────────────────────
+#
+# 各个 store 在构造时跑「建表 + 补列 + 回填」。这些语句本身幂等，但每个请求都会新建 store，
+# 于是纯读请求也在执行 executescript、全表扫描甚至 UPDATE 写事务（2026-11-11 审查：
+# KBSQLiteStore 每次约 10ms，QuizStore 每次构造都提交一次回填）。
+# 这里按「这个库文件」记一次：键里带文件的 inode 与创建时间，库被删掉重建后会重新迁移。
+
+_MIGRATED: set[tuple[str, str, int, int]] = set()
+
+
+def _file_identity(path: str) -> tuple[str, int, int] | None:
+    import os
+
+    try:
+        stat = os.stat(path)
+    except OSError:
+        return None
+    born = getattr(stat, "st_birthtime_ns", None) or stat.st_ctime_ns
+    return (os.path.realpath(path), int(stat.st_ino), int(born))
+
+
+def schema_migrated(scope: str, path: str) -> bool:
+    """这个库文件在本进程里是否已经由 ``scope`` 迁移过。"""
+    identity = _file_identity(path)
+    return identity is not None and (scope, *identity) in _MIGRATED
+
+
+def mark_schema_migrated(scope: str, path: str) -> None:
+    identity = _file_identity(path)
+    if identity is not None:
+        _MIGRATED.add((scope, *identity))

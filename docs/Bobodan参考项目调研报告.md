@@ -1,6 +1,7 @@
 # Bobodan 参考项目调研报告
 
 > 调研日期：2026-09-02
+> **定位（2026-11-11）**：历史参考，不是活文档。文中「现状基线」与「初始借鉴建议」停在 2026-09-02，排期结论以 [`ROADMAP.md`](ROADMAP.md) 为准。
 > 调研方法：三个仓库已克隆到本地，逐文件阅读源码（非仅读 README）。
 > 本地克隆路径：
 > - `F:\claude projects\DeepTutor`（HKUDS/DeepTutor，Apache-2.0）

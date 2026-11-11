@@ -38,6 +38,7 @@ vi.mock("../lib/api", async (importOriginal) => {
       applyOrganization: vi.fn(),
       undoOrganization: vi.fn(),
       document: vi.fn(),
+      searchKnowledge: vi.fn(),
     },
   };
 });
@@ -587,5 +588,31 @@ describe("资料库文件夹同步", () => {
     expect(screen.getByText(/3\/6 份资料/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "取消导入" }));
     expect(cancelDocumentImport).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+describe("原文搜索失败不能显示成「没命中」（2026-11-11 审查）", () => {
+  it("搜索请求失败时说明不可用，成功后提示消失", { timeout: 15000 }, async () => {
+    vi.mocked(api.knowledgeTree).mockResolvedValue(treeWith([treeFile("第一课.md", "doc-1", "第一课")]) as never);
+    vi.mocked(api.documents).mockResolvedValue([{
+      document_id: "doc-1", source: "course-2/第一课.md", relative_path: "第一课.md",
+      kind: "course_document", title: "第一课", collection: "material", content_role: "content",
+    }] as never);
+    vi.mocked(api.searchKnowledge).mockRejectedValueOnce(new ApiError("down", "request_failed", 500));
+
+    render(
+      <MemoryRouter initialEntries={["/library"]}>
+        <LibraryPage />
+      </MemoryRouter>,
+    );
+    const box = await screen.findByLabelText("搜索资料");
+    fireEvent.change(box, { target: { value: "贪心算法" } });
+
+    expect(await screen.findByText("原文搜索暂时不可用，下面只按标题筛选。", {}, { timeout: 2000 })).toBeTruthy();
+
+    vi.mocked(api.searchKnowledge).mockResolvedValueOnce({ results: [] } as never);
+    fireEvent.change(box, { target: { value: "贪心策略" } });
+    await waitFor(() => expect(screen.queryByText("原文搜索暂时不可用，下面只按标题筛选。")).toBeNull(), { timeout: 2000 });
   });
 });

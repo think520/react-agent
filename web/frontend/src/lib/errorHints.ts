@@ -16,6 +16,11 @@ const HINTS: Record<string, string> = {
   bank_empty: "题库里还没有题。先去资料库读一份材料，再从那里生成练习。",
   target_exists: "目标已存在，换一个名称，或先删掉/移动已有的那个。",
   wiki_page_revision_conflict: "这个页面在别处被改过了。刷新后对比一下，再决定保留哪一版。",
+  session_not_found: "这个会话已经不在了（可能在别处被删除）。从左侧列表重新打开，或开始一个新会话。",
+  session_corrupt: "这个会话文件损坏了，无法打开。其它会话不受影响；可以从左侧删除它。",
+  session_ambiguous: "有不止一个会话匹配，请从左侧列表直接点开要的那一个。",
+  session_delete_failed: "会话文件没能删除（可能被别的程序占用）。稍后再试一次。",
+  knowledge_item_not_found: "这条个人知识已经不在了（可能在别处被删除）。刷新列表看看当前还有哪些。",
 };
 
 export function errorHint(code?: string): string {
@@ -28,4 +33,14 @@ export function errorCodeOf(reason: unknown): string {
   if (!reason || typeof reason !== "object") return "";
   const code = (reason as { code?: unknown }).code;
   return typeof code === "string" ? code : "";
+}
+
+/**
+ * 给用户看的一句话：有可行动提示就用提示（它说清了下一步），否则用后端文案，再否则用兜底。
+ * 2026-11-11：后端补了结构化 code，但界面多处只显示 `reason.message`，提示从未上屏。
+ */
+export function userMessageFor(reason: unknown, fallback: string): string {
+  const hint = errorHint(errorCodeOf(reason));
+  if (hint) return hint;
+  return reason instanceof Error && reason.message ? reason.message : fallback;
 }

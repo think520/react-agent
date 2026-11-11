@@ -71,3 +71,24 @@ def test_llm_response_turn_returned_verbatim_with_identity_fill(scripted_provide
     assert response.content == "canned"
     assert response.provider == "scripted"
     assert response.model == "scripted-model"
+
+
+def test_new_tests_use_the_scripted_provider_seam():
+    """棘轮：测试里自己写的 LLM 替身（`def complete(` / `def complete_stream(`）只减不增。
+
+    tests/README.md 的单缝规则：新测试一律用 ScriptedProvider。存量允许暂留（有些在刻意回放
+    原始流帧、截断 finish_reason 等 ScriptedProvider 不模拟的边界），但不许再多。
+    2026-11-11 迁移 test_quiz.py / test_quiz_service.py 后的实测值；再迁移时把预算一起调低。
+    """
+    import re
+    from pathlib import Path
+
+    BUDGET = 54
+    tests_dir = Path(__file__).parent
+    pattern = re.compile(r"^\s*def complete(?:_stream)?\(", re.M)
+    total = sum(
+        len(pattern.findall(path.read_text(encoding="utf-8")))
+        for path in tests_dir.glob("test_*.py")
+        if path.name != "test_llm_fake.py"
+    )
+    assert total <= BUDGET, f"{total} local LLM fakes (budget {BUDGET}); use tests/llm_fake.ScriptedProvider"

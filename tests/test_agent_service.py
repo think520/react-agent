@@ -301,3 +301,32 @@ def test_run_stream_mutates_session(monkeypatch):
     assert len(session.messages) == 0
     list(AgentService.run_stream(session, "hi", DummyProvider()))
     assert len(session.messages) >= 2  # user + assistant
+
+
+def test_load_session_by_full_id_does_not_parse_other_sessions(save_dir, monkeypatch):
+    """按完整 id 打开会话只读那一个文件（以前每次都把所有会话 JSON 解析一遍，2026-11-11 审查）。"""
+    from core.session import Session
+
+    os.makedirs(save_dir, exist_ok=True)
+    sessions = []
+    for index in range(3):
+        session = Session.new("/tmp")
+        session.name = f"s{index}"
+        session.save_to_file(os.path.join(save_dir, f"{session.session_id}.json"))
+        sessions.append(session)
+
+    def no_listing(*args, **kwargs):
+        raise AssertionError("loading by full id must not list every session")
+
+    monkeypatch.setattr(Session, "list_session_summaries", staticmethod(no_listing))
+    result = AgentService.load_session(sessions[1].session_id, save_dir)
+    assert result["ok"], result
+    assert result["session"].session_id == sessions[1].session_id
+
+
+def test_load_session_full_id_still_rejects_path_tricks(save_dir):
+    """快路径只认 UUID 形态：带路径字符的输入走原有匹配，不会打开目录外的文件。"""
+    outside = os.path.join(os.path.dirname(save_dir), "outside.json")
+    with open(outside, "w", encoding="utf-8") as handle:
+        handle.write("{}")
+    assert not AgentService.load_session("../outside", save_dir)["ok"]

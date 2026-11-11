@@ -11,6 +11,7 @@ import { IconButton, EmptyState, LoadingState } from "../components/common";
 import { MemoryManagerDialog } from "../components/MemoryManagerDialog";
 import { useConfirm } from "../ui/Modal";
 import type { PersonalKnowledgeItem } from "../types";
+import { userMessageFor } from "../lib/errorHints";
 
 interface NoteDraft {
   id: string;
@@ -235,7 +236,7 @@ export function NotesPage() {
       setNotice("笔记已保存。");
       await loadNotes();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "保存失败。");
+      setError(userMessageFor(reason, "保存失败。"));
     } finally {
       setWorking(false);
     }
@@ -246,7 +247,7 @@ export function NotesPage() {
       await api.updateMemoryKnowledge(item.id, item.revision, { pinned: !item.pinned });
       await loadNotes();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "操作失败。");
+      setError(userMessageFor(reason, "操作失败。"));
     }
   }
 
@@ -257,7 +258,7 @@ export function NotesPage() {
       window.localStorage.removeItem(storageKeyFor(item)); // 笔记没了，草稿也别留着
       await loadNotes();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "删除失败。");
+      setError(userMessageFor(reason, "删除失败。"));
     }
   }
 

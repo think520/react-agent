@@ -1,8 +1,9 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { readAppCss } from "./cssSources";
 
-const APP_CSS = readFileSync(resolve(process.cwd(), "src/styles/app.css"), "utf8");
+const APP_CSS = readAppCss();
 
 function readSource(path: string): string {
   return readFileSync(resolve(process.cwd(), "src", path), "utf8");

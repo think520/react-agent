@@ -195,12 +195,12 @@ def test_apply_retries_with_the_current_identity_when_the_index_rebuilt_it(libra
     renamed = {"done": False}
     original_move = KBService.move_document
 
-    def flaky_move(self, document_id, target, config=None):
+    def flaky_move(self, document_id, target, config=None, **kwargs):
         if not renamed["done"]:
             renamed["done"] = True
             _rename_document_id(self, str(document_id), "reindexed0000001")
             return {"ok": False, "code": "document_not_found", "error": f"Document not found: {document_id}"}
-        return original_move(self, document_id, target, config=config)
+        return original_move(self, document_id, target, config=config, **kwargs)
 
     monkeypatch.setattr(KBService, "move_document", flaky_move)
 

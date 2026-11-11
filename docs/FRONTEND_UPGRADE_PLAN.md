@@ -1,6 +1,6 @@
 # Bobodan 前端升级方案（2026-10-20）
 
-> 状态：**已拍板（Motion 受限使用，2026-10-21）；第一批止血已完成，后续待排期**  
+> 状态：**已拍板（Motion 受限使用，2026-10-21）**；止血第一批（2026-10-21）与第二批（2026-11-02，见 CHANGELOG）已完成；之后的前端工作排在 [`ROADMAP.md`](ROADMAP.md) §1 的 `W3-PERF` / `W3-TODAY-01`，本文只管实施细节  
 > 性质：Bobodan 当前阶段唯一的前端视觉、交互、组件与依赖实施方案  
 > 上游依据：[`ROADMAP.md`](ROADMAP.md)、[`DESIGN.md`](DESIGN.md)、[`reviews/2026-10-20-roadmap-review.md`](reviews/2026-10-20-roadmap-review.md)  
 > 评估底稿（已归档）：[`archive/frontend/VISUAL_SYSTEM_PLAN.md`](archive/frontend/VISUAL_SYSTEM_PLAN.md)  
@@ -340,7 +340,7 @@ web/frontend/src/
   components/           # 现有业务组件，逐步组合 ui/
   styles/tokens.css     # Bobodan token 真相源
   styles/shadcn.css     # Bobodan token -> shadcn CSS 变量桥
-  styles/app.css        # 现有语义样式，逐页收缩
+  styles/app.css        # 只做 @import 编排（2026-11-11 拆成 7 个按原顺序的文件，见 DESIGN.md §16.3）
 ```
 
 不得让 shadcn 默认变量形成第二套设计系统。`THIRD_PARTY_NOTICES.md` 与 lockfile 必须同步更新。

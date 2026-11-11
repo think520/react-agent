@@ -17,6 +17,8 @@ export interface SourceRef {
   snapshot_id?: string | null;
   reader?: "direct" | "jina" | null;
   excerpt?: string | null;
+  /** W2-EVID-01：回答正文里引用这条来源时用的标签（后端按 source_id 确定性生成）。 */
+  cite_label?: string | null;
 }
 
 export interface Attribution {

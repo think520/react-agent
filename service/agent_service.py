@@ -14,9 +14,12 @@ directly. Callers that need rollback (e.g. REPL timeout) must pass a copy.
 from __future__ import annotations
 
 import os
+import re
 from typing import Any, Iterator
 
 from service._result import err as _err, ok as _ok
+
+_SESSION_UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
 
 class AgentService:
@@ -129,11 +132,24 @@ class AgentService:
         if query.endswith(".json"):
             query = query[:-5]
 
+        # 快路径：完整 UUID 直接打开 «save_dir/<id>.json»，不再为了找一个会话把**所有**会话 JSON
+        # 解析一遍（每次发消息都会走这里，延迟随会话数线性增长，2026-11-11 审查）。
+        # 只接受 UUID 形态（不含路径字符），防路径穿越的初衷不变；文件里的 id 必须对得上。
+        if _SESSION_UUID.fullmatch(query):
+            direct_path = os.path.join(save_dir, f"{query}.json")
+            if os.path.isfile(direct_path):
+                try:
+                    session = Session.load_from_file(direct_path)
+                except Exception as e:
+                    return _err(f"Failed to load session: {e}", code="session_corrupt")
+                if session.session_id == query:
+                    return _ok(session=session)
+
         # W1 E14：**加载**不是列列表 —— 必须能看见所有类别，否则练习/复习的辅导会话
         # 会加载不到（这正是加了默认过滤后回归测试抓到的）。
         summaries = Session.list_session_summaries(save_dir, kind="all")
         if not summaries:
-            return _err("No saved sessions found")
+            return _err("No saved sessions found", code="session_not_found")
 
         # Exact match
         session_id = None
@@ -148,7 +164,7 @@ class AgentService:
             if len(matches) == 1:
                 session_id = matches[0]["session_id"]
             elif len(matches) > 1:
-                return _err(f"Ambiguous session ID prefix '{query}', matches {len(matches)} sessions")
+                return _err(f"Ambiguous session ID prefix '{query}', matches {len(matches)} sessions", code="session_ambiguous")
 
         # Name match (case-insensitive)
         if session_id is None:
@@ -156,16 +172,16 @@ class AgentService:
             if len(name_matches) == 1:
                 session_id = name_matches[0]["session_id"]
             elif len(name_matches) > 1:
-                return _err(f"Ambiguous name '{query}', matches {len(name_matches)} sessions")
+                return _err(f"Ambiguous name '{query}', matches {len(name_matches)} sessions", code="session_ambiguous")
 
         if session_id is None:
-            return _err(f"Session not found: {query}")
+            return _err(f"Session not found: {query}", code="session_not_found")
 
         load_path = os.path.join(save_dir, f"{session_id}.json")
         try:
             session = Session.load_from_file(load_path)
         except Exception as e:
-            return _err(f"Failed to load session: {e}")
+            return _err(f"Failed to load session: {e}", code="session_corrupt")
 
         return _ok(session=session)
 
@@ -189,7 +205,7 @@ class AgentService:
         try:
             os.remove(path)
         except OSError as exc:
-            return _err(f"Failed to delete session: {exc}")
+            return _err(f"Failed to delete session: {exc}", code="session_delete_failed")
         return _ok(session_id=session.session_id)
 
     # --- Agent run ---

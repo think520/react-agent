@@ -720,8 +720,10 @@ def sync_sources(
                     from service.concept_service import ConceptService
 
                     ConceptService(workspace).refresh_document_evidence(document_id, chunks)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    # 不能静默：失败时已审查概念的证据仍指向旧 chunk，却显示为新鲜。
+                    logger.warning("concept evidence refresh failed for %s", source, exc_info=True)
+                    errors.append({"source": source, "error": f"概念证据未能对齐新片段：{exc}"})
 
             # Directory entry
             keywords = list(set(tags + _extract_keywords(chunks)))
@@ -825,8 +827,9 @@ def sync_sources(
                     from service.concept_service import ConceptService
 
                     ConceptService(workspace).mark_document_evidence_stale(doc_id)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.warning("marking concept evidence stale failed for %s", doc_id, exc_info=True)
+                    errors.append({"source": source, "error": f"概念证据未能标记为过期：{exc}"})
             try:
                 qdrant.delete_by_filter(doc_id)
             except Exception:

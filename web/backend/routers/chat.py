@@ -25,12 +25,7 @@ from core.skills import build_skills_system_prompt, find_skill_by_name
 from web.backend.capabilities import WEB_SKILL_NAMES
 from service.concept_service import ConceptService
 from service.interaction_service import InteractionService
-from service.evidence_policy import (
-    CombinedResponsePolicy,
-    ConceptMapPolicy,
-    InlineQuestionPolicy,
-    LocalEvidencePolicy,
-)
+from service.turn_policy import paused_turn_evidence, prepare_turn
 from service.kb_service import KBService
 from service.memory_service import MemoryService
 from service.quiz_service import QuizService
@@ -49,7 +44,7 @@ from web.backend.deps import (
     get_workspace,
     parse_provider_ref,
 )
-from web.backend.errors import APIError
+from web.backend.errors import APIError, unwrap_service_result
 from web.backend.events import to_web_events
 from web.backend.run_pump import (
     RunPump,
@@ -143,7 +138,7 @@ def _load_or_create_session(
     if chat_session_id:
         result = AgentService.load_session(chat_session_id, save_dir)
         if not result["ok"]:
-            raise APIError(404, "session_not_found", result["error"])
+            unwrap_service_result(result, code="session_not_found")
         session = result["session"]
         if session.library_id and session.library_id != library_id:
             raise APIError(404, "session_not_found", "Session not found in this library")
@@ -339,6 +334,7 @@ def _public_attribution(value: Any) -> dict[str, Any] | None:
                 "source_type", "source_id", "title", "document_id",
                 "chunk_id", "heading", "page", "slide",
                 "collection", "wiki_type", "domain", "accessed_at", "snapshot_id", "reader",
+                "cite_label",
             )
             if source.get(key) is not None
         }
@@ -347,6 +343,28 @@ def _public_attribution(value: Any) -> dict[str, Any] | None:
         if public.get("source_id") and public.get("title"):
             sources.append(public)
     return {"kind": kind, "sources": sources}
+
+
+def _merge_attribution(current: Any, incoming: Any) -> Any:
+    """同类来源按 (source_type, source_id) 去重合并；类别不同时以新的为准（保持旧语义）。"""
+    if not isinstance(current, dict) or not isinstance(incoming, dict):
+        return incoming if isinstance(incoming, dict) else current
+    if current.get("kind") != incoming.get("kind"):
+        return incoming
+    sources: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for source in [*(current.get("sources") or []), *(incoming.get("sources") or [])]:
+        if not isinstance(source, dict):
+            continue
+        key = (str(source.get("source_type") or ""), str(source.get("source_id") or ""))
+        if key in seen:
+            continue
+        seen.add(key)
+        sources.append(source)
+    merged = {**incoming, "sources": sources}
+    if sources:
+        merged["status"] = "found"
+    return merged
 
 
 def _attach_attribution(session: Session, attribution: dict[str, Any] | None) -> None:
@@ -482,179 +500,15 @@ def _concept_map_prompt(workspace: str) -> str | None:
     )
 
 
-def _requires_local_evidence(
-    message: str,
-    *,
-    has_document_scope: bool,
-) -> bool:
-    normalized = message.lower()
-    bypass_phrases = (
-        "不查资料",
-        "不要查资料",
-        "不用资料",
-        "通用知识",
-        "without searching",
-        "general knowledge only",
-    )
-    if any(phrase in normalized for phrase in bypass_phrases):
-        return False
-    map_only_phrases = (
-        "知识地图里",
-        "知识地图上",
-        "图谱里",
-        "图谱上",
-        "concept map",
-    )
-    local_phrases = (
-        "根据资料",
-        "基于资料",
-        "资料中",
-        "原文",
-        "这篇文档",
-        "当前文档",
-        "基于此文档",
-        "我的资料",
-        "课程资料",
-        "according to the document",
-        "based on the document",
-        "my materials",
-    )
-    if any(phrase in normalized for phrase in local_phrases):
-        return True
-    if any(phrase in normalized for phrase in map_only_phrases):
-        return False
-    return has_document_scope
-
-
-def _requests_practice(message: str) -> bool:
-    """True when the user is asking for questions/a quiz in this turn."""
-    normalized = message.lower()
-    practice_phrases = (
-        "出题",
-        "道题",
-        "出几道",
-        "练几道",
-        "来点题",
-        "来几道",
-        "给点题",
-        "做题",
-        "刷题",
-        "刷几道",
-        "练习",
-        "练一练",
-        "练练",
-        "测验",
-        "小测",
-        "自测",
-        "考考我",
-        "考我",
-        "测测我",
-        "测一测",
-        "检验一下",
-        "检查一下我",
-        "quiz",
-        "practice",
-        "exercise",
-        "drill me",
-        "test me",
-        "test my",
-        "generate questions",
-        "some questions",
-    )
-    return any(phrase in normalized for phrase in practice_phrases)
-
-
-def _wants_kb_seed(message: str, *, has_document_scope: bool) -> bool:
-    """W1 E12：哪些轮次值得"进循环前先检索一次"（冷启动）。
-
-    出题轮不塞（练习走服务端绑定的卡片）；其余"像在问知识"的轮次才预检索。
-    """
-    if _requests_practice(message):
-        return False
-    if _requires_local_evidence(message, has_document_scope=has_document_scope):
-        return True
-    text = (message or "").strip()
-    if len(text) < 4:
-        return False
-    if "?" in text or "？" in text:
-        return True
-    return any(
-        word in text
-        for word in ("什么", "为什么", "怎么", "如何", "解释", "区别", "讲讲", "对比", "原理")
-    )
-
-
-def _kb_seed_for(
-    message: str,
-    *,
-    workspace: str,
-    config: dict,
-    has_document_scope: bool,
-    top_k: int = 4,
-) -> str:
-    """W1 E12 / D13：进循环前的预检索。**失败就当作没有**（绝不拖垮这一轮）。"""
-    from core.prompt_blocks import build_kb_seed_block
-
-    if not _wants_kb_seed(message, has_document_scope=has_document_scope):
-        return ""
-    try:
-        from rag.retriever import search_index
-
-        hits = search_index(workspace, message, top_k=top_k, config=config)
-    except Exception as exc:  # pragma: no cover - 具体异常类型依检索实现而定
-        logger.warning("KB seed retrieval failed: %s", exc)
-        return ""
-    return build_kb_seed_block(hits or [])
-
-
-def _build_response_policies(message: str, *, has_document_scope: bool) -> list:
-    """组装这一轮要挂的响应策略（W1 E13）。
-
-    - 本地证据 / 概念地图策略仍按语义触发（它们问的是"这一轮该不该用资料或图谱"）。
-    - **出题卡防绕过（防线②）无条件挂载**：它检测的是**模型输出**（纯文本 A/B/C 收尾），
-      而旧实现把挂载挂在用户措辞上 —— 措辞表漏了就能绕过。现在措辞只决定**灵敏度**：
-      明确要题时用宽松判定，否则用严格判定（成组短选项在结尾且上下文在提问）。
-    """
-    policies: list = []
-    if _requires_local_evidence(message, has_document_scope=has_document_scope):
-        policies.append(LocalEvidencePolicy())
-    policies.append(InlineQuestionPolicy(strict=not _requests_practice(message)))
-    operation = _required_concept_map_operation(message)
-    if operation:
-        policies.append(ConceptMapPolicy(operation))
-    return policies
-
-
-def _required_concept_map_operation(message: str) -> str | None:
-    normalized = message.lower()
-    map_phrases = (
-        "知识地图",
-        "知识图谱",
-        "图谱里",
-        "图谱上",
-        "concept map",
-        "knowledge graph",
-    )
-    if not any(phrase in normalized for phrase in map_phrases):
-        return None
-    path_phrases = ("路径", "怎么连接", "如何连接", "最短路", "path")
-    if any(phrase in normalized for phrase in path_phrases):
-        return "path"
-    relationship_phrases = (
-        "关系",
-        "相关",
-        "关联",
-        "相连",
-        "连接",
-        "邻居",
-        "周围",
-        "related",
-        "relationship",
-        "neighbor",
-    )
-    if any(phrase in normalized for phrase in relationship_phrases):
-        return "neighbors"
-    return "query"
+# 轮次证据策略已移到 service/turn_policy.py（Web 与 CLI 共用）；保留旧名供既有调用方与测试。
+from service.turn_policy import (  # noqa: E402,F401
+    build_response_policies as _build_response_policies,
+    kb_seed_for as _kb_seed_for,
+    requests_practice as _requests_practice,
+    required_concept_map_operation as _required_concept_map_operation,
+    requires_local_evidence as _requires_local_evidence,
+    wants_kb_seed as _wants_kb_seed,
+)
 
 
 def _preference_prompt(preferences: dict[str, Any]) -> str:
@@ -920,7 +774,7 @@ def list_sessions(request: Request, kind: str = "chat") -> dict:
 def get_session(chat_session_id: str, request: Request) -> dict:
     result = AgentService.load_session(chat_session_id, get_session_save_dir(get_config(), get_request_workspace(request)))
     if not result["ok"]:
-        raise APIError(404, "session_not_found", result["error"])
+        unwrap_service_result(result, code="session_not_found")
     return _session_detail(result["session"], get_request_workspace(request))
 
 
@@ -932,7 +786,7 @@ def rename_session(chat_session_id: str, body: ChatSessionUpdateRequest, request
         body.name,
     )
     if not result["ok"]:
-        raise APIError(404, "session_not_found", result["error"])
+        unwrap_service_result(result, code="session_not_found")
     return {
         "chat_session_id": result["session_id"],
         "name": body.name.strip(),
@@ -975,7 +829,7 @@ def generate_session_title(chat_session_id: str, request: Request) -> dict:
     save_dir = get_session_save_dir(config, workspace)
     result = AgentService.load_session(chat_session_id, save_dir)
     if not result["ok"]:
-        raise APIError(404, "session_not_found", result["error"])
+        unwrap_service_result(result, code="session_not_found")
 
     session = result["session"]
     if session.name_source == "manual":
@@ -1021,7 +875,7 @@ def generate_session_title(chat_session_id: str, request: Request) -> dict:
 
     latest = AgentService.load_session(chat_session_id, save_dir)
     if not latest["ok"]:
-        raise APIError(404, "session_not_found", latest["error"])
+        unwrap_service_result(latest, code="session_not_found")
     session = latest["session"]
     if session.name_source != "manual":
         session.name = title
@@ -1038,7 +892,7 @@ def generate_session_title(chat_session_id: str, request: Request) -> dict:
 def delete_session(chat_session_id: str, request: Request) -> dict:
     result = AgentService.delete_session(chat_session_id, get_session_save_dir(get_config(), get_request_workspace(request)))
     if not result["ok"]:
-        raise APIError(404, "session_not_found", result["error"])
+        unwrap_service_result(result, code="session_not_found")
     return {"deleted": True, "chat_session_id": result["session_id"]}
 
 
@@ -1741,19 +1595,20 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
     # run that is still producing: the log is that run's transport now.
     stream_store.prune(exempt=live_stream_ids())
     emitter = StreamEmitter(stream_store, stream_id)
-    has_document_scope = bool(document_ids or preferred_document_ids)
-    response_policies = _build_response_policies(
-        body.message,
-        has_document_scope=has_document_scope,
-    )
-    # W1 E12 / D13：先检索一次再进循环（拼到末尾 user 消息，明示"不完整、可继续检索"）。
-    kb_seed = _kb_seed_for(
+    turn = prepare_turn(
         body.message,
         workspace=workspace,
         config=config,
-        has_document_scope=has_document_scope,
+        document_ids=document_ids,
+        preferred_document_ids=preferred_document_ids,
+        preset_evidence="\n".join([
+            (web_evidence or {}).get("content", ""),
+            # 续跑 ask_user：暂停前那半轮的检索结果也是本轮证据。
+            paused_turn_evidence(session.messages) if resume_record else "",
+        ]),
     )
-    response_guard = CombinedResponsePolicy(*response_policies) if response_policies else None
+    kb_seed = turn.kb_seed
+    response_guard = turn.response_guard
 
     def event_stream():
         run_started_at = time.monotonic()
@@ -1850,7 +1705,10 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
                         )
                 for web_event, payload in to_web_events(event):
                     if web_event == "citation":
-                        latest_attribution = payload.get("attribution")
+                        # W2-EVID-01：一轮多次检索时合并来源（以前后一次覆盖前一次，
+                        # 回答引用了第一次检索的片段，界面却找不到它）。
+                        latest_attribution = _merge_attribution(latest_attribution, payload.get("attribution"))
+                        payload = {**payload, "attribution": latest_attribution}
                     if web_event == "chat_artifact" and isinstance(payload.get("artifact"), dict):
                         pending_artifacts.append(payload["artifact"])
                     yield emitter.emit(web_event, {"run_id": run_id, **payload})

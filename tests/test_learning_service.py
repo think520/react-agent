@@ -74,6 +74,7 @@ def test_get_progress_concept_not_found(svc):
     result = svc.get_progress(concept="不存在")
     assert not result["ok"]
     assert "未找到" in result["error"]
+    assert result["code"] == "mastery_not_found"
 
 
 # --- get_due_reviews ---

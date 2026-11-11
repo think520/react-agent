@@ -19,6 +19,7 @@ import { api, documentAssetUrl, documentRawEmbedUrl, downloadDocumentRaw, fetchD
 import { HIGHLIGHT_CLASS, highlightQuote, unwrapHighlight } from "../lib/domHighlight";
 import { anchorDraftFromRange } from "../lib/readerAnchors";
 import { READER_VIEW_KEY, resolveReaderView, type ReaderView } from "../lib/readerView";
+import { shouldIgnoreShortcut } from "../lib/ime";
 import { ReaderAnchorsPanel, anchorLocateChunkId, type ReaderAnchor } from "./ReaderAnchorsPanel";
 import { useHandoffStore } from "../stores/handoffStore";
 import { useReaderTabsStore } from "../stores/readerTabsStore";
@@ -283,6 +284,7 @@ export function DocumentReader({
   // 章节目录的开关键（] 开、[ 关、Esc 关）：顶栏那半边（Shift+J/K）留在了外壳里。
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" && shouldIgnoreShortcut(e)) return;
       if (e.key === "[") closeRail();
       if (e.key === "]") openRailPanel();
       if (e.key === "Escape") setRailOpen(false);

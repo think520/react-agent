@@ -85,7 +85,8 @@ class LearningService:
         if concept:
             detail = progress.get_concept_detail(concept)
             if not detail:
-                return _err(f"未找到知识点 '{concept}' 的掌握度记录。")
+                # 结构化 code：界面要把「还没练过」与「读取失败」分开说（2026-11-11 审查）。
+                return _err(f"未找到知识点 '{concept}' 的掌握度记录。", code="mastery_not_found")
             return _ok(**detail)
 
         overview = progress.get_overview()

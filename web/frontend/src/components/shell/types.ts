@@ -32,6 +32,8 @@ export interface AppOutletContext {
   clearKnowledgeContext: () => void;
   showSourceContext: (attribution: Attribution) => void;
   documents: DocumentSummary[];
+  /** 资料列表读取失败（保留的是上一次的结果）：界面要说「暂时读不到」，不能当成没有资料。 */
+  documentsUnavailable?: boolean;
   selectedDocumentIds: string[];
   selectedDocuments: DocumentSummary[];
   toggleDocumentScope: (documentId: string) => void;

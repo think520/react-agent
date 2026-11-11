@@ -1,7 +1,7 @@
 # 资料库文件树与分栏阅读（设计真相源，2026-09-24 定稿）
 
-> **状态**：已与用户逐条对齐（2026-09-24 grill 轮，共 22 项决定）；实施按 ①→⑤ 推进。
-> **权威**：本功能的设计真相源。与 [`ROADMAP.md`](ROADMAP.md) 的 E17 记录冲突时以本文为准；**排期与门禁仍以 ROADMAP 为准**。
+> **状态**：已与用户逐条对齐（2026-09-24 grill 轮，共 22 项决定）；①→⑤ **均已交付**（2026-10，阅读器已合一为 `components/DocumentReader.tsx`）。本文现在是行为契约，不再是实施计划；§9 的合并执行手册为当时记录。
+> **权威**：本功能的设计真相源。与归档 ROADMAP（[`archive/delivery/ROADMAP_HISTORY_2026-09_11.md`](archive/delivery/ROADMAP_HISTORY_2026-09_11.md)）的 E17 记录冲突时以本文为准；**排期与门禁仍以 ROADMAP 为准**。
 > **前置阅读**：[`PROJECT_GUIDE.md`](PROJECT_GUIDE.md)（产品边界）、[`DESIGN.md`](DESIGN.md)（视觉硬约束）、[`REFERENCE_PROJECTS.md`](REFERENCE_PROJECTS.md)（三家同构做法，案例 2）。
 
 ## 0. 一句话
@@ -43,7 +43,7 @@
 2. 资料白名单：`.md` / `.txt` / `.pdf` / `.docx` / `.pptx`（`.txt` 需要补齐：扫描器收、上传接口 `import_files` 拒收，属既有不一致）。
 3. **跳过仓库元文件**（任意层级）：`README.md` / `CONTRIBUTING.md` / `LICENSE` / `CHANGELOG.md` / `requirements*.txt` / `_sidebar.md` / `_navbar.md`。**保留**"教程目录大纲""全书术语表"这类可能真有用的内容文件。跳过的文件在同步摘要里列出。
 4. 非资料文件（源码、图片、编译产物）**不进索引**；树里在文件夹行标「另有 N 个文件已忽略」，可展开看清单。
-5. **wiki 降级为高级维护能力**：资料库树隐藏该目录、索引扫描排除 `wiki/`；磁盘文件保留。wiki 的生成与维护仍保留在后端（`web/backend/routers/kb.py:297-598` 的 `/wiki/*` 路由），只是不再是资料库的一级内容。**概念提取 → 知识地图保留**（那是另一条线）。（校验：2026-10-28，`service/kb_service.py:1632`、`obsidian/sync.py:36`）
+5. **wiki 降级为高级维护能力**：资料库树隐藏该目录、索引扫描排除 `wiki/`；磁盘文件保留。wiki 的生成与维护仍保留在后端（`web/backend/routers/kb.py:297-598` 的 `/wiki/*` 路由），只是不再是资料库的一级内容。**概念提取 → 知识地图保留**（那是另一条线）。（校验：2026-10-28，`service/library_files.py` 的 `LibraryFilesMixin.tree`（`hidden_names`；2026-11-11 从 kb_service 移出）、`obsidian/sync.py:36`）
 6. 树里隐藏 `.bobodan/`、`wiki/` 与标记文件（`BOBODAN_LIBRARY.yaml`、`WIKI_SCHEMA.md`）；`raw/` 作为历史遗留照常显示。
 7. 上传落点 = **树里当前选中的文件夹**（默认库根），不再固定 `raw/inbox`。
 
