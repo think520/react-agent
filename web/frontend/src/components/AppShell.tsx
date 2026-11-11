@@ -1,18 +1,14 @@
-import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, Keyboard, Menu, PanelLeft, PanelRight, Plus, Settings } from "lucide-react";
 import { NavLink, Outlet, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { api, setActiveLibraryId } from "../lib/api";
-import { clearImportReport, emptyDocumentImport } from "../lib/importState";
-import type { DocumentImportState } from "../lib/importState";
-import { errorCodeOf } from "../lib/errorHints";
-import { useImportRun } from "../hooks/useImportRun";
+import { useDocumentImport } from "../hooks/useDocumentImport";
 import { useBackendHealth } from "../hooks/useBackendHealth";
 import { useLayoutTier } from "../hooks/useLayoutTier";
 import { useStableCallback } from "../hooks/useStableCallback";
 import { useAppearanceSync } from "../hooks/useAppearanceSync";
 import { toErrorMessage } from "../lib/errors";
-import { describeDocumentImport } from "../lib/importSummary";
 import { notifyError } from "../stores/noticeStore";
 import { useUiStore } from "../stores/uiStore";
 import type { Attribution, ChatSessionSummary, DocumentSummary, KnowledgeContext, LibraryMigrationPreview, LibrarySummary, ReviewQueue, SettingsSummary } from "../types";
@@ -43,16 +39,10 @@ export function AppShell() {
   const [review, setReview] = useState<ReviewQueue | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const previewTimer = useRef<number | null>(null);
-  const importRun = useImportRun();
-  const [documentImport, setDocumentImport] = useState<DocumentImportState>(emptyDocumentImport);
   const [loadingSessions, setLoadingSessions] = useState(true);
   const [libraries, setLibraries] = useState<LibrarySummary[]>([]);
   const [activeLibrary, setActiveLibrary] = useState<LibrarySummary | null>(null);
-  const documentImportInput = useRef<HTMLInputElement>(null);
-  const pendingDocumentFiles = useRef<File[]>([]);
-  const pendingDuplicateFiles = useRef<File[]>([]);
   // E8：留下这次"需要处理"的文件对象，才能提供真正的重试（而不是假按钮）。
-  const pendingRetryFiles = useRef<File[]>([]);
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
 
   // Cross-cutting UI state lives in the store (persisted keys included).
@@ -86,7 +76,6 @@ export function AppShell() {
   const setSourceContext = useUiStore((state) => state.setSourceContext);
 
   const settingsSection = searchParams.get("settings");
-  const activeLibraryId = activeLibrary?.library_id || null;
 
   useEffect(() => {
     if (section !== "knowledge-map") setConceptDetailId(null);
@@ -124,98 +113,31 @@ export function AppShell() {
     ]);
   }, [refreshSessions]);
 
-  const uploadDocuments = useCallback(async (files: File[], duplicateStrategy: "keep_existing" | "save_copy" = "keep_existing") => {
-    setDocumentImport((current) => ({ ...current, importing: true, notice: "", error: "", duplicateCount: duplicateStrategy === "save_copy" ? 0 : current.duplicateCount }));
-    try {
-      // E8：导入走**运行态**（可轮询进度、可取消），不再是黑盒的一次性 POST。
-      const result = await importRun.start(files, duplicateStrategy);
-      if (!result) throw new Error("导入没有返回结果。");
-      const duplicates = result.duplicates || [];
-      if (duplicateStrategy === "keep_existing") {
-        const duplicateNames = new Set(duplicates.map((item) => item.filename));
-        pendingDuplicateFiles.current = files.filter((file) => duplicateNames.has(file.name));
-      } else {
-        pendingDuplicateFiles.current = [];
-      }
-      const batch = result.results || [];
-      // E8：留下"需要处理"的那几份文件对象，重试按钮才有真东西可重发。
-      const problematic = new Set(
-        batch
-          .filter((item) => item.status === "rejected" || item.status === "cancelled"
-            || (item.status === "imported" && !item.searchable))
-          .map((item) => item.filename),
-      );
-      pendingRetryFiles.current = files.filter((file) => problematic.has(file.name));
-      setDocumentImport((current) => ({
-        ...current,
-        notice: describeDocumentImport(result),
-        duplicateCount: duplicates.length,
-        results: batch,
-        version: current.version + 1,
-      }));
-      await loadScopedData();
-    } catch (reason) {
-      setDocumentImport((current) => ({
-        ...current,
-        error: toErrorMessage(reason, "资料导入失败。"),
-        // W1 E1：把 code 一起留下，界面才能说"下一步"（换格式 / 去设置 / 稍后重试）。
-        errorCode: errorCodeOf(reason),
-      }));
-    } finally {
-      setDocumentImport((current) => ({ ...current, importing: false }));
-      navigate("/library");
-    }
-  }, [importRun, loadScopedData, navigate]);
-
-  const importDroppedFiles = useCallback((files: File[]) => {
-    if (!files.length) return;
-    if (!activeLibrary) {
-      pendingDocumentFiles.current = files;
-      openLibrarySetup({ initialMode: "create", importCount: files.length });
-      return;
-    }
-    void uploadDocuments(files);
-  }, [activeLibrary, openLibrarySetup, uploadDocuments]);
-
-  /** E8：重试这次"需要处理"的那几份（复用导入通道：字节已在库里的会走补索引路径）。 */
-  const retryFailedImports = useCallback(() => {
-    const files = pendingRetryFiles.current;
-    pendingRetryFiles.current = [];
-    if (files.length) void uploadDocuments(files);
-  }, [uploadDocuments]);
-
-  const dismissImportReport = useCallback(() => {
-    pendingRetryFiles.current = [];
-    setDocumentImport((current) => ({ ...current, results: null }));
-  }, []);
-
-  const importDuplicatesAsCopies = useCallback(() => {
-    const files = pendingDuplicateFiles.current;
-    pendingDuplicateFiles.current = [];
-    if (files.length) void uploadDocuments(files, "save_copy");
-  }, [uploadDocuments]);
+  const goToLibrary = useCallback(() => navigate("/library"), [navigate]);
+  const {
+    state: importState,
+    importRun,
+    inputRef: documentImportInput,
+    canRetry: documentImportCanRetry,
+    importing: documentImporting,
+    importDroppedFiles,
+    retryFailedImports,
+    dismissImportReport,
+    importDuplicatesAsCopies,
+    startDocumentImport,
+    selectDocumentsForImport,
+    discardPendingFiles,
+    resetForLibrarySwitch,
+  } = useDocumentImport({
+    activeLibrary,
+    openLibrarySetup,
+    reloadScopedData: loadScopedData,
+    onFinished: goToLibrary,
+  });
 
   function cancelLibrarySetup() {
-    if (librarySetup?.importCount) pendingDocumentFiles.current = [];
+    if (librarySetup?.importCount) discardPendingFiles();
     closeLibrarySetup();
-  }
-
-  function startDocumentImport() {
-    pendingDuplicateFiles.current = [];
-    setDocumentImport((current) => ({ ...current, notice: "", error: "", duplicateCount: 0 }));
-    documentImportInput.current?.click();
-  }
-
-  async function selectDocumentsForImport(event: ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(event.target.files || []);
-    event.target.value = "";
-    if (!files.length) return;
-    if (!activeLibrary) {
-      pendingDocumentFiles.current = files;
-      openLibrarySetup({ initialMode: "create", importCount: files.length });
-      return;
-    }
-    await uploadDocuments(files);
   }
 
   useEffect(() => {
@@ -293,12 +215,6 @@ export function AppShell() {
     requestAnimationFrame(() => settingsButtonRef.current?.focus());
   }
 
-  useEffect(() => {
-    if (!activeLibraryId || !pendingDocumentFiles.current.length) return;
-    const files = pendingDocumentFiles.current;
-    pendingDocumentFiles.current = [];
-    void uploadDocuments(files);
-  }, [activeLibraryId, uploadDocuments]);
 
   useEffect(() => {
     if (!initialDataLoaded || !activeLibrary || documentsUnavailable || localStorage.getItem("bobodan:onboarding:v1") === "complete") return;
@@ -347,8 +263,7 @@ export function AppShell() {
     if (libraryId === activeLibrary?.library_id) return;
     // W1 E1：导入报告、通知与"可重试文件"都属于**上一个**资料库 —— 不清就会串库
     // （上一库的失败清单还挂着，点「重试这 N 份」会导进新库）。
-    setDocumentImport(clearImportReport);
-    pendingRetryFiles.current = [];
+    resetForLibrarySwitch();
     setConceptDetailId(null);
     setKnowledgeContext(null);
     setSourceContext(null);
@@ -442,10 +357,8 @@ export function AppShell() {
   const stableShowSourceContext = useStableCallback(showSourceContext);
   const stableCreateLibrary = useStableCallback(createLibrary);
   const stableSwitchLibrary = useStableCallback(switchLibrary);
-  const stableStartDocumentImport = useStableCallback(startDocumentImport);
   const stableCancelImport = useStableCallback(() => void importRun.cancel());
-  const documentImportCanRetry = pendingRetryFiles.current.length > 0;
-  const documentImporting = documentImport.importing || importRun.running;
+  const importProgress = importRun.progress;
   const outletContext = useMemo<AppOutletContext>(() => ({
     sessions,
     settings,
@@ -471,30 +384,31 @@ export function AppShell() {
     openLibrarySetup,
     createLibrary: stableCreateLibrary,
     switchLibrary: stableSwitchLibrary,
-    startDocumentImport: stableStartDocumentImport,
-    documentImporting,
-    documentImportProgress: importRun.progress,
-    documentImportErrorCode: documentImport.errorCode,
+    startDocumentImport: startDocumentImport,
+    documentImporting: documentImporting,
+    documentImportProgress: importProgress,
+    documentImportErrorCode: importState.errorCode,
     cancelDocumentImport: stableCancelImport,
-    documentImportNotice: documentImport.notice,
-    documentImportError: documentImport.error,
-    documentImportDuplicateCount: documentImport.duplicateCount,
-    importDuplicatesAsCopies,
-    documentImportVersion: documentImport.version,
-    importDroppedFiles,
-    documentImportResults: documentImport.results,
-    documentImportCanRetry,
-    retryFailedImports,
-    dismissImportReport,
+    documentImportNotice: importState.notice,
+    documentImportError: importState.error,
+    documentImportDuplicateCount: importState.duplicateCount,
+    importDuplicatesAsCopies: importDuplicatesAsCopies,
+    documentImportVersion: importState.version,
+    importDroppedFiles: importDroppedFiles,
+    documentImportResults: importState.results,
+    documentImportCanRetry: documentImportCanRetry,
+    retryFailedImports: retryFailedImports,
+    dismissImportReport: dismissImportReport,
     libraryReady: initialDataLoaded,
   }), [
     sessions, settings, refreshSettings, refreshSessions, openRightPanel, conceptDetailId,
     stableOpenConceptDetail, stableCloseConceptDetail, showKnowledgeContext, receiveKnowledgeContext,
     clearKnowledgeContext, stableShowSourceContext, documents, documentsUnavailable, selectedDocumentIds,
     selectedDocuments, toggleDocumentScope, setDocumentScope, clearDocumentScope, libraries, activeLibrary,
-    openLibrarySetup, stableCreateLibrary, stableSwitchLibrary, stableStartDocumentImport, documentImporting,
-    importRun.progress, documentImport, stableCancelImport, importDuplicatesAsCopies, importDroppedFiles,
-    documentImportCanRetry, retryFailedImports, dismissImportReport, initialDataLoaded,
+    openLibrarySetup, stableCreateLibrary, stableSwitchLibrary, startDocumentImport,
+    documentImporting, importProgress, importState, stableCancelImport,
+    importDuplicatesAsCopies, importDroppedFiles, documentImportCanRetry,
+    retryFailedImports, dismissImportReport, initialDataLoaded,
   ]);
 
   const contextPanelView = {
