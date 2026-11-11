@@ -1,5 +1,6 @@
 import { FileText, MessageCircle } from "lucide-react";
-import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
+import { memo, useMemo } from "react";
+import ReactMarkdown, { defaultUrlTransform, type Components } from "react-markdown";
 import { Link } from "react-router-dom";
 import remarkGfm from "remark-gfm";
 
@@ -55,22 +56,24 @@ export function AssistantMessage({ message, index, assistantName, status, brandS
 }
 
 /** 正文 Markdown：把 [Sxxxxxx] 引用标签换成可点的序号，点了落到原文片段或网页快照。 */
-function AnswerMarkdown({ content, attribution }: { content: string; attribution?: Attribution }) {
-  const targets = citationTargets(content, attribution?.sources);
-  return <ReactMarkdown
-    remarkPlugins={[remarkGfm]}
-    urlTransform={(url, key) => (key === "href" && url.startsWith("cite:") ? url : defaultUrlTransform(url))}
-    components={{
-      a: ({ href, children }) => {
-        if (href?.startsWith("cite:")) {
-          const target = targets.get(href.slice(5));
-          return target ? <CitationMark target={target} /> : <>{children}</>;
-        }
-        return <a href={href}>{children}</a>;
-      },
-    }}
-  >{linkCitations(content, targets)}</ReactMarkdown>;
-}
+const REMARK_PLUGINS = [remarkGfm];
+const answerUrlTransform = (url: string, key: string) => (key === "href" && url.startsWith("cite:") ? url : defaultUrlTransform(url));
+
+const AnswerMarkdown = memo(function AnswerMarkdown({ content, attribution }: { content: string; attribution?: Attribution }) {
+  const targets = useMemo(() => citationTargets(content, attribution?.sources), [content, attribution?.sources]);
+  const components = useMemo<Components>(() => ({
+    a: ({ href, children }) => {
+      if (href?.startsWith("cite:")) {
+        const target = targets.get(href.slice(5));
+        return target ? <CitationMark target={target} /> : <>{children}</>;
+      }
+      return <a href={href}>{children}</a>;
+    },
+  }), [targets]);
+  return <ReactMarkdown remarkPlugins={REMARK_PLUGINS} urlTransform={answerUrlTransform} components={components}>
+    {linkCitations(content, targets)}
+  </ReactMarkdown>;
+});
 
 function CitationMark({ target }: { target: CitationTarget }) {
   const { source, index } = target;

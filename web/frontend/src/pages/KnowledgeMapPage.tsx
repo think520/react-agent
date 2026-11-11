@@ -14,6 +14,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useOutletContext } from "react-router-dom";
 import { List, Map as MapIcon, Link2, Maximize2, Network, Plus, Search, Sparkles, Table, X } from "lucide-react";
 import { api } from "../lib/api";
+import { shouldIgnoreShortcut } from "../lib/ime";
 import { useUiStore } from "../stores/uiStore";
 import type {
   ConceptNode,
@@ -153,6 +154,7 @@ export function KnowledgeMapPage() {
   useEffect(() => {
     if (!selectedConceptId) return;
     const handler = (e: KeyboardEvent) => {
+      if (shouldIgnoreShortcut(e)) return;
       if (e.key === "+" || e.key === "=") setFocusDegree((d) => Math.min(3, d + 1));
       else if (e.key === "-") setFocusDegree((d) => Math.max(1, d - 1));
     };
