@@ -949,7 +949,7 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 
 [data-session-density="compact"] .session-row { min-height: 40px; }
 [data-session-density="compact"] .session-main { padding-top: 2px; padding-bottom: 2px; }
-.reader-prose { max-width: var(--content-width); font-size: var(--body-font-size); }
+
 /* Stale-while-revalidate: keep the previous document visible (dimmed) while
    the next one loads instead of blanking the pane. */
 .reader-prose.refreshing { opacity: .45; pointer-events: none; transition: opacity var(--dur-base) var(--ease-out); }
@@ -1227,7 +1227,8 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 .reader-extract-more button:hover { background: var(--blue-wash); color: var(--blue); }
 @keyframes menu-enter { from { opacity: 0; transform: translateY(-3px) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
 .reader-actions + p { margin-top: 16px; }
-.reader-prose { max-width: 720px; padding-top: 24px; font-family: var(--font-article); line-height: 1.9; }.reader-prose strong { font-weight: 500; }.reader-prose section { margin-bottom: 30px; border-left: 2px solid transparent; padding-left: 0; transition: border-color var(--dur-slow) var(--ease-out), background var(--dur-slow) var(--ease-out), padding var(--dur-slow) var(--ease-out); }.reader-prose section.highlighted { border-color: var(--clay); padding: 10px 14px; background: rgba(243,225,213,0.42); }.reader-prose h3 { margin: 0 0 3px; color: var(--blue); font-size: 20px; font-weight: 500; }.reader-section-prose > :first-child { margin-top: 8px; }.reader-section-prose > :last-child { margin-bottom: 0; }.reader-section-prose h1, .reader-section-prose h2, .reader-section-prose h3 { margin: 1.4em 0 0.45em; color: var(--blue); font-weight: 500; line-height: 1.5; }.reader-section-prose h1 { font-size: 24px; }.reader-section-prose h2 { font-size: 21px; }.reader-section-prose h3 { font-size: 18px; }.reader-section-prose p, .reader-section-prose ul, .reader-section-prose ol, .reader-section-prose blockquote { margin: 0.7em 0; }.reader-section-prose blockquote { border-left: 2px solid var(--sage); margin-left: 0; padding-left: 16px; color: var(--muted); }.reader-section-prose code { border-radius: 4px; padding: 1px 4px; background: var(--parchment); font-family: var(--font-mono); font-size: 0.88em; }.reader-section-prose pre { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; padding: 14px; background: var(--paper-soft); }.reader-section-prose pre code { padding: 0; background: transparent; }
+/* 阅读正文：宽度与字号都跟随用户偏好（2026-11-11 把散在四处、互相覆盖的规则合成这一条）。 */
+.reader-prose { max-width: var(--content-width); padding-top: 24px; font-family: var(--font-article); font-size: var(--body-font-size); line-height: 1.9; }.reader-prose strong { font-weight: 500; }.reader-prose section { margin-bottom: 30px; border-left: 2px solid transparent; padding-left: 0; transition: border-color var(--dur-slow) var(--ease-out), background var(--dur-slow) var(--ease-out), padding var(--dur-slow) var(--ease-out); }.reader-prose section.highlighted { border-color: var(--clay); padding: 10px 14px; background: rgba(243,225,213,0.42); }.reader-prose h3 { margin: 0 0 3px; color: var(--blue); font-size: 20px; font-weight: 500; }.reader-section-prose > :first-child { margin-top: 8px; }.reader-section-prose > :last-child { margin-bottom: 0; }.reader-section-prose h1, .reader-section-prose h2, .reader-section-prose h3 { margin: 1.4em 0 0.45em; color: var(--blue); font-weight: 500; line-height: 1.5; }.reader-section-prose h1 { font-size: 24px; }.reader-section-prose h2 { font-size: 21px; }.reader-section-prose h3 { font-size: 18px; }.reader-section-prose p, .reader-section-prose ul, .reader-section-prose ol, .reader-section-prose blockquote { margin: 0.7em 0; }.reader-section-prose blockquote { border-left: 2px solid var(--sage); margin-left: 0; padding-left: 16px; color: var(--muted); }.reader-section-prose code { border-radius: 4px; padding: 1px 4px; background: var(--parchment); font-family: var(--font-mono); font-size: 0.88em; }.reader-section-prose pre { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; padding: 14px; background: var(--paper-soft); }.reader-section-prose pre code { padding: 0; background: transparent; }
 
 .practice-mode { margin-bottom: 14px; }
 .practice-mode button { min-height: 32px; border: 1px solid var(--border); border-radius: var(--radius-xl); padding: 0 var(--space-4); background: var(--paper); color: var(--muted); font-size: 13px; transition: border-color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
@@ -1332,8 +1333,8 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 }
 
 /* User reading preferences intentionally win over legacy page-size rules. */
-.answer-prose, .reader-prose { font-size: var(--body-font-size); }
-.reader-prose { max-width: var(--content-width); }
+.answer-prose { font-size: var(--body-font-size); }
+
 
 /* Route-level error boundary fallback (warm-paper style). */
 .error-boundary { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; min-height: 100dvh; padding: 32px 20px; text-align: center; background: var(--paper); color: var(--ink); }
@@ -2146,12 +2147,8 @@ mark.reader-anchor-mark {
 .providers-item.dim { opacity: .72; }
 .providers-detail { min-height: 220px; }
 
-/* ── M3 · 浮层：发丝边 + 外环（DESIGN.md §4.5）──
+/* ── M3 · 浮层：发丝边 + 外环（DESIGN.md §4.5），背景见下方表面阶梯 ──
    用 --ring 取代硬 rgba 描边；阴影仍用既有档位，不新增概念。 */
-.ui-modal-panel { box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-dialog); }
-.slash-palette, .mention-palette { border: 0; box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-lift); }
-.library-more-menu > div { border: 0; box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-float); }
-.notice { border: 0; box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-float); }
 
 /* ── M3 · 表面阶梯落位（DESIGN.md §4.4）──
    0 = 停靠栏（纸沉） / 1 = 画布（纸） / 2 = 卡片（纸软 + 发丝边） / 3 = 浮层（纸软 + 外环）。
@@ -2163,9 +2160,9 @@ mark.reader-anchor-mark {
 .library-tree-pane, .document-rail { background: var(--surface-0); }
 .settings-section { border-color: var(--border-subtle); background: var(--surface-2); }
 .ui-modal-panel { background: var(--surface-3); box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-dialog); }
-.slash-palette, .mention-palette { background: var(--surface-3); box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-lift); }
-.library-more-menu > div { background: var(--surface-3); box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-float); }
-.notice { background: var(--surface-3); box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-float); }
+.slash-palette, .mention-palette { border: 0; background: var(--surface-3); box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-lift); }
+.library-more-menu > div { border: 0; background: var(--surface-3); box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-float); }
+.notice { border: 0; background: var(--surface-3); box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-float); }
 
 
 /* ── M3 · 输入区统一：Surface 3 + 发丝边 + 外环（DESIGN.md §4.4 / §4.5）──
