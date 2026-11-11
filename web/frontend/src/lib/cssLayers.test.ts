@@ -50,3 +50,26 @@ describe("CSS 分层契约（M1）", () => {
     expect(read("styles/app.css")).not.toMatch(/^:root\s*\{/m);
   });
 });
+
+describe("没有死选择器（2026-11-11）", () => {
+  it("app.css 里的每个类名都在源码里出现（动态前缀除外）", async () => {
+    const { readdirSync, statSync } = await import("node:fs");
+    const walk = (dir: string): string[] => readdirSync(dir).flatMap((name) => {
+      const full = resolve(dir, name);
+      return statSync(full).isDirectory() ? walk(full) : [full];
+    });
+    const source = walk(SRC)
+      .filter((file) => /\.(ts|tsx)$/.test(file) && !/\.test\.(ts|tsx)$/.test(file))
+      .map((file) => readFileSync(file, "utf8"))
+      .join("\n") + readFileSync(resolve(process.cwd(), "index.html"), "utf8");
+    // 运行时拼出来的类名前缀：`confidence-${x}`、`level-${x}`、`notice-${tone}`、"diff-" + kind、`state-${x}`。
+    const DYNAMIC = /^(confidence|level|notice|diff|state)-/;
+    // 测试与契约直接引用、源码里只以前缀出现的类名。
+    const ALLOWED = new Set(["skeleton"]);
+    const css = read("styles/app.css").replace(/\/\*[\s\S]*?\*\//g, "");
+    const classes = new Set([...css.matchAll(/\.([a-zA-Z][a-zA-Z0-9_-]*)/g)].map((match) => match[1]));
+    const dead = [...classes].filter((name) => !DYNAMIC.test(name) && !ALLOWED.has(name)
+      && !new RegExp(`(?<![a-zA-Z0-9_-])${name}(?![a-zA-Z0-9_-])`).test(source));
+    expect(dead).toEqual([]);
+  });
+});
