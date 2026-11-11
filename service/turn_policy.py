@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any
 
 from service.evidence_policy import (
     CitationPolicy,
@@ -210,6 +209,22 @@ def required_concept_map_operation(message: str) -> str | None:
     if any(phrase in normalized for phrase in relationship_phrases):
         return "neighbors"
     return "query"
+
+
+def paused_turn_evidence(messages: list[dict]) -> str:
+    """续跑（E4 ask_user 恢复）时，暂停前那半轮已经拿到的工具结果文本。
+
+    续跑在 AgentLoop 里是一次新的 run，``tool_history`` 从空开始；而暂停前的 rag_search
+    结果仍在会话里、模型也看得见。不把它算进本轮证据，引用门禁就会把这些真实标签当成
+    伪造的剥掉（2026-11-11 合并前审查）。只取最后一条用户消息之后的工具消息：那是同一轮。
+    """
+    tail: list[str] = []
+    for message in reversed(messages or []):
+        if message.get("role") == "user":
+            break
+        if message.get("role") == "tool":
+            tail.append(str(message.get("content") or ""))
+    return "\n".join(reversed(tail))
 
 
 @dataclass(frozen=True)

@@ -277,12 +277,14 @@ class CitationPolicy:
                     "并说明它不是来自用户的资料。"
                 ),
             )
-        from rag.citations import CITATION_MARKER
+        from rag.citations import citation_matches
 
-        cleaned = CITATION_MARKER.sub(
-            lambda match: "" if match.group(1) in unknown else match.group(0),
-            response_text,
-        ).rstrip()
+        # 只删正文里的未知标签：位置来自遮掉代码之后的匹配，代码块里的同形文本原样保留。
+        cleaned = response_text
+        for match in reversed(citation_matches(response_text)):
+            if match.group(1) in unknown:
+                cleaned = cleaned[:match.start()] + cleaned[match.end():]
+        cleaned = cleaned.rstrip()
         notice = self.removed_notice.format(count=len(unknown))
         return EvidenceDecision(allow=False, fallback_content=f"{cleaned}\n\n{notice}" if cleaned else notice)
 

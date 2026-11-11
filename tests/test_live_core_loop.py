@@ -364,14 +364,14 @@ def test_a_fabricated_citation_is_rewritten_and_never_shown(live):
 
     provider.queue(
         {"tool": "rag_search", "args": {"query": "负权边"}},
-        "Dijkstra 支持所有负权图 [S1]。",           # 伪造引用 + 与资料矛盾
+        "Dijkstra 支持所有负权图 [Sdeadbe]。",           # 伪造引用 + 与资料矛盾
         f"Dijkstra 不能处理负权边 [{label}]。",     # 被门禁要求重写后
     )
     answer, _ = _chat(client, headers, "为什么 Dijkstra 不能处理负权边？")
 
-    assert "[S1]" not in answer, answer
+    assert "[Sdeadbe]" not in answer, answer
     assert f"[{label}]" in answer, answer
-    correction = [m for m in provider.requests[-1]["messages"] if m.get("role") == "system" and "[S1]" in str(m.get("content"))]
+    correction = [m for m in provider.requests[-1]["messages"] if m.get("role") == "system" and "[Sdeadbe]" in str(m.get("content"))]
     assert correction, "the rewrite must be driven by the runtime gate, not by luck"
     client.close()
 
@@ -385,11 +385,11 @@ def test_a_citation_that_stays_fabricated_is_stripped_with_a_notice(live):
     # 断言的是「最终一定被剥掉」以及「重写次数有上限」。
     provider.queue(
         {"tool": "rag_search", "args": {"query": "负权边"}},
-        *(["Dijkstra 支持所有负权图 [S1]。"] * 6),
+        *(["Dijkstra 支持所有负权图 [Sdeadbe]。"] * 6),
     )
     answer, _ = _chat(client, headers, "为什么 Dijkstra 不能处理负权边？")
 
-    assert "[S1]" not in answer, answer
+    assert "[Sdeadbe]" not in answer, answer
     assert "无法对应本轮资料的引用" in answer, answer
     assert provider.call_count <= 1 + 4, f"rewrites must be bounded, got {provider.call_count} model calls"
     client.close()
@@ -453,4 +453,42 @@ def test_an_unpracticed_concept_is_a_404_not_a_generic_failure(live):
     response = client.get("/api/learning/progress", headers=headers, params={"concept": "从未练过的概念"})
     assert response.status_code == 404, response.text
     assert response.json()["error"]["code"] == "mastery_not_found", response.text
+    client.close()
+
+
+def test_a_citation_survives_an_ask_user_pause_and_resume(live):
+    """检索 → ask_user 暂停 → 用户作答 → 续跑：续跑后的回答引用暂停前检索到的片段，不能被当成伪造。
+
+    续跑在 AgentLoop 里是一次新 run（tool_history 为空）；2026-11-11 合并前审查发现
+    门禁因此会剥掉这些真实标签。现在暂停前那半轮的工具结果也算本轮证据。
+    """
+    provider = live["provider"]
+    client = _client()
+    headers = _create_library_and_import(client, live)
+    label = _chunk_label(client, headers, "负权边")
+
+    provider.queue(
+        {"tool": "rag_search", "args": {"query": "负权边"}},
+        {"tool": "ask_user", "args": {"questions": [{"id": "q1", "prompt": "想看证明还是例子？", "options": ["证明", "例子"]}]}},
+    )
+    response = client.post("/api/chat/runs", headers=headers, json={"message": "为什么 Dijkstra 不能处理负权边？", "memory_enabled": False})
+    assert response.status_code == 200, response.text
+    events = _sse(response.text)
+    chat_session_id = next(data["chat_session_id"] for name, data in events if data.get("chat_session_id"))
+    card = next(data["artifact"] for name, data in events if name == "chat_artifact" and data.get("artifact", {}).get("type") == "ask_user")
+
+    answered = client.post(f"/api/chat/interactions/{card['artifact_id']}/answer", headers=headers, json={
+        "chat_session_id": chat_session_id, "answers": [{"id": "q1", "answer": "例子"}],
+    })
+    assert answered.status_code == 200, answered.text
+
+    provider.queue(f"举个例子：负权边会让已确定的顶点失效 [{label}]。")
+    resumed = client.post("/api/chat/runs", headers=headers, json={
+        "chat_session_id": chat_session_id, "resume_interaction_id": card["artifact_id"], "memory_enabled": False,
+    })
+    assert resumed.status_code == 200, resumed.text
+    answer = "".join(data.get("content", "") for name, data in _sse(resumed.text)
+                     if name == "message_delta" and data.get("call_role") != "narration")
+    assert f"[{label}]" in answer, answer
+    assert "无法对应本轮资料的引用" not in answer, answer
     client.close()

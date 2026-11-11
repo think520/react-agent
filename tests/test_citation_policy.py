@@ -43,9 +43,9 @@ def test_answer_without_citations_is_not_this_policys_business():
 
 
 def test_fabricated_citation_asks_for_a_rewrite_first():
-    decision = CitationPolicy().validate(_rag(HIT), "Dijkstra 支持负权 [S1]。", 0)
+    decision = CitationPolicy().validate(_rag(HIT), "Dijkstra 支持负权 [Sdeadbe]。", 0)
     assert not decision.allow
-    assert "[S1]" in decision.correction_prompt
+    assert "[Sdeadbe]" in decision.correction_prompt
 
 
 def test_fabricated_citation_is_stripped_after_retries_without_losing_the_answer():
@@ -89,5 +89,30 @@ def test_changed_material_changes_the_label():
 
 def test_combined_policy_retries_citation_after_local_evidence_passes():
     guard = CombinedResponsePolicy(LocalEvidencePolicy(), CitationPolicy())
-    decision = guard.validate(_rag(HIT), "Dijkstra 支持负权 [S1]。", 0)
+    decision = guard.validate(_rag(HIT), "Dijkstra 支持负权 [Sdeadbe]。", 0)
     assert not decision.allow and decision.correction_prompt
+
+
+import pytest
+
+
+@pytest.mark.parametrize("text", [
+    "矩阵 [S3] 与 [S1] 相乘。",                    # 数学记号，不是引用
+    "见 [Spring](https://spring.io)。",           # Markdown 链接文字
+    "```java\nList[String] xs;\n```",             # 代码块里的泛型
+    "[Step1] 初始化",                             # 步骤编号
+    "标签长这样：`[Sabc123]`",                     # 行内代码里的示例
+    "看 [Sa1b2c3](https://example.com)",          # 形状像标签，但它是链接
+])
+def test_ordinary_text_is_never_treated_as_a_citation(text):
+    """2026-11-11 合并前审查：旧正则 `S[0-9A-Za-z]{1,16}` 把这些都当成伪造引用并剥掉。"""
+    assert cited_labels(text) == []
+    assert CitationPolicy().validate([], text, CitationPolicy.max_retries).allow
+
+
+def test_a_label_inside_code_is_left_alone_while_a_real_one_is_checked():
+    text = f"示例 `[{LABEL}]`；结论 [Sdeadbe]。"
+    decision = CitationPolicy().validate(_rag(HIT), text, CitationPolicy.max_retries)
+    assert not decision.allow
+    assert f"`[{LABEL}]`" in decision.fallback_content
+    assert "[Sdeadbe]" not in decision.fallback_content

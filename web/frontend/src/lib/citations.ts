@@ -9,7 +9,8 @@
 
 import type { SourceRef } from "../types";
 
-export const CITATION_PATTERN = /\[(S[0-9A-Za-z]{1,16})\]/g;
+// 与后端 rag/citations.py 同一形状：S + 6 位小写十六进制，后面不紧跟 "("（那是 Markdown 链接）。
+export const CITATION_PATTERN = /\[(S[0-9a-f]{6})\](?!\()/g;
 
 export interface CitationTarget {
   label: string;

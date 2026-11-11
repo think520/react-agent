@@ -25,7 +25,7 @@ from core.skills import build_skills_system_prompt, find_skill_by_name
 from web.backend.capabilities import WEB_SKILL_NAMES
 from service.concept_service import ConceptService
 from service.interaction_service import InteractionService
-from service.turn_policy import prepare_turn
+from service.turn_policy import paused_turn_evidence, prepare_turn
 from service.kb_service import KBService
 from service.memory_service import MemoryService
 from service.quiz_service import QuizService
@@ -1601,7 +1601,11 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
         config=config,
         document_ids=document_ids,
         preferred_document_ids=preferred_document_ids,
-        preset_evidence=(web_evidence or {}).get("content", ""),
+        preset_evidence="\n".join([
+            (web_evidence or {}).get("content", ""),
+            # 续跑 ask_user：暂停前那半轮的检索结果也是本轮证据。
+            paused_turn_evidence(session.messages) if resume_record else "",
+        ]),
     )
     kb_seed = turn.kb_seed
     response_guard = turn.response_guard

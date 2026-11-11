@@ -11,8 +11,24 @@ W2-EVID-01：每条证据有一个**引用标签**（``[S3fa9c1]``）。标签�
 import hashlib
 import re
 
-# 回答里任何长得像引用标签的东西都要被核对 —— 包括模型自己编的 [S1]。
-CITATION_MARKER = re.compile(r"\[(S[0-9A-Za-z]{1,16})\]")
+# 引用标签的**确切形状**：S + 6 位小写十六进制（与 cite_label 一致），后面不能紧跟 "(" ——
+# 那是 Markdown 链接文字。2026-11-11 合并前审查：旧的宽松形状把数学记号 [S3]、代码里的
+# List[String]、步骤编号 [Step1] 都当成伪造引用剥掉。代价是模型自编的 [S1] 不再按形状被抓，
+# 但它与数学记号无法区分；形状正确而不在本轮证据里的标签仍然会被门禁拦下。
+CITATION_MARKER = re.compile(r"\[(S[0-9a-f]{6})\](?!\()")
+
+# 代码块与行内代码里的内容是示例，不是引用（匹配前先遮掉，位置不变）。
+_CODE_SPANS = re.compile(r"```.*?```|~~~.*?~~~|`[^`\n]*`", re.S)
+
+
+def _mask_code(text: str) -> str:
+    return _CODE_SPANS.sub(lambda match: " " * len(match.group(0)), text or "")
+
+
+def citation_matches(text: str) -> list[re.Match]:
+    """正文里（代码之外）的引用标签匹配，位置对应原文。"""
+    return list(CITATION_MARKER.finditer(_mask_code(text)))
+
 
 CITATION_INSTRUCTION = (
     "引用规则：句子依据了某条资料，就在句末原样照抄它的方括号引用标签（形如 [S 加 6 位字符]，见每条资料开头）。"
@@ -34,7 +50,7 @@ def hit_source_id(hit: dict) -> str:
 def cited_labels(text: str) -> list[str]:
     """按出现顺序列出回答里的引用标签（去重）。"""
     seen: list[str] = []
-    for match in CITATION_MARKER.finditer(text or ""):
+    for match in citation_matches(text):
         label = match.group(1)
         if label not in seen:
             seen.append(label)
