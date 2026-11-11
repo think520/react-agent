@@ -1,7 +1,7 @@
 # 资料库文件树与分栏阅读（设计真相源，2026-09-24 定稿）
 
-> **状态**：已与用户逐条对齐（2026-09-24 grill 轮，共 22 项决定）；实施按 ①→⑤ 推进。
-> **权威**：本功能的设计真相源。与 [`ROADMAP.md`](ROADMAP.md) 的 E17 记录冲突时以本文为准；**排期与门禁仍以 ROADMAP 为准**。
+> **状态**：已与用户逐条对齐（2026-09-24 grill 轮，共 22 项决定）；①→⑤ **均已交付**（2026-10，阅读器已合一为 `components/DocumentReader.tsx`）。本文现在是行为契约，不再是实施计划；§9 的合并执行手册为当时记录。
+> **权威**：本功能的设计真相源。与归档 ROADMAP（[`archive/delivery/ROADMAP_HISTORY_2026-09_11.md`](archive/delivery/ROADMAP_HISTORY_2026-09_11.md)）的 E17 记录冲突时以本文为准；**排期与门禁仍以 ROADMAP 为准**。
 > **前置阅读**：[`PROJECT_GUIDE.md`](PROJECT_GUIDE.md)（产品边界）、[`DESIGN.md`](DESIGN.md)（视觉硬约束）、[`REFERENCE_PROJECTS.md`](REFERENCE_PROJECTS.md)（三家同构做法，案例 2）。
 
 ## 0. 一句话

@@ -38,8 +38,8 @@ description: 管理 Bobodan 的 Obsidian / 本地知识库工作区：同步资�
 当用户想确认资料是否进库：
 
 1. 用 `rag_search` 搜一个用户关心的关键词
-2. 用 `graph_query` 查核心概念关系
-3. 明确区分"检索片段"和"图谱关系"
+2. 用 `concept_map_query` 查已审查的核心概念关系（未审查候选不参与）
+3. 明确区分"检索片段"和"概念关系"：只有检索片段算原文证据
 
 ### 导出到 Obsidian
 
@@ -59,8 +59,8 @@ description: 管理 Bobodan 的 Obsidian / 本地知识库工作区：同步资�
 
 当用户说"生成 wiki"、"整理成 wiki"：
 
-1. 调用 `wiki_ingest`
-2. 之后可调用 `wiki_lint` 检查 orphan、broken links、missing pages
+1. Wiki 生成走对话里的 `/wiki plan` → 用户确认计划 → `/wiki update`；没有可直接调用的生成工具
+2. 可调用 `wiki_lint` 检查 orphan、broken links、missing pages
 3. 不要把 wiki 生成和普通 RAG 搜索混为一谈
 
 ## 输出风格

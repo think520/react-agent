@@ -14,6 +14,10 @@
 | 冒烟 e2e | `web/frontend/e2e/smoke.spec.ts` | 2-4 条：应用可启动、主路由可渲染、核心交互（composer/设置）可用 | 业务深流程 |
 | 专项 e2e | `web/frontend/e2e/app.spec.ts` | 仅保留**稳定且有独立价值**的流程用例（见下） | 依赖特定本地数据/环境状态的用例 |
 
+## 外部服务默认不可用
+
+`tests/conftest.py` 的 autouse fixture 默认把本机 Ollama 探活打成「不可用」：否则每个构造默认 embedding 的测试都要等 3 秒超时，且装了 Ollama 的机器会走另一条代码路径。测探活本身的用例（`test_ollama_embedding.py`）直接 patch `rag.ollama.httpx`；确实需要真实探活的用例加 `@pytest.mark.real_ollama_probe`。
+
 ## LLM mock 单缝（强制）
 
 所有需要 LLM 的测试必须通过 `tests/conftest.py` 的 `scripted_provider` fixture

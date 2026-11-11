@@ -17,7 +17,7 @@ KB_CONTEXT_HEADER = "[Knowledge Base Context]"
 
 KB_SEED_NOTE = (
     "以上是进入本轮前自动预检索到的片段，**可能不完整**；"
-    "需要更多证据时继续用 rag_search / library_search 检索，并以检索结果为准。"
+    "需要更多证据时继续用 rag_search 检索，并以检索结果为准。"
 )
 
 DEFAULT_MAX_CHARS = 4000

@@ -6,6 +6,26 @@
 
 ## [未发布]
 
+> **读法（2026-11-11）**：下面条目里的「本地提交 ✓ 未推送」「分支 X，未推送」是**写下当时**的状态。截至 2026-11-11，2026-11-05 及以前的条目都已合入并推送到 `origin/main`（`ac9bb17`）；只有 `feat/qa-live-gate` 上的 2026-11-11 条目尚未合入。本段跨度 2026-07 → 2026-11、约 1600 行，切版本号（建议 0.13 / 0.14 / 0.15 三段）等负责人定版本口径后再做，见 `docs/ROADMAP.md` §3。
+
+### 全项目审查 + GOV-01 文档治理（2026-11-11，分支 feat/qa-live-gate）
+
+四路只读审查（后端 / 前端 / 工程卫生 / 文档），每条结论都对照代码核实；**修了能验证的，其余排进 `docs/ROADMAP.md` §3**。
+
+- **修掉的真缺陷**（每条都先写回归、确认旧代码上红）：
+  - `research/store.py` 引用了未导入的 `sqlite3`：网页快照并发去重分支必抛 `NameError`（ruff F821 发现）。
+  - 对话预检索（kb_seed）绕过资料范围与 Wiki 过滤：用户选定范围后仍搜全库，且这些片段被引用门禁当成本轮证据。现在与 `rag_search` 同走 `KBService.search(collection="material", document_ids=…)`。真实链路回归在旧代码上复现了范围外资料泄漏。
+  - 批量整理 / 撤销 k 份资料要把整个资料库增量同步 k 遍；现在 `move_document(sync=False)` + 批末统一同步一次。
+  - 删除文件夹用空配置重同步：用户配的 API embedding 会被换成默认 Ollama。
+  - 同步时概念证据刷新 / 标记过期失败被 `except: pass` 吞掉；现在记日志并进 `SyncSummary.errors`。
+  - 前端：流式输出每 33ms 把**所有历史消息**的 Markdown 重解析一遍（实测两次刷新 8 次解析 → 2 次）；阅读器 / 知识地图的单键快捷键在输入框里也会触发；`app.css` 引用 9 个从未定义的变量，靠浅色兜底值渲染，暗色主题下露底。
+  - 两个技能（`course-learning`、`obsidian-workspace`）指示模型调用已退役的 `graph_query` / `wiki_ingest`；`CLAUDE.md` 与预检索提示里写着不存在的 `library_search` / `personal_knowledge_recall`。
+- **工程卫生**：测试默认不再探测本机 Ollama（每次白等 3 秒）——后端全量 **210s → 73–82s**；新增最小 `ruff.toml`（只开抓真 bug 的规则）并进 CI；CI 的 e2e 只跑桌面两个项目（移动端不验收）；删掉 4 张与母版逐字节相同的品牌图（约 10.2 MiB）；根目录 3 个空目录清掉；`.gitignore` 补 `.env.*` / `.claude/settings.local.json`。
+- **新增契约**：`designTokens.test.ts`「样式里引用的每个 CSS 变量都必须有定义」+ 颜色兜底值只减不增；`lib/ime.ts::shouldIgnoreShortcut`；`ChatTranscript.test.tsx` 流式解析次数。
+- **GOV-01**：`docs/ROADMAP.md` 从 531 行的 8 张状态表重写成两屏、一张当前基线表（基线 / 当前批次 / 下一批候选 / 发布阻塞项 / D-WIKI 草案 / 已拍板 / 不做）；v1.5 原文归档到 `docs/archive/delivery/ROADMAP_HISTORY_2026-09_11.md`。`PROJECT_GUIDE.md` 的 P5C–P5G 阶段记录（739 行）移到 `docs/archive/PROJECT_GUIDE_PHASES_P5.md`，仍生效的发布验收留在 §4。修正过期说法（A0–A3 当前批次、调研报告「活文档」、LIBRARY_TREE「实施中」、W1_DELIVERY「全在本地」、FRONTEND_UPGRADE_PLAN 批次命名），修 2 处断链、改写归档文件的相对链接，`docs/README.md` 索引同步。
+- **没做、需要拍板**：D-WIKI 四问（草案按代码现状填写，见 ROADMAP §5）；CHANGELOG `[未发布]` 切版本号。
+- **验证**：后端 **1906 passed** ✓、`ruff check .` ✓；前端 `tsc` 0 ✓、`lint` 0 ✓、`build` ✓、`vitest` **353 passed** ✓、桌面 mock e2e **92 passed / 0 failed** ✓；Markdown 相对链接扫描 0 处断链（剩 1 处是行内代码里的攻击示例）。
+
 ### W2-EVID-01 引用校验第一阶段：引用标签 + 运行时门禁（2026-11-11，分支 feat/qa-live-gate）
 
 路线评审 P0 的第一阶段「先做到不夸大保证」。核对现状时发现：聊天回答**根本没有引用格式** —— 工具结果按位置编号 `[1]`、界面按 chunk_id 显示来源，两套编号不相连；模型写一个 `[S1]` 也没人检查。
@@ -1089,7 +1109,7 @@ E6.2 合入后按真实数据复查，复现出两个缺陷（原提交的 1877 
   - 复现：新增 `tests/test_provider_cancellation.py` 三条，用 `httpx.MockTransport` 保留真实的 httpx 客户端与真实的读循环，只换传输层：①50 个 delta 的流在收到第 1 个后取消 → **只解析出 1 个 chunk 且只发出 1 次请求**（不重试）；②已取消的流**从不打开连接**（`RunCancelled`，连接记录为空）；③返回 500 这种可重试状态时，若此时已取消 → 只请求 1 次。**修前失败信号**：循环会读完 50 个 delta、重试可达 3 次。
   - 修法：`LLMProvider` 协议、`openai_compat`（流式与非流式）、`minimax`（转发给父类）与测试替身 `ScriptedProvider` 全部接受 `cancel_token`；重试前的 `time.sleep` 统一改走 `_retry_pause(attempt, token)`——**取消后不再重试**是这一条的核心承诺；`AgentLoop` 用签名探测决定是否传该参数（不支持的 provider 会记一条 warning，而不是静默假装停止有效）；`run_stream` 增加 `except RunCancelled` 分支，保证取消被报成 `cancelled` 而不是 `error`。
   - 阶段三、四（⏳）：Web 断线宽限期与重连续跑、CLI SIGINT 与 specialist 子 token、每工具超时表。
-- **A4 批次三 · 取消原语（阶段一，2026-09-14）**：先落设计文档 [`CANCELLATION_DESIGN.md`](CANCELLATION_DESIGN.md)——记录实测现状（生产代码取消原语 0 命中、SSE 生成器从不关闭、specialist 的 `Future.cancel()` 对已开始任务无效、CLI 只跳出消费循环）、锁定的方案（协作取消）与**诚实的边界**（Python 不能杀线程：流式真停、非流式靠 timeout、无视标志的工具会跑完）。
+- **A4 批次三 · 取消原语（阶段一，2026-09-14）**：先落设计文档 [`CANCELLATION_DESIGN.md`](docs/CANCELLATION_DESIGN.md)——记录实测现状（生产代码取消原语 0 命中、SSE 生成器从不关闭、specialist 的 `Future.cancel()` 对已开始任务无效、CLI 只跳出消费循环）、锁定的方案（协作取消）与**诚实的边界**（Python 不能杀线程：流式真停、非流式靠 timeout、无视标志的工具会跑完）。
   - 复现：新增 `tests/test_cancellation.py` 七条（幂等且保留首个 reason、`raise_if_cancelled` 带 reason、父取消传播到已存在的子、取消后新建的子一开始就是取消态、子可单独取消、另一个线程能观察到取消）+ `tests/test_agent_cancellation.py` 两条。**修前失败信号**：`ModuleNotFoundError: core.cancellation`；以及循环没有 `cancel_token` 形参。
   - 修法（阶段一）：`core/cancellation.py` 新增 `CancelToken`（内部 `threading.Event` + 锁 + 父子表，`reason` 记首个原因，`RunCancelled` 与 `ProviderError` 刻意区分——取消不是失败，不该触发重试、不该计入错误率）；`AgentLoop` 接受 `cancel_token`，在**每轮迭代开始**与**每次工具派发前**检查：命中则以 `termination_reason="cancelled"` 结束本轮并保留已产出内容，工具则返回结构化的「未执行」结果。最强的断言是第一条：**预先取消的 run 对 provider 的调用次数为 0**——点了停止就不再花钱。
   - 阶段二至四（⏳，见 ROADMAP 与设计文档第 9 节）：provider 流式读循环的中断、Web 断线宽限期与重连续跑、CLI SIGINT 与 specialist 子 token、每工具超时表。
@@ -1113,7 +1133,7 @@ E6.2 合入后按真实数据复查，复现出两个缺陷（原提交的 1877 
 - **A4 批次二 · hooks 最小接线 + P0-9 工具结果上限（2026-09-14）**：`core/hooks.py` 与它的四个派发点早在 AG-2.1 就写好了，但**生产代码里注册数为零**——文档声称承载权限检查与结果消毒，实际运行的代码里没有这两件事。同时 P0-9 指出单条工具结果没有任何上限（只有 `read_file` 自带 1MB），`rag_search` 还会把同一批 chunk 在 JSON 与格式化文本里序列化两遍。
   - 复现：新增 `tests/test_builtin_hooks.py` 七条——①超长结果必须被截断且**保留头尾**并带省略说明；②短结果原样通过；③**失败结果永不截断**（错误文本是唯一的排查线索）；④经 `dispatch(AFTER_TOOL, …)` 走一遍派发后拿到的替换结果确实被限界；⑤白名单门对未启用工具返回 `unavailable in this runtime`（与既有测试断言的文案一致）、对 `allowed=None` 放行；⑥重复注册不产生重复 hook；⑦**构造一个 AgentLoop 后注册表里必须能查到这两个内建 hook**——这正是审计测试盲区第 7 条缺的守护。**修前失败信号**：`ModuleNotFoundError: core.builtin_hooks`，以及注册表在生产路径下始终为空。
   - 修法：新增 `core/builtin_hooks.py`——`cap_tool_result`（32000 字符上限、头尾各 40%、中间替换为省略说明并提示用 offset/limit 续读、失败结果豁免）与 `allowlist_gate`（把白名单作为**每次派发的数据**传入，而不是全局注册，避免 specialist 的白名单污染主循环）；`AgentLoop.__init__` 调用幂等的 `register_builtin_hooks()`（每个运行路径都会构造 loop，覆盖面最广，也不怕新增调用方忘记接线）；原先内联的白名单判断改为走注册表派发，行为与文案保持不变。
-- **A4 止血轮立项（2026-09-14）**：外部审计 [`TECH_AUDIT_2026-09-14.md`](TECH_AUDIT_2026-09-14.md) 落库（15 P0 / 36 P1 / 33 P2 / 12 测试盲区）。本轮按「先止血 → 再接线 → 横切原语单独立项」推进；`docs/ROADMAP.md` 新增 **§2 A4 止血轮**，把要做哪几条与审计编号对应起来，P2 不排期。审计编号 `P0-x` / `P1-x` 成为稳定引用，后续提交信息带编号。
+- **A4 止血轮立项（2026-09-14）**：外部审计 [`TECH_AUDIT_2026-09-14.md`](docs/archive/audits/TECH_AUDIT_2026-09-14.md) 落库（15 P0 / 36 P1 / 33 P2 / 12 测试盲区）。本轮按「先止血 → 再接线 → 横切原语单独立项」推进；`docs/ROADMAP.md` 新增 **§2 A4 止血轮**，把要做哪几条与审计编号对应起来，P2 不排期。审计编号 `P0-x` / `P1-x` 成为稳定引用，后续提交信息带编号。
   - 立项前对照三个本地参考项目（DeepTutor / OpenMAIC / openhanako-reference）逐条核查，确认可照搬项（工具渐进披露、原子写地基、事件表 + `Last-Event-ID`、lease 队列、序列化后配对兜底）与**不要抄的坑**（Windows 上 `fcntl` 缺失即静默无锁、`setdefault` 给模型留缝、ring buffer 不能当唯一恢复依据）。其中 DeepTutor 的 `tools/file_tools.py` 路径校验写了却从未接线、`events/event_bus.py` 只发无订阅者，与本次审计「不缺架构缺接线」的判断互为印证。
   - 验收口径：每条先写会失败的复现测试再修；断线取消 / Qdrant 双开 / 删除确认 / 向量补建四类必须真实集成或故障注入；CHANGELOG 记录复现方式与失败信号。
 - **设计规格层重写 + 骨架层落地（2026-09-14）**：用户实测反馈「前端 UI 还是不好看、不够丝滑」，复查 `docs/DESIGN.md` 后确认问题不是「约束太紧」，而是**紧在禁令、松在规格**——对照 DeepTutor / openhanako / OpenMAIC 三个参考项目（见 `docs/REFERENCE_PROJECTS.md`）找出可借鉴项后，先重写规格层，再落地骨架层。

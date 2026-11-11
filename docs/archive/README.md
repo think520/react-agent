@@ -41,6 +41,8 @@
 | `frontend/UI_AUDIT.md` | 2026-10-17 逐页修复已验收 | 保留逐页修复与遗留观察结论 |
 | `frontend/M6_ACCEPTANCE.md` | 打包前前端验收已完成 | 发布相关结论继续以 `ROADMAP.md` 和当前 `DESIGN.md` 为准 |
 | `delivery/W1_DELIVERY.md` | E1–E16 已交付 | 保留交付范围与当时门禁；当前状态看 `ROADMAP.md` |
+| `delivery/ROADMAP_HISTORY_2026-09_11.md` | ROADMAP v1.5 原文（2026-11-11 GOV-01 移出） | 追溯 W1–W5 / A0–A4 / E1–E18 / G1–G5 交付经过与复测 |
+| `PROJECT_GUIDE_PHASES_P5.md` | 原 `PROJECT_GUIDE.md` §4 P5C–P5G 阶段记录（2026-11-11 移出） | 追溯阶段决策与当时验收数字；仍生效的发布验收已留在 `PROJECT_GUIDE.md` §4 |
 | `audits/TECH_AUDIT_2026-09-14.md` | P0 主体已收口 | 保留缺陷来源与审计证据；未决项看 `ROADMAP.md` |
 
 如需追溯某个决策的完整论证，本目录、[`../reviews/`](../reviews/) 与 `git log -- docs/` 足够。

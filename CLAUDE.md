@@ -8,7 +8,7 @@ Bobodan（波波蛋）是一个本地优先、Chat-first 的个人学习助手�
 - 原始资料是知识型回答和练习的事实来源。Wiki、概念摘要和个人知识不能冒充原文证据。
 - 原始资料不会被 AI 擅自修改、移动或删除；任何移动/重命名只在用户确认后执行，且可一键撤销（完整约束见 `docs/LIBRARY_TREE_DESIGN.md:81`）。
 - 知识地图只包含用户已审查的概念和关系。未审查候选只显示状态摘要，不参与回答。
-- Wiki 是高级维护与历史整理能力，不是一级导航，也不是默认 RAG 中间层（边界见 `docs/PROJECT_GUIDE.md:489`）。
+- Wiki 是高级维护与历史整理能力，不是一级导航，也不是默认 RAG 中间层（边界见 `docs/PROJECT_GUIDE.md` §3.3.1 的 Wiki 行；四问决策草案在 `docs/ROADMAP.md` §5 D-WIKI）。
 - 个人知识使用结构化 SQLite 存储，按全局和资料库隔离；旧 Markdown memory / daily 只读保留用于迁移。
 - `.knowledge/` 是可重建运行时索引，但旧 `rag_index*.json`、`graph_store.json` 和旧记忆文件可能是用户唯一历史数据，迁移完成前不得静默删除。
 
@@ -110,9 +110,9 @@ web/frontend/         React 桌面 UI；Zustand 管理跨页状态；路由按�
 
 ### Agent 和证据
 
-- 知识型问题默认以 `library_search` / `rag_search` 的原始 chunk 为证据骨架。
+- 知识型问题默认以 `rag_search` 的原始 chunk 为证据骨架（不存在 `library_search` 工具）。
 - `concept_map_query` 只读取已审查图谱，用来补充结构；候选不能绕过审查进入回答。
-- `personal_knowledge_recall` 只调整讲解方式或补充明确标注的个人上下文。
+- 个人知识经 `MemoryService.personalization_context` 注入请求上下文（不是工具），只调整讲解方式或补充明确标注的个人上下文。
 - `service/evidence_policy.py` 和 AgentLoop 结束前验证共同构成运行时证据门禁。Prompt 只是指导，不是质量保证。
 - stale 概念证据可以继续展示关系，但不能满足原文证据门禁；需要重新定位或重新检索。
 - 回答引用用 `[Sxxxxxx]` 标签：`rag/citations.py::cite_label(source_id)` 确定性生成，工具结果、预检索块、网页快照共用同一标签。`CitationPolicy` 无条件挂载，标签必须来自本轮证据，否则先要求重写，重写用尽则剥掉未知标签并说明；它只核对「引用真实」，不核对「引用支持结论」。
