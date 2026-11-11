@@ -126,3 +126,39 @@ def test_apply_records_partial_moves_when_an_unexpected_failure_interrupts_the_b
     assert undone["ok"], undone
     assert (library / "第一课.md").is_file()
     assert (library / "第二课.md").is_file()
+
+
+def test_organizing_many_documents_resyncs_the_library_once(tmp_path, monkeypatch):
+    """搬 k 份资料只做一次全库增量同步（以前每份一次：k 遍读全库，2026-11-11 审查）。"""
+    from service.kb_service import KBService
+    from service.library_service import LibraryService
+
+    root = tmp_path / "library"
+    LibraryService(str(tmp_path / "home")).initialize(str(root), name="Portable")
+    for index in range(4):
+        (root / f"第{index}课.md").write_text(f"# 第{index}课\n\n内容 {index}", encoding="utf-8")
+    service = KBService(str(root))
+    config = {"rag": {"embedding_backend": "local"}}
+    assert service.sync(vault_path=str(root), config=config)["ok"]
+
+    calls: list[str] = []
+    real = service._sync_registered_sources
+
+    def counting(*args, **kwargs):
+        calls.append(kwargs.get("mode", ""))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(service, "_sync_registered_sources", counting)
+    result = service.apply_organization([f"第{index}课.md" for index in range(4)], "课程包", config=config)
+
+    assert result["ok"], result
+    assert len(result["moved"]) == 4, result
+    assert len(calls) == 1, f"expected one library resync, got {len(calls)}"
+    assert result["sync"], "the batch must still report its resync"
+    documents = service.list_documents(collection="material")["documents"]
+    assert all(item["source"].startswith("课程包/") or "课程包" in item["source"] for item in documents), documents
+
+    calls.clear()
+    undone = service.undo_organization(batch_id=result["batch_id"], config=config)
+    assert undone["ok"], undone
+    assert len(calls) == 1, f"undo must also resync once, got {len(calls)}"

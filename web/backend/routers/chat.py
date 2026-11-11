@@ -614,21 +614,35 @@ def _kb_seed_for(
     workspace: str,
     config: dict,
     has_document_scope: bool,
+    document_ids: list[str] | None = None,
+    preferred_document_ids: list[str] | None = None,
     top_k: int = 4,
 ) -> str:
-    """W1 E12 / D13：进循环前的预检索。**失败就当作没有**（绝不拖垮这一轮）。"""
+    """W1 E12 / D13：进循环前的预检索。**失败就当作没有**（绝不拖垮这一轮）。
+
+    与 ``rag_search`` 走同一条可见性路径（``KBService.search`` + ``collection="material"``
+    + 本轮资料范围）：预检索块里的片段会被引用门禁当作本轮证据，范围外资料或 Wiki 页
+    不能借这条路进入回答（2026-11-11 审查）。
+    """
     from core.prompt_blocks import build_kb_seed_block
 
     if not _wants_kb_seed(message, has_document_scope=has_document_scope):
         return ""
     try:
-        from rag.retriever import search_index
-
-        hits = search_index(workspace, message, top_k=top_k, config=config)
+        result = KBService(workspace).search(
+            query=message,
+            top_k=top_k,
+            document_ids=document_ids or None,
+            preferred_document_ids=preferred_document_ids or None,
+            collection="material",
+            config=config,
+        )
     except Exception as exc:  # pragma: no cover - 具体异常类型依检索实现而定
         logger.warning("KB seed retrieval failed: %s", exc)
         return ""
-    return build_kb_seed_block(hits or [])
+    if not result.get("ok"):
+        return ""
+    return build_kb_seed_block(result.get("results") or [])
 
 
 def _build_response_policies(message: str, *, has_document_scope: bool) -> list:
@@ -1776,6 +1790,8 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
         workspace=workspace,
         config=config,
         has_document_scope=has_document_scope,
+        document_ids=document_ids,
+        preferred_document_ids=preferred_document_ids,
     )
     # W2-EVID-01：引用门禁无条件挂载（它只看回答里出现的标签）。允许集合包含进入本轮前
     # 就给了模型的证据：预检索块与用户选定的网页快照。

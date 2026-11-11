@@ -703,7 +703,7 @@ def delete_folder(body: dict, request: Request) -> dict:
     """删文件夹=只删容器：资料移回库根，一份都不删（E17 ③）。"""
     result = unwrap_service_result(
         _service(request).delete_folder(
-            str(body.get("path") or ""), mode=str(body.get("mode") or "ungroup")
+            str(body.get("path") or ""), mode=str(body.get("mode") or "ungroup"), config=get_config(),
         ),
         code="folder_not_deletable",
     )

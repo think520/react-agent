@@ -1723,8 +1723,20 @@ class KBService:
             relative = relative[len("raw/"):]
         return f"{prefix}/{relative}"
 
-    def move_document(self, document_id: str, new_relative_path: str, config: dict | None = None) -> dict[str, Any]:
-        """重命名或移动一份资料：文件搬走，**身份保留**，引用与证据跟着迁移（E17 ③）。"""
+    def move_document(
+        self,
+        document_id: str,
+        new_relative_path: str,
+        config: dict | None = None,
+        *,
+        sync: bool = True,
+    ) -> dict[str, Any]:
+        """重命名或移动一份资料：文件搬走，**身份保留**，引用与证据跟着迁移（E17 ③）。
+
+        ``sync=False`` 给批量调用方用（整理 / 撤销）：索引位置与 chunk 身份已在本方法里就地改好，
+        末尾那次增量同步只负责重新嵌入向量，批量时由调用方最后统一做一次 ——
+        否则搬 k 份资料要把整个资料库读 k 遍（2026-11-11 审查）。
+        """
         from rag.chunker_v2 import _make_chunk_id
         from rag.sqlite_store import KBSQLiteStore
 
@@ -1813,7 +1825,7 @@ class KBService:
         except Exception as exc:  # noqa: BLE001 - 向量是可选能力，删不掉不影响迁移
             logger.warning("移动资料时清理旧向量失败（不影响引用迁移）：%s", exc)
 
-        summary = self._sync_registered_sources(mode="incremental", config=config or {})
+        summary = self._sync_registered_sources(mode="incremental", config=config or {}) if sync else None
         return _ok(
             migration={
                 "document_id": document_id,
@@ -1824,7 +1836,7 @@ class KBService:
                 "evidence_remapped": evidence_remapped,
                 "references_remapped": references_remapped,
             },
-            sync=summary.to_dict(),
+            sync=summary.to_dict() if summary is not None else None,
         )
 
     # --- 文件夹写操作：新建 / 删除（只删容器）（E17 ③）-------------------
@@ -2076,6 +2088,21 @@ class KBService:
         return index
 
     def apply_organization(self, items: list[str], target_folder: str, config: dict | None = None) -> dict[str, Any]:
+        result = self._apply_organization(items, target_folder, config=config)
+        return self._with_batch_sync(result, config)
+
+    def _with_batch_sync(self, result: dict[str, Any], config: dict | None) -> dict[str, Any]:
+        """批量搬运结束后统一同步一次（逐份搬运时已跳过，见 ``move_document(sync=False)``）。
+
+        只要有东西真的动过（moved / restored 非空）就同步 —— 部分失败也一样，
+        否则已经搬过去的资料会一直停在「待重新嵌入」。
+        """
+        if result.get("moved") or result.get("restored"):
+            summary = self._sync_registered_sources(mode="incremental", config=config or {})
+            result = {**result, "sync": summary.to_dict()}
+        return result
+
+    def _apply_organization(self, items: list[str], target_folder: str, config: dict | None = None) -> dict[str, Any]:
         """把散落的资料收进一个文件夹，并返回**可撤销的动作清单**（E17 ⑤）。
 
         只处理资料库根目录那一层的文件；有索引的走 ③b 的 move_document（身份与
@@ -2176,13 +2203,13 @@ class KBService:
             result: dict[str, Any]
             try:
                 if document is not None:
-                    result = self.move_document(str(document.get("id")), destination_relative, config=config)
+                    result = self.move_document(str(document.get("id")), destination_relative, config=config, sync=False)
                     if not result.get("ok") and str(result.get("code") or "") == "document_not_found":
                         # 真机（2026-09-28）撞到过：计划到执行之间索引重建了身份，计划里记的 id
                         # 已经查不到 —— 按**现在的路径**重新解析一次，别让资料因为过期 id 搬不动。
                         fresh = self._document_by_path(str(plan["source"]))
                         if fresh is not None:
-                            result = self.move_document(str(fresh.get("id")), destination_relative, config=config)
+                            result = self.move_document(str(fresh.get("id")), destination_relative, config=config, sync=False)
                         if not result.get("ok") and str(result.get("code") or "") == "document_not_found":
                             # 索引里彻底没有这条记录了：按未索引文件直接搬（身份已无从谈起）。
                             shutil.move(str(plan["source"]), str(plan["destination"]))
@@ -2315,6 +2342,15 @@ class KBService:
         batch_id: str = "",
         config: dict | None = None,
     ) -> dict[str, Any]:
+        result = self._undo_organization(moves, batch_id=batch_id, config=config)
+        return self._with_batch_sync(result, config)
+
+    def _undo_organization(
+        self,
+        moves: list[dict[str, Any]] | None = None,
+        batch_id: str = "",
+        config: dict | None = None,
+    ) -> dict[str, Any]:
         """一键撤销上一步整理：按 moved 清单把每份资料放回原位（身份同样保留）。
 
         不传清单时，用**服务端台账里最近仍有可执行动作的一步**——零成功的失败批次
@@ -2360,7 +2396,7 @@ class KBService:
             current = self._document_by_path(source)
             try:
                 if current is not None:
-                    result = self.move_document(str(current.get("id") or ""), original, config=config)
+                    result = self.move_document(str(current.get("id") or ""), original, config=config, sync=False)
                     if not result.get("ok"):
                         skipped.append({"from": original, "to": destination,
                                         "reason": str(result.get("code") or "move_failed")})
@@ -2420,7 +2456,7 @@ class KBService:
         os.makedirs(target, exist_ok=False)
         return _ok(folder={"name": os.path.basename(target), "path": cleaned})
 
-    def delete_folder(self, relative_path: str, mode: str = "ungroup") -> dict[str, Any]:
+    def delete_folder(self, relative_path: str, mode: str = "ungroup", config: dict | None = None) -> dict[str, Any]:
         """删掉一个文件夹这个**容器**：里面的资料移回库根，一份都不删。
 
         mode="ungroup"（默认也是唯一实现的语义）：参考项目 OpenMAIC 的注释说得最准
@@ -2486,7 +2522,8 @@ class KBService:
         except OSError:
             kept = True
 
-        summary = self._sync_registered_sources(mode="incremental", config={})
+        # 必须带真实配置：空配置会让移回根目录的资料用默认 embedding 重新索引（2026-11-11 审查）。
+        summary = self._sync_registered_sources(mode="incremental", config=config or {})
         return _ok(folder=cleaned, moved=sorted(moved), kept_directory=kept, sync=summary.to_dict())
 
     def get_document(self, document_id: str) -> dict[str, Any]:

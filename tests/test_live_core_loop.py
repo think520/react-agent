@@ -418,3 +418,29 @@ def test_a_citation_to_rewritten_material_is_rejected(live):
     assert f"[{stale}]" not in answer, answer
     assert f"[{fresh}]" in answer, answer
     client.close()
+
+
+def test_kb_seed_respects_the_selected_document_scope(live):
+    """预检索块会被引用门禁当成本轮证据，所以它必须遵守用户选定的资料范围。"""
+    provider = live["provider"]
+    client = _client()
+    headers = _create_library_and_import(client, live)
+    other = MATERIAL.replace("最短路径", "图论杂记").replace("Dijkstra 算法", "Dijkstra 笔记")
+    started = _ok(client.post("/api/kb/imports", headers=headers, files=[
+        ("files", ("graph-notes.md", other.encode("utf-8"), "text/markdown")),
+    ]), 202)
+    assert _wait_import(client, headers, started["import_id"])["status"] == "completed"
+    documents = _ok(client.get("/api/kb/documents?collection=material", headers=headers))["documents"]
+    in_scope = next(item for item in documents if item["source"].endswith("shortest-path.md"))
+    out_of_scope = next(item for item in documents if item["source"].endswith("graph-notes.md"))
+
+    provider.queue("好的。")
+    response = client.post("/api/chat/runs", headers=headers, json={
+        "message": "为什么 Dijkstra 不能处理负权边？", "save": False, "memory_enabled": False,
+        "document_ids": [in_scope["document_id"]],
+    })
+    assert response.status_code == 200, response.text
+    sent = json.dumps(provider.requests[0]["messages"], ensure_ascii=False)
+    assert "[Knowledge Base Context]" in sent, "seed should be present for a knowledge question"
+    assert "图论杂记" not in sent and out_of_scope["document_id"] not in sent, "out-of-scope material leaked into the seed"
+    client.close()

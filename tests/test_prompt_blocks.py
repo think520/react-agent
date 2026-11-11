@@ -122,44 +122,56 @@ def test_kb_seed_is_requested_for_knowledge_questions_not_practice():
 
 def test_kb_seed_retrieval_failure_is_swallowed(monkeypatch):
     """预检索只是优化：失败就当没有，绝不能拖垮这一轮。"""
-    import rag.retriever as retriever
     from web.backend.routers.chat import _kb_seed_for
 
-    def boom(*args, **kwargs):
-        raise RuntimeError("index unavailable")
+    class Broken:
+        def __init__(self, workspace):
+            pass
 
-    monkeypatch.setattr(retriever, "search_index", boom)
+        def search(self, **kwargs):
+            raise RuntimeError("index unavailable")
+
+    monkeypatch.setattr("web.backend.routers.chat.KBService", Broken)
 
     assert _kb_seed_for("什么是 Dijkstra？", workspace=".", config={}, has_document_scope=False) == ""
 
 
 def test_kb_seed_uses_retrieved_hits(monkeypatch):
-    import rag.retriever as retriever
     from web.backend.routers.chat import _kb_seed_for
 
-    calls: list[tuple] = []
+    calls: list[dict] = []
 
-    def fake_search(workspace, query, top_k=5, config=None, mode="auto"):
-        calls.append((workspace, query, top_k))
-        return [{"chunk_id": "c1", "title": "算法课", "text": "贪心策略。"}]
+    class FakeKB:
+        def __init__(self, workspace):
+            calls.append({"workspace": workspace})
 
-    monkeypatch.setattr(retriever, "search_index", fake_search)
+        def search(self, **kwargs):
+            calls[-1].update(kwargs)
+            return {"ok": True, "results": [{"chunk_id": "c1", "title": "算法课", "text": "贪心策略。"}]}
 
-    block = _kb_seed_for("什么是 Dijkstra？", workspace="/ws", config={}, has_document_scope=False)
+    monkeypatch.setattr("web.backend.routers.chat.KBService", FakeKB)
+
+    block = _kb_seed_for(
+        "什么是 Dijkstra？", workspace="/ws", config={}, has_document_scope=True,
+        document_ids=["doc-in-scope"],
+    )
 
     assert block.startswith(KB_CONTEXT_HEADER)
     assert "c1" in block
-    assert calls and calls[0][0] == "/ws", calls
+    assert calls[0]["workspace"] == "/ws", calls
+    # 与 rag_search 同一条可见性路径：只看原始资料、遵守本轮范围。
+    assert calls[0]["collection"] == "material", calls
+    assert calls[0]["document_ids"] == ["doc-in-scope"], calls
 
 
 def test_kb_seed_is_not_retrieved_for_practice_turns(monkeypatch):
-    import rag.retriever as retriever
     from web.backend.routers.chat import _kb_seed_for
 
-    def boom(*args, **kwargs):
-        raise AssertionError("practice turns must not pre-retrieve")
+    class Boom:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("practice turns must not pre-retrieve")
 
-    monkeypatch.setattr(retriever, "search_index", boom)
+    monkeypatch.setattr("web.backend.routers.chat.KBService", Boom)
 
     assert _kb_seed_for("根据资料出 5 道题", workspace=".", config={}, has_document_scope=True) == ""
 
