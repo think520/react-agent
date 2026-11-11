@@ -1,23 +1,12 @@
-import { memo, useCallback, useLayoutEffect, useRef } from "react";
+import { memo } from "react";
 
 import type { ProcessBrandState } from "../../hooks/useChatStream";
+import { useStableCallback as useStable } from "../../hooks/useStableCallback";
 import { BobodanProcess } from "../../pages/chat/chatPrimitives";
 import type { Attribution, ChatArtifact, ChatMessage } from "../../types";
 import { AssistantMessage, UserMessage } from "./ChatMessage";
 
 type Reference = NonNullable<ChatMessage["references"]>[number];
-
-/**
- * 事件回调稳定化：ChatPage 每次渲染都会给出新的函数，这里用 ref 转一道（只用于事件里调用的回调），
- * 让下面的 memo 消息只在**自己的数据**变化时重渲染（2026-11-11 审查：流式输出时
- * 每 33ms 一次刷新，以前会把所有历史消息的 Markdown 从头解析一遍）。
- */
-function useStable<A extends unknown[], R>(fn: (...args: A) => R): (...args: A) => R {
-  const ref = useRef(fn);
-  // 在提交阶段更新（渲染期写 ref 违反 react-hooks/refs）；回调只会在事件里被调用，届时已是最新。
-  useLayoutEffect(() => { ref.current = fn; });
-  return useCallback((...args: A) => ref.current(...args), []);
-}
 
 type AssistantProps = Parameters<typeof AssistantMessage>[0];
 

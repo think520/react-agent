@@ -7,6 +7,10 @@ import { clearImportReport, emptyDocumentImport } from "../lib/importState";
 import type { DocumentImportState } from "../lib/importState";
 import { errorCodeOf } from "../lib/errorHints";
 import { useImportRun } from "../hooks/useImportRun";
+import { useBackendHealth } from "../hooks/useBackendHealth";
+import { useLayoutTier } from "../hooks/useLayoutTier";
+import { useStableCallback } from "../hooks/useStableCallback";
+import { useAppearanceSync } from "../hooks/useAppearanceSync";
 import { toErrorMessage } from "../lib/errors";
 import { describeDocumentImport } from "../lib/importSummary";
 import { notifyError } from "../stores/noticeStore";
@@ -23,7 +27,6 @@ import { navItems, pageMeta } from "./shell/nav";
 import { ContextPanel } from "./shell/ContextPanel";
 
 import type { AppOutletContext } from "./shell/types";
-import { resolveTheme, systemPrefersDark, watchSystemTheme } from "../lib/theme";
 export type { AppOutletContext, LibrarySetupOptions } from "./shell/types";
 
 export function AppShell() {
@@ -39,7 +42,6 @@ export function AppShell() {
   const [documentsUnavailable, setDocumentsUnavailable] = useState(false);
   const [review, setReview] = useState<ReviewQueue | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
-  const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
   const previewTimer = useRef<number | null>(null);
   const importRun = useImportRun();
   const [documentImport, setDocumentImport] = useState<DocumentImportState>(emptyDocumentImport);
@@ -51,8 +53,6 @@ export function AppShell() {
   const pendingDuplicateFiles = useRef<File[]>([]);
   // E8：留下这次"需要处理"的文件对象，才能提供真正的重试（而不是假按钮）。
   const pendingRetryFiles = useRef<File[]>([]);
-  const [backendState, setBackendState] = useState<"connected" | "disconnected" | "reconnecting">("connected");
-  const [reconnectAttempt, setReconnectAttempt] = useState(0);
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
 
   // Cross-cutting UI state lives in the store (persisted keys included).
@@ -102,17 +102,7 @@ export function AppShell() {
     }
   }, []);
 
-  const reconnectBackend = useCallback(async () => {
-    setBackendState("reconnecting");
-    try {
-      await api.health();
-      setBackendState("connected");
-      setReconnectAttempt(0);
-      await refreshSettings();
-    } catch {
-      setBackendState("disconnected");
-    }
-  }, [refreshSettings]);
+  const { state: backendState, attempt: reconnectAttempt, reconnect: reconnectBackend } = useBackendHealth(refreshSettings);
 
   const refreshSessions = useCallback(async () => {
     try {
@@ -251,35 +241,7 @@ export function AppShell() {
       .finally(() => setInitialDataLoaded(true));
   }, [loadScopedData, refreshSettings]);
 
-  useEffect(() => {
-    if (!settings) return;
-    const appearance = settings.preferences.appearance;
-    const root = document.documentElement;
-    root.dataset.readingFont = appearance.reading_font;
-    root.dataset.paperTexture = appearance.paper_texture ? "on" : "off";
-    root.dataset.sessionDensity = appearance.session_density;
-    root.dataset.motion = appearance.motion;
-    const resolvedTheme = resolveTheme(appearance.theme ?? "system", systemPrefersDark());
-    root.dataset.theme = resolvedTheme;
-    root.style.colorScheme = resolvedTheme;
-    // 缓存解析结果：下次首帧由 index.html 的内联脚本直接读，避免暗色白闪。
-    try { localStorage.setItem("bobodan:theme", resolvedTheme); } catch { /* 无痕模式忽略 */ }
-    root.dataset.contrast = appearance.contrast === "high" ? "high" : "normal";
-    root.style.setProperty("--body-font-size", `${appearance.body_font_size}px`);
-    root.style.setProperty("--content-width", `${appearance.content_width}px`);
-  }, [settings]);
-
-  // 主题 = 跟随系统时，系统切换要实时反映（W-F6）。
-  useEffect(() => {
-    if (!settings) return;
-    if ((settings.preferences.appearance.theme ?? "system") !== "system") return;
-    return watchSystemTheme((prefersDark) => {
-      const next = prefersDark ? "dark" : "light";
-      document.documentElement.dataset.theme = next;
-      document.documentElement.style.colorScheme = next;
-      try { localStorage.setItem("bobodan:theme", next); } catch { /* 忽略 */ }
-    });
-  }, [settings]);
+  useAppearanceSync(settings);
 
   useEffect(() => {
     if (!settings || localStorage.getItem("bobodan:preferences:migrated") === "1") return;
@@ -304,35 +266,6 @@ export function AppShell() {
       .catch(() => undefined);
   }, [refreshSettings, settings]);
 
-  useEffect(() => {
-    let cancelled = false;
-    let timer: number | undefined;
-    const delays = [2000, 5000, 10000, 30000];
-    const check = async (attempt = 0) => {
-      try {
-        await api.health();
-        if (!cancelled) {
-          setBackendState("connected");
-          setReconnectAttempt(0);
-        }
-      } catch {
-        if (cancelled) return;
-        setBackendState("disconnected");
-        setReconnectAttempt(attempt + 1);
-        timer = window.setTimeout(() => {
-          setBackendState("reconnecting");
-          void check(attempt + 1);
-        }, delays[Math.min(attempt, delays.length - 1)]);
-      }
-    };
-    void check();
-    const interval = window.setInterval(() => void api.health().catch(() => void check()), 30000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-      if (timer) window.clearTimeout(timer);
-    };
-  }, []);
 
   // Ctrl/Cmd+N — the shortcut the 新对话 button advertises.
   useEffect(() => {
@@ -432,11 +365,6 @@ export function AppShell() {
     pruneDocumentScope(documents.map((document) => document.document_id));
   }, [documents, initialDataLoaded, pruneDocumentScope]);
 
-  useEffect(() => {
-    const onResize = () => setViewportWidth(window.innerWidth);
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
 
   useEffect(() => {
     setSidebarOpen(false);
@@ -450,9 +378,7 @@ export function AppShell() {
   const meta = pageMeta[section] || pageMeta.chat;
   const title = activeSession?.name || meta[1];
 
-  const desktop = viewportWidth >= 768;
-  const rightAutoCollapsed = viewportWidth < 1288;
-  const leftAutoCollapsed = viewportWidth < 972;
+  const { desktop, leftAutoCollapsed, rightAutoCollapsed } = useLayoutTier();
   const leftOpen = leftSavedOpen && !leftAutoCollapsed;
   const rightOpen = rightSavedOpen && !rightAutoCollapsed;
 
@@ -508,6 +434,68 @@ export function AppShell() {
     () => documents.filter((document) => selectedDocumentIds.includes(document.document_id)),
     [documents, selectedDocumentIds],
   );
+
+  // Outlet context 必须引用稳定：它每次是新对象，当前页面就整页重渲染（2026-11-11 审查：
+  // 以前窗口每拉动 1px、每次心跳都会这样）。事件回调走 useStableCallback，数据进 useMemo 依赖。
+  const stableOpenConceptDetail = useStableCallback(openConceptDetail);
+  const stableCloseConceptDetail = useStableCallback(() => setConceptDetailId(null));
+  const stableShowSourceContext = useStableCallback(showSourceContext);
+  const stableCreateLibrary = useStableCallback(createLibrary);
+  const stableSwitchLibrary = useStableCallback(switchLibrary);
+  const stableStartDocumentImport = useStableCallback(startDocumentImport);
+  const stableCancelImport = useStableCallback(() => void importRun.cancel());
+  const documentImportCanRetry = pendingRetryFiles.current.length > 0;
+  const documentImporting = documentImport.importing || importRun.running;
+  const outletContext = useMemo<AppOutletContext>(() => ({
+    sessions,
+    settings,
+    refreshSettings,
+    refreshSessions,
+    openContext: openRightPanel,
+    conceptDetailId,
+    openConceptDetail: stableOpenConceptDetail,
+    closeConceptDetail: stableCloseConceptDetail,
+    showKnowledgeContext,
+    receiveKnowledgeContext,
+    clearKnowledgeContext,
+    showSourceContext: stableShowSourceContext,
+    documents,
+    documentsUnavailable,
+    selectedDocumentIds,
+    selectedDocuments,
+    toggleDocumentScope,
+    setDocumentScope,
+    clearDocumentScope,
+    libraries,
+    activeLibrary,
+    openLibrarySetup,
+    createLibrary: stableCreateLibrary,
+    switchLibrary: stableSwitchLibrary,
+    startDocumentImport: stableStartDocumentImport,
+    documentImporting,
+    documentImportProgress: importRun.progress,
+    documentImportErrorCode: documentImport.errorCode,
+    cancelDocumentImport: stableCancelImport,
+    documentImportNotice: documentImport.notice,
+    documentImportError: documentImport.error,
+    documentImportDuplicateCount: documentImport.duplicateCount,
+    importDuplicatesAsCopies,
+    documentImportVersion: documentImport.version,
+    importDroppedFiles,
+    documentImportResults: documentImport.results,
+    documentImportCanRetry,
+    retryFailedImports,
+    dismissImportReport,
+    libraryReady: initialDataLoaded,
+  }), [
+    sessions, settings, refreshSettings, refreshSessions, openRightPanel, conceptDetailId,
+    stableOpenConceptDetail, stableCloseConceptDetail, showKnowledgeContext, receiveKnowledgeContext,
+    clearKnowledgeContext, stableShowSourceContext, documents, documentsUnavailable, selectedDocumentIds,
+    selectedDocuments, toggleDocumentScope, setDocumentScope, clearDocumentScope, libraries, activeLibrary,
+    openLibrarySetup, stableCreateLibrary, stableSwitchLibrary, stableStartDocumentImport, documentImporting,
+    importRun.progress, documentImport, stableCancelImport, importDuplicatesAsCopies, importDroppedFiles,
+    documentImportCanRetry, retryFailedImports, dismissImportReport, initialDataLoaded,
+  ]);
 
   const contextPanelView = {
     contextOpen,
@@ -571,48 +559,7 @@ export function AppShell() {
           <IconButton label={rightOpen ? "收起右栏" : "展开右栏"} className="panel-toggle desktop-panel-toggle" onClick={() => togglePanel("right")}><PanelRight /></IconButton>
           <IconButton label="学习上下文" className="context-button" onClick={() => setContextOpen(true)}><PanelRight /></IconButton>
         </header>
-        <Outlet context={{
-          sessions,
-          settings,
-          refreshSettings,
-          refreshSessions,
-          openContext: openRightPanel,
-          conceptDetailId,
-          openConceptDetail,
-          closeConceptDetail: () => setConceptDetailId(null),
-          showKnowledgeContext,
-          receiveKnowledgeContext,
-          clearKnowledgeContext,
-          showSourceContext,
-          documents,
-          documentsUnavailable,
-          selectedDocumentIds,
-          selectedDocuments,
-          toggleDocumentScope,
-          setDocumentScope,
-          clearDocumentScope,
-          libraries,
-          activeLibrary,
-          openLibrarySetup,
-          createLibrary,
-          switchLibrary,
-          startDocumentImport,
-          documentImporting: documentImport.importing || importRun.running,
-    documentImportProgress: importRun.progress,
-    documentImportErrorCode: documentImport.errorCode,
-    cancelDocumentImport: () => void importRun.cancel(),
-          documentImportNotice: documentImport.notice,
-          documentImportError: documentImport.error,
-          documentImportDuplicateCount: documentImport.duplicateCount,
-          importDuplicatesAsCopies,
-          documentImportVersion: documentImport.version,
-          importDroppedFiles,
-          documentImportResults: documentImport.results,
-          documentImportCanRetry: pendingRetryFiles.current.length > 0,
-          retryFailedImports,
-          dismissImportReport,
-          libraryReady: initialDataLoaded,
-        } satisfies AppOutletContext} />
+        <Outlet context={outletContext} />
       </main>
       <ContextPanel view={contextPanelView} />
       {!leftOpen && <div className="panel-hover-edge left" onMouseEnter={() => schedulePreview("left", true)} onMouseLeave={() => schedulePreview("left", false)} />}

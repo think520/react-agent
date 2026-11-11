@@ -8,6 +8,13 @@
 
 > 只有 `feat/qa-live-gate` 上 2026-11-11 的条目尚未合入 main。0.13–0.15 由原先约 1600 行的「未发布」段按日期切出（2026-11-11），条目原文未改；其中「本地提交 ✓ 未推送」「分支 X，未推送」是写下当时的状态，这些版本的内容均已合入并推送到 `origin/main`。
 
+### 审查 P1 收尾：store 迁移按库一次、知识地图随主题取色、AppShell 无关重渲染（2026-11-11，分支 feat/qa-live-gate）
+
+- **读请求不再执行写事务**：`QuizStore` 每次构造都执行建表 + 补列 + 两条 `UPDATE` 回填并提交（`quiz_service` 每个方法都新建一个 store），`LearningStore` 每次都跑 DDL + `DROP INDEX`。迁移记账收进 `core/db.py::schema_migrated / mark_schema_migrated`（键含库文件 inode 与创建时间，库被删掉重建会重新迁移），`KBSQLiteStore` / `QuizStore` / `LearningStore` 共用。回归：第二次构造零 DDL / 零 UPDATE（旧代码上红）+ 删库重建后表仍在。
+- **知识地图随主题取色**：Sigma 画在 canvas 上，CSS 变量够不着，颜色以前写死成浅色。新增 `lib/graphPalette.ts` 从当前主题读 `--blue` / `--paper-soft` 并给暗色一套节点阶梯；主题切换时 `MutationObserver` 重新取色、刷新节点与边的基础色。契约：暗色下标签对贴片 ≥ 4.5:1、五类节点对纸面 ≥ 3:1；浅色节点色与改造前逐项相同。e2e `graph-theme.spec.ts` 读**合成截图**像素：旧代码 1414 个近白像素（两块米白标签贴片）→ 新代码 < 300。（第一版断言只读最上层 canvas，在旧代码上也通过——没抓住问题，改成读截图后才真的能区分。）
+- **AppShell 不再让页面无关重渲染**：拆出 `useLayoutTier`（只在跨 768 / 972 / 1288 断点时更新，以前存的是像素宽度）、`useBackendHealth`（探活 / 退避重连 / 心跳）、`useAppearanceSync`（外观写 `<html>`）、`useStableCallback`（与 `ChatTranscript` 共用一份）；Outlet context 改为 `useMemo` + 稳定回调。回归 `AppShell.render.test.tsx`：同一断点内拖动窗口 5 次，页面重渲染 **5 次 → 0 次**（旧代码上红）；跨断点仍会更新外壳；心跳成功不触发渲染（守卫）。外壳 668 → 621 行，导入状态那块留作 P2。
+- **验证**：后端 **1915 passed** ✓、`ruff` ✓；前端 `tsc` 0 / `lint` 0 / `build` ✓ / `vitest` **367 passed** ✓、桌面 mock e2e **94 passed / 0 failed** ✓。
+
 ### 审查 P1 首批 + D-WIKI 拍板 + CHANGELOG 切版本（2026-11-11，分支 feat/qa-live-gate）
 
 - **D-WIKI 拍板**（按草案）：旧 Wiki 数据只读保留；允许新生成但只作高级维护入口、不进一级导航；编排底座继续服务 AI 资料整理；Wiki 页绝不作为回答或出题证据。写进 `docs/ROADMAP.md` §5，`PROJECT_GUIDE.md` / `CLAUDE.md` 改为指向它。

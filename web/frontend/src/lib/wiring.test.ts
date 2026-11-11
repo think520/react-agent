@@ -49,8 +49,9 @@ describe("源码接线契约", () => {
   });
 
   it("主题解析结果要写回缓存（否则首帧脚本没有真值可用）", () => {
-    const shell = read("components/AppShell.tsx");
-    expect(shell).toContain('localStorage.setItem("bobodan:theme"');
+    // 2026-11-11：外观同步从 AppShell 拆进 useAppearanceSync —— 两头都要钉住：hook 写缓存，外壳真的调用它。
+    expect(read("hooks/useAppearanceSync.ts")).toContain('localStorage.setItem("bobodan:theme"');
+    expect(read("components/AppShell.tsx")).toContain("useAppearanceSync(settings)");
   });
 
   it("暗色下纸张纹理的浅色覆盖必须限定浅色主题", () => {
