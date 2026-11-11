@@ -16,26 +16,13 @@ from pathlib import Path
 
 from rag.schema import RetrievalHit
 from knowledge.paths import knowledge_path
-from core.db import create_connection
+from core.db import create_connection, mark_schema_migrated, schema_migrated
 
-
-# init_db 的迁移（executescript + 补列 + search_text 全表回填扫描）每次约 10ms；
-# 每个请求都会新建 store 并调用它（2026-11-11 审查实测）。按「这个库文件」只跑一次：
-# 键里带文件的 inode 与创建时间，库被 reset 删掉重建后会重新迁移。
-_SCHEMA_READY: set[tuple[str, int, int]] = set()
 
 # 文档行的统一取法：带 chunk_count，列表、按 source 取、Wiki 族取三处同口径。
 _DOCUMENT_SELECT = """SELECT documents.*,
     (SELECT COUNT(*) FROM chunks WHERE chunks.document_id = documents.id) AS chunk_count
  FROM documents"""
-
-
-def _schema_key(path: Path) -> tuple[str, int, int] | None:
-    try:
-        stat = path.stat()
-    except OSError:
-        return None
-    return (str(path.resolve()), int(stat.st_ino), int(getattr(stat, "st_birthtime_ns", stat.st_ctime_ns)))
 
 
 def _stable_hash(text: str) -> str:
@@ -72,8 +59,8 @@ class KBSQLiteStore:
 
     def init_db(self) -> None:
         """Create tables if they don't exist (and migrate old databases once per file)."""
-        key = _schema_key(self.db_path)
-        if key is not None and key in _SCHEMA_READY:
+        # 迁移按库文件只跑一次（见 core.db.schema_migrated）。
+        if schema_migrated("kb", str(self.db_path)):
             self._get_conn()
             return
         conn = self._get_conn()
@@ -110,9 +97,7 @@ class KBSQLiteStore:
             if col not in doc_columns:
                 conn.execute(f"ALTER TABLE documents ADD COLUMN {col} {ddl}")
         conn.commit()
-        key = _schema_key(self.db_path)
-        if key is not None:
-            _SCHEMA_READY.add(key)
+        mark_schema_migrated("kb", str(self.db_path))
 
     # ── document CRUD ───────────────────────────────────────────────────
 

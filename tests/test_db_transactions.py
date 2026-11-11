@@ -49,3 +49,59 @@ def test_begin_immediate_is_idempotent_inside_a_transaction(tmp_path):
     begin_immediate(connection)  # must not raise "transaction within a transaction"
     connection.commit()
     connection.close()
+
+
+def test_stores_migrate_once_per_database_file(tmp_path, monkeypatch):
+    """建表 / 补列 / 回填按库文件只跑一次：纯读请求不再执行写事务（2026-11-11 审查）。"""
+    import sqlite3
+
+    from learning.store import LearningStore
+    from quiz.store import QuizStore
+
+    QuizStore(str(tmp_path))
+    LearningStore(str(tmp_path))
+
+    scripts: list[str] = []
+    real_connect = sqlite3.connect
+
+    class Spy:
+        def __init__(self, conn):
+            self._conn = conn
+
+        def __getattr__(self, name):
+            return getattr(self._conn, name)
+
+        def executescript(self, sql):
+            scripts.append(sql)
+            return self._conn.executescript(sql)
+
+        def execute(self, sql, *args):
+            if sql.lstrip().upper().startswith(("UPDATE", "ALTER", "DROP", "CREATE")):
+                scripts.append(sql)
+            return self._conn.execute(sql, *args)
+
+    monkeypatch.setattr(sqlite3, "connect", lambda *a, **k: Spy(real_connect(*a, **k)))
+    QuizStore(str(tmp_path))
+    LearningStore(str(tmp_path))
+    assert scripts == [], scripts
+
+
+def test_migration_reruns_when_the_database_is_recreated(tmp_path):
+    import os
+
+    from quiz.store import QuizStore
+
+    store = QuizStore(str(tmp_path))
+    for suffix in ("", "-wal", "-shm"):
+        if os.path.exists(store.db_path + suffix):
+            os.remove(store.db_path + suffix)
+    again = QuizStore(str(tmp_path))
+    assert again.add_question is not None
+    import sqlite3
+
+    conn = sqlite3.connect(again.db_path)
+    try:
+        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    finally:
+        conn.close()
+    assert "questions" in tables and "quiz_sessions" in tables
