@@ -2882,6 +2882,36 @@ class KBService:
         ))
         return public
 
+    def _visible_documents_for_sources(self, sources: list[str]) -> dict[str, dict[str, Any]]:
+        """检索命中的 source → 可见文档；与 ``list_documents(collection="all")`` 同口径。
+
+        以前每次检索都把**全库**文档逐份加工一遍（300 份资料 ≈ 30ms，而检索本身约 5ms，
+        2026-11-11 审查）。现在只取命中的那几份；命中里有 Wiki 页时，才补取 Wiki 全族，
+        因为「同一概念多页只显示一页」的去重要看同族的所有页。
+        """
+        from rag.sqlite_store import KBSQLiteStore
+
+        wanted = [source for source in dict.fromkeys(sources) if source]
+        if not wanted:
+            return {}
+        store = KBSQLiteStore(self.workspace)
+        store.init_db()
+        try:
+            rows = store.get_documents_by_sources(wanted)
+            hit_public = [self._public_document(item) for item in rows]
+            if any(item["collection"] == "wiki" for item in hit_public):
+                known = {item["source"] for item in hit_public}
+                hit_public += [
+                    self._public_document(item)
+                    for item in store.list_wiki_documents()
+                    if item.get("source") not in known
+                ]
+        finally:
+            store.close()
+        visible = self._visible_documents(hit_public)
+        wanted_set = set(wanted)
+        return {item["source"]: item for item in visible if item["source"] in wanted_set}
+
     @staticmethod
     def _visible_documents(documents: list[dict[str, Any]]) -> list[dict[str, Any]]:
         visible = [item for item in documents if item.get("content_role") != "metadata"]
@@ -2939,10 +2969,9 @@ class KBService:
             config=config or {},
             mode=mode,
         )
-        source_documents = {
-            item["source"]: item
-            for item in self.list_documents(collection="all").get("documents", [])
-        }
+        source_documents = self._visible_documents_for_sources(
+            [str(item.get("source") or "") for item in results]
+        )
         allowed_document_ids = set(document_ids or [])
         preferred_ids = set(preferred_document_ids or [])
         merged = []

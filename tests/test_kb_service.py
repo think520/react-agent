@@ -549,13 +549,10 @@ def test_wiki_plan_requires_confirmation_before_writing(svc, workspace, monkeypa
 def test_search_uses_wiki_for_orientation_then_material_for_evidence(svc, workspace, monkeypatch):
     knowledge_dir = os.path.join(workspace, ".knowledge")
     os.makedirs(knowledge_dir)
-    _seed_rag(workspace, [])
-
-    documents = [
-        {"document_id": "material-1", "source": "course/rag.md", "title": "RAG Lesson", "collection": "material", "wiki_type": None},
-        {"document_id": "wiki-1", "source": "obsidian/wiki/concepts/RAG.md", "title": "RAG", "collection": "wiki", "wiki_type": "concept"},
-    ]
-    monkeypatch.setattr(svc, "list_documents", lambda collection="all", course=None: {"ok": True, "documents": documents})
+    _seed_rag(workspace, [
+        {"id": "material-1", "source": "course/rag.md", "title": "RAG Lesson", "text": "Original evidence"},
+        {"id": "wiki-1", "source": "obsidian/wiki/concepts/RAG.md", "title": "RAG", "text": "AI summary", "kind": "wiki_concept"},
+    ])
     monkeypatch.setattr("rag.retriever.search_index_with_status", lambda *args, **kwargs: ([
         {"chunk_id": "material-chunk", "source": "course/rag.md", "text": "Original evidence", "metadata": {}},
         {"chunk_id": "wiki-chunk", "source": "obsidian/wiki/concepts/RAG.md", "text": "AI summary", "metadata": {}},
@@ -1091,3 +1088,34 @@ def test_missing_declared_roots_are_detected(workspace):
 
     shutil.rmtree(pack)
     assert service._missing_declared_roots() == [pack]
+
+
+def test_search_resolves_hits_exactly_like_the_full_document_listing(svc, workspace, monkeypatch):
+    """检索只取命中的文档行（2026-11-11 性能修复），结果必须与「列全库再查表」逐项一致：
+    元数据页隐藏、同概念 Wiki 多页只留一页、资料与 Wiki 的归类都不能变。"""
+    knowledge_dir = os.path.join(workspace, ".knowledge")
+    os.makedirs(knowledge_dir)
+    seeded = [
+        ("obsidian/course/lesson.md", "Lesson", "obsidian_note"),
+        ("obsidian/wiki/index.md", "Wiki Index", "obsidian_note"),
+        ("obsidian/wiki/entities/Dijkstra算法.md", "Dijkstra算法", "wiki_entity"),
+        ("obsidian/wiki/entities/Dijkstra 算法.md", "Dijkstra 算法", "wiki_entity"),
+        ("obsidian/wiki/sources/2026-07-17_Dijkstra算法.md", "Dijkstra算法", "wiki_source"),
+    ]
+    _seed_rag(workspace, [
+        {"id": f"doc-{index}", "source": source, "title": title, "text": title, "kind": kind}
+        for index, (source, title, kind) in enumerate(seeded)
+    ])
+    hits = [{"chunk_id": f"chunk-{index}", "source": source, "text": title, "metadata": {}}
+            for index, (source, title, _kind) in enumerate(seeded)]
+    monkeypatch.setattr("rag.retriever.search_index_with_status", lambda *args, **kwargs: (
+        [dict(hit) for hit in hits], {"retrieval_mode": "fts_only"},
+    ))
+
+    expected = {item["source"]: item for item in svc.list_documents(collection="all")["documents"]}
+    resolved = svc._visible_documents_for_sources([hit["source"] for hit in hits])
+
+    assert resolved == expected
+    result = svc.search("Dijkstra", top_k=10)
+    assert {item["source"] for item in result["results"]} == set(expected)
+    assert "obsidian/wiki/index.md" not in {item["source"] for item in result["results"]}

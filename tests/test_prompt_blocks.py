@@ -131,7 +131,7 @@ def test_kb_seed_retrieval_failure_is_swallowed(monkeypatch):
         def search(self, **kwargs):
             raise RuntimeError("index unavailable")
 
-    monkeypatch.setattr("web.backend.routers.chat.KBService", Broken)
+    monkeypatch.setattr("service.turn_policy.KBService", Broken)
 
     assert _kb_seed_for("什么是 Dijkstra？", workspace=".", config={}, has_document_scope=False) == ""
 
@@ -149,7 +149,7 @@ def test_kb_seed_uses_retrieved_hits(monkeypatch):
             calls[-1].update(kwargs)
             return {"ok": True, "results": [{"chunk_id": "c1", "title": "算法课", "text": "贪心策略。"}]}
 
-    monkeypatch.setattr("web.backend.routers.chat.KBService", FakeKB)
+    monkeypatch.setattr("service.turn_policy.KBService", FakeKB)
 
     block = _kb_seed_for(
         "什么是 Dijkstra？", workspace="/ws", config={}, has_document_scope=True,
@@ -171,7 +171,7 @@ def test_kb_seed_is_not_retrieved_for_practice_turns(monkeypatch):
         def __init__(self, *args, **kwargs):
             raise AssertionError("practice turns must not pre-retrieve")
 
-    monkeypatch.setattr("web.backend.routers.chat.KBService", Boom)
+    monkeypatch.setattr("service.turn_policy.KBService", Boom)
 
     assert _kb_seed_for("根据资料出 5 道题", workspace=".", config={}, has_document_scope=True) == ""
 

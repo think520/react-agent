@@ -1112,3 +1112,35 @@ def test_b_lite_off_mode_hides_success_keeps_error(monkeypatch, capsys, tmp_path
     assert "missing.md" in output_err
     # Streamed text after the error is still shown
     assert "err-done" in output_err
+
+
+def test_repl_turns_go_through_the_same_evidence_gate_as_the_web(monkeypatch, capsys):
+    """CLI 以前没有运行时门禁：模型编一个 [S1] 会原样打印出来（2026-11-11 审查）。"""
+    config = {
+        "llm": {
+            "default_provider": "minimax",
+            "providers": {"minimax": {"model": "MiniMax-Text-01", "api_key_env": "MINIMAX_API_KEY"}},
+        },
+        "session": {"save_dir": ".session-test"},
+        "agent": {"timeout": 30},
+        "memory": {"enabled": False},
+    }
+    fabricated = "Dijkstra 支持负权边 [S1]。"
+    provider = StreamingProvider([[LLMStreamChunk(content_delta=fabricated)]])
+
+    monkeypatch.setattr("cli.repl.ProviderFactory.load_config", lambda path: config)
+    monkeypatch.setattr("cli.repl.ProviderFactory.create", lambda provider_config, agent_config, model=None: provider)
+    monkeypatch.setattr("cli.repl.get_tools_schema", lambda: [{"function": {"name": "read_file"}}])
+
+    repl = REPL(config_path="config.yaml")
+    repl.initialize()
+    capsys.readouterr()
+
+    repl.run_agent("讲讲 Dijkstra")
+
+    output = capsys.readouterr().out
+    assert provider.call_count >= 2, "the gate must ask the model to rewrite before giving up"
+    assert "[S1]" not in output, output
+    assert "无法对应本轮资料的引用" in output, output
+    saved = [m["content"] for m in repl.session.messages if m.get("role") == "assistant"]
+    assert saved and "[S1]" not in saved[-1], saved

@@ -19,6 +19,25 @@ from knowledge.paths import knowledge_path
 from core.db import create_connection
 
 
+# init_db 的迁移（executescript + 补列 + search_text 全表回填扫描）每次约 10ms；
+# 每个请求都会新建 store 并调用它（2026-11-11 审查实测）。按「这个库文件」只跑一次：
+# 键里带文件的 inode 与创建时间，库被 reset 删掉重建后会重新迁移。
+_SCHEMA_READY: set[tuple[str, int, int]] = set()
+
+# 文档行的统一取法：带 chunk_count，列表、按 source 取、Wiki 族取三处同口径。
+_DOCUMENT_SELECT = """SELECT documents.*,
+    (SELECT COUNT(*) FROM chunks WHERE chunks.document_id = documents.id) AS chunk_count
+ FROM documents"""
+
+
+def _schema_key(path: Path) -> tuple[str, int, int] | None:
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    return (str(path.resolve()), int(stat.st_ino), int(getattr(stat, "st_birthtime_ns", stat.st_ctime_ns)))
+
+
 def _stable_hash(text: str) -> str:
     """Deterministic hash for document_id (source path) and chunk_id."""
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
@@ -52,7 +71,11 @@ class KBSQLiteStore:
     # ── schema ──────────────────────────────────────────────────────────
 
     def init_db(self) -> None:
-        """Create tables if they don't exist."""
+        """Create tables if they don't exist (and migrate old databases once per file)."""
+        key = _schema_key(self.db_path)
+        if key is not None and key in _SCHEMA_READY:
+            self._get_conn()
+            return
         conn = self._get_conn()
         conn.executescript(_SCHEMA_SQL)
         fts_columns = {row[1] for row in conn.execute("PRAGMA table_info(chunks_fts)")}
@@ -87,6 +110,9 @@ class KBSQLiteStore:
             if col not in doc_columns:
                 conn.execute(f"ALTER TABLE documents ADD COLUMN {col} {ddl}")
         conn.commit()
+        key = _schema_key(self.db_path)
+        if key is not None:
+            _SCHEMA_READY.add(key)
 
     # ── document CRUD ───────────────────────────────────────────────────
 
@@ -195,11 +221,35 @@ class KBSQLiteStore:
             return None
         return dict(row)
 
+    def get_documents_by_sources(self, sources: list[str]) -> list[dict]:
+        """只取给定 source 的文档行（检索只需要命中的那几份，不必列全库）。"""
+        unique = list(dict.fromkeys(str(item) for item in sources if item))
+        if not unique:
+            return []
+        conn = self._get_conn()
+        rows: list[dict] = []
+        for start in range(0, len(unique), 500):
+            batch = unique[start:start + 500]
+            placeholders = ",".join("?" for _ in batch)
+            rows.extend(dict(row) for row in conn.execute(
+                f"{_DOCUMENT_SELECT} WHERE source IN ({placeholders})", batch,
+            ).fetchall())
+        return rows
+
+    def list_wiki_documents(self) -> list[dict]:
+        """所有 Wiki 文档行（判定口径与 ``kb_service._document_classification`` 相同）。"""
+        conn = self._get_conn()
+        # char(92) 是反斜杠：Windows 下 source 可能带 \，写成字面量会被 Python 字符串转义吃掉。
+        rows = conn.execute(
+            f"""{_DOCUMENT_SELECT}
+               WHERE lower(replace(source, char(92), '/')) LIKE 'obsidian/wiki/%'
+                  OR instr(lower(replace(source, char(92), '/')), '/wiki/') > 0"""
+        ).fetchall()
+        return [dict(row) for row in rows]
+
     def list_documents(self, course: str | None = None) -> list[dict]:
         conn = self._get_conn()
-        select = """SELECT documents.*,
-                    (SELECT COUNT(*) FROM chunks WHERE chunks.document_id = documents.id) AS chunk_count
-                 FROM documents"""
+        select = _DOCUMENT_SELECT
         if course:
             rows = conn.execute(
                 f"{select} WHERE course = ? ORDER BY source",
