@@ -8,6 +8,20 @@
 
 > 只有 `feat/qa-live-gate` 上 2026-11-11 的条目尚未合入 main。0.13–0.15 由原先约 1600 行的「未发布」段按日期切出（2026-11-11），条目原文未改；其中「本地提交 ✓ 未推送」「分支 X，未推送」是写下当时的状态，这些版本的内容均已合入并推送到 `origin/main`。
 
+### 审查 P2：错误码、导入状态、CSS 清理与拆分、测试替身、kb_service 拆分（2026-11-11，分支 feat/qa-live-gate）
+
+- **增量同步 mtime 短路：实测后降级为 P3，没做**。真实库副本（538 MB 磁盘）无变化同步 0.1 s，每次只哈希 8.9 MB（47 份已索引资料）；省下的不到 0.1 s 换不来「内容变了但 mtime 没变」的漏检风险。
+- **会话与个人知识错误带结构化 code**：`session_not_found`（404）/ `session_corrupt`（422）/ `session_ambiguous`（409）/ `session_delete_failed` / `knowledge_item_not_found`。聊天路由改为按 code 映射 HTTP（以前「不存在 / 文件损坏 / id 有歧义」一律 404）；会话打不开时界面显示对应的下一步。回归：三种会话错误各自的状态码与 code。
+- **导入状态拆出 AppShell**：`hooks/useDocumentImport.ts`（选文件 / 拖文件 / 运行态导入 / 报告 / 重复另存 / 失败重试 / 切库清空），原样搬移。外壳 668 → 535 行（两轮合计）。
+- **CSS**：
+  - 用 postcss 删掉 139 条只由死类名组成的规则（第一版用正则，把 `@media` 与注释一起吞了，对比后发现、回滚重做）；新增棘轮「页面样式里的每个类名都在源码里出现」（动态前缀 `confidence- / level- / notice- / diff- / state-` 除外）。
+  - 合并互相覆盖的规则：`.reader-prose` 四处 → 一处；浮层与 notice 的两段 M3 规则合并。
+  - `app.css` 按**原顺序**切成 7 个文件（`wiki-plan / knowledge-map / base / features / practice / settings / polish`），自身只剩 `@import`；**构建产物逐字节相同**（`cmp` 验证）。契约测试改读 `src/lib/cssSources.ts::readAppCss()` 的拼接结果。
+  - 顺带修：上一提交的棘轮测试用了类型垫片里没有的 `readdirSync / statSync`，lint 绿但 `tsc` 红——那次只跑了 lint，补上类型。
+- **测试替身**：`test_quiz.py`（7 处）与 `test_quiz_service.py`（5 处）迁到 `ScriptedProvider`；迁移暴露一条用例其实批改了两次（旧替身静默重复同一回答）。新增棘轮：本地 `def complete(` / `def complete_stream(` 替身总数只减不增（当前 54）。
+- **`kb_service.py` 3032 → 895 行**：Wiki 维护（1067 行）移到 `service/wiki_maintenance.py`，资料文件管理（树 / 移动 / 整理 / 文件夹 / 归档，1070 行）移到 `service/library_files.py`，均以 mixin 挂回 `KBService`，调用方与测试零改动。
+- **验证**：后端 **1918 passed** ✓、`ruff` ✓；前端 `tsc` 0 / `lint` 0 / `build` ✓ / `vitest` **370 passed** ✓、桌面 mock e2e **94 passed / 0 failed** ✓。
+
 ### 审查 P1 收尾：store 迁移按库一次、知识地图随主题取色、AppShell 无关重渲染（2026-11-11，分支 feat/qa-live-gate）
 
 - **读请求不再执行写事务**：`QuizStore` 每次构造都执行建表 + 补列 + 两条 `UPDATE` 回填并提交（`quiz_service` 每个方法都新建一个 store），`LearningStore` 每次都跑 DDL + `DROP INDEX`。迁移记账收进 `core/db.py::schema_migrated / mark_schema_migrated`（键含库文件 inode 与创建时间，库被删掉重建会重新迁移），`KBSQLiteStore` / `QuizStore` / `LearningStore` 共用。回归：第二次构造零 DDL / 零 UPDATE（旧代码上红）+ 删库重建后表仍在。

@@ -67,7 +67,10 @@ core/
 
 service/
   agent_service.py    Provider、会话和 Agent 运行入口
-  kb_service.py       资料同步、查询、RAG 和高级 Wiki 维护
+  kb_service.py       资料同步、导入、文档列表、检索（KBService 入口）
+  library_files.py    文件树、移动 / 重命名、AI 整理与撤销台账、文件夹、归档（KBService mixin）
+  wiki_maintenance.py 高级 Wiki 维护：健康检查、修复、页面、计划与运行（KBService mixin）
+  turn_policy.py      每轮预检索 + 运行时证据门禁，Web 与 CLI 共用
   concept_service.py  概念提取、候选审查和知识地图
   memory_service.py   个人知识、候选、事件和旧记忆迁移
   quiz_service.py     出题、练习、批改、错题变式
