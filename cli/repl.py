@@ -1708,7 +1708,6 @@ class REPL:
 
     def print_model_status(self):
         """Show the active provider and model (default view for /model)."""
-        marker = "★ " if self.active_provider == self.default_provider else "  "
         is_default = self.active_provider == self.default_provider
         print()
         print("  \033[1;37mActive provider:\033[0m")

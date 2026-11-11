@@ -49,3 +49,9 @@ Thumbs.db
 
 # Other agents' local memory (not part of this project)
 .workbuddy/
+
+# Local env variants and per-machine agent settings
+.env.*
+!.env.example
+.claude/settings.local.json
+.session-test/

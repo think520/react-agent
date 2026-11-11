@@ -1,6 +1,8 @@
 """Tests for build_specialist_tools — covers all 4 hard invariants."""
 from __future__ import annotations
 
+import pytest
+
 from agents.config import SpecialistConfig
 from agents.runner import build_specialist_tools, assert_invariants
 

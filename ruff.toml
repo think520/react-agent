@@ -1,0 +1,11 @@
+# 最小 lint 门禁：只开会抓到真 bug 的规则（未定义名、重复定义、可变默认参数、裸 except）。
+# 2026-11-11 首次运行时 F821 抓到 research/store.py 的 NameError（并发去重分支必崩）。
+# 未用 import（F401，存量约 100 处）暂不开：清理是机械活，单独一批做，别和功能改动混在一起。
+extend-exclude = [".tmp_test", "note", "web/frontend", "obsidian/.obsidian"]
+
+[lint]
+select = ["F821", "F811", "F823", "F632", "F704", "E722", "B006"]
+
+[lint.per-file-ignores]
+# 字符串注解里的前向引用：运行时不求值。
+"rag/parsers/__init__.py" = ["F821"]

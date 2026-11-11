@@ -304,7 +304,6 @@ def test_path_generator_with_weakness(tmp_path):
 
 
 def test_path_generator_reads_course_info_from_sqlite_index(tmp_path):
-    import json
 
     from rag.sqlite_store import KBSQLiteStore
 

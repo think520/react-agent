@@ -5,35 +5,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from rag.ollama import OllamaEmbeddingClient
-def _mock_ollama_client(available=True, dim=8):
-    """Create a mock OllamaEmbeddingClient that returns deterministic dense vectors."""
-    client = MagicMock(spec=OllamaEmbeddingClient)
-    client.model = "test-model"
-    client.base_url = "http://localhost:11434"
-    client._dim = dim
-    client._available = available
-
-    def mock_embed(texts):
-        # Deterministic pseudo-embedding: hash-based
-        result = []
-        for text in texts:
-            vec = [0.0] * dim
-            for i, ch in enumerate(text[:dim]):
-                vec[i % dim] += ord(ch) / 1000.0
-            norm = _l2_norm(vec)
-            if norm > 0:
-                vec = [v / norm for v in vec]
-            result.append(vec)
-        return result
-
-    client.embed = mock_embed
-    client.is_available.return_value = available
-    client.get_model_info.return_value = {
-        "model": "test-model",
-        "dim": dim,
-        "backend": "ollama",
-    }
-    return client
 
 
 # --- OllamaEmbeddingClient ---
