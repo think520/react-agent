@@ -26,6 +26,7 @@ import { useChatStream } from "../hooks/useChatStream";
 import { useStickyBottomScroll } from "../hooks/useStickyBottomScroll";
 import {} from "../ui";
 import { api } from "../lib/api";
+import { errorCodeOf, errorHint } from "../lib/errorHints";
 import {} from "../lib/commandRouter";
 import {} from "../lib/errors";
 import { parseMentionDraft } from "../lib/mention";
@@ -186,7 +187,12 @@ export function ChatPage() {
         if (latestKnowledgeContext) receiveKnowledgeContextRef.current(latestKnowledgeContext.context);
         else clearKnowledgeContextRef.current();
       })
-      .catch((reason: Error) => { if (!cancelled) setInlineError(reason.message); })
+      .catch((reason: Error) => {
+        if (cancelled) return;
+        // 会话打不开时说清下一步（不存在 / 文件损坏 / 有歧义各有说法），不只显示后端原文。
+        const hint = errorHint(errorCodeOf(reason));
+        setInlineError(hint || reason.message);
+      })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [sessionId, setMessages, resolveModelRef]);

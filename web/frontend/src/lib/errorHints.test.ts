@@ -18,6 +18,13 @@ describe("errorHint", () => {
     expect(errorHint("library_unavailable")).toContain("资料库");
   });
 
+  it("tells the user what to do when a session cannot be opened (2026-11-11)", () => {
+    expect(errorHint("session_not_found")).toContain("新会话");
+    expect(errorHint("session_corrupt")).toContain("删除");
+    expect(errorHint("session_ambiguous")).toContain("左侧列表");
+    expect(errorHint("knowledge_item_not_found")).toContain("刷新");
+  });
+
   it("says nothing when it does not know the code", () => {
     expect(errorHint("some_brand_new_code")).toBe("");
     expect(errorHint(undefined)).toBe("");

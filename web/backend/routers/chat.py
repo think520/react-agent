@@ -44,7 +44,7 @@ from web.backend.deps import (
     get_workspace,
     parse_provider_ref,
 )
-from web.backend.errors import APIError
+from web.backend.errors import APIError, unwrap_service_result
 from web.backend.events import to_web_events
 from web.backend.run_pump import (
     RunPump,
@@ -138,7 +138,7 @@ def _load_or_create_session(
     if chat_session_id:
         result = AgentService.load_session(chat_session_id, save_dir)
         if not result["ok"]:
-            raise APIError(404, "session_not_found", result["error"])
+            unwrap_service_result(result, code="session_not_found")
         session = result["session"]
         if session.library_id and session.library_id != library_id:
             raise APIError(404, "session_not_found", "Session not found in this library")
@@ -774,7 +774,7 @@ def list_sessions(request: Request, kind: str = "chat") -> dict:
 def get_session(chat_session_id: str, request: Request) -> dict:
     result = AgentService.load_session(chat_session_id, get_session_save_dir(get_config(), get_request_workspace(request)))
     if not result["ok"]:
-        raise APIError(404, "session_not_found", result["error"])
+        unwrap_service_result(result, code="session_not_found")
     return _session_detail(result["session"], get_request_workspace(request))
 
 
@@ -786,7 +786,7 @@ def rename_session(chat_session_id: str, body: ChatSessionUpdateRequest, request
         body.name,
     )
     if not result["ok"]:
-        raise APIError(404, "session_not_found", result["error"])
+        unwrap_service_result(result, code="session_not_found")
     return {
         "chat_session_id": result["session_id"],
         "name": body.name.strip(),
@@ -829,7 +829,7 @@ def generate_session_title(chat_session_id: str, request: Request) -> dict:
     save_dir = get_session_save_dir(config, workspace)
     result = AgentService.load_session(chat_session_id, save_dir)
     if not result["ok"]:
-        raise APIError(404, "session_not_found", result["error"])
+        unwrap_service_result(result, code="session_not_found")
 
     session = result["session"]
     if session.name_source == "manual":
@@ -875,7 +875,7 @@ def generate_session_title(chat_session_id: str, request: Request) -> dict:
 
     latest = AgentService.load_session(chat_session_id, save_dir)
     if not latest["ok"]:
-        raise APIError(404, "session_not_found", latest["error"])
+        unwrap_service_result(latest, code="session_not_found")
     session = latest["session"]
     if session.name_source != "manual":
         session.name = title
@@ -892,7 +892,7 @@ def generate_session_title(chat_session_id: str, request: Request) -> dict:
 def delete_session(chat_session_id: str, request: Request) -> dict:
     result = AgentService.delete_session(chat_session_id, get_session_save_dir(get_config(), get_request_workspace(request)))
     if not result["ok"]:
-        raise APIError(404, "session_not_found", result["error"])
+        unwrap_service_result(result, code="session_not_found")
     return {"deleted": True, "chat_session_id": result["session_id"]}
 
 

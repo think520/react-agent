@@ -188,3 +188,11 @@ def test_note_references_roundtrip_and_lookup(tmp_path):
     updated = store.update_item(item["id"], item["revision"], {"references": []})
     assert updated["references"] == []
     assert store.list_by_reference("doc-rag") == []
+
+
+def test_missing_knowledge_item_carries_a_not_found_code(tmp_path):
+    from service.memory_service import MemoryService
+
+    service = MemoryService(str(tmp_path))
+    assert service.get_knowledge("nope")["code"] == "knowledge_item_not_found"
+    assert service.delete_knowledge("nope")["code"] == "knowledge_item_not_found"
