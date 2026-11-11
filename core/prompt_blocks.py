@@ -28,10 +28,16 @@ def _hit_sort_key(hit: dict[str, Any]) -> tuple[str, str]:
 
 
 def _hit_line(hit: dict[str, Any]) -> str:
+    from rag.citations import cite_label, hit_source_id
+
     chunk_id = str(hit.get("chunk_id") or "").strip()
     title = str(hit.get("title") or hit.get("document_id") or "").strip()
     text = " ".join(str(hit.get("text") or "").split())
     label = f"{title} · {chunk_id}" if chunk_id else title
+    # W2-EVID-01：与 rag_search 结果同一套标签，模型引用预检索片段也能被核对。
+    source_id = hit_source_id(hit)
+    if source_id:
+        label = f"[{cite_label(source_id)}] {label}".rstrip()
     return f"- {label}：{text}" if label else f"- {text}"
 
 
@@ -74,6 +80,9 @@ def build_kb_seed_block(
     if dropped:
         lines.append(f"（还有 {dropped} 条命中未列出，需要时请自行检索。）")
     lines.append(KB_SEED_NOTE)
+    from rag.citations import CITATION_INSTRUCTION
+
+    lines.append(CITATION_INSTRUCTION)
     return "\n".join(lines)
 
 

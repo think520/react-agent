@@ -3,6 +3,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlsplit
 
+from rag.citations import cite_label
 from research.providers import AutoSearchProvider, ExaSearchProvider, SearchProviderError, TavilySearchProvider
 from research.reader import canonical_url, evidence_excerpt, fetch_page
 from research.store import ResearchStore
@@ -201,8 +202,12 @@ class ResearchService:
                 "source_type": "web", "source_id": row["snapshot_id"], "snapshot_id": row["snapshot_id"],
                 "title": row["title"], "url": row["final_url"], "domain": row["domain"],
                 "accessed_at": row["accessed_at"], "reader": row["reader"],
+                "cite_label": cite_label(row["snapshot_id"]),
             })
-            blocks.append(f"[Web source {len(sources)}: {row['title']}]\nURL: {row['final_url']}\nAccessed: {row['accessed_at']}\n{excerpt}")
+            blocks.append(
+                f"[Web source {len(sources)}: {row['title']}]\nCite as: [{cite_label(row['snapshot_id'])}]\n"
+                f"URL: {row['final_url']}\nAccessed: {row['accessed_at']}\n{excerpt}"
+            )
             remaining -= len(excerpt)
             if remaining <= 0:
                 break

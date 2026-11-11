@@ -560,3 +560,34 @@ test("practice asks before web fallback and keeps the topic", async ({ page }) =
   await expect(page).toHaveURL(/\/practice\/10/);
   await expect(page.getByText(/已将“langchian”按“LangChain”理解/)).toBeVisible();
 });
+
+test("answer citations become numbered marks that open the cited chunk", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("bobodan:onboarding:v1", "complete"));
+  await page.route("**/api/settings", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(settingsPayload()) }));
+  await page.route("**/api/chat/sessions", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ sessions: [] }) }));
+  await page.route("**/api/kb/documents?collection=material", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ documents: [] }) }));
+  await page.route("**/api/learning/review-queue", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ due_concepts: [], wrong_answers: [], weaknesses: [] }) }));
+  const source = { source_type: "local", source_id: "chunk-7", chunk_id: "chunk-7", document_id: "doc-1", title: "最短路径", heading: "负权边", collection: "material", cite_label: "Sa1b2c3" };
+  const citation = JSON.stringify({ attribution: { kind: "local", status: "found", sources: [source] } });
+  const answer = JSON.stringify({ content: "Dijkstra 不能处理负权边 [Sa1b2c3]。旧会话里的标签 [S000000] 不可点。", call_role: "finish" });
+  await page.route("**/api/chat/runs", (route) => route.fulfill({
+    status: 200,
+    headers: { "Content-Type": "text/event-stream; charset=utf-8" },
+    body: `event: run_started\ndata: {"run_id":"cite-run","chat_session_id":"cite-session"}\n\nevent: citation\ndata: ${citation}\n\nevent: message_delta\ndata: ${answer}\n\nevent: run_completed\ndata: {"chat_session_id":"cite-session","termination_reason":"final_answer"}\n\n`,
+  }));
+  await page.route("**/api/chat/sessions/cite-session/title", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ name: "引用", name_source: "ai" }) }));
+
+  await page.goto("/chat");
+  await page.getByLabel("消息").fill("为什么 Dijkstra 不能处理负权边？");
+  await page.getByRole("button", { name: "发送" }).click();
+
+  const mark = page.locator(".answer-prose .citation-mark");
+  await expect(mark).toHaveCount(1);
+  await expect(mark).toHaveText("1");
+  await expect(mark).toHaveAttribute("aria-label", "来源 1：最短路径 · 负权边");
+  await expect(mark).toHaveAttribute("href", "/library/read/doc-1?collection=material&chunk=chunk-7");
+  // 查不到的标签不伪造出处：保留原文、不可点。
+  await expect(page.locator(".answer-prose")).toContainText("[S000000]");
+  await expect(page.locator(".answer-prose")).not.toContainText("[Sa1b2c3]");
+  await page.locator(".assistant-message").last().screenshot({ path: "test-results/citation-mark.png" });
+});

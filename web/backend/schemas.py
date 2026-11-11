@@ -149,6 +149,7 @@ class SourceRef(BaseModel):
     accessed_at: str | None = None
     snapshot_id: str | None = None
     reader: Literal["direct", "jina"] | None = None
+    cite_label: str | None = None
 
 
 class Attribution(BaseModel):

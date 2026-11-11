@@ -115,6 +115,7 @@ web/frontend/         React 桌面 UI；Zustand 管理跨页状态；路由按�
 - `personal_knowledge_recall` 只调整讲解方式或补充明确标注的个人上下文。
 - `service/evidence_policy.py` 和 AgentLoop 结束前验证共同构成运行时证据门禁。Prompt 只是指导，不是质量保证。
 - stale 概念证据可以继续展示关系，但不能满足原文证据门禁；需要重新定位或重新检索。
+- 回答引用用 `[Sxxxxxx]` 标签：`rag/citations.py::cite_label(source_id)` 确定性生成，工具结果、预检索块、网页快照共用同一标签。`CitationPolicy` 无条件挂载，标签必须来自本轮证据，否则先要求重写，重写用尽则剥掉未知标签并说明；它只核对「引用真实」，不核对「引用支持结论」。
 
 ### RAG
 

@@ -26,6 +26,7 @@ from web.backend.capabilities import WEB_SKILL_NAMES
 from service.concept_service import ConceptService
 from service.interaction_service import InteractionService
 from service.evidence_policy import (
+    CitationPolicy,
     CombinedResponsePolicy,
     ConceptMapPolicy,
     InlineQuestionPolicy,
@@ -339,6 +340,7 @@ def _public_attribution(value: Any) -> dict[str, Any] | None:
                 "source_type", "source_id", "title", "document_id",
                 "chunk_id", "heading", "page", "slide",
                 "collection", "wiki_type", "domain", "accessed_at", "snapshot_id", "reader",
+                "cite_label",
             )
             if source.get(key) is not None
         }
@@ -347,6 +349,28 @@ def _public_attribution(value: Any) -> dict[str, Any] | None:
         if public.get("source_id") and public.get("title"):
             sources.append(public)
     return {"kind": kind, "sources": sources}
+
+
+def _merge_attribution(current: Any, incoming: Any) -> Any:
+    """同类来源按 (source_type, source_id) 去重合并；类别不同时以新的为准（保持旧语义）。"""
+    if not isinstance(current, dict) or not isinstance(incoming, dict):
+        return incoming if isinstance(incoming, dict) else current
+    if current.get("kind") != incoming.get("kind"):
+        return incoming
+    sources: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for source in [*(current.get("sources") or []), *(incoming.get("sources") or [])]:
+        if not isinstance(source, dict):
+            continue
+        key = (str(source.get("source_type") or ""), str(source.get("source_id") or ""))
+        if key in seen:
+            continue
+        seen.add(key)
+        sources.append(source)
+    merged = {**incoming, "sources": sources}
+    if sources:
+        merged["status"] = "found"
+    return merged
 
 
 def _attach_attribution(session: Session, attribution: dict[str, Any] | None) -> None:
@@ -1753,6 +1777,11 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
         config=config,
         has_document_scope=has_document_scope,
     )
+    # W2-EVID-01：引用门禁无条件挂载（它只看回答里出现的标签）。允许集合包含进入本轮前
+    # 就给了模型的证据：预检索块与用户选定的网页快照。
+    response_policies.append(CitationPolicy(
+        preset_text="\n".join([kb_seed or "", (web_evidence or {}).get("content", "")])
+    ))
     response_guard = CombinedResponsePolicy(*response_policies) if response_policies else None
 
     def event_stream():
@@ -1850,7 +1879,10 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
                         )
                 for web_event, payload in to_web_events(event):
                     if web_event == "citation":
-                        latest_attribution = payload.get("attribution")
+                        # W2-EVID-01：一轮多次检索时合并来源（以前后一次覆盖前一次，
+                        # 回答引用了第一次检索的片段，界面却找不到它）。
+                        latest_attribution = _merge_attribution(latest_attribution, payload.get("attribution"))
+                        payload = {**payload, "attribution": latest_attribution}
                     if web_event == "chat_artifact" and isinstance(payload.get("artifact"), dict):
                         pending_artifacts.append(payload["artifact"])
                     yield emitter.emit(web_event, {"run_id": run_id, **payload})

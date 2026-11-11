@@ -713,6 +713,8 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
 .answer-prose pre code { padding: 0; background: transparent; }
 .answer-prose table { width: 100%; border-collapse: collapse; font-family: inherit; font-size: var(--body-font-size); }
 .answer-prose th, .answer-prose td { border-bottom: 1px solid var(--border); padding: var(--space-3); text-align: left; }
+.answer-prose .citation-mark { display: inline-block; min-width: 1.4em; margin: 0 var(--space-1); border-radius: var(--radius-sm); padding: 0 var(--space-1); background: var(--sage-wash); color: var(--sage-deep); font-family: inherit; font-size: max(12px, 0.75em); font-weight: 600; line-height: 1.5; text-align: center; text-decoration: none; vertical-align: super; }
+.answer-prose a.citation-mark:hover { background: var(--blue-wash); color: var(--blue); }
 .source-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-top: var(--space-4); }
 .source-chip { display: inline-flex; min-height: 30px; align-items: center; gap: 6px; border: 1px solid rgba(27, 54, 93, 0.13); border-radius: var(--radius-sm); padding: var(--space-1) var(--space-2); background: var(--blue-wash); color: var(--blue); font-family: inherit; font-size: 12px; font-weight: 600; transition: border-color var(--dur-base) var(--ease-out), background var(--dur-base) var(--ease-out), transform var(--dur-fast) var(--spring-micro); }
 .source-chip[href]:hover { border-color: rgba(27,54,93,0.28); background: var(--blue-wash); }

@@ -214,6 +214,79 @@ class InlineQuestionPolicy:
         )
 
 
+class CitationPolicy:
+    """W2-EVID-01：回答里的每个引用标签都必须来自本轮真实拿到的证据。
+
+    允许集合 = 进入本轮前注入的证据（预检索块、用户选定的网页快照，按文本里出现的标签收集）
+    ∪ 本轮 ``rag_search`` 命中 ∪ 本轮 ``web_research`` 快照。标签由 source_id 确定性
+    算出（``rag.citations.cite_label``），所以不依赖模型复述编号。
+
+    只核对「引用是不是真的」，不核对「引用是否支持结论」—— 后者是风险信号，不在这里冒充保证。
+    重试用尽时不丢弃整段回答：去掉无法对应的标签并如实说明，避免把编造的出处展示给用户。
+    """
+
+    max_retries = 1
+    removed_notice = "（已移除 {count} 处无法对应本轮资料的引用标记；相关表述没有可核对的出处。）"
+
+    def __init__(self, preset_text: str = "") -> None:
+        from rag.citations import cited_labels
+
+        self._preset = set(cited_labels(preset_text))
+
+    @staticmethod
+    def _labels_from_history(tool_history: list[dict[str, Any]]) -> set[str]:
+        from rag.citations import cite_label, hit_source_id
+
+        labels: set[str] = set()
+        for record in tool_history:
+            if not record.get("ok"):
+                continue
+            data = record.get("data") or {}
+            if record.get("name") == "rag_search":
+                for hit in data.get("results") or []:
+                    if isinstance(hit, dict) and hit_source_id(hit):
+                        labels.add(cite_label(hit_source_id(hit)))
+            elif record.get("name") == "web_research":
+                for source in data.get("sources") or []:
+                    if isinstance(source, dict) and source.get("source_id"):
+                        labels.add(cite_label(str(source["source_id"])))
+        return labels
+
+    def unknown_labels(self, tool_history: list[dict[str, Any]], response_text: str) -> list[str]:
+        from rag.citations import cited_labels
+
+        allowed = self._preset | self._labels_from_history(tool_history)
+        return [label for label in cited_labels(response_text) if label not in allowed]
+
+    def validate(
+        self,
+        tool_history: list[dict[str, Any]],
+        response_text: str,
+        retry_count: int,
+    ) -> EvidenceDecision:
+        unknown = self.unknown_labels(tool_history, response_text)
+        if not unknown:
+            return EvidenceDecision(allow=True)
+        listed = "、".join(f"[{label}]" for label in unknown)
+        if retry_count < self.max_retries:
+            return EvidenceDecision(
+                allow=False,
+                correction_prompt=(
+                    f"回答里的引用标签 {listed} 不对应本轮检索到的任何资料。"
+                    "重写回答：只使用本轮资料开头给出的标签；找不到依据的内容不要加标签，"
+                    "并说明它不是来自用户的资料。"
+                ),
+            )
+        from rag.citations import CITATION_MARKER
+
+        cleaned = CITATION_MARKER.sub(
+            lambda match: "" if match.group(1) in unknown else match.group(0),
+            response_text,
+        ).rstrip()
+        notice = self.removed_notice.format(count=len(unknown))
+        return EvidenceDecision(allow=False, fallback_content=f"{cleaned}\n\n{notice}" if cleaned else notice)
+
+
 class CombinedResponsePolicy:
     """Apply multiple deterministic response requirements without merging their logic."""
 

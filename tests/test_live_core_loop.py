@@ -293,3 +293,128 @@ def test_library_context_does_not_leak_across_libraries(live):
     queue_a = _ok(client.get("/api/learning/review-queue", headers=headers_a))
     assert question_id in {item.get("question_id") for item in queue_a["wrong_answers"]}, queue_a
     client.close()
+
+
+# --- W2-EVID-01：引用门禁在真实聊天链路上的反例验收 ---------------------------------
+
+
+def _sse(text: str) -> list[tuple[str, dict]]:
+    events = []
+    for frame in text.split("\n\n"):
+        name, data = "", None
+        for line in frame.splitlines():
+            if line.startswith("event:"):
+                name = line[6:].strip()
+            elif line.startswith("data:"):
+                try:
+                    data = json.loads(line[5:].strip())
+                except ValueError:
+                    data = None  # 坏帧容忍
+        if name and isinstance(data, dict):
+            events.append((name, data))
+    return events
+
+
+def _chat(client, headers, message: str) -> tuple[str, list[tuple[str, dict]]]:
+    response = client.post("/api/chat/runs", headers=headers, json={
+        "message": message, "save": False, "memory_enabled": False,
+    })
+    assert response.status_code == 200, response.text
+    events = _sse(response.text)
+    answer = "".join(data.get("content", "") for name, data in events if name == "message_delta" and data.get("call_role") != "narration")
+    return answer, events
+
+
+def _chunk_label(client, headers, query: str) -> str:
+    from rag.citations import cite_label
+
+    hits = _ok(client.post("/api/kb/search", headers=headers, json={"query": query, "top_k": 5}))["results"]
+    assert hits, query
+    return cite_label(hits[0]["chunk_id"])
+
+
+def test_a_real_citation_reaches_the_user_with_its_source(live):
+    provider = live["provider"]
+    client = _client()
+    headers = _create_library_and_import(client, live)
+    label = _chunk_label(client, headers, "负权边")
+
+    provider.queue(
+        {"tool": "rag_search", "args": {"query": "负权边"}},
+        f"Dijkstra 不能处理负权边 [{label}]。",
+    )
+    answer, events = _chat(client, headers, "为什么 Dijkstra 不能处理负权边？")
+
+    assert f"[{label}]" in answer, answer
+    citations = [data["attribution"] for name, data in events if name == "citation"]
+    assert citations, events
+    labels = {source.get("cite_label") for source in citations[-1]["sources"]}
+    assert label in labels, "the cited label must resolve to a visible source chip"
+    # 模型拿到的工具结果里就是这个标签 —— 不是让它从位置编号去猜。
+    tool_messages = [m for m in provider.requests[-1]["messages"] if m.get("role") == "tool"]
+    assert any(f"[{label}]" in str(m.get("content")) for m in tool_messages)
+    client.close()
+
+
+def test_a_fabricated_citation_is_rewritten_and_never_shown(live):
+    provider = live["provider"]
+    client = _client()
+    headers = _create_library_and_import(client, live)
+    label = _chunk_label(client, headers, "负权边")
+
+    provider.queue(
+        {"tool": "rag_search", "args": {"query": "负权边"}},
+        "Dijkstra 支持所有负权图 [S1]。",           # 伪造引用 + 与资料矛盾
+        f"Dijkstra 不能处理负权边 [{label}]。",     # 被门禁要求重写后
+    )
+    answer, _ = _chat(client, headers, "为什么 Dijkstra 不能处理负权边？")
+
+    assert "[S1]" not in answer, answer
+    assert f"[{label}]" in answer, answer
+    correction = [m for m in provider.requests[-1]["messages"] if m.get("role") == "system" and "[S1]" in str(m.get("content"))]
+    assert correction, "the rewrite must be driven by the runtime gate, not by luck"
+    client.close()
+
+
+def test_a_citation_that_stays_fabricated_is_stripped_with_a_notice(live):
+    provider = live["provider"]
+    client = _client()
+    headers = _create_library_and_import(client, live)
+
+    # 重试预算由 CombinedResponsePolicy 按挂载的策略数共享（既有语义），这里多备几轮，
+    # 断言的是「最终一定被剥掉」以及「重写次数有上限」。
+    provider.queue(
+        {"tool": "rag_search", "args": {"query": "负权边"}},
+        *(["Dijkstra 支持所有负权图 [S1]。"] * 6),
+    )
+    answer, _ = _chat(client, headers, "为什么 Dijkstra 不能处理负权边？")
+
+    assert "[S1]" not in answer, answer
+    assert "无法对应本轮资料的引用" in answer, answer
+    assert provider.call_count <= 1 + 4, f"rewrites must be bounded, got {provider.call_count} model calls"
+    client.close()
+
+
+def test_a_citation_to_rewritten_material_is_rejected(live):
+    """资料更新后，旧片段的标签不再对应任何当前证据（chunk_id 由内容派生）。"""
+    provider = live["provider"]
+    client = _client()
+    headers = _create_library_and_import(client, live)
+    stale = _chunk_label(client, headers, "负权边")
+
+    library_root = next(p for p in live["parent"].iterdir() if p.is_dir())
+    target = next(library_root.rglob("shortest-path.md"))
+    target.write_text(MATERIAL.replace("需要改用 Bellman-Ford 算法", "应当改用 Bellman-Ford 或 SPFA 算法"), encoding="utf-8")
+    _ok(client.post(f"/api/libraries/{headers['X-Bobodan-Library-ID']}/sync", headers=headers))
+    fresh = _chunk_label(client, headers, "负权边")
+    assert fresh != stale, "rewriting the chunk must change its identity"
+
+    provider.queue(
+        {"tool": "rag_search", "args": {"query": "负权边"}},
+        f"需要改用 Bellman-Ford [{stale}]。",
+        f"需要改用 Bellman-Ford 或 SPFA [{fresh}]。",
+    )
+    answer, _ = _chat(client, headers, "为什么 Dijkstra 不能处理负权边？")
+    assert f"[{stale}]" not in answer, answer
+    assert f"[{fresh}]" in answer, answer
+    client.close()

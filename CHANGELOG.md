@@ -6,6 +6,18 @@
 
 ## [未发布]
 
+### W2-EVID-01 引用校验第一阶段：引用标签 + 运行时门禁（2026-11-11，分支 feat/qa-live-gate）
+
+路线评审 P0 的第一阶段「先做到不夸大保证」。核对现状时发现：聊天回答**根本没有引用格式** —— 工具结果按位置编号 `[1]`、界面按 chunk_id 显示来源，两套编号不相连；模型写一个 `[S1]` 也没人检查。
+
+- **确定性引用标签**：`rag/citations.py::cite_label(source_id)` → `S` + sha1 前 6 位。`rag_search` 结果头、预检索块（`core/prompt_blocks.py`）、网页快照块（`research_service.evidence`）都打同一个标签并附引用规则；来源对象带 `cite_label` 下发并持久化（`_public_attribution` / `SourceRef`）。
+- **运行时门禁 `CitationPolicy`**（`service/evidence_policy.py`，聊天无条件挂载）：允许集合 = 预检索块与选定网页中的标签 ∪ 本轮成功的 `rag_search` 命中 ∪ 本轮 `web_research` 快照（工具 `data` 新增 `sources`，门禁才看得到）。未知标签先要求重写；重写用尽则**只剥掉未知标签**并附「已移除 N 处……」说明，保留其余回答与真实引用。只核对「引用真实」，不核对「引用支持结论」。
+- **一轮多次检索的来源合并**：`chat.py` 以前「最后一个 citation 帧胜出」，回答引用第一次检索的片段时界面找不到它；现在按 `(source_type, source_id)` 合并后再下发与保存。
+- **前端**：`lib/citations.ts` 把已知标签换成按出现顺序编号的角标（`.citation-mark`），本地来源进阅读器并定位片段，网页来源开原网页；查不到的标签保留原文、不可点。
+- **反例验收**：`tests/test_citation_policy.py` 12 条；`tests/test_live_core_loop.py` 新增 4 条真实链路（真实引用带来源到界面、伪造并与资料矛盾 → 被门禁要求重写、反复伪造 → 剥离并说明且重写次数有上限、资料改写并重新同步后旧标签被拒）；`citations.test.ts` 3 条；mock e2e 1 条（角标、跳转地址、未知标签不可点）。
+- **诚实说明**：标签真实不等于结论正确 —— 路线评审的原始复现（资料写「非负权」、回答「支持负权」）在标签真实时**仍会通过**，这是第二阶段（支持度检查）的范围，不在这里冒充已解决。重试预算沿用 `CombinedResponsePolicy` 的共享口径。
+- **验证**：后端全量 **1902 passed** ✓；`tsc` **0** ✓、`lint` **0** ✓、`build` **0** ✓、`vitest` **54 文件 / 345 passed** ✓、mock e2e **123 passed / 36 skipped / 0 failed** ✓。
+
 ### QA-LIVE-01 真实后端核心闭环门禁（2026-11-11，分支 feat/qa-live-gate）
 
 路线评审 P0：单元测试各自用空库、各自 mock 邻居，E6.2 就是这样全绿上线又在真实数据上崩的。这一层把核心闭环串成一条线，每一步只吃上一步通过 HTTP 真实返回的数据。

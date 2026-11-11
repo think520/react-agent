@@ -1,7 +1,7 @@
 import json
 import os
 
-from rag.citations import format_search_results
+from rag.citations import cite_label, format_search_results, hit_source_id
 
 from .base import ToolResult, register_tool
 
@@ -85,7 +85,8 @@ def rag_search(
             source = str(item.get("source", ""))
             sources.append({
                 "source_type": "local",
-                "source_id": str(item.get("chunk_id") or source),
+                "source_id": hit_source_id(item),
+                "cite_label": cite_label(hit_source_id(item)),
                 "title": str(item.get("title") or metadata.get("title") or source),
                 "document_id": item.get("document_id"),
                 "chunk_id": item.get("chunk_id"),
