@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 from dataclasses import asdict, dataclass
 from typing import Any, Protocol
 
@@ -11,6 +12,10 @@ import httpx
 
 SEARCH_TIMEOUT = 20.0
 EXA_MCP_URL = "https://mcp.exa.ai/mcp"
+# Exa's hosted MCP endpoint occasionally fails the very first connection of a
+# process (cold start / transient network). One short retry turns a confusing
+# "no results" into a normal search without hiding persistent failures.
+EXA_RETRY_DELAY = 0.4
 
 
 @dataclass
@@ -170,17 +175,33 @@ class ExaSearchProvider:
         )
         return MCPManager(config)
 
-    def search(self, query: str, max_results: int = 6) -> list[SearchCandidate]:
-        manager = None
+    def _run_search(self, query: str, max_results: int) -> dict[str, Any]:
+        manager = self._manager()
         try:
-            manager = self._manager()
-            result = manager.call("exa", "web_search_exa", {"query": query, "numResults": max_results})
-        except Exception as exc:
-            raise SearchProviderError(f"Exa search failed: {exc}", _error_kind(exc)) from exc
+            return manager.call("exa", "web_search_exa", {"query": query, "numResults": max_results})
         finally:
             shutdown = getattr(manager, "shutdown", None)
             if callable(shutdown):
                 shutdown()
+
+    def search(self, query: str, max_results: int = 6) -> list[SearchCandidate]:
+        result: dict[str, Any] | None = None
+        last_error: SearchProviderError | None = None
+        for attempt in range(2):
+            try:
+                result = self._run_search(query, max_results)
+            except Exception as exc:
+                last_error = SearchProviderError(f"Exa search failed: {exc}", _error_kind(exc))
+            else:
+                if not result.get("isError"):
+                    break
+                message = " ".join(str(item.get("text") or "") for item in result.get("content") or [])
+                last_error = SearchProviderError(message or "Exa search failed", _error_kind(RuntimeError(message)))
+            if attempt == 0 and last_error and last_error.kind in {"network", "timeout"}:
+                time.sleep(EXA_RETRY_DELAY)
+                continue
+            raise last_error  # type: ignore[misc]
+        assert result is not None
         if result.get("isError"):
             message = " ".join(str(item.get("text") or "") for item in result.get("content") or [])
             raise SearchProviderError(message or "Exa search failed", _error_kind(RuntimeError(message)))

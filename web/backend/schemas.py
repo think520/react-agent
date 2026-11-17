@@ -153,6 +153,6 @@ class SourceRef(BaseModel):
 
 
 class Attribution(BaseModel):
-    kind: Literal["local", "local_extension", "web", "ai", "unverified"]
+    kind: Literal["local", "local_extension", "web", "ai", "unverified", "mixed"]
     sources: list[SourceRef] = Field(default_factory=list)
 

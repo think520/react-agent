@@ -1619,6 +1619,56 @@ def test_confirmed_web_evidence_is_injected_and_persisted_as_attribution(backend
     assert source["snapshot_id"] == "snapshot-1"
 
 
+def test_web_and_local_citations_merge_instead_of_overwriting(backend_client, monkeypatch):
+    runtime = SimpleNamespace(
+        workspace=str(backend_client.workspace), skills_prompt=None, memory_prompt=None,
+        create_provider=lambda _name, model=None: object(), refresh_memory=lambda: None,
+        create_trace=lambda _session_id: object(),
+    )
+    monkeypatch.setattr("web.backend.routers.chat.get_runtime_context", lambda: runtime)
+    monkeypatch.setattr("web.backend.routers.chat.ResearchService.evidence", lambda self, research_id, session_id: {
+        "content": "[Web source 1: Guide]\nVerified content",
+        "sources": [{
+            "source_type": "web", "source_id": "snapshot-1", "snapshot_id": "snapshot-1",
+            "title": "Guide", "url": "https://example.com/guide", "domain": "example.com",
+            "accessed_at": "2026-07-14T00:00:00Z", "reader": "jina",
+        }],
+    })
+
+    def fake_run_stream(**kwargs):
+        kwargs["session"].add_message("user", kwargs["user_input"])
+        kwargs["session"].add_message("assistant", "Grounded answer")
+        yield {
+            "type": "tool_end", "tool_name": "rag_search", "ok": True,
+            "artifacts": [{
+                "type": "citation",
+                "attribution": {
+                    "kind": "local",
+                    "sources": [{
+                        "source_type": "local", "source_id": "chunk-1", "chunk_id": "chunk-1",
+                        "title": "Lesson 1", "document_id": "doc-1",
+                    }],
+                },
+            }],
+        }
+        yield {"type": "assistant_delta", "content": "Grounded answer"}
+        yield {"type": "assistant_done", "content": "Grounded answer", "termination_reason": "final_answer"}
+
+    monkeypatch.setattr("web.backend.routers.chat.AgentService.run_stream", fake_run_stream)
+    response = backend_client.post("/api/chat/runs", json={
+        "message": "使用选中的网页来源继续回答。", "web_research_id": "research-1",
+    })
+
+    assert "event: citation" in response.text
+    session_id = response.text.split('"chat_session_id": "', 1)[1].split('"', 1)[0]
+    attribution = backend_client.get(f"/api/chat/sessions/{session_id}").json()["messages"][-1]["attribution"]
+    assert attribution["kind"] == "mixed"
+    assert {(source["source_type"], source["source_id"]) for source in attribution["sources"]} == {
+        ("web", "snapshot-1"),
+        ("local", "chunk-1"),
+    }
+
+
 def test_chat_web_tool_changes_with_search_permission(backend_client, monkeypatch):
     runtime = SimpleNamespace(
         workspace=str(backend_client.workspace), skills_prompt=None, memory_prompt=None,

@@ -117,6 +117,7 @@ export function createChatActions(ctx: ChatActionContext) {
     overrideMessage?: string,
     webResearchId?: string,
     retryFailed = false,
+    echoUser = true,
   ) {
     event?.preventDefault();
     const message = (overrideMessage ?? draft).trim();
@@ -193,7 +194,11 @@ export function createChatActions(ctx: ChatActionContext) {
     leaveChatRef.current = false;
     const outgoingReferences = [...references];
     setReferences([]);
-    setMessages((current) => [...current, { role: "user", content: message, references: outgoingReferences }, { role: "assistant", content: "", pending: true }]);
+    setMessages((current) => [
+      ...current,
+      ...(echoUser ? [{ role: "user" as const, content: message, references: outgoingReferences }] : []),
+      { role: "assistant" as const, content: "", pending: true },
+    ]);
     // F05（2026-09-28 审查）：上一轮失败时，服务端其实**已经分配了会话**（run_started 里回过
     // chat_session_id），只是路由还没跳过去。重试必须沿用它 —— 否则又开一个新会话，
     // 用户刚才那一轮的历史就再也接不上了。
@@ -250,14 +255,21 @@ export function createChatActions(ctx: ChatActionContext) {
     return messages.flatMap((message) => message.artifacts || []).filter((artifact): artifact is Extract<ChatArtifact, { type: T }> => artifact.type === type).at(-1);
   }
 
-  async function refreshChatSession(id: string) {
+  async function refreshChatSession(id: string, optimistic: ChatMessage[] = []) {
     const detail = await api.session(id);
-    setMessages(detail.messages);
+    setMessages([...detail.messages, ...optimistic]);
     setSelectedProvider(resolveModelRef(sessionRef(detail) || settings?.default_provider || ""));
     await refreshSessions();
   }
 
   async function startWebSearch(query: string, consentArtifactId?: string, appendUserMessage = false) {
+    // `/web search ...` goes straight to the research API, not through
+    // streamChat. Echo the user's message locally before the request starts,
+    // otherwise the composer looks frozen for as long as the search takes.
+    if (appendUserMessage) {
+      pinToBottom();
+      setMessages((current) => [...current, { role: "user", content: query }]);
+    }
     setSending(true);
     setError("");
     setStatus("正在搜索公开网页候选");
@@ -310,20 +322,31 @@ export function createChatActions(ctx: ChatActionContext) {
     if (!sessionId) return;
     const selected = webSelections[artifact.search_id] || [];
     if (!selected.length) return;
+    const followUp = "使用选中的网页来源继续回答。";
+    // 读网页正文可能要几秒；先本地回显用户的选择，避免点击后界面像卡住。
+    pinToBottom();
+    setMessages((current) => [...current, { role: "user", content: followUp }]);
     setSending(true);
     setError("");
     setStatus(`正在读取 ${selected.length} 个网页来源`);
     setBrandState("reading");
     try {
       const result = await api.selectWebSources(artifact.search_id, sessionId, selected);
-      await refreshChatSession(sessionId);
       if (result.artifact.type === "web_evidence" && result.artifact.status !== "failed") {
+        await refreshChatSession(sessionId, [{ role: "user", content: followUp }]);
         setSending(false);
         setStatus("");
-        await send(undefined, "使用选中的网页来源继续回答。", result.artifact.research_id);
+        await send(undefined, followUp, result.artifact.research_id, false, false);
         return;
       }
+      // 读取失败时不要留下一条没有回答的乐观消息。
+      await refreshChatSession(sessionId);
     } catch (reason) {
+      setMessages((current) => {
+        const last = current.at(-1);
+        if (last?.role === "user" && last.content === followUp) return current.slice(0, -1);
+        return current;
+      });
       setError(toErrorMessage(reason, "选中的网页暂时无法读取。"));
     } finally {
       setStatus("");

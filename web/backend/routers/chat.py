@@ -319,7 +319,7 @@ def _public_attribution(value: Any) -> dict[str, Any] | None:
     if not isinstance(value, dict):
         return None
     kind = value.get("kind")
-    if kind not in {"local", "local_extension", "web", "ai", "unverified"}:
+    if kind not in {"local", "local_extension", "web", "ai", "unverified", "mixed"}:
         return None
     sources = []
     for source in value.get("sources") or []:
@@ -346,11 +346,28 @@ def _public_attribution(value: Any) -> dict[str, Any] | None:
 
 
 def _merge_attribution(current: Any, incoming: Any) -> Any:
-    """同类来源按 (source_type, source_id) 去重合并；类别不同时以新的为准（保持旧语义）。"""
+    """Merge every citation of one turn instead of letting the last one win.
+
+    A turn can cite web evidence first and local material later (or the other
+    way round). Keeping only the incoming kind made the UI show just the last
+    tool's sources even though the answer cited both. Sources are de-duplicated
+    by (source_type, source_id); different kinds become ``mixed``.
+    """
     if not isinstance(current, dict) or not isinstance(incoming, dict):
         return incoming if isinstance(incoming, dict) else current
-    if current.get("kind") != incoming.get("kind"):
-        return incoming
+    current_kind = current.get("kind")
+    incoming_kind = incoming.get("kind")
+    if current_kind == incoming_kind:
+        kind = incoming_kind
+    elif current_kind in {None, ""}:
+        kind = incoming_kind
+    elif incoming_kind in {None, ""}:
+        kind = current_kind
+    elif {current_kind, incoming_kind} <= {"local", "local_extension"}:
+        # Local material and local extensions are one presentation family.
+        kind = "local_extension" if "local_extension" in {current_kind, incoming_kind} else "local"
+    else:
+        kind = "mixed"
     sources: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
     for source in [*(current.get("sources") or []), *(incoming.get("sources") or [])]:
@@ -361,7 +378,13 @@ def _merge_attribution(current: Any, incoming: Any) -> Any:
             continue
         seen.add(key)
         sources.append(source)
-    merged = {**incoming, "sources": sources}
+    # A no-hit search must not erase sources a previous search already found.
+    if not sources:
+        if (current.get("sources") or []) and not (incoming.get("sources") or []):
+            return {**current, "kind": kind}
+        if (incoming.get("sources") or []) and not (current.get("sources") or []):
+            return {**incoming, "kind": kind}
+    merged = {**incoming, "kind": kind, "sources": sources}
     if sources:
         merged["status"] = "found"
     return merged

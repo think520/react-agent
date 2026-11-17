@@ -82,6 +82,7 @@ const attributionLabels = {
   web: "网页来源",
   ai: "AI 补充",
   unverified: "待核实",
+  mixed: "混合来源",
 };
 
 interface WebSourceDetail {
@@ -132,23 +133,36 @@ function WebSourceBadge({ source, label }: { source: SourceRef; label: string })
 export function AttributionBadges({ attribution, onOpenSources }: { attribution?: Attribution; onOpenSources?: (attribution: Attribution) => void }) {
   if (!attribution) return null;
   const groups = groupAttributionSources(attribution.sources);
-  const visibleGroups = groups.slice(0, 2);
+  // A mixed answer must not hide its web sources behind two local groups.
+  const orderedGroups = attribution.kind === "mixed"
+    ? [...groups].sort((left, right) => Number(right.sources.some((source) => source.source_type === "web")) - Number(left.sources.some((source) => source.source_type === "web")))
+    : groups;
+  const visibleGroups = orderedGroups.slice(0, 2);
   return (
     <div className="source-row" aria-label="回答来源">
       {visibleGroups.length ? visibleGroups.map((group) => {
         const source = group.sources[0];
         const location = source.heading || (source.page ? `第 ${source.page} 页` : source.slide ? `第 ${source.slide} 页` : "");
-        const sourceLabel = source.wiki_type === "note" ? "个人笔记" : source.collection === "wiki" ? "Wiki" : attributionLabels[attribution.kind];
+        const sourceLabel = source.wiki_type === "note"
+          ? "个人笔记"
+          : source.collection === "wiki"
+            ? "Wiki"
+            : source.source_type === "web"
+              ? "网页来源"
+              : attribution.kind === "mixed"
+                ? "本地资料"
+                : attributionLabels[attribution.kind] || "本地资料";
+        const chipKind = attribution.kind === "mixed" ? (source.source_type === "web" ? "web" : "local") : attribution.kind;
         const sourceDetail = location;
         const content = <>{source.source_type === "web" ? <ExternalLink size={14} /> : <FileText size={14} />}<span>{sourceLabel} · {group.title}</span>{group.sources.length > 1 && <small>命中 {group.sources.length} 处</small>}</>;
         if (source.source_type === "web" && source.snapshot_id) return <WebSourceBadge source={source} label={sourceLabel} key={source.source_id} />;
-        if (source.url) return <a className={`source-chip ${attribution.kind}`} href={source.url} target="_blank" rel="noreferrer" title={sourceDetail} key={source.source_id}>{content}</a>;
+        if (source.url) return <a className={`source-chip ${chipKind}`} href={source.url} target="_blank" rel="noreferrer" title={sourceDetail} key={source.source_id}>{content}</a>;
         if (source.document_id) {
-          if (onOpenSources) return <button className={`source-chip ${attribution.kind}`} type="button" title="查看全部引用位置" onClick={() => onOpenSources(attribution)} key={group.key}>{content}</button>;
+          if (onOpenSources) return <button className={`source-chip ${chipKind}`} type="button" title="查看全部引用位置" onClick={() => onOpenSources(attribution)} key={group.key}>{content}</button>;
           const target = readerLocation(source) || "/library?collection=material";
-          return <Link className={`source-chip ${attribution.kind}`} title={`打开资料${location ? ` · ${location}` : ""}`} to={target} key={group.key}>{content}</Link>;
+          return <Link className={`source-chip ${chipKind}`} title={`打开资料${location ? ` · ${location}` : ""}`} to={target} key={group.key}>{content}</Link>;
         }
-        return <span className={`source-chip ${attribution.kind}`} title={location} key={group.key}>{content}</span>;
+        return <span className={`source-chip ${chipKind}`} title={location} key={group.key}>{content}</span>;
       }) : <span className={`source-chip ${attribution.kind}`}>{attribution.status === "no_hit" ? "资料库未找到直接依据" : attributionLabels[attribution.kind]}</span>}
       {groups.length > 2 && (onOpenSources
         ? <button className="source-more" type="button" onClick={() => onOpenSources(attribution)}>+{groups.length - 2}</button>

@@ -1,4 +1,4 @@
-export type AttributionKind = "local" | "local_extension" | "web" | "ai" | "unverified";
+export type AttributionKind = "local" | "local_extension" | "web" | "ai" | "unverified" | "mixed";
 
 export interface SourceRef {
   source_type: "local" | "web";

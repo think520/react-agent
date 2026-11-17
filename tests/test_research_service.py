@@ -66,6 +66,47 @@ def test_exa_parses_mcp_text_results():
     assert results[0].snippet == "Useful result"
 
 
+def test_exa_retries_one_transient_network_failure():
+    class Manager:
+        def __init__(self):
+            self.calls = 0
+
+        def call(self, server, tool, args):
+            self.calls += 1
+            if self.calls == 1:
+                return {"isError": True, "content": [{"type": "text", "text": "MCP tool call exa.web_search_exa failed: connection reset"}]}
+            return {"isError": False, "content": [{"type": "text", "text": "Title: Guide\nURL: https://example.com/guide\nHighlights:\nUseful result"}]}
+
+        def shutdown(self):
+            pass
+
+    manager = Manager()
+    results = ExaSearchProvider(manager_factory=lambda: manager).search("topic", 1)
+
+    assert manager.calls == 2
+    assert results[0].url == "https://example.com/guide"
+
+
+def test_exa_does_not_retry_authentication_failures():
+    class Manager:
+        def __init__(self):
+            self.calls = 0
+
+        def call(self, server, tool, args):
+            self.calls += 1
+            return {"isError": True, "content": [{"type": "text", "text": "401 unauthorized"}]}
+
+        def shutdown(self):
+            pass
+
+    manager = Manager()
+    with pytest.raises(SearchProviderError) as exc:
+        ExaSearchProvider(manager_factory=lambda: manager).search("topic", 1)
+
+    assert exc.value.kind == "authentication"
+    assert manager.calls == 1
+
+
 def test_url_validation_rejects_private_dns(monkeypatch):
     monkeypatch.setattr("socket.getaddrinfo", lambda *args, **kwargs: [(2, 1, 6, "", ("127.0.0.1", 0))])
     with pytest.raises(UnsafeURLError):
