@@ -189,6 +189,17 @@ it("辅导对话声明 sessionKind=practice", async () => {
   expect(prefs.sessionKind).toBe("practice");
 });
 
+// 开关本身的视觉状态要跟着 aria-checked 走，否则点击后看起来"没反应"。
+it("逐题生成：开关有可见的开启状态", async () => {
+  hoisted.practiceId = "";
+  render(<PracticePage />);
+  const button = await screen.findByLabelText(/逐题生成/);
+  const toggle = () => button.querySelector(".setting-toggle")!;
+  expect(toggle().className).toBe("setting-toggle");
+  fireEvent.click(button);
+  expect(toggle().className).toBe("setting-toggle on");
+});
+
 // W1 E5 第二批：勾选逐题生成后走 SSE 管线，**边出边显示**；出完才开练习。
 it("逐题生成：边出边显示，出完再开练习", async () => {
   hoisted.practiceId = "";  // 没有练习 id → 渲染"开始一轮练习"创建视图

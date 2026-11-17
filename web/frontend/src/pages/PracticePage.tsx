@@ -366,7 +366,7 @@ export function PracticePage() {
               disabled={working}
               onClick={() => setStepwise((value) => !value)}
             >
-              <span className="setting-toggle" aria-hidden="true"><i /></span>
+              <span className={"setting-toggle" + (stepwise ? " on" : "")} aria-hidden="true"><i /></span>
               <span><strong>逐题生成</strong><small>每出一道立刻显示，不等整批</small></span>
             </button>
           )}
