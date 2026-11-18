@@ -59,6 +59,7 @@ class AsyncEventLoop:
             Exception: whatever the coroutine raised.
         """
         if self._closed:
+            coro.close()
             raise RuntimeError("AsyncEventLoop is closed")
         future = asyncio.run_coroutine_threadsafe(coro, self.loop)
         return future.result(timeout=timeout)

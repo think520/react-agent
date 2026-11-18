@@ -329,14 +329,12 @@ docs/                产品指南、设计规范和专项设计
 ## 验证
 
 ```powershell
-# Python
-python -m pytest -q
+# Full local quality gate (Ruff, architecture boundaries, pytest,
+# frontend lint/typecheck/Vitest/build)
+.\scripts\quality.ps1
 
-# Frontend
+# Slow browser gate
 Set-Location web\frontend
-npm run lint
-npm run build
-npm test -- --run
 npm run test:e2e
 ```
 

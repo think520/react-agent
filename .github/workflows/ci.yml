@@ -31,6 +31,10 @@ jobs:
       # 最小 lint 门禁（ruff.toml）：未定义名之类的真 bug 在测试绿的时候也会潜伏。
       - name: Lint (ruff)
         run: python -m ruff check .
+      - name: Check architecture boundaries
+        run: python scripts/check_architecture.py
+      - name: Check test double boundary
+        run: python scripts/check_test_doubles.py
       - name: Run tests
         run: python -m pytest -q
 

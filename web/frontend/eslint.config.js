@@ -8,6 +8,11 @@ export default tseslint.config(
     ignores: ["dist/**", "node_modules/**", "test-results/**", "playwright-report/**"],
   },
   {
+    linterOptions: {
+      reportUnusedDisableDirectives: "error",
+    },
+  },
+  {
     files: ["src/**/*.{ts,tsx}", "e2e/**/*.ts", "vite.config.ts", "playwright.config.ts"],
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     languageOptions: {
@@ -26,6 +31,28 @@ export default tseslint.config(
       // API; rewriting them for this new react-hooks v7 rule would be a large
       // behavioral refactor with no user-facing benefit. Revisit per-page.
       "react-hooks/set-state-in-effect": "off",
+    },
+  },
+  {
+    files: ["src/**/*.{ts,tsx}"],
+    ignores: [
+      "src/**/*.test.ts",
+      "src/**/*.test.tsx",
+      "src/**/__tests__/**",
+      "src/lib/api/**",
+    ],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "CallExpression[callee.name='fetch']",
+          message: "Use the API facade from src/lib/api; direct fetch is only allowed in src/lib/api.",
+        },
+        {
+          selector: "CallExpression[callee.property.name='fetch']",
+          message: "Use the API facade from src/lib/api; direct fetch is only allowed in src/lib/api.",
+        },
+      ],
     },
   },
   {

@@ -267,10 +267,8 @@ def test_repl_timeout_tells_the_agent_to_stop(monkeypatch, capsys):
     assert "已通知后台请求停止" in output
 
 def test_repl_sigint_tells_the_agent_to_stop(monkeypatch, capsys):
-    """P0-3: Ctrl+C used to break only the rendering loop, leaving the worker
-    thread burning tokens. It must cancel the same token the timeout path uses."""
-    import signal
-    import threading as threading_module
+    """P0-3: an interrupt must cancel the worker, not only rendering."""
+    import queue
 
     from core import agent_loop as agent_loop_module
 
@@ -303,13 +301,19 @@ def test_repl_sigint_tells_the_agent_to_stop(monkeypatch, capsys):
     repl = REPL(config_path="config.yaml")
     repl.initialize()
 
-    timer = threading_module.Timer(0.4, signal.raise_signal, args=(signal.SIGINT,))
-    timer.daemon = True
-    timer.start()
-    try:
-        repl.run_agent("hello")
-    finally:
-        timer.cancel()
+    real_queue = queue.Queue
+
+    class InterruptingQueue(real_queue):
+        interrupted = False
+
+        def get(self, *args, **kwargs):
+            if not self.interrupted:
+                self.interrupted = True
+                raise KeyboardInterrupt
+            return super().get(*args, **kwargs)
+
+    monkeypatch.setattr("cli.repl.queue.Queue", InterruptingQueue)
+    repl.run_agent("hello")
 
     token = captured.get("token")
     assert token is not None

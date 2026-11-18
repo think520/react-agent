@@ -196,6 +196,8 @@ def _try_rg(query: str, file_path: Path, window_chars: int) -> list[dict] | None
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=5,
         )
         if result.returncode not in (0, 1):  # 0=found, 1=not found

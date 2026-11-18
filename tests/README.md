@@ -25,6 +25,14 @@
 请求全量记录可断言。**不要再在测试文件里声明局部 FakeProvider/MockProvider**；
 存量散装的允许暂留，碰到即迁移。
 
+## 静态质量门禁
+
+根目录 `scripts/quality.ps1` 是本地统一入口。除 Ruff、pytest、前端 lint、TypeScript、Vitest 和构建外，它还运行 `scripts/check_architecture.py`，检查路由到存储、Provider 到 tools、RAG 到学习/题库以及领域层到 CLI/Web 的禁止依赖。
+
+架构检查只约束稳定的模块边界，不替代行为测试；新增跨层能力应先扩展 service 或更新架构契约，再添加例外。
+
+`scripts/check_test_doubles.py` 是测试替身棘轮：现有局部 Provider double 暂时列入存量白名单，但新测试文件不得继续定义新的 Provider / LLM double。新增 LLM 场景使用 `scripted_provider`；存量文件在修改时顺手迁移。
+
 ## 新增测试前自问
 
 1. 这条测试锁的是**稳定契约**（错误码、事件名、关键数据形状）还是**易变实现/文案**？
