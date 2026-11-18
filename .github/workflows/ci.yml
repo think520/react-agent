@@ -51,7 +51,7 @@ jobs:
       - run: npm run lint
       # 这套 UI 测试对时序敏感（懒加载路由 + 动画），在 2vCPU runner 上偶发；
       # 两次重试是标准容忍度，不掩盖真实回归——同一份日志里仍能看到失败。
-      - run: npm test -- --retries=2
+      - run: npm test -- --retry=2
       - run: npm run build
 
   e2e:
