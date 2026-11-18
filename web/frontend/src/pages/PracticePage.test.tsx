@@ -116,6 +116,19 @@ it("R11: reuses tutor session after remounting the same practice", async () => {
   expect(vi.mocked(streamChat).mock.calls[1][1]).toBe("tutor-session-1");
 });
 
+it("restores a short-answer draft after leaving and reopening a practice", async () => {
+  const view = render(<PracticePage />);
+  const answer = await screen.findByPlaceholderText("用自己的话写下答案。可以不完整，Bobodan 会指出缺少的部分。");
+  fireEvent.change(answer, { target: { value: "检索相关资料后再生成回答" } });
+  expect(answer).toHaveValue("检索相关资料后再生成回答");
+  expect(window.sessionStorage.getItem("bobodan:practice-draft:library-a:7:11")).toBe("检索相关资料后再生成回答");
+  view.unmount();
+
+  render(<PracticePage />);
+  const restored = await screen.findByPlaceholderText("用自己的话写下答案。可以不完整，Bobodan 会指出缺少的部分。");
+  expect(restored).toHaveValue("检索相关资料后再生成回答");
+});
+
 it("isolates tutor sessions for identical practice and question IDs in different libraries", async () => {
   const view = render(<PracticePage />);
   await screen.findByText("什么是 RAG？");

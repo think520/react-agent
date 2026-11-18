@@ -1,6 +1,6 @@
 # Bobodan 路线图
 
-> **v2.0（2026-11-11，GOV-01 重写）** · 基线：分支 `feat/qa-live-gate`（基于 `main` `ac9bb17`）· 后端 1906 passed / 前端 vitest 353 passed / mock e2e 0 failed
+> **v2.1（2026-11-18，体验审查两轮整改）** · 分支：`codex/experience-review-two-rounds` · 验证：后端 1933、Vitest 390；desktop Playwright 48 passed / 7 skipped。发布阻塞仍见 §4。
 >
 > **这是唯一的"现在做什么"文档，控制在两屏。** 只写四件事：当前基线、当前批次、下一批候选、发布阻塞项。交付经过写进 [`../CHANGELOG.md`](../CHANGELOG.md)；v1.5 及以前的完整路线（W1–W5 交付长表、A0–A4、E1–E18、G1–G5 的复测记录）原样归档在 [`archive/delivery/ROADMAP_HISTORY_2026-09_11.md`](archive/delivery/ROADMAP_HISTORY_2026-09_11.md)，只用于追溯。
 
@@ -16,12 +16,18 @@
 | QA-LIVE-01 | 横贯 | 真实后端核心闭环门禁（只替换模型） | `已验证`（第一版） | `tests/test_live_core_loop.py` 12 条：导入→检索→出题→作答→复习→重启、批改失败、跨库隔离、引用链路、预检索范围。**余项**：资料移动撤销冲突、整体备份恢复（并入 W4-RESTORE-01） |
 | W2-EVID-01 | W2 检索 | 引用校验第一阶段：确定性引用标签 + 运行时引用门禁 | `已验证` | `rag/citations.py`、`CitationPolicy`；`tests/test_citation_policy.py` 12 条 + 真实链路 5 条。**真实模型未抽查**（标签是否被照抄）——见 §2 |
 | W2-EVID-02 | W2 检索 | 引用支持度：引用真实但结论与原文矛盾时给风险信号 | `未开始` | 评审原始复现（原文「非负权」→ 回答「支持负权」+ 真实标签）**现在仍会通过**。规则/模型辅助 + 人工抽样，结果只作风险信号 |
+| W2-CITE-CODE-01 | W2 检索 | Markdown 代码示例中的引用形状文本保持原样 | `已验证` | `citations.ts` 在 Markdown AST 解析后只转换普通文本节点；`ChatMessage.test.tsx` 覆盖正文、行内代码和围栏代码 |
+| FE-ONBOARD-01 | 横贯 | 跳过引导不提交空偏好或默认开关 | `已验证` | `OnboardingDialog.test.tsx`；跳过与完成分别处理 |
 | GOV-01 | 治理 | 单一状态表、历史归档、Wiki 边界决策记录 | `已验证` | 本文即单一状态表；历史已归档；D-WIKI 已拍板（§5）；CHANGELOG 已切 0.13 / 0.14 / 0.15 |
+| W1-DRAFT-01 | W1 | 暂离后恢复当前练习题的未提交答案 | `已验证` | `PracticePage.test.tsx`；草稿按资料库、练习与题目隔离，成功提交后清除 |
 | W1-RES | W1 | 残留：练习页课程选择器；划线只能同步进正在编辑的笔记 | `未开始` | 无依赖，体验改进 |
 | W1-QUALITY-01 | W1 | 题目 / 批改人工审阅集 + 模型评测记录 | `未开始` | 依赖 E6.2（已满足）；预算上限 + 人工复核 |
 | W2-G4.2 | W2 | 召回评测扩充：人工集、去 basename 歧义、片段级指标、冻结判据 | `未开始` | 现有 G4 基线见 [`RAG_EVAL.md`](RAG_EVAL.md) |
 | W2-G5 | W2 | PDF 四级降级链（outline→heading→印刷目录→粗体） | `暂缓` | 真实库没有 PDF；有失败样本再谈 |
-| W3-TODAY-01 | W3 | Chat 起始态「今日任务」与短首次路径 | `未开始` | 依赖 E6.2 稳定语义（已满足） |
+| W3-EMPTY-01 | W3 | 复习队列读取失败不显示为零任务 | `已验证` | AppShell 区分 loading / ready / error；`LearningContext.test.tsx` 覆盖读取失败 |
+| W3-READER-01 | W3 | 阅读器区分读取失败、提取失败和无可读文本 | `已验证` | `readerEmptyState.test.ts`；空提取不再宣称索引仍在建立，请求失败有独立提示 |
+| W3-TODAY-01 | W3 | Chat 主行动与首次短学习路径 | `已验证` | `welcomeAction.test.ts`、`ExperienceLessonPage.test.tsx`；进行中练习 / 复习优先，示例讲义 + 离线单选 + 原文锚点，草稿留在本机且不写题库/掌握度 |
+| W5-PRIVACY-01 | W5 | 披露远程模型、联网研究、embedding 与 MCP 的数据边界 | `已验证` | 设置页明确远程服务按配置接收本次上下文或处理所需内容；`SecuritySection.test.tsx` |
 | W3-PERF | W3 | 前端性能与一致性（审查 2026-11-11 余项，见 §3） | `进行中` | 已做：流式不再重解析历史、全局快捷键避开输入框、未定义 CSS 变量清零、「读取失败」不再显示成「空 / 尚未练习」 |
 | AUDIT-P2 | 横贯 | 2026-11-11 审查 P2：错误码结构化、导入状态拆出 AppShell、`app.css` 清死规则 + 合并互相覆盖的规则 + 按原顺序拆成 7 个文件（构建产物逐字节不变）、quiz 测试迁到 ScriptedProvider、`kb_service.py` 3032 → 895 行（Wiki 维护与资料文件管理移到 mixin） | `已验证` | 每步全量门禁；拆分前后行为不变 |
 | AUDIT-P1 | 横贯 | 2026-11-11 审查 P1 全部：CLI 证据门禁、检索不列全库、按 id 打开会话、失败与空分开、store 迁移按库一次、图谱随主题取色、AppShell 无关重渲染 | `已验证` | `service/turn_policy.py`；`KBService.search` 300 份资料 48.9ms → 13.1ms；回归均在旧代码上先红 |
@@ -32,7 +38,7 @@
 
 同一时间只有**一个主交付批次 + 一个不互相阻塞的验证批次**。
 
-- **主批次：审查余项（§3 的 P1）**。完成标准：§3 P1 全部关闭或明确降级。
+- **主批次：2026-11-18 外部体验审查整改两轮**。本轮关闭 `FE-ONBOARD-01`、`W1-DRAFT-01`、`W2-CITE-CODE-01`、`W3-EMPTY-01`、`W3-READER-01`、`W3-TODAY-01` 与 `W5-PRIVACY-01`；测试和门禁记录见 CHANGELOG。
 - **验证批次：真实模型抽查引用标签**。用真实模型问 3–5 个基于资料的问题，确认回答带 `[Sxxxxxx]` 且门禁不误伤；不照抄就改提示位置，而不是放宽门禁。
 
 ## 3. 下一批候选（按依赖排序）

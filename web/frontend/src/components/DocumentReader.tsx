@@ -19,6 +19,7 @@ import { api, documentAssetUrl, documentRawEmbedUrl, downloadDocumentRaw, fetchD
 import { HIGHLIGHT_CLASS, highlightQuote, unwrapHighlight } from "../lib/domHighlight";
 import { anchorDraftFromRange } from "../lib/readerAnchors";
 import { READER_VIEW_KEY, resolveReaderView, type ReaderView } from "../lib/readerView";
+import { readerEmptyState } from "../lib/readerEmptyState";
 import { shouldIgnoreShortcut } from "../lib/ime";
 import { ReaderAnchorsPanel, anchorLocateChunkId, type ReaderAnchor } from "./ReaderAnchorsPanel";
 import { useHandoffStore } from "../stores/handoffStore";
@@ -58,6 +59,7 @@ export function DocumentReader({
   const { selectedDocumentIds, toggleDocumentScope } = useOutletContext<AppOutletContext>();
 
   const [sections, setSections] = useState<DocumentSection[]>([]);
+  const [detailError, setDetailError] = useState("");
   const [relatedNotes, setRelatedNotes] = useState<PersonalKnowledgeItem[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
   const [highlightedChunk, setHighlightedChunk] = useState<string | null>(null);
@@ -75,6 +77,7 @@ export function DocumentReader({
   const [forcedSections, setForcedSections] = useState(false);
   const [pendingChunk, setPendingChunk] = useState<string | null>(null);
   const [originalText, setOriginalText] = useState("");
+  const [originalLoaded, setOriginalLoaded] = useState(false);
   const [originalError, setOriginalError] = useState("");
   const [railOpen, setRailOpen] = useState(false);
   const [activeChunkId, setActiveChunkId] = useState<string | null>(null);
@@ -144,6 +147,7 @@ export function DocumentReader({
   const effectiveView = readerView.view;
   const showOriginal = readerView.view === "original";
   const originalParts = splitFrontmatter(originalText);
+  const emptyState = readerEmptyState(selected);
   const arrivedViaCitation = Boolean(chunkId) && forcedSections;
   // PDF 的原件没法高亮（浏览器内置阅读器不暴露文本），所以定位只能发生在"按小节"
   // 视图里——这句话要说清楚，否则用户会以为原件那边也该亮起来。
@@ -168,6 +172,7 @@ export function DocumentReader({
     if (!selectedId) { setSections([]); onSectionsLoaded?.([]); return; }
     let cancelled = false;
     setDetailLoading(true);
+    setDetailError("");
     void api.document(selectedId)
       .then((result) => {
         if (cancelled) return;
@@ -175,7 +180,12 @@ export function DocumentReader({
         // 顶栏的「提取概念」要用同一份小节，这里把结果回给外壳一份。
         onSectionsLoaded?.(result.sections);
       })
-      .catch((reason: Error) => { if (!cancelled) onError?.(reason.message); })
+      .catch((reason: Error) => {
+        if (!cancelled) {
+          setDetailError(reason.message);
+          onError?.(reason.message);
+        }
+      })
       .finally(() => { if (!cancelled) setDetailLoading(false); });
     if (collection === "material") {
       void api.documentAnchors(selectedId)
@@ -237,11 +247,15 @@ export function DocumentReader({
   useEffect(() => {
     setOriginalText("");
     setOriginalError("");
+    setOriginalLoaded(false);
     if (!selected || !canShowOriginal || !showOriginal) return;
     let cancelled = false;
     void fetchDocumentRawText(selected.document_id)
       .then((text) => {
-        if (!cancelled) setOriginalText(text);
+        if (!cancelled) {
+          setOriginalText(text);
+          setOriginalLoaded(true);
+        }
       })
       .catch((reason) => {
         if (!cancelled) setOriginalError(reason instanceof Error ? reason.message : "无法读取原文。");
@@ -498,7 +512,9 @@ export function DocumentReader({
           </div>
         )}
         {selectionQuote && createPortal(<div className={selectionAnchor ? "selection-toolbar floating" : "selection-toolbar"} style={selectionToolbarStyle}><Quote size={15} /><span>已选择 {selectionQuote.length} 个字符</span><button className="quiet-button" onClick={askAboutSelection}>带到对话</button><button className="quiet-button" onClick={createPracticeFromSelection}>基于此出题</button><button className="quiet-button" onClick={() => void saveAnchorFromSelection()}>划线</button><button className="quiet-button" onClick={() => setSelectionQuote("")}>取消</button></div>, document.body)}
-        {detailLoading && !sections.length ? <LoadingState label="正在打开资料…" state="reading" /> : showOriginal ? (
+        {detailLoading && !sections.length ? <LoadingState label="正在打开资料…" state="reading" /> : detailError && !sections.length && !showOriginal ? (
+          <EmptyState compact title="暂时无法读取文本" description="读取失败；请重试或检查 Bobodan 后端连接。" state="resting" />
+        ) : showOriginal ? (
           inlineOriginal === "pdf" ? (
             <div className="reader-pdf">
               <div className="reader-pdf-toolbar">
@@ -547,6 +563,8 @@ export function DocumentReader({
               </ReactMarkdown>
             ) : originalError ? (
               <p className="text-faint">{originalError}</p>
+            ) : originalLoaded ? (
+              <EmptyState compact title="原件没有可显示的文字" description="可以切换到按小节阅读，查看已提取的内容。" state="resting" />
             ) : (
               <LoadingState label="正在读取原文…" state="reading" />
             )}
@@ -588,7 +606,7 @@ export function DocumentReader({
               </div>
             </section>
           );
-        })}</div> : <EmptyState compact title="没有可阅读的片段" description="这份资料可能仍在建立索引。" state="resting" />}
+        })}</div> : <EmptyState compact title={emptyState.title} description={emptyState.description} state="resting" />}
 
         {selected.collection === "material" && relatedNotes.length > 0 && (
           <div className="reader-related-notes">

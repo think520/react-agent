@@ -7,7 +7,7 @@ import { useUiStore } from "../../stores/uiStore";
 import { IconButton } from "../common";
 import { ConceptSidebar } from "../ConceptSidebar";
 import { LearningContext } from "./LearningContext";
-import type { Attribution, DocumentSummary, KnowledgeContext, ReviewQueue } from "../../types";
+import type { Attribution, DataLoadStatus, DocumentSummary, KnowledgeContext, ReviewQueue } from "../../types";
 
 export interface ContextPanelView {
   contextOpen: boolean;
@@ -20,6 +20,7 @@ export interface ContextPanelView {
   openConceptDetail: (conceptId: string) => void;
   documents: DocumentSummary[];
   review: ReviewQueue | null;
+  reviewStatus: DataLoadStatus;
   selectedDocumentIds: string[];
   toggleDocumentScope: (documentId: string) => void;
   knowledgeContext: KnowledgeContext | null;
@@ -31,7 +32,7 @@ export function ContextPanel({ view }: { view: ContextPanelView }) {
   const {
     contextOpen, conceptDetailId, desktop, rightAutoCollapsed,
     setPreview, setContextOpen, setConceptDetailId, openConceptDetail,
-    documents, review, selectedDocumentIds, toggleDocumentScope,
+    documents, review, reviewStatus, selectedDocumentIds, toggleDocumentScope,
     knowledgeContext, sourceContext, openMapForConcept,
   } = view;
   return (
@@ -59,6 +60,7 @@ export function ContextPanel({ view }: { view: ContextPanelView }) {
           <LearningContext
             documents={documents}
             review={review}
+            reviewStatus={reviewStatus}
             selectedDocumentIds={selectedDocumentIds}
             toggleDocumentScope={toggleDocumentScope}
             knowledgeContext={knowledgeContext}

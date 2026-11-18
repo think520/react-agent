@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { json, settingsPayload } from "./fixtures/mockApi";
 
 /**
  * Smoke suite (tests/README.md Playwright policy): the browser layer only
@@ -10,7 +11,12 @@ test.beforeEach(async ({ page }) => {
   // Smoke tests target the everyday app, not the first-run wizard.
   await page.addInitScript(() => localStorage.setItem("bobodan:onboarding:v1", "complete"));
   await page.route("**/api/health", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ ok: true }) }));
+  await page.route("**/api/settings", (route) => route.fulfill(json(settingsPayload())));
+  await page.route("**/api/chat/sessions", (route) => route.fulfill(json({ sessions: [] })));
   await page.route("**/api/kb/documents?collection=all", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ documents: [] }) }));
+  await page.route("**/api/kb/documents?collection=material", (route) => route.fulfill(json({ documents: [] })));
+  await page.route("**/api/learning/review-queue", (route) => route.fulfill(json({ due_concepts: [], wrong_answers: [], weaknesses: [] })));
+  await page.route("**/api/quiz/sessions/active", (route) => route.fulfill(json({ sessions: [] })));
   await page.route("**/api/libraries", (route) => route.fulfill({
     contentType: "application/json",
     body: JSON.stringify({
@@ -25,12 +31,30 @@ test("app boots and primary routes render", async ({ page }) => {
   await expect(page.locator(".app-shell")).toBeVisible();
   await expect(page.locator(".brand-row")).toContainText("Bobodan");
 
-  for (const path of ["/library", "/practice", "/review", "/notes", "/knowledge-map"]) {
+  for (const path of ["/library", "/practice", "/review", "/experience", "/notes", "/knowledge-map"]) {
     await page.goto(path);
     await expect(page.locator(".app-shell")).toBeVisible();
     // No route-level crash boundary on any primary page.
     await expect(page.getByText("页面出了点问题")).toHaveCount(0);
   }
+});
+
+test("sample lesson answers offline, jumps to its source, and restores progress", async ({ page }) => {
+  await page.goto("/experience");
+  await expect(page.getByRole("heading", { name: "先检索，再回答" })).toBeVisible();
+  await expect(page.getByText(/示例内容，不写入你的资料库/)).toBeVisible();
+
+  await page.getByRole("radio", { name: /先检索相关原文/ }).check();
+  await page.getByRole("button", { name: /检查答案/ }).click();
+  await expect(page.getByText("答对了")).toBeVisible();
+
+  const sourceLink = page.getByRole("link", { name: /回到讲义原文/ });
+  await expect(sourceLink).toHaveAttribute("href", "#experience-source-detail");
+  await sourceLink.click();
+  await expect(page.locator("#experience-source-detail")).toBeInViewport();
+
+  await page.reload();
+  await expect(page.getByText("答对了")).toBeVisible();
 });
 
 test("composer accepts input and slash palette opens", async ({ page }) => {

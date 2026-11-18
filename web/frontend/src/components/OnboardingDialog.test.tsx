@@ -20,7 +20,7 @@ describe("OnboardingDialog connection status", () => {
       providers: [{ name: "openai", configured: true }],
     } as SettingsSummary;
 
-    render(<OnboardingDialog settings={settings} documents={[]} selectedDocumentIds={[]} onToggleDocument={() => {}} onComplete={() => {}} />);
+    render(<OnboardingDialog settings={settings} documents={[]} selectedDocumentIds={[]} onToggleDocument={() => {}} onComplete={() => {}} onSkip={() => {}} />);
     fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
 
     expect(screen.getByText("配置已保存，但尚未验证连接。")).toBeTruthy();
@@ -29,5 +29,15 @@ describe("OnboardingDialog connection status", () => {
     fireEvent.click(screen.getByRole("button", { name: "测试连接" }));
     await waitFor(() => expect(screen.getByText("42ms · 连接正常，可以开始对话和出题。")).toBeTruthy());
     expect(api.providerTest).toHaveBeenCalledWith("openai");
+  });
+  it("skipping the guide does not submit default preferences", () => {
+    const onComplete = vi.fn();
+    const onSkip = vi.fn();
+
+    render(<OnboardingDialog settings={null} documents={[]} selectedDocumentIds={[]} onToggleDocument={() => {}} onComplete={onComplete} onSkip={onSkip} />);
+    fireEvent.click(screen.getByRole("button", { name: "跳过引导" }));
+
+    expect(onSkip).toHaveBeenCalledOnce();
+    expect(onComplete).not.toHaveBeenCalled();
   });
 });

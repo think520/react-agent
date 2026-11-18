@@ -3,9 +3,10 @@ import { memo, useMemo } from "react";
 import ReactMarkdown, { defaultUrlTransform, type Components } from "react-markdown";
 import { Link } from "react-router-dom";
 import remarkGfm from "remark-gfm";
+import type { PluggableList } from "unified";
 
 import type { ProcessBrandState } from "../../hooks/useChatStream";
-import { citationTargets, linkCitations, type CitationTarget } from "../../lib/citations";
+import { remarkCitations, type CitationTarget } from "../../lib/citations";
 import { readerLocation } from "../../lib/documentLinks";
 import { BobodanProcess, PersonalizationChip, RunSummary } from "../../pages/chat/chatPrimitives";
 import type { Attribution, ChatArtifact, ChatMessage, RunSummaryArtifact } from "../../types";
@@ -56,11 +57,14 @@ export function AssistantMessage({ message, index, assistantName, status, brandS
 }
 
 /** 正文 Markdown：把 [Sxxxxxx] 引用标签换成可点的序号，点了落到原文片段或网页快照。 */
-const REMARK_PLUGINS = [remarkGfm];
 const answerUrlTransform = (url: string, key: string) => (key === "href" && url.startsWith("cite:") ? url : defaultUrlTransform(url));
 
 const AnswerMarkdown = memo(function AnswerMarkdown({ content, attribution }: { content: string; attribution?: Attribution }) {
-  const targets = useMemo(() => citationTargets(content, attribution?.sources), [content, attribution?.sources]);
+  const targets = useMemo(() => new Map<string, CitationTarget>(), []);
+  const remarkPlugins = useMemo<PluggableList>(() => [
+    remarkGfm,
+    [remarkCitations, { sources: attribution?.sources, targets }],
+  ], [attribution?.sources, targets]);
   const components = useMemo<Components>(() => ({
     a: ({ href, children }) => {
       if (href?.startsWith("cite:")) {
@@ -70,8 +74,8 @@ const AnswerMarkdown = memo(function AnswerMarkdown({ content, attribution }: { 
       return <a href={href}>{children}</a>;
     },
   }), [targets]);
-  return <ReactMarkdown remarkPlugins={REMARK_PLUGINS} urlTransform={answerUrlTransform} components={components}>
-    {linkCitations(content, targets)}
+  return <ReactMarkdown remarkPlugins={remarkPlugins} urlTransform={answerUrlTransform} components={components}>
+    {content}
   </ReactMarkdown>;
 });
 

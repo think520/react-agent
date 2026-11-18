@@ -192,6 +192,14 @@ export interface PracticeSession {
   };
 }
 
+export interface ActivePracticeSummary {
+  practice_session_id: number;
+  updated_at: string;
+  question_count: number;
+}
+
+export type DataLoadStatus = "loading" | "ready" | "error";
+
 export type QuestionBankState = "unanswered" | "correct" | "partial" | "incorrect";
 
 export interface QuestionBankItem {

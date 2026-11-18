@@ -1,16 +1,11 @@
-/**
- * W2-EVID-01：回答正文里的引用标签（`[S3fa9c1]`）→ 可点的来源标记。
- *
- * 标签由后端按 source_id 确定性算出并随来源一起下发（`cite_label`），
- * 前端只做查表，不自己算哈希 —— 一个口径，不会漂。
- * 运行时门禁已经保证最终回答里不会出现未知标签；查不到时（旧会话、流式中途）
- * 保留原文本，不伪造一个能点的出处。
- */
+/** Citation markers are linked after Markdown parsing so code samples remain literal. */
+
+import type { Plugin } from "unified";
 
 import type { SourceRef } from "../types";
 
-// 与后端 rag/citations.py 同一形状：S + 6 位小写十六进制，后面不紧跟 "("（那是 Markdown 链接）。
-export const CITATION_PATTERN = /\[(S[0-9a-f]{6})\](?!\()/g;
+const CITATION_PATTERN = /\[(S[0-9a-f]{6})\](?!\()/g;
+const NON_TEXT_BLOCKS = new Set(["code", "inlineCode", "html", "link", "linkReference", "image", "imageReference"]);
 
 export interface CitationTarget {
   label: string;
@@ -19,26 +14,61 @@ export interface CitationTarget {
   source: SourceRef;
 }
 
-export function citationTargets(text: string, sources: SourceRef[] | undefined): Map<string, CitationTarget> {
+interface MarkdownNode {
+  type: string;
+  value?: string;
+  url?: string;
+  children?: MarkdownNode[];
+}
+
+interface CitationPluginOptions {
+  sources?: SourceRef[];
+  targets: Map<string, CitationTarget>;
+}
+
+function citationNodes(value: string, byLabel: Map<string, SourceRef>, targets: Map<string, CitationTarget>): MarkdownNode[] {
+  const nodes: MarkdownNode[] = [];
+  let cursor = 0;
+  for (const match of value.matchAll(CITATION_PATTERN)) {
+    const label = match[1];
+    const source = byLabel.get(label);
+    const start = match.index ?? 0;
+    if (!source) continue;
+    if (start > cursor) nodes.push({ type: "text", value: value.slice(cursor, start) });
+    let target = targets.get(label);
+    if (!target) {
+      target = { label, index: targets.size + 1, source };
+      targets.set(label, target);
+    }
+    nodes.push({ type: "link", url: `cite:${label}`, children: [{ type: "text", value: String(target.index) }] });
+    cursor = start + match[0].length;
+  }
+  if (cursor === 0) return [{ type: "text", value }];
+  if (cursor < value.length) nodes.push({ type: "text", value: value.slice(cursor) });
+  return nodes;
+}
+
+export function transformCitationNodes(tree: MarkdownNode, { sources, targets }: CitationPluginOptions): void {
   const byLabel = new Map<string, SourceRef>();
   for (const source of sources || []) {
     if (source.cite_label) byLabel.set(source.cite_label, source);
   }
-  const targets = new Map<string, CitationTarget>();
-  for (const match of text.matchAll(CITATION_PATTERN)) {
-    const label = match[1];
-    const source = byLabel.get(label);
-    if (!source || targets.has(label)) continue;
-    targets.set(label, { label, index: targets.size + 1, source });
-  }
-  return targets;
+  targets.clear();
+
+  const transform = (parent: MarkdownNode) => {
+    if (NON_TEXT_BLOCKS.has(parent.type) || !parent.children) return;
+    parent.children = parent.children.flatMap((child) => {
+      if (child.type === "text" && typeof child.value === "string") {
+        return citationNodes(child.value, byLabel, targets);
+      }
+      transform(child);
+      return [child];
+    });
+  };
+
+  transform(tree);
 }
 
-/** 把已知标签换成 Markdown 链接（`cite:` 协议由渲染层接管）；未知标签原样保留。 */
-export function linkCitations(text: string, targets: Map<string, CitationTarget>): string {
-  if (!targets.size) return text;
-  return text.replace(CITATION_PATTERN, (whole, label: string) => {
-    const target = targets.get(label);
-    return target ? `[${target.index}](cite:${label})` : whole;
-  });
-}
+export const remarkCitations: Plugin<[CitationPluginOptions], MarkdownNode> = (options) => (tree) => {
+  transformCitationNodes(tree, options);
+};

@@ -6,10 +6,13 @@ import type { ImportRunProgress } from "../../hooks/useImportRun";
 import type { LibrarySetupMode } from "../LibrarySetupDialog";
 import type {
   Attribution,
+  ActivePracticeSummary,
   ChatSessionSummary,
+  DataLoadStatus,
   DocumentSummary,
   KnowledgeContext,
   LibrarySummary,
+  ReviewQueue,
   SettingsSummary,
 } from "../../types";
 
@@ -21,6 +24,11 @@ export interface LibrarySetupOptions {
 export interface AppOutletContext {
   sessions: ChatSessionSummary[];
   settings: SettingsSummary | null;
+  review: ReviewQueue | null;
+  reviewStatus: DataLoadStatus;
+  activePractices: ActivePracticeSummary[];
+  activePracticeStatus: DataLoadStatus;
+  reloadLearningState: () => Promise<void>;
   refreshSettings: () => Promise<SettingsSummary | null>;
   refreshSessions: () => Promise<void>;
   openContext: () => void;

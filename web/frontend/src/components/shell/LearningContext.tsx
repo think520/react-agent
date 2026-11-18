@@ -8,11 +8,12 @@ import { BookOpen, FileText, Library, Map, PenLine, Sparkles } from "lucide-reac
 
 import { readerLocation } from "../../lib/documentLinks";
 import { groupAttributionSources, textValue } from "../common";
-import type { Attribution, DocumentSummary, KnowledgeContext, ReviewQueue } from "../../types";
+import type { Attribution, DataLoadStatus, DocumentSummary, KnowledgeContext, ReviewQueue } from "../../types";
 
 export function LearningContext({
   documents,
   review,
+  reviewStatus,
   selectedDocumentIds,
   toggleDocumentScope,
   knowledgeContext,
@@ -22,6 +23,7 @@ export function LearningContext({
 }: {
   documents: DocumentSummary[];
   review: ReviewQueue | null;
+  reviewStatus: DataLoadStatus;
   selectedDocumentIds: string[];
   toggleDocumentScope: (documentId: string) => void;
   knowledgeContext: KnowledgeContext | null;
@@ -30,8 +32,8 @@ export function LearningContext({
   onOpenMap: (conceptId: string) => void;
 }) {
   const [tab, setTab] = useState<"sources" | "learning">("sources");
-  const due = review?.due_concepts.length || 0;
-  const weak = review?.weaknesses.length || 0;
+  const due = reviewStatus === "ready" ? review?.due_concepts.length || 0 : null;
+  const weak = reviewStatus === "ready" ? review?.weaknesses.length || 0 : null;
   return (
     <div className="context-content">
       <div className="context-tabs" role="tablist" aria-label="学习书桌视图">
@@ -87,16 +89,19 @@ export function LearningContext({
         <section className="context-section">
           <div className="context-heading"><BookOpen size={16} />学习回流</div>
           <div className="context-metrics">
-            <div><strong>{due}</strong><span>到期概念</span></div>
-            <div><strong>{weak}</strong><span>薄弱点</span></div>
+            <div><strong>{due ?? "—"}</strong><span>到期概念</span></div>
+            <div><strong>{weak ?? "—"}</strong><span>薄弱点</span></div>
           </div>
+          {reviewStatus === "loading" && <p className="context-empty">正在读取复习状态。</p>}
+          {reviewStatus === "error" && <p className="context-empty">暂时无法读取复习状态</p>}
           <NavLink to="/review" className="text-link">查看今日复习</NavLink>
         </section>
         <section className="context-section">
           <div className="context-heading"><PenLine size={16} />接下来</div>
           <div className="context-next-list">
-            {(review?.due_concepts || []).slice(0, 3).map((item, index) => <div key={index}><span>{index + 1}</span><strong>{textValue(item, ["concept", "title", "name"], "待复习知识点")}</strong></div>)}
-            {!due && <p className="context-empty">今天没有到期内容，可以开始一轮新练习。</p>}
+            {reviewStatus === "ready" && (review?.due_concepts || []).slice(0, 3).map((item, index) => <div key={index}><span>{index + 1}</span><strong>{textValue(item, ["concept", "title", "name"], "待复习知识点")}</strong></div>)}
+            {reviewStatus === "ready" && !due && <p className="context-empty">今天没有到期内容，可以开始一轮新练习。</p>}
+            {reviewStatus === "error" && <p className="context-empty">复习队列暂不可用。</p>}
           </div>
         </section>
       </>}

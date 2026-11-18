@@ -14,6 +14,7 @@ const NotesPage = lazy(() => import("./pages/NotesPage").then((module) => ({ def
 const PracticePage = lazy(() => import("./pages/PracticePage").then((module) => ({ default: module.PracticePage })));
 const QuestionBankPage = lazy(() => import("./pages/QuestionBankPage").then((module) => ({ default: module.QuestionBankPage })));
 const ReviewPage = lazy(() => import("./pages/ReviewPage").then((module) => ({ default: module.ReviewPage })));
+const ExperienceLessonPage = lazy(() => import("./pages/ExperienceLessonPage").then((module) => ({ default: module.ExperienceLessonPage })));
 
 function page(element: ReactElement) {
   // FE-4: unified lightweight page transition (fade + micro-move), no full-page slide.
@@ -34,6 +35,7 @@ export default function App() {
             <Route path="practice/bank" element={page(<QuestionBankPage />)} />
             <Route path="practice/:practiceSessionId" element={page(<PracticePage />)} />
             <Route path="review" element={page(<ReviewPage />)} />
+            <Route path="experience" element={page(<ExperienceLessonPage />)} />
             <Route path="library" element={page(<LibraryPage />)} />
             <Route path="library/read/:id" element={page(<ReaderPage />)} />
             <Route path="notes" element={page(<NotesPage />)} />

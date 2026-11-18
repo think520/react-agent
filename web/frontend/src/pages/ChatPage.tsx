@@ -43,6 +43,7 @@ import type { ChatArtifact, KnowledgeContextArtifact, WikiPlanArtifact } from ".
 import { initialDraft } from "./chat/chatPrimitives";
 import { ChatTranscript } from "../components/chat/ChatTranscript";
 import { ChatWelcome } from "../components/chat/ChatWelcome";
+import type { WelcomePrimaryAction } from "../lib/welcomeAction";
 import type { SlashItem } from "./chat/chatPrimitives";
 import { WEB_COMMANDS } from "./chat/chatPrimitives";
 import { useCompositionGuard, isImeKeyEvent } from "../lib/ime";
@@ -56,6 +57,12 @@ export function ChatPage() {
     sessions,
     settings,
     documents,
+    documentsUnavailable,
+    review,
+    reviewStatus,
+    activePractices,
+    activePracticeStatus,
+    reloadLearningState,
     selectedDocumentIds,
     selectedDocuments,
     openContext,
@@ -586,9 +593,24 @@ export function ChatPage() {
             status={status}
             brandState={brandState}
             documentImporting={documentImporting}
+            documents={documents}
+            documentsUnavailable={documentsUnavailable}
+            review={review}
+            reviewStatus={reviewStatus}
+            activePractices={activePractices}
+            activePracticeStatus={activePracticeStatus}
             onApplyPrompt={applyPrompt}
             onImport={startDocumentImport}
             onOpenPractice={() => navigate("/practice")}
+            onOpenExperience={() => navigate("/experience")}
+            onPrimaryAction={(action: WelcomePrimaryAction) => {
+              if (action.kind === "resume-practice") navigate(`/practice/${action.practiceSessionId}`);
+              else if (action.kind === "review") navigate("/review");
+              else if (action.kind === "library") navigate("/library");
+              else if (action.kind === "experience") navigate("/experience");
+              else if (action.kind === "import") startDocumentImport();
+              else if (action.kind === "retry") void reloadLearningState();
+            }}
           />
         )}
       </div>

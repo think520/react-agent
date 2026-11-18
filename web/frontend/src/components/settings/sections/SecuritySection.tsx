@@ -14,9 +14,9 @@ export function SecuritySection() {
     </SettingsSection>
 
     <SettingsSection title="平台边界" description="原始资料只读；任何移动、重命名都在你确认后执行，且可一键撤销。">
-      <p className="settings-model-hint">远程模型只接收你主动提问时构造的上下文；向量索引与个人知识都保存在本机 SQLite 里。</p>
+      <p className="settings-model-hint">远程模型仅在你主动发起请求时接收本次构造的上下文。联网研究会把搜索词发送给所配置的搜索服务；使用远程 embedding 时，用于索引的文本片段也会发送给对应服务。</p>
     </SettingsSection>
 
-    <section className="settings-boundary"><ShieldCheck size={20} /><div><strong>本地优先</strong><p>Bobodan 不上传资料库内容，也没有账号体系；卸载前请自行备份应用数据目录。</p></div></section>
+    <section className="settings-boundary"><ShieldCheck size={20} /><div><strong>本地优先</strong><p>不会批量上传整个资料库；按 Provider、embedding、联网研究和 MCP 配置，本次上下文或处理所需内容可能发送到对应远程服务。应用数据保存在本机；卸载前请自行备份。</p></div></section>
   </>;
 }

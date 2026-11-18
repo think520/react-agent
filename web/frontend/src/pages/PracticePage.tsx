@@ -114,6 +114,30 @@ function writeTutorSessions(
   }
 }
 
+function practiceDraftKey(libraryId: string | undefined, practiceSessionId: number, questionId: number): string {
+  return `bobodan:practice-draft:${libraryId || "default"}:${practiceSessionId}:${questionId}`;
+}
+
+function readPracticeDraft(libraryId: string | undefined, practiceSessionId: number | null, questionId: number | undefined): string {
+  if (!practiceSessionId || !questionId) return "";
+  try {
+    return window.sessionStorage.getItem(practiceDraftKey(libraryId, practiceSessionId, questionId)) || "";
+  } catch {
+    return "";
+  }
+}
+
+function writePracticeDraft(libraryId: string | undefined, practiceSessionId: number | null, questionId: number | undefined, answer: string): void {
+  if (!practiceSessionId || !questionId) return;
+  try {
+    const key = practiceDraftKey(libraryId, practiceSessionId, questionId);
+    if (answer) window.sessionStorage.setItem(key, answer);
+    else window.sessionStorage.removeItem(key);
+  } catch {
+    // A session-storage failure must not block answering the question.
+  }
+}
+
 export function PracticePage() {
   const { practiceSessionId } = useParams();
   const navigate = useNavigate();
@@ -159,17 +183,21 @@ export function PracticePage() {
   const [aiError, setAiError] = useState("");
   const [aiWorking, setAiWorking] = useState(false);
 
+  const libraryId = activeLibrary?.library_id;
   const loadSession = useCallback(async (sessionId: number) => {
     setLoading(true);
     setError("");
     try {
-      setSession(await api.practice(sessionId));
+      const loaded = await api.practice(sessionId);
+      const question = loaded.questions[Math.min(loaded.progress.current_index, loaded.questions.length - 1)];
+      setAnswer(readPracticeDraft(libraryId, sessionId, question?.id));
+      setSession(loaded);
     } catch (reason) {
       setError(toErrorMessage(reason, "无法恢复练习。"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [libraryId]);
 
   // W1 E5：逐题生成跑完（且用户选了这条路）才开练习 —— 用 ref 守卫，避免导航后重复开局。
   const pipelineStartedRef = useRef(false);
@@ -212,6 +240,11 @@ export function PracticePage() {
     if (!session) return null;
     return session.questions[Math.min(session.progress.current_index, session.questions.length - 1)] || null;
   }, [session]);
+
+  function updateAnswer(value: string) {
+    setAnswer(value);
+    writePracticeDraft(activeLibrary?.library_id, id, currentQuestion?.id, value);
+  }
 
   async function createPractice(event?: FormEvent, webConfirmed = false) {
     event?.preventDefault();
@@ -269,6 +302,7 @@ export function PracticePage() {
     setError("");
     try {
       const response = await api.submitAnswer(id, currentQuestion.id, answer.trim());
+      writePracticeDraft(activeLibrary?.library_id, id, currentQuestion.id, "");
       setResult(response);
     } catch (reason) {
       setError(toErrorMessage(reason, "答案没有提交成功。"));
@@ -478,8 +512,8 @@ export function PracticePage() {
         <form className="question-sheet" onSubmit={(event) => void submitAnswer(event)}>
           <h2>{currentQuestion.question}</h2>
           {answerChoices.length ? <div className="answer-options">{answerChoices.map((choice) => (
-            <label className={`${answer === choice.value ? "selected" : ""} ${result ? "locked" : ""}`} key={choice.value}><input type="radio" name="answer" value={choice.value} checked={answer === choice.value} disabled={Boolean(result)} onChange={() => setAnswer(choice.value)} /><span>{choice.marker}</span><strong>{choice.label}</strong></label>
-          ))}</div> : <textarea className="short-answer" rows={6} value={answer} disabled={Boolean(result)} onChange={(event) => setAnswer(event.target.value)} placeholder="用自己的话写下答案。可以不完整，Bobodan 会指出缺少的部分。" />}
+            <label className={`${answer === choice.value ? "selected" : ""} ${result ? "locked" : ""}`} key={choice.value}><input type="radio" name="answer" value={choice.value} checked={answer === choice.value} disabled={Boolean(result)} onChange={() => updateAnswer(choice.value)} /><span>{choice.marker}</span><strong>{choice.label}</strong></label>
+          ))}</div> : <textarea className="short-answer" rows={6} value={answer} disabled={Boolean(result)} onChange={(event) => updateAnswer(event.target.value)} placeholder="用自己的话写下答案。可以不完整，Bobodan 会指出缺少的部分。" />}
           <AttributionBadges attribution={currentQuestion.attribution} />
           {error && <ErrorNotice message={error} />}
           {result && <div className={`answer-feedback ${result.verdict === "partial" ? "partial" : result.is_correct ? "correct" : "review"}`}><div>{result.verdict === "partial" || result.is_correct ? <img className="brand-expression" src="/assets/brand/expressions/bobodan-expression-content.webp" width="42" height="42" alt="" /> : <CheckCircle2 size={19} />}<strong>{verdictLabel(result)}</strong></div><p>{result.feedback}</p>{visibleExplanation && <p>{visibleExplanation}</p>}{result.verdict !== "correct" && result.correct_answer && <small>参考答案：{result.correct_answer}</small>}{result.mastery_changes?.length ? <div className="mastery-changes">{result.mastery_changes.map((change, index) => change.concept ? <small key={index}>知识点「{change.concept}」：{masteryStatusText(change.status)}</small> : null)}</div> : null}</div>}

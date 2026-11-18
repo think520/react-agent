@@ -11,7 +11,7 @@ import { useAppearanceSync } from "../hooks/useAppearanceSync";
 import { toErrorMessage } from "../lib/errors";
 import { notifyError } from "../stores/noticeStore";
 import { useUiStore } from "../stores/uiStore";
-import type { Attribution, ChatSessionSummary, DocumentSummary, KnowledgeContext, LibraryMigrationPreview, LibrarySummary, ReviewQueue, SettingsSummary } from "../types";
+import type { ActivePracticeSummary, Attribution, ChatSessionSummary, DataLoadStatus, DocumentSummary, KnowledgeContext, LibraryMigrationPreview, LibrarySummary, ReviewQueue, SettingsSummary } from "../types";
 import { IconButton } from "./common";
 import { OnboardingDialog } from "./OnboardingDialog";
 import { ShortcutsDialog } from "./ShortcutsDialog";
@@ -37,6 +37,9 @@ export function AppShell() {
   const [initialDataLoaded, setInitialDataLoaded] = useState(false);
   const [documentsUnavailable, setDocumentsUnavailable] = useState(false);
   const [review, setReview] = useState<ReviewQueue | null>(null);
+  const [reviewStatus, setReviewStatus] = useState<DataLoadStatus>("loading");
+  const [activePractices, setActivePractices] = useState<ActivePracticeSummary[]>([]);
+  const [activePracticeStatus, setActivePracticeStatus] = useState<DataLoadStatus>("loading");
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const previewTimer = useRef<number | null>(null);
   const [loadingSessions, setLoadingSessions] = useState(true);
@@ -102,6 +105,8 @@ export function AppShell() {
   }, []);
 
   const loadScopedData = useCallback(async () => {
+    setReviewStatus("loading");
+    setActivePracticeStatus("loading");
     await Promise.all([
       refreshSessions(),
       // 读取失败不能当成「没有资料」：保留上一次的列表并标记不可用 —— 否则后端抖一下，
@@ -109,9 +114,21 @@ export function AppShell() {
       api.documents("material")
         .then((next) => { setDocuments(next); setDocumentsUnavailable(false); })
         .catch(() => setDocumentsUnavailable(true)),
-      api.reviewQueue().then(setReview).catch(() => setReview(null)),
+      api.reviewQueue()
+        .then((next) => { setReview(next); setReviewStatus("ready"); })
+        .catch(() => setReviewStatus("error")),
+      api.activePractice()
+        .then((next) => { setActivePractices(next.sessions); setActivePracticeStatus("ready"); })
+        .catch(() => setActivePracticeStatus("error")),
     ]);
   }, [refreshSessions]);
+
+  const previousSection = useRef(section);
+  useEffect(() => {
+    const returnedToChat = previousSection.current !== "chat" && section === "chat";
+    previousSection.current = section;
+    if (returnedToChat && activeLibrary) void loadScopedData();
+  }, [activeLibrary, loadScopedData, section]);
 
   const goToLibrary = useCallback(() => navigate("/library"), [navigate]);
   const {
@@ -156,6 +173,9 @@ export function AppShell() {
           setSessions([]);
           setDocuments([]);
           setReview(null);
+          setReviewStatus("ready");
+          setActivePractices([]);
+          setActivePracticeStatus("ready");
           setLoadingSessions(false);
         }
       })
@@ -362,6 +382,11 @@ export function AppShell() {
   const outletContext = useMemo<AppOutletContext>(() => ({
     sessions,
     settings,
+    review,
+    reviewStatus,
+    activePractices,
+    activePracticeStatus,
+    reloadLearningState: loadScopedData,
     refreshSettings,
     refreshSessions,
     openContext: openRightPanel,
@@ -401,7 +426,8 @@ export function AppShell() {
     dismissImportReport: dismissImportReport,
     libraryReady: initialDataLoaded,
   }), [
-    sessions, settings, refreshSettings, refreshSessions, openRightPanel, conceptDetailId,
+    sessions, settings, review, reviewStatus, activePractices, activePracticeStatus,
+    loadScopedData, refreshSettings, refreshSessions, openRightPanel, conceptDetailId,
     stableOpenConceptDetail, stableCloseConceptDetail, showKnowledgeContext, receiveKnowledgeContext,
     clearKnowledgeContext, stableShowSourceContext, documents, documentsUnavailable, selectedDocumentIds,
     selectedDocuments, toggleDocumentScope, setDocumentScope, clearDocumentScope, libraries, activeLibrary,
@@ -422,6 +448,7 @@ export function AppShell() {
     openConceptDetail,
     documents,
     review,
+    reviewStatus,
     selectedDocumentIds,
     toggleDocumentScope,
     knowledgeContext,
@@ -487,6 +514,10 @@ export function AppShell() {
         documents={documents}
         selectedDocumentIds={selectedDocumentIds}
         onToggleDocument={toggleDocumentScope}
+        onSkip={() => {
+          localStorage.setItem("bobodan:onboarding:v1", "complete");
+          setOnboardingOpen(false);
+        }}
         onComplete={(profile) => {
           localStorage.setItem("bobodan:onboarding:v1", "complete");
           setLearningProfile(profile);
