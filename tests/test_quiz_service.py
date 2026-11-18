@@ -551,12 +551,11 @@ def test_variant_failure_is_not_reported_as_missing_evidence(store, svc, workspa
     assert result["ok"] is True, result
     assert result["mode"] == "concept_fallback", result
     assert result["reason"] == "variant_failed", result
-
-
-# --- get_weakness_analysis ---
     # 恰好一次模型调用：重试 / 回退行为一变就会在这里显形（以前 * 4 会把多出的调用吞掉）。
     assert provider.call_count == 1, provider.call_count
 
+
+# --- get_weakness_analysis ---
 def test_get_weakness_analysis_empty(svc):
     result = svc.get_weakness_analysis()
     assert result["ok"]
