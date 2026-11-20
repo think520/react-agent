@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
-import { MoreHorizontal, RefreshCw, Search, Trash2 } from "lucide-react";
+import { MoreHorizontal, RefreshCw, Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import { api } from "../lib/api";
 import { sessionGroup, SESSION_GROUP_LABELS } from "../lib/sessionGroup";
+import { SearchField } from "../ui";
 import { useConfirm } from "../ui/Modal";
 import type { ChatSessionSummary } from "../types";
 import { formatSessionTime, IconButton, LoadingState } from "./common";
@@ -62,7 +63,14 @@ export function SessionRail({ sessions, loading, activeSessionId, refreshSession
     <div className="session-section">
       {confirmElement}
       <div className="section-label"><span>最近对话</span><IconButton label="刷新会话" onClick={() => void refreshSessions()}><RefreshCw size={15} /></IconButton></div>
-      <label className="session-search"><Search size={14} /><input value={sessionQuery} onChange={(event) => setSessionQuery(event.target.value)} placeholder="搜索对话" aria-label="搜索对话" /></label>
+      <SearchField
+        className="session-search"
+        size="sm"
+        value={sessionQuery}
+        onChange={setSessionQuery}
+        placeholder="搜索对话"
+        ariaLabel="搜索对话"
+      />
       {loading ? <LoadingState label="正在找回会话…" /> : groupedSessions.length ? (
         <div className="session-list">{groupedSessions.map((group) => <section className="session-group" key={group.label}><div className="session-group-label">{group.label}</div>{group.sessions.map((session) => (
           <div className={`session-row ${activeSessionId === session.chat_session_id ? "active" : ""}`} key={session.chat_session_id}>

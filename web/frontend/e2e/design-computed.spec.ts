@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { mockApi } from "./fixtures/mockApi";
+import { json, mockApi } from "./fixtures/mockApi";
 
 // L2 计算样式契约（DESIGN.md §16.3）：证明运行时**计算出来**的值，而不是只证明源码文本。
 // L2-1 阅读器字号见 reader-font-size.spec.ts；L2-5 设置视口约束见 settings-fit.spec.ts。
@@ -160,3 +160,118 @@ for (const [label, path] of [
     expect(violations, label + "页出现小于 12px 的文字：" + JSON.stringify(violations)).toEqual([]);
   });
 }
+
+// L2-6：搜索态与窄栏溢出护栏 —— 防止搜索框和导航命中项撑出容器或触发整页横向滚动。
+test("L2-6 搜索框与设置搜索命中不溢出各自容器", async ({ page }) => {
+  await mockApi(page);
+  await page.route("**/api/kb/documents*", (route) => route.fulfill(json({
+    documents: [{
+      document_id: "doc-1",
+      title: "超长标题_ContinuousLongMaterialTitleWithoutSpaces_20261120",
+      source: "chapter1.md",
+      collection: "material",
+      chunk_count: 3,
+      updated_at: "2026-11-20T00:00:00Z",
+    }],
+  })));
+  await page.route("**/api/kb/tree*", (route) => route.fulfill(json({
+    ok: true,
+    tree: {
+      type: "folder",
+      name: "测试资料库",
+      path: "",
+      material_count: 1,
+      indexed_count: 1,
+      ignored_count: 0,
+      ignored_here: [],
+      children: [],
+      files: [{
+        type: "file",
+        path: "chapter1.md",
+        name: "超长文件名_ContinuousLongFilenameWithoutBreaks_20261120.md",
+        size: 1024,
+        modified_at: "2026-11-20T00:00:00Z",
+        indexed: true,
+        document_id: "doc-1",
+        title: "超长标题_ContinuousLongMaterialTitleWithoutSpaces_20261120",
+        extraction_status: "complete",
+        chunk_count: 3,
+      }],
+    },
+  })));
+  await page.route("**/api/kb/search*", (route) => route.fulfill(json({ results: [], retrieval_mode: "fts_only" })));
+  await page.route("**/api/kb/archive*", (route) => route.fulfill(json({ entries: [] })));
+  await page.route("**/api/kb/organize/state*", (route) => route.fulfill(json({ pending_batch: null })));
+  await page.route("**/api/graph/extractions*", (route) => route.fulfill(json({ extractions: [] })));
+  await page.route("**/api/memory/knowledge*", (route) => route.fulfill(json({ items: [] })));
+  await page.route("**/api/quiz/bank*", (route) => route.fulfill(json({
+    total: 0,
+    items: [],
+    overview: { all: 0, unanswered: 0, incorrect: 0, partial: 0, correct: 0, starred: 0 },
+    concepts: [],
+    sources: [],
+  })));
+  await page.route("**/api/quiz/sets*", (route) => route.fulfill(json({ sets: [] })));
+
+  await page.goto("/chat?settings=appearance");
+  await settle(page);
+
+  const settingsSearch = page.getByLabel("搜索设置");
+  await settingsSearch.fill("模型");
+  await expect(page.getByRole("button", { name: "清空搜索" })).toBeVisible();
+  await expect(page.locator(".settings-nav > button").first()).toBeVisible();
+
+  const settingsOverflow = await page.evaluate(() => {
+    const issues: string[] = [];
+    const nav = document.querySelector(".settings-nav");
+    if (nav) {
+      const navRect = nav.getBoundingClientRect();
+      for (const el of Array.from(nav.querySelectorAll(":scope > .ui-search, :scope > button"))) {
+        const rect = el.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) continue;
+        if (rect.right > navRect.right + 1) {
+          issues.push(`${el.tagName}.${el.className}: right ${rect.right.toFixed(1)} > nav ${navRect.right.toFixed(1)}`);
+        }
+      }
+      if (nav.scrollWidth > nav.clientWidth + 1) {
+        issues.push(`.settings-nav horizontal overflow: ${nav.scrollWidth} > ${nav.clientWidth}`);
+      }
+    }
+    if (document.documentElement.scrollWidth > document.documentElement.clientWidth + 1) {
+      issues.push(`document overflow: ${document.documentElement.scrollWidth} > ${document.documentElement.clientWidth}`);
+    }
+    return issues;
+  });
+  expect(settingsOverflow, "设置搜索出现溢出：" + JSON.stringify(settingsOverflow)).toEqual([]);
+
+  for (const [path, searchLabel] of [
+    ["/chat", "搜索对话"],
+    ["/library", "搜索资料"],
+    ["/notes", "搜索笔记"],
+    ["/practice/bank", "搜索题库"],
+  ] as const) {
+    await page.goto(path);
+    await settle(page);
+    const input = page.getByLabel(searchLabel);
+    await input.fill("一段非常非常长且没有空格的ContinuousLongSearchQueryToken_20261120");
+    await expect(page.locator(".ui-search-clear").first()).toBeVisible();
+    const overflow = await page.evaluate(() => {
+      const issues: string[] = [];
+      for (const box of Array.from(document.querySelectorAll(".ui-search"))) {
+        const boxRect = box.getBoundingClientRect();
+        if (boxRect.width === 0) continue;
+        for (const child of Array.from(box.children)) {
+          const rect = child.getBoundingClientRect();
+          if (rect.right > boxRect.right + 1) {
+            issues.push(`search child overflow: ${child.tagName} right ${rect.right.toFixed(1)} > ${boxRect.right.toFixed(1)}`);
+          }
+        }
+      }
+      if (document.documentElement.scrollWidth > document.documentElement.clientWidth + 1) {
+        issues.push(`document overflow: ${document.documentElement.scrollWidth} > ${document.documentElement.clientWidth}`);
+      }
+      return issues;
+    });
+    expect(overflow, path + " 搜索态出现溢出：" + JSON.stringify(overflow)).toEqual([]);
+  }
+});

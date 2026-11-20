@@ -7,15 +7,11 @@
 .review-container > .page-heading { margin-bottom: 20px; }
 
 /* One wrapping filter row instead of three stacked ones. */
-.bank-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; margin-bottom: 12px; }
-.bank-filters { min-height: 0; flex: 1 1 420px; border-bottom: 1px solid var(--border); }
+.bank-toolbar { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 10px 12px; margin-bottom: 12px; }
+.bank-filters { min-height: 0; min-width: 0; flex: 1 1 420px; border-bottom: 1px solid var(--border); }
 .bank-toolbar .mention-tabs button { font-size: 13px; }
 .bank-toolbar .mention-tabs small { font-size: 12px; opacity: 0.75; }
-.bank-search { display: flex; min-width: 200px; flex: 1 1 220px; min-height: 36px; align-items: center; gap: 7px; border: 1px solid var(--border); border-radius: 8px; padding: 0 10px; background: var(--paper-soft); color: var(--faint); }
-.bank-search:focus-within { border-color: rgba(27,54,93,0.18); background: var(--paper); color: var(--blue); }
-.bank-search input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; font-size: 13.5px; }
-.bank-search input::placeholder { color: var(--faint); }
-.bank-search .icon-button { width: 24px; height: 24px; }
+.bank-search { min-width: 180px; flex: 1 1 220px; max-width: 100%; }
 .bank-toolbar .dropdown-trigger { min-height: 36px; border: 1px solid var(--border); border-radius: 8px; padding: 0 10px; background: var(--paper-soft); font-size: 13px; }
 .bank-restore { cursor: pointer; }
 .bank-restore input { display: none; }
@@ -33,21 +29,23 @@
 .bank-set-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; border-radius: 6px; padding: 4px 6px; }
 .bank-set-row.active { background: var(--blue-wash); }
 .bank-set-row input { min-height: 34px; min-width: 160px; border: 1px solid var(--border-strong); border-radius: 6px; padding: 0 8px; background: var(--paper); font-size: 13px; }
-.bank-set-name { display: inline-flex; min-height: 34px; align-items: center; gap: 7px; border: 0; padding: 0 6px; background: transparent; color: var(--ink); font-size: 13px; text-align: left; }
+.bank-set-name { display: inline-flex; min-width: 0; max-width: 100%; min-height: 34px; align-items: center; gap: 7px; overflow: hidden; border: 0; padding: 0 6px; background: transparent; color: var(--ink); font-size: 13px; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
 .bank-set-name:hover { color: var(--blue); }
 .bank-set-name small { color: var(--faint); font-size: 12px; }
 .bank-set-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 12px; border-left: 2px solid var(--blue-soft); padding: 10px 14px; background: var(--blue-wash); color: var(--muted); font-size: 12.5px; }
 .bank-set-banner .text-link { border: 0; padding: 0; background: transparent; font-size: 12.5px; }
 
-.bank-concepts { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-bottom: 12px; }
-.bank-concept { display: inline-flex; min-height: 30px; align-items: center; gap: 5px; border: 0; border-radius: 6px; padding: 0 10px; background: rgba(46,43,39,0.05); color: var(--muted); font-size: 12.5px; }
+.bank-concepts { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 7px; margin-bottom: 12px; }
+.bank-concept { display: inline-flex; min-width: 0; max-width: 100%; min-height: 30px; align-items: center; gap: 5px; overflow: hidden; border: 0; border-radius: var(--radius-sm); padding: 0 10px; background: rgba(46,43,39,0.05); color: var(--muted); font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap; transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--spring-press); }
 .bank-concept:hover { background: var(--blue-wash); color: var(--blue); }
+.bank-concept:active { transform: scale(0.97); }
 .bank-concept small { color: var(--faint); font-size: 12px; }
 .bank-bulk { display: flex; justify-content: flex-end; margin-bottom: 10px; }
 
 /* A question is a light sheet: real border, tinted state rail, no shadow. */
-.bank-list { display: grid; gap: 10px; }
-.bank-row { display: grid; gap: 8px; border: 1px solid var(--border); border-left: 3px solid var(--border); border-radius: 8px; padding: 14px 18px; background: var(--paper-soft); }
+.bank-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.bank-row { display: grid; min-width: 0; gap: 8px; overflow: hidden; border: 1px solid var(--border); border-left: 3px solid var(--border); border-radius: var(--radius-md); padding: 14px 18px; background: var(--paper-soft); transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
+.bank-row:hover { border-color: var(--border-strong); box-shadow: var(--shadow-lift); }
 
 /* E8：导入结果的**逐文件**清单（需要处理的排最前，带可行动原因与重试）。 */
 .import-report {
@@ -139,16 +137,17 @@
 .bank-state.partial { background: var(--sage-wash); color: var(--sage-deep); }
 .bank-state.correct { background: var(--sage-wash); color: var(--sage-deep); }
 .bank-state.incorrect { background: var(--clay-wash); color: var(--clay); }
-.bank-row h3 { margin: 0; color: var(--ink); font-family: var(--font-reading); font-size: var(--body-font-size); font-weight: 500; line-height: 1.6; }
+.bank-row h3 { min-width: 0; margin: 0; overflow-wrap: anywhere; color: var(--ink); font-family: var(--font-reading); font-size: var(--body-font-size); font-weight: 500; line-height: 1.6; }
 .bank-answer { border-left: 3px solid var(--sage); border-radius: 0 6px 6px 0; padding: 12px 14px; background: var(--sage-wash); }
 .bank-answer.incorrect { border-left-color: var(--clay); background: var(--clay-wash); }
 .bank-answer-grid { display: grid; gap: 10px; }
+.bank-answer-grid > div { min-width: 0; }
 .bank-answer-label { color: var(--sage-deep); font-size: 12px; font-weight: 650; }
 .bank-answer.incorrect .bank-answer-label { color: var(--clay); }
-.bank-answer-value { margin: 3px 0 0; color: var(--ink); font-size: 13.5px; line-height: 1.7; }
+.bank-answer-value { margin: 3px 0 0; overflow-wrap: anywhere; color: var(--ink); font-size: 13.5px; line-height: 1.7; }
 .bank-reveal { border-left: 2px solid var(--border); padding-left: 12px; }
 .bank-reveal summary { color: var(--blue); font-size: 13px; font-weight: 650; cursor: pointer; }
-.bank-reveal p { margin: 8px 0 0; color: var(--ink); font-size: 13.5px; line-height: 1.7; }
+.bank-reveal p { margin: 8px 0 0; overflow-wrap: anywhere; color: var(--ink); font-size: 13.5px; line-height: 1.7; }
 .bank-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 14px; }
 .bank-mine { color: var(--muted); }
 .bank-mine strong { color: var(--ink); font-weight: 500; }

@@ -12,7 +12,7 @@
 import { readerLocation } from "../lib/documentLinks";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useOutletContext } from "react-router-dom";
-import { List, Map as MapIcon, Link2, Maximize2, Network, Plus, Search, Sparkles, Table, X } from "lucide-react";
+import { List, Map as MapIcon, Link2, Maximize2, Network, Plus, Sparkles, Table, X } from "lucide-react";
 import { api } from "../lib/api";
 import { shouldIgnoreShortcut } from "../lib/ime";
 import { useUiStore } from "../stores/uiStore";
@@ -28,6 +28,7 @@ import { useTemporaryHighlight } from "../hooks/useTemporaryHighlight";
 import { DropdownSelect } from "../components/DropdownSelect";
 import { LoadingState } from "../components/common";
 import { Modal } from "../ui/Modal";
+import { SearchField } from "../ui";
 import type { AppOutletContext } from "../components/AppShell";
 
 interface ExtractionSource {
@@ -222,15 +223,14 @@ export function KnowledgeMapPage() {
 
         {/* Search (directory + sources) */}
         {view !== "map" && (
-          <label className="km-search">
-            <Search size={14} aria-hidden="true" />
-            <input
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="搜索概念名称…"
-              aria-label="搜索概念"
-            />
-          </label>
+          <SearchField
+            className="km-search"
+            size="sm"
+            value={searchQuery}
+            onChange={setSearchQuery}
+            placeholder="搜索概念名称…"
+            ariaLabel="搜索概念"
+          />
         )}
 
         {view === "map" && !isEmpty && (

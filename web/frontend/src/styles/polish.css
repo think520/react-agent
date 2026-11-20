@@ -107,3 +107,121 @@
 .practice-stepwise strong { color: var(--ink); font-size: 13px; font-weight: 650; }
 .practice-stepwise small { color: var(--muted); font-size: 12px; line-height: 1.5; }
 .practice-stepwise .setting-toggle { flex: 0 0 auto; margin-top: 1px; }
+
+/* ── 统一搜索框基座与微交互（2026-11-20）──
+   收口全站 6 处手写搜索框：统一 Surface 3 + 发丝环 + 柔焦光晕 + 清除按钮，
+   彻底消除输入框溢出、暗色失色、长文撑破窄栏的问题。 */
+.ui-search {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  min-height: var(--h-control);
+  align-items: center;
+  gap: 7px;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--radius-md);
+  padding: 0 10px;
+  background: var(--surface-3);
+  color: var(--faint);
+  box-shadow: 0 0 0 var(--hairline) var(--ring);
+  transition: background var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.ui-search.ui-search-sm { min-height: var(--h-control-sm); padding: 0 9px; }
+.ui-search:hover { box-shadow: 0 0 0 var(--hairline) color-mix(in srgb, var(--ink) 20%, transparent); }
+.ui-search:focus-within {
+  background: var(--surface-3);
+  color: var(--blue);
+  box-shadow: 0 0 0 var(--hairline) color-mix(in srgb, var(--blue) 42%, transparent), 0 0 0 3px color-mix(in srgb, var(--blue) 10%, transparent);
+}
+.ui-search-icon { flex: 0 0 auto; transition: color var(--dur-fast) var(--ease-out); }
+.ui-search input {
+  min-width: 0;
+  width: 100%;
+  flex: 1 1 auto;
+  border: 0;
+  outline: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+}
+.ui-search.ui-search-sm input { font-size: 12.5px; }
+.ui-search input::placeholder { color: var(--faint); }
+.ui-search-clear {
+  display: inline-grid;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 0;
+  background: transparent;
+  color: var(--faint);
+  cursor: pointer;
+  animation: ui-search-clear-in var(--dur-fast) var(--spring-pop);
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--spring-press);
+}
+.ui-search-clear:hover { background: var(--blue-wash); color: var(--blue); }
+.ui-search-clear:active { transform: scale(0.92); }
+@keyframes ui-search-clear-in { from { opacity: 0; transform: scale(0.88); } }
+
+/* 侧栏/停靠面/工具栏内搜索框的容器宽度适配 */
+.session-search.ui-search { width: auto; margin: 0 3px 8px; }
+.settings-search.ui-search { margin: 0 0 6px; }
+.document-search.ui-search { margin: 0 0 9px; }
+.notes-search.ui-search { width: 220px; max-width: 100%; flex: 0 1 220px; }
+.km-search.ui-search { width: 220px; max-width: 100%; flex: 0 1 220px; }
+.bank-search.ui-search { width: auto; min-width: 180px; flex: 1 1 220px; max-width: 100%; }
+@media (max-width: 860px) {
+  .notes-header { flex-direction: column; align-items: flex-start; padding: 16px 0; }
+  .notes-header-actions { width: 100%; flex-wrap: wrap; }
+  .notes-search.ui-search { width: auto; flex: 1 1 180px; }
+}
+@media (max-width: 767px) {
+  .settings-search.ui-search { width: auto; flex: 1 0 150px; margin: 0 4px 0 0; }
+  .bank-search.ui-search { flex: 1 1 100%; }
+}
+
+/* 暗色主题下未开启开关轨道可读性修复（从固定深色 rgba 改为随主题 --ink 混合） */
+.setting-toggle:not(.on) { background: color-mix(in srgb, var(--ink) 20%, transparent); }
+
+/* ── 浮层与交互手感统一（暖纸发丝环 + 物理弹簧轻反馈）── */
+.dropdown-panel,
+.reader-more-actions > div,
+.library-tree-actions > div,
+.km-force-params > div,
+.note-reference-list {
+  border: 0;
+  background: var(--surface-3);
+  box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-float);
+  animation: menu-enter var(--dur-fast) var(--spring-pop);
+}
+.setting-segmented button,
+.practice-mode button,
+.km-tab,
+.mention-tabs button,
+.providers-item,
+.settings-nav > button {
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--spring-press);
+}
+.setting-segmented button.active,
+.practice-mode button.active {
+  box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-lift);
+}
+.setting-segmented button:active,
+.practice-mode button:active,
+.km-tab:active,
+.mention-tabs button:active,
+.providers-item:active,
+.settings-nav > button:active {
+  transform: scale(0.985);
+}
+.setting-row > span strong,
+.setting-row > span small {
+  overflow-wrap: anywhere;
+}

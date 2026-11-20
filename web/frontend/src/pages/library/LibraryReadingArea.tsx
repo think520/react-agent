@@ -16,6 +16,7 @@ import {} from "../../lib/api";
 import type {} from "../../lib/api";
 import { DocumentReader } from "../../components/DocumentReader";
 import { ScrollIndicator } from "../../components/ScrollIndicator";
+import { SearchField } from "../../ui";
 import {} from "../../stores/readerTabsStore";
 import {} from "../../ui/Modal";
 import type { DocumentExtractionStatus, DocumentSection, DocumentSummary } from "../../types";
@@ -108,7 +109,14 @@ export function LibraryReadingArea(props: LibraryReadingAreaProps) {
   {collection === "wiki" && (
   <aside className="document-rail">
     <div className="rail-label"><FolderOpen size={15} />{wikiView === "knowledge" ? "知识页面" : wikiView === "sources" ? "资料索引" : wikiView === "notes" ? "个人笔记" : "全部页面"} <span>{filteredDocuments.length}</span></div>
-    <label className="document-search"><Search size={14} /><input value={documentQuery} onChange={(event) => setDocumentQuery(event.target.value)} placeholder="搜索资料" aria-label="搜索资料" /></label>
+    <SearchField
+      className="document-search"
+      size="sm"
+      value={documentQuery}
+      onChange={setDocumentQuery}
+      placeholder="搜索资料"
+      ariaLabel="搜索资料"
+    />
     {hitsError && <p className="document-hits-error" role="status">原文搜索暂时不可用，下面只按标题筛选。</p>}
     {hits.length > 0 && (
       <div className="document-hits" aria-label="原文命中">

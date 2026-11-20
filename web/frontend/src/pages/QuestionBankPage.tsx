@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { ArrowRight, Bookmark, BookmarkCheck, CircleHelp, Download, FolderPlus, Pencil, Play, RefreshCw, Search, Trash2, Upload, X } from "lucide-react";
+import { ArrowRight, Bookmark, BookmarkCheck, CircleHelp, Download, FolderPlus, Pencil, Play, RefreshCw, Trash2, Upload, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import { AttributionBadges, EmptyState, ErrorNotice, LoadingState, formatRelativeDate } from "../components/common";
@@ -8,6 +8,7 @@ import { api } from "../lib/api";
 import { toErrorMessage } from "../lib/errors";
 import { useHandoffStore } from "../stores/handoffStore";
 import { notifyInfo } from "../stores/noticeStore";
+import { SearchField } from "../ui";
 import { useConfirm } from "../ui/Modal";
 import type { QuestionBank, QuestionBankItem, QuestionSetSummary } from "../types";
 
@@ -502,11 +503,14 @@ export function QuestionBankPage() {
               </button>
             ))}
           </div>
-          <label className="bank-search">
-            <Search size={14} />
-            <input value={query} placeholder="搜索题干或知识点" aria-label="搜索题库" onChange={(event) => setQuery(event.target.value)} />
-            {query && <button type="button" className="icon-button" aria-label="清除搜索" onClick={() => setQuery("")}><X size={14} /></button>}
-          </label>
+          <SearchField
+            className="bank-search"
+            value={query}
+            onChange={setQuery}
+            placeholder="搜索题干或知识点"
+            ariaLabel="搜索题库"
+            clearLabel="清除搜索"
+          />
           <DropdownSelect ariaLabel="按题型筛选" value={qtype} onChange={changeFilter(setQtype)} options={TYPE_OPTIONS} />
           <DropdownSelect ariaLabel="按难度筛选" value={difficulty} onChange={changeFilter(setDifficulty)} options={DIFFICULTY_OPTIONS} />
           <DropdownSelect ariaLabel="按资料筛选" value={source} onChange={changeFilter(setSource)} options={sourceOptions} />

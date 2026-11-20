@@ -1,6 +1,6 @@
 import { readerLocation } from "../lib/documentLinks";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, Check, Eye, Pencil, Pin, Plus, Search, Trash2, X } from "lucide-react";
+import { BookOpen, Check, Eye, Pencil, Pin, Plus, Trash2, X } from "lucide-react";
 import { useOutletContext } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -9,6 +9,7 @@ import { api } from "../lib/api";
 import type { AppOutletContext } from "../components/AppShell";
 import { IconButton, EmptyState, LoadingState } from "../components/common";
 import { MemoryManagerDialog } from "../components/MemoryManagerDialog";
+import { SearchField } from "../ui";
 import { useConfirm } from "../ui/Modal";
 import type { PersonalKnowledgeItem } from "../types";
 import { userMessageFor } from "../lib/errorHints";
@@ -273,7 +274,7 @@ export function NotesPage() {
           <p>你自己的思考、结论和摘录。引用资料后，阅读原文时也能看到这些笔记。</p>
         </div>
         <div className="notes-header-actions">
-          <label className="notes-search"><Search size={14} /><input aria-label="搜索笔记" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索笔记" /></label>
+          <SearchField className="notes-search" value={query} onChange={setQuery} placeholder="搜索笔记" ariaLabel="搜索笔记" />
           <button className="quiet-button" onClick={() => setManagerOpen(true)}>管理全部</button>
           <button className="primary-button" onClick={startNew}><Plus size={15} />写笔记</button>
         </div>

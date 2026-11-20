@@ -36,7 +36,7 @@
 .settings-model-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; align-items: center; gap: 8px; border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; }
 .settings-model-row span { display: flex; min-width: 0; flex-direction: column; gap: 1px; }
 .settings-model-row strong { overflow: hidden; color: var(--ink); font-size: 12.5px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-.settings-model-row small { color: var(--muted); font-size: 12px; }
+.settings-model-row small { overflow: hidden; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .settings-model-row i { border-radius: 6px; background: var(--paper-sunken); padding: 1px 6px; color: var(--muted); font-size: 12px; font-style: normal; }
 .settings-model-add { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 8px; }
 .settings-model-budget { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
@@ -44,8 +44,8 @@
 .settings-model-budget input { width: 100%; }
 .settings-provider-row { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto auto; align-items: center; gap: 10px; }
 .settings-provider-row div { display: flex; min-width: 0; flex-direction: column; gap: 1px; }
-.settings-provider-row strong { color: var(--ink); font-size: 12.5px; font-weight: 600; }
-.settings-provider-row small { color: var(--muted); font-size: 12px; }
+.settings-provider-row strong { overflow: hidden; color: var(--ink); font-size: 12.5px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.settings-provider-row small { overflow: hidden; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .settings-provider-row label { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-size: 12px; }
 @media (max-width: 900px) {
   .providers-pane { grid-template-columns: minmax(0, 1fr); }
@@ -63,14 +63,14 @@
 @media (max-width: 720px) { .rag-glossary div { grid-template-columns: minmax(0, 1fr); gap: 2px; } }
 
 /* ── 设置区 v2 · S5：设置项级搜索 ── */
-.settings-nav button small { color: var(--muted); font-size: 12px; }
+.settings-nav button small { min-width: 0; flex: 0 1 auto; max-width: 46%; overflow: hidden; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .settings-search-flash { border-radius: 8px; background: var(--blue-wash); box-shadow: inset 0 0 0 1px rgba(27,54,93,0.18); }
 
 /* ── 设置区 v2 · 排版收紧（2026-10-17 用户反馈：太大、太散） ── */
 .settings-dialog-header { min-height: 56px; }
 .settings-nav { gap: 2px; padding: 10px 8px; }
-.settings-nav button { min-height: 34px; font-size: 12.5px; }
-.settings-search { min-height: 32px; margin-bottom: 6px; }
+.settings-nav > button { min-height: 34px; font-size: 12.5px; }
+.settings-search { min-height: 34px; margin-bottom: 6px; }
 .settings-main { padding: 20px clamp(18px,3.2vw,40px) 32px; }
 .settings-main > * { max-width: 680px; }
 .settings-page { gap: 14px; }

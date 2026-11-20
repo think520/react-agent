@@ -5,6 +5,7 @@
 import { FolderOpen, Search } from "lucide-react";
 
 import { LibraryTree } from "../../components/LibraryTree";
+import { SearchField } from "../../ui";
 import type { KnowledgeTree } from "../../lib/api";
 import type { ArchivedEntry, OrganizationBatch, OrganizationProposal } from "../../lib/api";
 import type { NavigateFunction } from "react-router-dom";
@@ -80,7 +81,14 @@ export function LibraryTreePanel(props: LibraryTreePanelProps) {
   <aside className="library-tree-pane" aria-label="资料库文件夹">
     <div className="rail-label"><FolderOpen size={15} />文件夹 <span>{tree.material_count}</span></div>
     
-    <label className="document-search"><Search size={14} /><input value={documentQuery} onChange={(event) => setDocumentQuery(event.target.value)} placeholder="搜索资料" aria-label="搜索资料" /></label>
+    <SearchField
+      className="document-search"
+      size="sm"
+      value={documentQuery}
+      onChange={setDocumentQuery}
+      placeholder="搜索资料"
+      ariaLabel="搜索资料"
+    />
     {hitsError && <p className="document-hits-error" role="status">原文搜索暂时不可用，下面只按标题筛选。</p>}
     {hitsEmpty && (
       <div className="document-hits-error" role="status">

@@ -138,13 +138,13 @@
    （这里原来还有一条 `.library-workspace.with-tree { 260px 270px 1fr }` 的三列声明：
    中间的"我的资料"列表早在 2026-09-24 就删了，它只会在某些类名组合下凭空多出一个空列，
    所以一并删除；列宽统一由文件下方"资料库分栏"那一段负责。） */
-.library-tree-pane { border-right: 1px solid var(--border); padding: var(--space-4) var(--space-3) var(--space-4) 0; min-width: 0; }
+.library-tree-pane { border-right: 1px solid var(--border); padding: var(--space-4) var(--space-3); min-width: 0; }
 /* ④：标签条 + 阅读区是**一个**网格列。它俩以前是网格的两个孩子，一开标签就变成 4 个，
    3 列网格自动换行，整个分栏塌陷（2026-09-24 用户截图）。 */
 .library-reader-column { display: flex; flex-direction: column; min-width: 0; }
 .library-tree { list-style: none; margin: 0; padding: 0; font-size: 13px; }
 .library-tree ul { list-style: none; margin: 0; padding: 0; }
-.library-tree-row { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 28px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--ink); text-align: left; cursor: pointer; }
+.library-tree-row { display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0; min-height: 30px; overflow: hidden; border: 0; border-radius: var(--radius-sm); padding: 0 4px; background: transparent; color: var(--ink); text-align: left; cursor: pointer; transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
 .library-tree-row:hover { background: var(--paper-soft); }
 .library-tree-row.selected { background: var(--blue-wash); color: var(--blue); }
 .library-tree-row.active { background: var(--blue-wash); color: var(--blue); font-weight: 650; }
