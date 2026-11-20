@@ -178,6 +178,91 @@ def test_fetch_models_ollama_payload(monkeypatch, tmp_path):
     assert [m["id"] for m in response["models"]] == ["qwen2.5:7b"]
 
 
+def test_fetch_models_parses_common_model_id_fields_and_deduplicates(monkeypatch, tmp_path):
+    import httpx
+
+    monkeypatch.setenv("BOBODAN_HOME", str(tmp_path / "home"))
+
+    def get(url, headers=None, timeout=10):
+        assert url == "https://example.com/v1/models"
+        return httpx.Response(200, json={"data": [
+            {"model": "model-b"},
+            {"model_id": "model-a"},
+            {"id": "model-b", "name": "Model B"},
+        ]}, request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(httpx, "get", get)
+    from web.backend.routers.settings import ProviderFetchModelsRequest, fetch_provider_models
+
+    response = fetch_provider_models(ProviderFetchModelsRequest(base_url="https://example.com/v1/", api_key="k"))
+    assert response["models"] == [
+        {"id": "model-a", "name": "model-a"},
+        {"id": "model-b", "name": "Model B"},
+    ]
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected_code"),
+    [
+        ({"object": "list", "data": []}, "fetch_models_empty"),
+        ({"items": [{"label": "unknown shape"}]}, "fetch_models_unsupported_format"),
+        ({"data": [{"label": "missing model id"}]}, "fetch_models_unsupported_format"),
+    ],
+)
+def test_fetch_models_rejects_empty_or_unrecognized_payload(monkeypatch, tmp_path, payload, expected_code):
+    import httpx
+
+    monkeypatch.setenv("BOBODAN_HOME", str(tmp_path / "home"))
+    monkeypatch.setattr(httpx, "get", lambda url, headers=None, timeout=10: httpx.Response(
+        200, json=payload, request=httpx.Request("GET", url),
+    ))
+    from web.backend.errors import APIError
+    from web.backend.routers.settings import ProviderFetchModelsRequest, fetch_provider_models
+
+    with pytest.raises(APIError) as exc_info:
+        fetch_provider_models(ProviderFetchModelsRequest(base_url="https://example.com/v1"))
+    assert exc_info.value.code == expected_code
+
+
+@pytest.mark.parametrize(
+    ("status_code", "expected_code"),
+    [(404, "fetch_models_endpoint_unsupported"), (405, "fetch_models_endpoint_unsupported"), (429, "fetch_models_rate_limited")],
+)
+def test_fetch_models_explains_endpoint_and_rate_limit_failures(monkeypatch, tmp_path, status_code, expected_code):
+    import httpx
+
+    monkeypatch.setenv("BOBODAN_HOME", str(tmp_path / "home"))
+
+    def get(url, headers=None, timeout=10):
+        request = httpx.Request("GET", url)
+        response = httpx.Response(status_code, request=request)
+        response.raise_for_status()
+        return response
+
+    monkeypatch.setattr(httpx, "get", get)
+    from web.backend.errors import APIError
+    from web.backend.routers.settings import ProviderFetchModelsRequest, fetch_provider_models
+
+    with pytest.raises(APIError) as exc_info:
+        fetch_provider_models(ProviderFetchModelsRequest(base_url="https://example.com/v1"))
+    assert exc_info.value.code == expected_code
+
+
+def test_fetch_models_classifies_non_json_response_as_unsupported_format(monkeypatch, tmp_path):
+    import httpx
+
+    monkeypatch.setenv("BOBODAN_HOME", str(tmp_path / "home"))
+    monkeypatch.setattr(httpx, "get", lambda url, headers=None, timeout=10: httpx.Response(
+        200, text="<html><body>Not an API endpoint</body></html>", request=httpx.Request("GET", url),
+    ))
+    from web.backend.errors import APIError
+    from web.backend.routers.settings import ProviderFetchModelsRequest, fetch_provider_models
+
+    with pytest.raises(APIError) as exc_info:
+        fetch_provider_models(ProviderFetchModelsRequest(base_url="https://example.com"))
+    assert exc_info.value.code == "fetch_models_unsupported_format"
+
+
 def test_parse_provider_ref():
     from web.backend.deps import parse_provider_ref
 

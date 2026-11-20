@@ -84,7 +84,8 @@ export function ProvidersPane({ providers, onChanged }: {
       if (result.models.length) setNotice("已获取 " + result.models.length + " 个模型，可继续手输补充。");
       else setNotice("没有读取到模型，可手动添加。");
     } catch (reason) {
-      setError((reason instanceof Error ? reason.message : "获取模型失败") + "。可手动输入模型名。");
+      const message = reason instanceof Error && reason.message ? reason.message.trim() : "获取模型失败";
+      setError(message.includes("手动") ? message : `${message.replace(/[。.]$/, "")}。可手动输入模型 ID。`);
     } finally {
       setWorking(false);
     }

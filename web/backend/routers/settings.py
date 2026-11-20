@@ -227,24 +227,76 @@ def fetch_provider_models(body: ProviderFetchModelsRequest) -> dict:
     try:
         response = httpx.get(f"{base_url}/models", headers=headers, timeout=10)
         response.raise_for_status()
-        payload = response.json()
     except httpx.TimeoutException:
-        raise APIError(409, "fetch_models_timeout", "The provider did not respond in time.")
+        raise APIError(409, "fetch_models_timeout", "读取模型超时，请检查网络连接或稍后重试。")
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 401 or exc.response.status_code == 403:
-            raise APIError(409, "fetch_models_unauthorized", "The API key was rejected.")
-        raise APIError(409, "fetch_models_failed", "The provider could not be reached.")
-    except (httpx.HTTPError, ValueError):
-        raise APIError(409, "fetch_models_failed", "The provider could not be reached.")
+            raise APIError(409, "fetch_models_unauthorized", "API Key 未通过验证，请检查密钥是否正确。")
+        if exc.response.status_code in {404, 405}:
+            raise APIError(
+                409,
+                "fetch_models_endpoint_unsupported",
+                "该服务没有提供可用的 GET /models 接口。请确认 API 地址填写到服务根路径（例如 /v1），或手动添加服务商给出的模型 ID。",
+            )
+        if exc.response.status_code == 429:
+            raise APIError(409, "fetch_models_rate_limited", "读取模型请求过于频繁，请稍后重试。")
+        raise APIError(
+            409,
+            "fetch_models_http_error",
+            f"模型列表接口返回 HTTP {exc.response.status_code}。请检查 API 地址和密钥，或手动添加模型 ID。",
+        )
+    except httpx.HTTPError:
+        raise APIError(409, "fetch_models_failed", "无法连接到模型服务，请检查 API 地址和网络连接。")
 
-    items = payload.get("data") if isinstance(payload, dict) else None
-    if not isinstance(items, list):
-        items = payload.get("models", []) if isinstance(payload, dict) else []
-    models = sorted(
-        ({"id": item.get("id") or item.get("name", ""), "name": item.get("id") or item.get("name", "")}
-         for item in items if isinstance(item, dict) and (item.get("id") or item.get("name"))),
-        key=lambda item: item["id"],
-    )
+    try:
+        payload = response.json()
+    except ValueError:
+        raise APIError(
+            409,
+            "fetch_models_unsupported_format",
+            "服务返回的不是有效的 JSON 模型列表。请确认 API 地址填写到服务根路径（例如 /v1），或手动添加准确的模型 ID。",
+        )
+
+    items = payload if isinstance(payload, list) else None
+    if isinstance(payload, dict):
+        for key in ("data", "models"):
+            if isinstance(payload.get(key), list):
+                items = payload[key]
+                break
+    if items is None:
+        raise APIError(
+            409,
+            "fetch_models_unsupported_format",
+            "服务返回的模型列表格式无法识别。请核对服务商文档，或手动添加准确的模型 ID。",
+        )
+
+    models_by_id = {}
+    for item in items:
+        if isinstance(item, str):
+            model_id = item.strip()
+            model_name = model_id
+        elif isinstance(item, dict):
+            model_id = str(item.get("id") or item.get("model") or item.get("model_id") or item.get("name") or "").strip()
+            model_name = str(item.get("name") or model_id).strip()
+        else:
+            continue
+        if model_id:
+            existing = models_by_id.get(model_id)
+            if existing is None or (existing["name"] == model_id and model_name and model_name != model_id):
+                models_by_id[model_id] = {"id": model_id, "name": model_name or model_id}
+    models = sorted(models_by_id.values(), key=lambda item: item["id"])
+    if items and not models:
+        raise APIError(
+            409,
+            "fetch_models_unsupported_format",
+            "服务返回了模型列表，但其中没有可识别的模型 ID。请手动添加服务商提供的模型 ID。",
+        )
+    if not models:
+        raise APIError(
+            409,
+            "fetch_models_empty",
+            "接口可访问，但没有返回可用模型。请确认账号权限，或手动添加服务商提供的模型 ID。",
+        )
     return {"ok": True, "models": models}
 
 

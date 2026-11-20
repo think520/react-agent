@@ -24,7 +24,7 @@ export function ProviderFormFields({ form, setForm, working, keyless, onFetchMod
       <span>模型列表{form.models.length ? " · " + form.models.length + " 个" : ""}</span>
       <button className="quiet-button" type="button" disabled={working || !form.base_url.trim()} onClick={onFetchModels}><RefreshCw size={13} />读取模型</button>
     </div>
-    <p className="settings-model-hint">从「读取模型」拉取，或手动输入。默认模型用于该供应商的常规调用。</p>
+    <p className="settings-model-hint">API 地址请填写服务根路径（如 https://api.example.com/v1），不要包含 /chat/completions。「读取模型」需要服务支持 GET /models；若不支持，可按服务商文档手动输入准确的模型 ID。</p>
     <div className="settings-model-list">
       {form.models.map((model: ProviderModel) => (
         <div className="settings-model-row" key={model.id}>
