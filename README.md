@@ -102,7 +102,8 @@ flowchart LR
 | 本地 RAG | SQLite FTS5 中文检索，可选 Qdrant 向量索引和 RRF 混合检索 | 没有可用 embedding 时自动降级为 FTS-only，并把状态交给界面 |
 | 练习与复习 | 单选、判断、简答、自动批改、错题变式、掌握度和间隔复习 | 题目来源确定性保存，模型不能自行伪造来源 |
 | 知识地图与个人知识 | 管理已确认概念、关系、证据；「笔记」一级入口记录个人思考，可关联资料并双向回溯 | 候选概念和记忆写入都经过明确的用户边界；个人笔记永不进入概念图谱 |
-| 扩展能力 | 支持 Skills、MCP、Wiki 整理和多个 LLM Provider | MCP 默认关闭，联网研究需要用户授权 |
+| 整库备份与恢复 | 在设置页一键创建整库 ZIP 备份（SQLite 在线快照 + SHA-256 校验），支持异地干净目录恢复与失败自动回滚 | 默认不导出 `provider.json`（API 密钥）与本地 `.env`，不覆盖非空目标目录 |
+| 扩展能力 | 支持 Skills、MCP、Wiki 整理、离线体验课和多个 LLM Provider | MCP 默认关闭，联网研究需要用户授权 |
 
 <details>
 <summary><strong>查看实现细节</strong></summary>
@@ -141,7 +142,7 @@ flowchart LR
 
 ```mermaid
 flowchart TB
-    UI["React 19 + TypeScript + Vite<br/>Chat · Library · Practice · Review · Knowledge Map"]
+    UI["React 19 + TypeScript + Vite<br/>Chat · Practice · Review · Knowledge Map · Notes · Library"]
     API["FastAPI<br/>REST + SSE"]
     SERVICES["共享 Python 服务层<br/>AgentLoop · Session · Provider · Quiz · Learning"]
     DATA["SQLite<br/>RAG · 图谱 · 个人知识 · 学习进度"]
@@ -344,12 +345,14 @@ npm run test:e2e
 
 ## 文档
 
+- [文档索引](docs/README.md)（唯一文档入口）
+- [执行路线图](docs/ROADMAP.md)
 - [项目主指南](docs/PROJECT_GUIDE.md)
 - [界面设计规范](docs/DESIGN.md)
 - [RAG 设计](docs/rag_design.md)
+- [隐私与数据边界](PRIVACY.md)
 - [MCP 使用说明](docs/MCP.md)
 - [Skills 说明](docs/tools/skills.md)
-- [文档索引](docs/README.md)
 - [更新日志](CHANGELOG.md)
 
 <p align="right"><a href="#readme-top">返回顶部</a></p>

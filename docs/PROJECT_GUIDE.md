@@ -2,8 +2,8 @@
 
 这份文档是 Bobodan 后续给人和 AI 看的产品与架构主入口。想知道产品是什么、当前到哪一步、哪些功能该隐藏、代码边界怎么守，先读这里；具体排期只看 [`ROADMAP.md`](ROADMAP.md)，视觉和交互硬约束只看 [`DESIGN.md`](DESIGN.md)。
 
-> 事实基准：§1–§3、§5–§9 是当前产品边界与架构真相；§4 是 2026-08 之前的历史阶段记录（含过期验收数字，勿引用）。
-> 当前批次、门禁和下一步只看 [`ROADMAP.md`](ROADMAP.md)（v1.5，2026-10-21）；文档地图只看 [`docs/README.md`](README.md)（校验：2026-10-28，docs/ROADMAP.md:3、docs/README.md:5）。
+> 事实基准：§1–§3、§5–§9 与 §12–§14 是当前产品边界、架构真相、命令与关键契约；§4 仅保留当前生效的桌面发布验收要求（原 2026-08 之前的 P5C–P5G 历史阶段记录已移入 [`archive/PROJECT_GUIDE_PHASES_P5.md`](archive/PROJECT_GUIDE_PHASES_P5.md)）。
+> 当前批次、门禁和下一步只看 [`ROADMAP.md`](ROADMAP.md)（v2.2，2026-11-20）；文档地图只看 [`docs/README.md`](README.md)（校验：2026-11-20）。
 > 本文中的“已完成”表示阶段验收已通过，不代表后续体验轮不再发现问题。
 
 ## 1. 产品定位
@@ -471,7 +471,7 @@ P5F.1 已补齐：
 
 当前仍待解决：
 
-- PDF、DOCX 和 PPTX 只能读取已有文本层；扫描页、图片文字和零 chunk 资料虽然已有部分状态与测试，仍需按 `ROADMAP.md` A0 核对用户是否能看到完整、可操作的提取报告。
+- PDF、DOCX 和 PPTX 只能读取已有文本层；扫描页、图片文字和零 chunk 资料已支持提取状态报告与阅读器显式提示（`W3-READER-01`），PDF 四级降级链（`W2-G5`）按真实样本需求暂缓。
 - 发布许可证、第三方声明和隐私说明已存在；SBOM、安装包校验、字体分发条款和最终依赖许可证仍需在桌面发布前统一验收。
 - FastAPI 静态托管和 `python agent.py web` 单进程 Web 已实现；PyInstaller sidecar、Electron 安装包、升级和卸载契约尚未实现。
 - MCP / specialist 不进入首发 Workbench；只有请求级 ToolContext 和发布安全边界稳定后才重新评估。
@@ -531,7 +531,7 @@ P5F.1 已补齐：
 
 以下五项在 2026-08-01 体验审查（[`archive/experience_review_2026-08-01.md`](archive/experience_review_2026-08-01.md)）中被确认为计划缺口：P5G 章节原有条目停留在功能名级别，缺少桌面本地产品发布所需的落地细节。**验收要求留在本节**（按 `docs/README.md` 的权威划分，发布门槛以本文为准）；**排期与门禁在 [`ROADMAP.md`](ROADMAP.md) W5**。两者不是互相让渡的关系——不要写"以对方为准"。不能脱离该路线单独恢复执行。
 
-1. **数据备份 / 恢复专项**：明确备份对象清单（资料库、`personal-knowledge.db`、`usage.db`、`research.db`、`preferences.json`）、备份格式与 SQLite WAL 一致性方法、手动 / 自动触发、校验与恢复 UI、失败恢复验证。这是本地优先产品用户信任的根基。
+1. **数据备份 / 恢复专项**（`W4-RESTORE-01` 已于 2026-11-20 落地验证，见 `service/backup_service.py` 与设置页「记忆与数据」）：覆盖资料库原件、SQLite 库（`knowledge.db`、`bobodan.db`、`concept_graph.db`、`research.db`）及可选全局数据（`personal-knowledge.db`、`usage.db`、`preferences.json`），采用 `sqlite3.Connection.backup()` 保证 WAL 一致性并附 SHA-256 清单，默认排除 `provider.json` 密钥与 `.env`，支持异地干净目录恢复、校验与失败自动回滚。
 2. **复习提醒交付机制**：指定 Windows 系统通知或托盘常驻方案；Electron 不常驻时提醒无法送达，Review 闭环缺最后一环。
 3. **应用升级路径**：定义安装器覆盖安装行为、数据目录版本检测、升级前备份提示；自动更新可继续延后，但升级动作本身必须规划。
 4. **卸载清理与数据保留策略**：NSIS 卸载器的行为契约（保留用户资料库 vs 清理应用数据 vs 完整清除），写入 P5G.2 验收。
@@ -1475,3 +1475,10 @@ web/frontend/         React 桌面 UI；Zustand 管理跨页状态；路由按�
 - FastAPI 使用 `unwrap_service_result`，按结构化 code 映射 HTTP，不用错误字符串猜状态。
 - SSE 事件解析必须容忍坏帧；会话保存放在流生成器 `finally`，断线也保存已完成内容。
 - 正文不展示模型原始思维链。过程只显示中文状态、工具摘要、引用和结构化 artifact。
+
+### 备份、恢复与迁移回滚（W4-RESTORE-01）
+
+- SQLite 数据库备份必须通过 `core/db.py::backup_sqlite`（SQLite 在线备份 API + `PRAGMA integrity_check`），不得裸拷贝带 `-wal`/`-shm` 的活跃数据库文件；替换本地 `.db` 前必须清理过期 sidecar。
+- 备份默认严格排除 `provider.json`（云端 API 密钥）、`.env*` 与本机 `libraries.json` 路径表，并在 `backup_manifest.json` 显式披露包含/排除清单。
+- 备份内 `knowledge.db` 的工作区路径归一化为相对 POSIX 路径，恢复到新目录时自动重定位，确保跨路径恢复后原件阅读、引用与错题回溯可用。
+- 恢复前必须完成 Zip Slip/符号链接防御、全量 SHA-256 与 SQLite 完整性校验；拒绝覆盖非空目标目录；恢复或迁移（资料库迁移、旧图谱迁移）中途失败必须回滚到操作前状态。

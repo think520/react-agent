@@ -2,7 +2,7 @@
 
 > **现在按哪份走？** 排期看 [`ROADMAP.md`](ROADMAP.md)，能不能做看 [`PROJECT_GUIDE.md`](PROJECT_GUIDE.md)，界面硬约束看 [`DESIGN.md`](DESIGN.md)，前端实施顺序看 [`FRONTEND_UPGRADE_PLAN.md`](FRONTEND_UPGRADE_PLAN.md)，RAG 事实看 [`rag_design.md`](rag_design.md) + [`RAG_EVAL.md`](RAG_EVAL.md)。其余文档都是这几层的专题展开，冲突按第 1 节顺序裁决。
 >
-> 本页是文档的**唯一入口**；不要靠记忆或旧链接找文档。版本：2026-11-11（GOV-01：ROADMAP 重写为单一状态表，历史移入 `archive/`）。
+> 本页是文档的**唯一入口**；不要靠记忆或旧链接找文档。版本：2026-11-20（同步 `AGENTS.md` 根指令源、`W4-RESTORE-01` 备份恢复与文档对齐）。
 
 ## 0. 按任务查文档（30 秒定位）
 
@@ -16,6 +16,7 @@
 | 改资料库：文件树、分栏阅读、资料范围、归档 | [`LIBRARY_TREE_DESIGN.md`](LIBRARY_TREE_DESIGN.md) | `archive/` 里的旧资料库任务书 |
 | 改题库 / 练习 / 复习取题 | [`QUESTION_BANK_DESIGN.md`](QUESTION_BANK_DESIGN.md) | — |
 | 改流式请求、导入、后台任务的中止 | [`CANCELLATION_DESIGN.md`](CANCELLATION_DESIGN.md) | — |
+| 改整库备份、恢复、迁移回滚或数据隐私边界 | [`../PRIVACY.md`](../PRIVACY.md) + [`PROJECT_GUIDE.md`](PROJECT_GUIDE.md) §4 / §8 / §14 | 旧版「备份待交付」说法 |
 | 改 Agent 人格、教学风格 | [`PERSONA.md`](PERSONA.md) | 调研报告的 prompt 章节 |
 | 配置 MCP / Skills 扩展 | [`MCP.md`](MCP.md) / [`tools/skills.md`](tools/skills.md) | — |
 | 找同构实现、借鉴机制 | [`REFERENCE_PROJECTS.md`](REFERENCE_PROJECTS.md) → [`Bobodan参考项目调研报告.md`](Bobodan参考项目调研报告.md) | 直接读参考仓 |
@@ -90,7 +91,8 @@
 | [`archive/README.md`](archive/README.md) | 归档清单与去向表 |
 | [`reviews/README.md`](reviews/README.md) | 项目审查与整改复审索引 |
 | [`../CHANGELOG.md`](../CHANGELOG.md) | 变更流水：每批改了什么、怎么验证的、哪些尝试被回滚 |
-| [`../CLAUDE.md`](../CLAUDE.md) | Agent 编码契约（命令、架构骨架、关键不变量） |
+| [`../AGENTS.md`](../AGENTS.md) | 根目录唯一 Agent 红线与编码纪律（`CLAUDE.md` 为同内容镜像；常用命令 / 架构目录 / 关键契约见 `PROJECT_GUIDE.md` §12–§14） |
+| [`../PRIVACY.md`](../PRIVACY.md) | 数据分类、本地/云端流向、密钥隔离与整库备份/恢复边界 |
 | [`../tests/README.md`](../tests/README.md) | 测试分层、LLM 单缝、真实后端闭环门禁、Playwright 政策 |
 
 历史文档可能保留当时有效的行号、测试数量、分支状态或产品名称。需要追溯决策时读它们，不要拿其中的旧数字当作当前验收结果。
