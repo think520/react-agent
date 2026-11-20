@@ -23,9 +23,31 @@ export function UserMessage({ message, onOpenReference }: {
   message: ChatMessage;
   onOpenReference: (reference: ChatReference) => void;
 }) {
+  const images = (message.attachments || []).filter((item) => item.type === "image" && item.data_url);
+  const files = (message.attachments || []).filter((item) => item.type === "file");
   return <div className="user-message-wrap">
-    <div className="user-message">{message.content}</div>
-    {message.references?.length ? <div className="message-references">{message.references.map((reference) => <button type="button" key={reference.type + ":" + reference.id} onClick={() => onOpenReference(reference)}>{reference.type === "document" ? <FileText size={12} /> : <MessageCircle size={12} />}<span>{reference.title}</span><small>{reference.type === "document" ? reference.collection === "wiki" ? "Wiki" : "资料" : "会话"}</small></button>)}</div> : null}
+    {images.length > 0 && (
+      <div className="message-images">
+        {images.map((item, idx) => (
+          <a key={`${item.name}:${idx}`} href={item.data_url} target="_blank" rel="noreferrer" title={item.name}>
+            <img src={item.data_url} alt={item.name} />
+          </a>
+        ))}
+      </div>
+    )}
+    {message.content && <div className="user-message">{message.content}</div>}
+    {(files.length > 0 || Boolean(message.references?.length)) && (
+      <div className="message-references">
+        {files.map((item, idx) => (
+          <span className="message-file-chip" key={`${item.name}:${idx}`} title={item.truncated ? `${item.name}（已截取前段正文）` : item.name}>
+            <FileText size={12} />
+            <span>{item.name}</span>
+            {item.char_count ? <small>{item.char_count >= 1000 ? `${(item.char_count / 1000).toFixed(1)}k 字` : `${item.char_count} 字`}</small> : null}
+          </span>
+        ))}
+        {message.references?.map((reference) => <button type="button" key={reference.type + ":" + reference.id} onClick={() => onOpenReference(reference)}>{reference.type === "document" ? <FileText size={12} /> : <MessageCircle size={12} />}<span>{reference.title}</span><small>{reference.type === "document" ? reference.collection === "wiki" ? "Wiki" : "资料" : "会话"}</small></button>)}
+      </div>
+    )}
   </div>;
 }
 

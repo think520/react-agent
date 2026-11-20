@@ -11,7 +11,8 @@ from types import SimpleNamespace
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, File, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 
 from core.session import Session
@@ -21,6 +22,7 @@ from core.agent_events import canonicalize_event
 from core.event_bus import get_default_bus
 from core.memory_injector import MemoryInjector
 from service.agent_service import AgentService
+from service.chat_attachment_service import MAX_CHAT_FILE_BYTES, extract_chat_file
 from core.skills import build_skills_system_prompt, find_skill_by_name
 from web.backend.capabilities import WEB_SKILL_NAMES
 from service.concept_service import ConceptService
@@ -273,6 +275,9 @@ def _session_detail(session: Session, workspace: str | None = None) -> dict[str,
             item = {"role": "user", "content": content}
             if isinstance(message.get("references"), list):
                 item["references"] = message["references"]
+            public_attachments = _public_attachments(message.get("attachments"))
+            if public_attachments:
+                item["attachments"] = public_attachments
             if isinstance(message.get("artifacts"), list):
                 item["artifacts"] = message["artifacts"]
             messages.append(item)
@@ -610,6 +615,60 @@ def _public_references(references: list) -> list[dict[str, Any]]:
         }
         for item in references
     ]
+
+
+def _sanitize_attachments(attachments: list) -> list[dict[str, Any]]:
+    sanitized: list[dict[str, Any]] = []
+    for item in attachments or []:
+        if item.type == "image":
+            url = (item.data_url or "").strip()
+            if not url.startswith("data:image/"):
+                raise APIError(422, "invalid_attachment", f"图片「{item.name}」格式不受支持。")
+            sanitized.append({
+                "type": "image",
+                "name": item.name,
+                "mime_type": item.mime_type or "image/png",
+                "data_url": url,
+            })
+        elif item.type == "file":
+            text = (item.text or "").strip()
+            if not text:
+                raise APIError(422, "invalid_attachment", f"文件「{item.name}」内容为空。")
+            sanitized.append({
+                "type": "file",
+                "name": item.name,
+                "mime_type": item.mime_type or "text/plain",
+                "text": text,
+                "char_count": item.char_count or len(text),
+                "truncated": bool(item.truncated),
+            })
+    return sanitized
+
+
+def _public_attachments(raw: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw, list):
+        return []
+    public: list[dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        att_type = item.get("type")
+        if att_type == "image" and isinstance(item.get("data_url"), str):
+            public.append({
+                "type": "image",
+                "name": str(item.get("name") or "image.png"),
+                "mime_type": str(item.get("mime_type") or "image/png"),
+                "data_url": item["data_url"],
+            })
+        elif att_type == "file":
+            public.append({
+                "type": "file",
+                "name": str(item.get("name") or "file"),
+                "mime_type": str(item.get("mime_type") or ""),
+                "char_count": int(item.get("char_count") or len(str(item.get("text") or ""))),
+                "truncated": bool(item.get("truncated")),
+            })
+    return public
 
 
 def _attach_user_references(session: Session, references: list) -> None:
@@ -1471,9 +1530,41 @@ def cancel_stream(stream_id: str) -> dict:
     return {"ok": True, "cancelled": True}
 
 
+@router.post("/attachments/extract")
+async def extract_attachment(file: UploadFile = File(...)) -> dict[str, Any]:
+    """Extract text from a local file attached directly to a chat turn."""
+    raw = await file.read(MAX_CHAT_FILE_BYTES + 1)
+    if len(raw) > MAX_CHAT_FILE_BYTES:
+        raise APIError(
+            413,
+            "attachment_too_large",
+            f"「{file.filename or '文件'}」超过 10 MB 聊天附件上限；大文档建议先导入资料库再提问。",
+        )
+    result = await run_in_threadpool(
+        extract_chat_file,
+        file.filename or "",
+        raw,
+        file.content_type or "",
+    )
+    if not result.get("ok"):
+        raise APIError(422, result.get("code") or "invalid_attachment", result.get("error") or "无法解析该文件。")
+    return {"attachment": result["attachment"]}
+
+
 @router.post("/runs")
 def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
-    if not body.message.strip() and not body.resume_interaction_id:
+    sanitized_attachments = _sanitize_attachments(body.attachments)
+    effective_message = body.message.strip()
+    if not effective_message and sanitized_attachments:
+        has_image = any(item["type"] == "image" for item in sanitized_attachments)
+        has_file = any(item["type"] == "file" for item in sanitized_attachments)
+        if has_image and has_file:
+            effective_message = "请结合我附上的图片和文件内容来解答。"
+        elif has_image:
+            effective_message = "请看这张图片并帮我分析。"
+        else:
+            effective_message = "请帮我阅读并总结这份文件的内容。"
+    if not effective_message and not body.resume_interaction_id:
         # Keep the same envelope the pydantic handler produces so clients see a
         # stable invalid_request with the offending field.
         raise APIError(
@@ -1682,7 +1773,7 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
                 })
             events = AgentService.run_stream(
                 session=session,
-                user_input=body.message,
+                user_input=effective_message if not body.resume_interaction_id else body.message,
                 provider=provider,
                 skills_prompt=skills_prompt,
                 trace_writer=runtime.create_trace(session.session_id),
@@ -1699,6 +1790,7 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
                 resume_tool_call_id=(resume_record or {}).get("tool_call_id") or None,
                 resume_tool_content=_resume_content(resume_record) if resume_record else "",
                 cancel_token=handle.token,
+                user_attachments=sanitized_attachments or None,
             )
             termination_reason = "final_answer"
             for event in events:

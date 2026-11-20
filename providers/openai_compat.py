@@ -42,6 +42,72 @@ class OpenAICompatibleProvider:
         self.timeout = timeout
         self.max_retries = max_retries
 
+    @staticmethod
+    def _format_user_content(content: str | list, attachments: list | None) -> str | list[dict]:
+        """Format a user message with optional file/image attachments for OpenAI-compatible APIs."""
+        if not attachments:
+            return content
+        if not isinstance(content, str):
+            return content
+
+        file_blocks: list[str] = []
+        image_urls: list[str] = []
+        for att in attachments:
+            if not isinstance(att, dict):
+                continue
+            att_type = att.get("type")
+            if att_type == "file" and att.get("text"):
+                name = str(att.get("name") or "attached_file")
+                suffix = "\n[注：文件内容较长，已截断前段]" if att.get("truncated") else ""
+                file_blocks.append(f'<attached_file name="{name}">\n{att["text"]}{suffix}\n</attached_file>')
+            elif att_type == "image" and isinstance(att.get("data_url"), str) and att["data_url"].startswith("data:image/"):
+                image_urls.append(att["data_url"])
+
+        combined_text = content
+        if file_blocks:
+            prefix = f"{content}\n\n" if content.strip() else ""
+            combined_text = prefix + "\n\n".join(file_blocks)
+
+        if not image_urls:
+            return combined_text
+
+        parts: list[dict] = []
+        if combined_text.strip():
+            parts.append({"type": "text", "text": combined_text})
+        for url in image_urls:
+            parts.append({"type": "image_url", "image_url": {"url": url}})
+        return parts
+
+    @staticmethod
+    def _has_image_payload(payload: dict) -> bool:
+        for msg in payload.get("messages") or []:
+            content = msg.get("content")
+            if isinstance(content, list) and any(
+                isinstance(part, dict) and part.get("type") == "image_url"
+                for part in content
+            ):
+                return True
+        return False
+
+    def _api_error(self, status_code: int, body_text: str, payload: dict) -> ProviderError:
+        lowered = (body_text or "").lower()
+        if (
+            status_code in (400, 422)
+            and self._has_image_payload(payload)
+            and any(
+                token in lowered
+                for token in ("image_url", "multimodal", "vision", "unknown variant", "expected a string", "content must be")
+            )
+        ):
+            return ProviderError(
+                f"当前模型（{self.model}）不支持图片输入，请切换支持视觉（多模态）的模型后再试。",
+                status_code=status_code,
+            )
+        return ProviderError(
+            f"{self.name} API error: {status_code} - {body_text}",
+            status_code=status_code,
+        )
+
     def _convert_messages(self, messages: List[dict]) -> List[dict]:
         """Convert session messages to OpenAI API format."""
         raw = []
@@ -52,7 +118,8 @@ class OpenAICompatibleProvider:
             if role == "system":
                 raw.append({"role": "system", "content": content})
             elif role == "user":
-                raw.append({"role": "user", "content": content})
+                formatted = self._format_user_content(content, msg.get("attachments"))
+                raw.append({"role": "user", "content": formatted})
             elif role == "assistant":
                 tool_calls = msg.get("tool_calls")
                 if tool_calls:
@@ -227,10 +294,7 @@ class OpenAICompatibleProvider:
                         _retry_pause(attempt, cancel_token)
                         continue
 
-                    raise ProviderError(
-                        f"{self.name} API error: {response.status_code} - {response.text}",
-                        status_code=response.status_code,
-                    )
+                    raise self._api_error(response.status_code, response.text, payload)
 
             except httpx.TimeoutException:
                 last_error = f"{self.name} API timeout"
@@ -295,10 +359,7 @@ class OpenAICompatibleProvider:
                             continue
 
                         response.read()
-                        raise ProviderError(
-                            f"{self.name} API error: {response.status_code} - {response.text}",
-                            status_code=response.status_code,
-                        )
+                        raise self._api_error(response.status_code, response.text, payload)
 
             except httpx.TimeoutException:
                 last_error = f"{self.name} API timeout"

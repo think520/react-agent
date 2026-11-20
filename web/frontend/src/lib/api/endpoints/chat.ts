@@ -3,6 +3,7 @@ import { json, request } from "../http";
 import { streamQuestionPipeline } from "../transport";
 import type {
   ChatArtifact,
+  ChatAttachment,
   ChatSessionDetail,
   ChatSessionSummary,
   WebArtifact,
@@ -63,4 +64,12 @@ export const chatApi = {
       "/api/chat/streams/" + encodeURIComponent(streamId) + "/cancel",
       { method: "POST" },
     ),
+  extractChatAttachment: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return request<{ attachment: ChatAttachment }>("/api/chat/attachments/extract", {
+      method: "POST",
+      body: form,
+    });
+  },
 };

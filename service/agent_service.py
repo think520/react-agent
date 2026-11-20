@@ -229,6 +229,7 @@ class AgentService:
         resume_tool_content: str = "",
         kb_seed: str | None = None,
         exploration_budget: int | None = None,
+        user_attachments: list[dict] | None = None,
     ) -> Iterator[dict]:
         """Create an AgentLoop and return its event stream iterator.
 
@@ -265,4 +266,5 @@ class AgentService:
             user_input,
             resume_tool_call_id=resume_tool_call_id,
             resume_tool_content=resume_tool_content,
+            user_attachments=user_attachments,
         )

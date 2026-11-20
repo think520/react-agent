@@ -55,7 +55,7 @@ class MiniMaxProvider(OpenAICompatibleProvider):
             content = msg.get("content", "")
 
             if role == "user":
-                raw.append({"role": "user", "content": content})
+                raw.append({"role": "user", "content": self._format_user_content(content, msg.get("attachments"))})
             elif role == "assistant":
                 tool_calls = msg.get("tool_calls")
                 if tool_calls:

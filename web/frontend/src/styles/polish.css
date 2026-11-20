@@ -190,69 +190,208 @@
 /* 暗色主题下未开启开关轨道可读性修复（从固定深色 rgba 改为随主题 --ink 混合） */
 .setting-toggle:not(.on) { background: color-mix(in srgb, var(--ink) 20%, transparent); }
 
-/* ── 对话输入框与欢迎区工艺升级（2026-11-20）──
-   保留 Surface 3 + 发丝环（满足 L2-3），通过「书写区 + 工具底条」双层结构、
-   胶囊化控制项、圆形呼吸感发送按钮与暖纸建议胶囊提升质感。 */
+/* ── 对话输入框与多模态附件体验（2026-11-20）──
+   一体化通透暖纸表面（无上下分色割裂）：上方书写 + 附件预览，左下「+」添加图片/文件/资料，
+   右下无框轻量模型与深度选择 + 圆形发送键，贴近现代 Agent 对话习惯并满足 L2-3。 */
 .composer {
-  overflow: hidden;
+  position: relative;
+  overflow: visible;
   border: 0;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-xl);
   background: var(--surface-3);
   box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-lift);
   transition: box-shadow var(--dur-base) var(--ease-out), background var(--dur-base) var(--ease-out);
 }
 .composer:focus-within {
-  box-shadow: 0 0 0 var(--hairline) color-mix(in srgb, var(--blue) 36%, transparent), 0 0 0 3px color-mix(in srgb, var(--blue) 8%, transparent), var(--shadow-float);
+  box-shadow: 0 0 0 var(--hairline) color-mix(in srgb, var(--blue) 32%, transparent), 0 0 0 3px color-mix(in srgb, var(--blue) 7%, transparent), var(--shadow-float);
+}
+.composer.dragging {
+  box-shadow: 0 0 0 2px var(--blue), var(--shadow-float);
 }
 .composer textarea {
-  min-height: 54px;
-  padding: 15px 18px 10px;
+  min-height: 52px;
+  padding: 16px 18px 8px;
   color: var(--ink);
   font-size: 15px;
   line-height: 1.65;
 }
+.composer-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px 0;
+}
+.composer-att-image {
+  position: relative;
+  display: inline-flex;
+  width: 54px;
+  height: 54px;
+  border-radius: var(--radius-md);
+  box-shadow: 0 0 0 var(--hairline) var(--ring);
+  background: var(--surface-2);
+}
+.composer-att-image img {
+  width: 100%;
+  height: 100%;
+  border-radius: var(--radius-md);
+  object-fit: cover;
+  display: block;
+}
+.composer-att-image button {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  display: inline-grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-pill);
+  padding: 0;
+  background: var(--ink);
+  color: var(--surface-3);
+  cursor: pointer;
+  transition: transform var(--dur-fast) var(--spring-press);
+}
+.composer-att-image button:hover { transform: scale(1.08); }
+.composer-att-file {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 240px;
+  min-height: 30px;
+  align-items: center;
+  gap: 6px;
+  border-radius: var(--radius-md);
+  padding: 0 6px 0 9px;
+  background: var(--surface-2);
+  color: var(--ink);
+  font-size: 12px;
+  box-shadow: 0 0 0 var(--hairline) var(--ring);
+}
+.composer-att-file.is-ref {
+  background: var(--blue-wash);
+  color: var(--blue);
+}
+.composer-att-file > svg { flex: 0 0 auto; color: var(--blue); }
+.composer-att-file > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer-att-file small { flex: 0 0 auto; color: var(--faint); font-size: 12px; }
+.composer-att-open {
+  display: inline-flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.composer-att-open span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer-att-file > button:last-child {
+  display: inline-grid;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 0;
+  background: transparent;
+  color: var(--faint);
+  cursor: pointer;
+}
+.composer-att-file > button:last-child:hover { background: color-mix(in srgb, var(--ink) 7%, transparent); color: var(--ink); }
+.composer-att-loading { color: var(--muted); font-size: 12px; }
+
 .composer-toolbar {
   min-height: 44px;
   flex-wrap: wrap;
   gap: 6px;
-  border-top: 1px solid var(--border-subtle);
-  padding: 7px 10px 7px 12px;
-  background: color-mix(in srgb, var(--surface-0) 45%, var(--surface-3));
+  border-top: 0;
+  padding: 4px 10px 10px 12px;
+  background: transparent;
 }
+.composer-add-wrap { position: relative; display: inline-flex; align-items: center; }
+.composer-add-btn {
+  display: inline-grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-pill);
+  padding: 0;
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+  color: var(--muted);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--spring-press);
+}
+.composer-add-btn:hover, .composer-add-btn.open {
+  background: var(--blue-wash);
+  color: var(--blue);
+}
+.composer-add-btn:active { transform: scale(0.94); }
+.composer-add-menu {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  z-index: 40;
+  display: grid;
+  min-width: 248px;
+  gap: 2px;
+  border: 0;
+  border-radius: var(--radius-lg);
+  padding: 5px;
+  background: var(--surface-3);
+  box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-float);
+  transform-origin: bottom left;
+  animation: menu-enter var(--dur-fast) var(--spring-pop);
+}
+.composer-add-menu button {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  width: 100%;
+  border: 0;
+  border-radius: var(--radius-md);
+  padding: 8px 10px;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.composer-add-menu button:hover { background: var(--blue-wash); color: var(--blue); }
+.composer-add-menu button svg { flex: 0 0 auto; margin-top: 2px; color: var(--blue); }
+.composer-add-menu button > span { display: grid; gap: 2px; min-width: 0; }
+.composer-add-menu button strong { font-size: 13px; font-weight: 600; }
+.composer-add-menu button small { color: var(--muted); font-size: 12px; line-height: 1.4; }
+
 .composer-toolbar .icon-button {
   width: 32px;
   height: 32px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-pill);
 }
 .composer-toolbar .icon-button svg { width: 16px; height: 16px; }
-.composer-select {
-  min-height: 30px;
-  border-radius: var(--radius-sm);
-  padding: 0 3px 0 9px;
-  background: color-mix(in srgb, var(--ink) 4%, transparent);
-  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
-}
-.composer-select:hover { background: color-mix(in srgb, var(--ink) 7%, transparent); }
-.composer-select .dropdown-trigger { min-height: 28px; padding: 0 6px; font-size: 12.5px; }
-.composer-select .dropdown-trigger:hover { border-color: transparent; background: transparent; color: var(--ink); }
-.composer-hint {
+.composer-right {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   margin-left: auto;
-  color: var(--faint);
-  font-size: 12px;
-  white-space: nowrap;
+  min-width: 0;
 }
-.composer-hint kbd {
-  border: 1px solid var(--border);
+.composer-select {
+  min-height: 30px;
   border-radius: var(--radius-sm);
-  padding: 1px 5px;
-  background: var(--surface-3);
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.25;
+  padding: 0 2px 0 6px;
+  background: transparent;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
+.composer-select:hover { background: color-mix(in srgb, var(--ink) 5%, transparent); }
+.composer-select .dropdown-trigger { min-height: 28px; padding: 0 6px; font-size: 12.5px; color: var(--muted); }
+.composer-select .dropdown-trigger:hover { border-color: transparent; background: transparent; color: var(--ink); }
 .send-button {
   width: 34px;
   height: 34px;
@@ -266,11 +405,49 @@
   box-shadow: var(--shadow-lift);
 }
 .send-button:disabled {
-  background: color-mix(in srgb, var(--ink) 10%, transparent);
-  color: var(--faint);
+  background: color-mix(in srgb, var(--ink) 12%, transparent);
+  color: var(--surface-3);
   box-shadow: none;
   cursor: not-allowed;
 }
+
+/* 用户消息中的图片与文件附件呈现 */
+.message-images {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.message-images a {
+  display: block;
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-soft);
+  background: var(--surface-3);
+}
+.message-images img {
+  display: block;
+  max-width: 240px;
+  max-height: 200px;
+  object-fit: cover;
+}
+.message-file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  max-width: 260px;
+  border-radius: var(--radius-sm);
+  padding: 0 8px;
+  background: var(--surface-2);
+  color: var(--ink);
+  font-size: 12px;
+  box-shadow: 0 0 0 var(--hairline) var(--ring);
+}
+.message-file-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.message-file-chip small { flex: 0 0 auto; color: var(--faint); font-size: 12px; }
+
 .starter-actions { gap: 8px; margin-top: 18px; }
 .starter-actions button {
   min-height: 34px;
@@ -290,10 +467,6 @@
   box-shadow: 0 0 0 var(--hairline) color-mix(in srgb, var(--blue) 28%, transparent), var(--shadow-lift);
 }
 .starter-actions button:active { transform: scale(0.98); }
-@media (max-width: 767px) {
-  .composer-hint { display: none; }
-  .send-button { margin-left: auto; }
-}
 
 /* ── 浮层与交互手感统一（暖纸发丝环 + 物理弹簧轻反馈）── */
 .dropdown-panel,

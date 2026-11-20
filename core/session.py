@@ -94,8 +94,17 @@ class Session:
                 i += 1
         return groups
 
-    def add_message(self, role: str, content: str) -> None:
-        self.messages.append({"role": role, "content": content})
+    def add_message(
+        self,
+        role: str,
+        content: str,
+        *,
+        attachments: list[dict] | None = None,
+    ) -> None:
+        msg: dict = {"role": role, "content": content}
+        if attachments:
+            msg["attachments"] = attachments
+        self.messages.append(msg)
         self.last_active = datetime.now().isoformat()
         self._trim_messages()
 

@@ -7,7 +7,7 @@
  */
 import { create } from "zustand";
 
-import type { ChatReference } from "../types";
+import type { ChatAttachment, ChatReference } from "../types";
 
 const emptySelections: Record<string, string[]> = {};
 
@@ -19,6 +19,7 @@ export interface ChatUiState {
   paletteDismissed: boolean;
   wikiPlanLoading: boolean;
   references: ChatReference[];
+  attachments: ChatAttachment[];
   webOnce: boolean;
   webSelections: Record<string, string[]>;
   mentionTab: "document" | "session";
@@ -34,6 +35,7 @@ const initialState: ChatUiState = {
   paletteDismissed: false,
   wikiPlanLoading: false,
   references: [],
+  attachments: [],
   webOnce: false,
   webSelections: emptySelections,
   mentionTab: "document",
@@ -61,6 +63,7 @@ export const setPaletteIndex = (value: Updater<number>) => useChatUiStore.setSta
 export const setPaletteDismissed = (value: Updater<boolean>) => useChatUiStore.setState((state) => ({ paletteDismissed: apply(value, state.paletteDismissed) }));
 export const setWikiPlanLoading = (value: Updater<boolean>) => useChatUiStore.setState((state) => ({ wikiPlanLoading: apply(value, state.wikiPlanLoading) }));
 export const setReferences = (value: Updater<ChatReference[]>) => useChatUiStore.setState((state) => ({ references: apply(value, state.references) }));
+export const setAttachments = (value: Updater<ChatAttachment[]>) => useChatUiStore.setState((state) => ({ attachments: apply(value, state.attachments) }));
 export const setWebOnce = (value: Updater<boolean>) => useChatUiStore.setState((state) => ({ webOnce: apply(value, state.webOnce) }));
 export const setWebSelections = (value: Updater<Record<string, string[]>>) => useChatUiStore.setState((state) => ({ webSelections: apply(value, state.webSelections) }));
 export const setMentionTab = (value: Updater<"document" | "session">) => useChatUiStore.setState((state) => ({ mentionTab: apply(value, state.mentionTab) }));

@@ -14,11 +14,11 @@ import { looksLikeSettingsChange } from "../../lib/settingsIntent";
 import { notifyError } from "../../stores/noticeStore";
 import { useUiStore } from "../../stores/uiStore";
 import { useHandoffStore } from "../../stores/handoffStore";
-import { setSending, setWebOnce, setPaletteDismissed, setMentionDismissed, setReferences, setInlineError, setWebSelections, setWikiPlanLoading, setPracticeStarting } from "../../stores/chatStore";
+import { setSending, setWebOnce, setPaletteDismissed, setMentionDismissed, setReferences, setAttachments, setInlineError, setWebSelections, setWikiPlanLoading, setPracticeStarting } from "../../stores/chatStore";
 import type { ChatStreamEvent } from "../../lib/api";
 import type { NavigateFunction } from "react-router-dom";
 import type {
-  AskUserArtifact, ChatArtifact, ChatMessage, ChatReference, DocumentSummary, LibrarySummary,
+  AskUserArtifact, ChatArtifact, ChatAttachment, ChatMessage, ChatReference, DocumentSummary, LibrarySummary,
   MemoryConfirmationArtifact, PracticeReadyArtifact, SettingsChangeArtifact, SettingsSummary,
   WebCandidatesArtifact, WebConsentArtifact, WebEvidenceArtifact, WikiFocusArtifact, WikiPlanArtifact,
   WikiResultArtifact,
@@ -64,6 +64,7 @@ export interface ChatActionContext {
   activeLibrary: LibrarySummary | null;
   pinToBottom: () => void;
   references: ChatReference[];
+  attachments: ChatAttachment[];
   webSelections: Record<string, string[]>;
   refreshSessions: AppOutletContext["refreshSessions"];
   refreshSettings: AppOutletContext["refreshSettings"];
@@ -101,6 +102,7 @@ export function createChatActions(ctx: ChatActionContext) {
     activeLibrary,
     pinToBottom,
     references,
+    attachments,
     webSelections,
     refreshSessions,
     refreshSettings,
@@ -121,7 +123,8 @@ export function createChatActions(ctx: ChatActionContext) {
   ) {
     event?.preventDefault();
     const message = (overrideMessage ?? draft).trim();
-    if (!message || sending) return;
+    const outgoingAttachments = overrideMessage !== undefined ? [] : [...attachments];
+    if ((!message && !outgoingAttachments.length) || sending) return;
     if (!libraryReady) return;
     if (!activeLibrary) {
       openLibrarySetup();
@@ -194,9 +197,20 @@ export function createChatActions(ctx: ChatActionContext) {
     leaveChatRef.current = false;
     const outgoingReferences = [...references];
     setReferences([]);
+    if (outgoingAttachments.length) setAttachments([]);
+    const displayMessage = message || (
+      outgoingAttachments.some((item) => item.type === "image")
+        ? "请看这张图片并帮我分析。"
+        : "请帮我阅读并总结这份文件的内容。"
+    );
     setMessages((current) => [
       ...current,
-      ...(echoUser ? [{ role: "user" as const, content: message, references: outgoingReferences }] : []),
+      ...(echoUser ? [{
+        role: "user" as const,
+        content: displayMessage,
+        references: outgoingReferences,
+        attachments: outgoingAttachments,
+      }] : []),
       { role: "assistant" as const, content: "", pending: true },
     ]);
     // F05（2026-09-28 审查）：上一轮失败时，服务端其实**已经分配了会话**（run_started 里回过
@@ -215,6 +229,7 @@ export function createChatActions(ctx: ChatActionContext) {
         provider: sendProvider || undefined,
         model: sendModel || undefined,
         references: outgoingReferences,
+        attachments: outgoingAttachments,
         webResearchId,
         strictDocumentScope,
         retryFailed,

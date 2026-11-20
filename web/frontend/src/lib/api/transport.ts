@@ -1,5 +1,6 @@
 /** 流式与原文/资源访问（2026-10-17 从 lib/api.ts 抽出；库作用域统一走 getActiveLibraryId()）。 */
 import type {
+  ChatAttachment,
   ChatReference,
 } from "../../types";
 import type {  } from "../chatStreamEvents";
@@ -235,6 +236,7 @@ export async function streamChat(
     provider?: string;
     model?: string;
     references?: ChatReference[];
+    attachments?: ChatAttachment[];
     strictDocumentScope?: boolean;
     /** E4: continue a paused ask_user turn instead of sending a new message. */
     resumeInteractionId?: string;
@@ -265,6 +267,7 @@ export async function streamChat(
       provider: preferences.provider || null,
       model: preferences.model || null,
       references: preferences.references || [],
+      attachments: preferences.attachments || [],
       save: true,
     }),
     headers: getActiveLibraryId() ? {

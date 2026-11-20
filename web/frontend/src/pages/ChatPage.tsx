@@ -1,6 +1,6 @@
 import {} from "../lib/documentLinks";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUp, Command, FileText, Globe2, Library, MessageCircle, Paperclip, Square, Sparkles, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent } from "react";
+import { ArrowUp, Command, FileText, Globe2, ImagePlus, Library, MessageCircle, Plus, Square, Sparkles, X } from "lucide-react";
 import { useLocation, useNavigate, useOutletContext, useParams } from "react-router-dom";
 
 import { createChatActions } from "./chat/chatActions";
@@ -32,13 +32,14 @@ import {} from "../lib/errors";
 import { parseMentionDraft } from "../lib/mention";
 import {} from "../lib/settingsIntent";
 import {} from "../stores/handoffStore";
+import { MAX_CHAT_ATTACHMENTS, prepareChatAttachment } from "../lib/chatAttachments";
 import {
-  setMentionDismissed, setMentionIndex, setMentionTab, setPaletteDismissed, setPaletteIndex,
+  setAttachments, setMentionDismissed, setMentionIndex, setMentionTab, setPaletteDismissed, setPaletteIndex,
   setReferences, setWebOnce, setInlineError, useChatUiStore,
 } from "../stores/chatStore";
 import { notifyError } from "../stores/noticeStore";
 import { useUiStore } from "../stores/uiStore";
-import type { ChatArtifact, KnowledgeContextArtifact, WikiPlanArtifact } from "../types";
+import type { ChatArtifact, ChatAttachment, KnowledgeContextArtifact, WikiPlanArtifact } from "../types";
 
 import { initialDraft } from "./chat/chatPrimitives";
 import { ChatTranscript } from "../components/chat/ChatTranscript";
@@ -145,7 +146,13 @@ export function ChatPage() {
     return session.model_name ? `${session.provider_name}::${session.model_name}` : session.provider_name;
   }
   const references = useChatUiStore((state) => state.references);
+  const attachments = useChatUiStore((state) => state.attachments);
   const webOnce = useChatUiStore((state) => state.webOnce);
+  const [attachmentBusy, setAttachmentBusy] = useState(false);
+  const [composerDragging, setComposerDragging] = useState(false);
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const attachmentInputRef = useRef<HTMLInputElement>(null);
+  const addMenuRef = useRef<HTMLDivElement>(null);
   const strictDocumentScope = useUiStore((state) => state.strictDocumentScope);
   const toggleStrictDocumentScope = useUiStore((state) => state.toggleStrictDocumentScope);
   const webSelections = useChatUiStore((state) => state.webSelections);
@@ -317,6 +324,7 @@ export function ChatPage() {
     activeLibrary,
     pinToBottom,
     references,
+    attachments,
     webSelections,
     refreshSessions,
     refreshSettings,
@@ -392,6 +400,83 @@ export function ChatPage() {
     setPaletteDismissed(true);
     setPaletteIndex(0);
     requestAnimationFrame(() => inputRef.current?.focus());
+  }
+
+  useEffect(() => {
+    if (!addMenuOpen) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (addMenuRef.current && !addMenuRef.current.contains(event.target as Node)) {
+        setAddMenuOpen(false);
+      }
+    };
+    window.addEventListener("mousedown", onPointerDown);
+    return () => window.removeEventListener("mousedown", onPointerDown);
+  }, [addMenuOpen]);
+
+  const addFiles = useCallback(async (fileList: File[]) => {
+    if (!fileList.length) return;
+    const remaining = MAX_CHAT_ATTACHMENTS - useChatUiStore.getState().attachments.length;
+    if (remaining <= 0) {
+      setError(`每条消息最多添加 ${MAX_CHAT_ATTACHMENTS} 个附件。`);
+      return;
+    }
+    const batch = fileList.slice(0, remaining);
+    if (fileList.length > remaining) {
+      setError(`每条消息最多添加 ${MAX_CHAT_ATTACHMENTS} 个附件，已截取前 ${remaining} 个。`);
+    }
+    setAttachmentBusy(true);
+    try {
+      const prepared: ChatAttachment[] = [];
+      for (const file of batch) {
+        try {
+          prepared.push(await prepareChatAttachment(file));
+        } catch (reason) {
+          setError(reason instanceof Error ? reason.message : `无法添加「${file.name || "附件"}」。`);
+        }
+      }
+      if (prepared.length) {
+        setAttachments((current) => [...current, ...prepared].slice(0, MAX_CHAT_ATTACHMENTS));
+      }
+    } finally {
+      setAttachmentBusy(false);
+    }
+  }, []);
+
+  function handlePaste(event: ClipboardEvent<HTMLTextAreaElement>) {
+    const items = Array.from(event.clipboardData?.items || []);
+    const files: File[] = [];
+    for (const item of items) {
+      if (item.kind === "file") {
+        const file = item.getAsFile();
+        if (file) files.push(file);
+      }
+    }
+    if (!files.length) return;
+    event.preventDefault();
+    void addFiles(files);
+  }
+
+  function handleDragOver(event: DragEvent<HTMLDivElement>) {
+    if (!event.dataTransfer?.types?.includes("Files")) return;
+    event.preventDefault();
+    if (!composerDragging) setComposerDragging(true);
+  }
+
+  function handleDragLeave(event: DragEvent<HTMLDivElement>) {
+    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+      setComposerDragging(false);
+    }
+  }
+
+  function handleDrop(event: DragEvent<HTMLDivElement>) {
+    if (!event.dataTransfer?.files?.length) return;
+    event.preventDefault();
+    setComposerDragging(false);
+    void addFiles(Array.from(event.dataTransfer.files));
+  }
+
+  function removeAttachment(index: number) {
+    setAttachments((current) => current.filter((_, idx) => idx !== index));
   }
 
   function artifactSurface(artifact: ChatArtifact) {
@@ -487,16 +572,60 @@ export function ChatPage() {
           </button>;
         })}</div>
       </div>}
-      <div className="composer">
-        {references.length > 0 && <div className="composer-references">{references.map((reference) => <span key={`${reference.type}:${reference.id}`}><button type="button" onClick={() => openReference(reference)}>{reference.type === "document" ? <FileText size={12} /> : <MessageCircle size={12} />}{reference.title}</button><button type="button" aria-label={`移除引用 ${reference.title}`} onClick={() => removeReference(reference)}><X size={12} /></button></span>)}</div>}
+      <div
+        className={`composer${composerDragging ? " dragging" : ""}`}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
+        <input
+          ref={attachmentInputRef}
+          type="file"
+          multiple
+          hidden
+          accept="image/*,.pdf,.docx,.pptx,.md,.txt,.csv,.json,.yaml,.yml,.py,.js,.ts,.tsx,.jsx,.html,.css,.sql,.java,.c,.cpp,.go,.rs,.xml,.log"
+          onChange={(event) => {
+            const picked = Array.from(event.target.files || []);
+            event.target.value = "";
+            void addFiles(picked);
+          }}
+        />
+        {(attachments.length > 0 || references.length > 0 || attachmentBusy) && (
+          <div className="composer-attachments">
+            {attachments.map((item, idx) => item.type === "image" && item.data_url ? (
+              <span className="composer-att-image" key={`att-img:${idx}:${item.name}`} title={item.name}>
+                <img src={item.data_url} alt={item.name} />
+                <button type="button" aria-label={`移除图片 ${item.name}`} onClick={() => removeAttachment(idx)}><X size={11} /></button>
+              </span>
+            ) : (
+              <span className="composer-att-file" key={`att-file:${idx}:${item.name}`} title={item.truncated ? `${item.name}（已截取前段正文）` : item.name}>
+                <FileText size={13} />
+                <span>{item.name}</span>
+                {item.char_count ? <small>{item.char_count >= 1000 ? `${(item.char_count / 1000).toFixed(1)}k` : `${item.char_count}`}</small> : null}
+                <button type="button" aria-label={`移除文件 ${item.name}`} onClick={() => removeAttachment(idx)}><X size={12} /></button>
+              </span>
+            ))}
+            {references.map((reference) => (
+              <span className="composer-att-file is-ref" key={`${reference.type}:${reference.id}`}>
+                <button type="button" className="composer-att-open" onClick={() => openReference(reference)}>
+                  {reference.type === "document" ? <FileText size={12} /> : <MessageCircle size={12} />}
+                  <span>{reference.title}</span>
+                </button>
+                <button type="button" aria-label={`移除引用 ${reference.title}`} onClick={() => removeReference(reference)}><X size={12} /></button>
+              </span>
+            ))}
+            {attachmentBusy && <span className="composer-att-loading">正在读取附件…</span>}
+          </div>
+        )}
         <textarea
           ref={inputRef}
           rows={1}
           value={draft}
           disabled={sending || !libraryReady}
-          placeholder="说点什么…"
+          placeholder="发消息，/ 调用指令，@ 引用资料，或粘贴图片 / 文件…"
           aria-label="消息"
           {...ime.compositionProps}
+          onPaste={handlePaste}
           onChange={(event) => { setDraft(event.target.value); setPaletteDismissed(false); setMentionDismissed(false); setPaletteIndex(0); setMentionIndex(0); }}
           onKeyDown={(event) => {
           if (ime.isComposing(event) || isImeKeyEvent(event)) return;
@@ -552,14 +681,47 @@ export function ChatPage() {
           }}
         />
         <div className="composer-toolbar">
-          <IconButton label={documents.length ? "选择资料范围" : "前往资料库"} type="button" onClick={() => documents.length ? openContext() : navigate("/library")}><Paperclip /></IconButton>
+          <div className="composer-add-wrap" ref={addMenuRef}>
+            <button
+              type="button"
+              className={`composer-add-btn${addMenuOpen ? " open" : ""}`}
+              aria-label="添加图片、文件或资料"
+              aria-expanded={addMenuOpen}
+              title="添加图片、文件或引用资料（也支持直接粘贴 / 拖入）"
+              disabled={sending}
+              onClick={() => setAddMenuOpen((open) => !open)}
+            >
+              <Plus size={16} />
+            </button>
+            {addMenuOpen && (
+              <div className="composer-add-menu" role="menu">
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => { setAddMenuOpen(false); attachmentInputRef.current?.click(); }}
+                >
+                  <ImagePlus size={15} />
+                  <span><strong>上传图片或本地文件</strong><small>支持截图粘贴、PDF、Word、PPT、代码与文本</small></span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => { setAddMenuOpen(false); if (documents.length) openContext(); else navigate("/library"); }}
+                >
+                  <Library size={15} />
+                  <span><strong>{documents.length ? "选择资料库参考范围" : "前往资料库导入资料"}</strong><small>也可输入 @ 快速引用资料或历史会话</small></span>
+                </button>
+              </div>
+            )}
+          </div>
           <IconButton label={webOnce ? "取消本轮联网搜索" : "本轮搜索网页候选"} className={webOnce ? "web-on" : ""} type="button" disabled={sending} onClick={() => setWebOnce((value) => !value)}><Globe2 /></IconButton>
           {selectedDocuments.length > 0 && <span className="composer-scope"><Library size={13} />{selectedDocuments.length} 份优先资料<button className="scope-mode-toggle" type="button" title={strictDocumentScope ? "当前只检索选中资料，点击恢复全库检索" : "当前检索全库并优先这些资料，点击限制为仅选中"} onClick={toggleStrictDocumentScope}>{strictDocumentScope ? "仅这些" : "全库优先"}</button><button type="button" aria-label="清空优先资料" title="清空优先资料" onClick={clearDocumentScope}><X size={12} /></button></span>}
           {webOnce && <span className="composer-web-scope"><Globe2 size={13} />本轮联网</span>}
-          <label className={`composer-select model ${activeProvider?.configured ? "connected" : "offline"}`} title="本会话使用的模型"><i /><ModelSelect providers={settings?.providers || []} label="当前模型" value={selectedProvider} onChange={(value) => void changeProvider(value)} /></label>
-          <label className="composer-select depth" title="回答深度"><DropdownSelect ariaLabel="回答深度" value={settings?.preferences.assistant.answer_depth || "standard"} disabled={sending || !settings} onChange={(value) => void changeAnswerDepth(value as "concise" | "standard" | "deep")} options={[{ value: "concise", label: "简洁" }, { value: "standard", label: "标准" }, { value: "deep", label: "深入" }]} /></label>
-          <span className="composer-hint" title="Enter 发送，Shift+Enter 换行"><kbd>Enter</kbd> 发送</span>
-          {sending ? <button className="send-button stop" type="button" aria-label="停止生成" onClick={() => { const id = streamIdRef.current; abortRef.current?.abort(); if (id) void api.cancelRun(id).catch(() => undefined); }}><Square size={15} /></button> : <button className="send-button" type="submit" disabled={!draft.trim() || !libraryReady} aria-label="发送"><ArrowUp size={17} /></button>}
+          <div className="composer-right">
+            <label className={`composer-select model ${activeProvider?.configured ? "connected" : "offline"}`} title="本会话使用的模型"><i /><ModelSelect providers={settings?.providers || []} label="当前模型" value={selectedProvider} onChange={(value) => void changeProvider(value)} /></label>
+            <label className="composer-select depth" title="回答深度"><DropdownSelect ariaLabel="回答深度" value={settings?.preferences.assistant.answer_depth || "standard"} disabled={sending || !settings} onChange={(value) => void changeAnswerDepth(value as "concise" | "standard" | "deep")} options={[{ value: "concise", label: "简洁" }, { value: "standard", label: "标准" }, { value: "deep", label: "深入" }]} /></label>
+            {sending ? <button className="send-button stop" type="button" aria-label="停止生成" onClick={() => { const id = streamIdRef.current; abortRef.current?.abort(); if (id) void api.cancelRun(id).catch(() => undefined); }}><Square size={14} /></button> : <button className="send-button" type="submit" disabled={(!draft.trim() && attachments.length === 0) || !libraryReady || attachmentBusy} aria-label="发送"><ArrowUp size={17} /></button>}
+          </div>
         </div>
       </div>
     </form>

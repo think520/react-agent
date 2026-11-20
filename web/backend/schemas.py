@@ -25,6 +25,16 @@ class ChatReference(BaseModel):
     wiki_type: Literal["source", "entity", "concept", "analysis", "question", "note"] | None = None
 
 
+class ChatAttachment(BaseModel):
+    type: Literal["image", "file"]
+    name: str = Field(..., min_length=1, max_length=200)
+    mime_type: str = Field(default="", max_length=100)
+    data_url: str | None = Field(default=None, max_length=6_000_000)
+    text: str | None = Field(default=None, max_length=30_000)
+    char_count: int = Field(default=0, ge=0)
+    truncated: bool = False
+
+
 class ChatRunRequest(BaseModel):
     message: str = Field(default="", max_length=32000)
     # E4: continue a turn that paused on ask_user instead of starting a new one.
@@ -44,6 +54,7 @@ class ChatRunRequest(BaseModel):
     web_enabled: bool = False
     web_research_id: str | None = Field(default=None, max_length=64)
     references: list[ChatReference] = Field(default_factory=list, max_length=8)
+    attachments: list[ChatAttachment] = Field(default_factory=list, max_length=6)
 
 
 class ChatSessionUpdateRequest(BaseModel):
@@ -116,6 +127,7 @@ class ChatMessage(BaseModel):
     content: str
     artifacts: list[dict[str, Any]] = Field(default_factory=list)
     references: list[ChatReference] = Field(default_factory=list)
+    attachments: list[ChatAttachment] = Field(default_factory=list)
     personalization: list[dict[str, Any]] = Field(default_factory=list)
 
 

@@ -27,6 +27,16 @@ export interface Attribution {
   status?: "found" | "no_hit";
 }
 
+export interface ChatAttachment {
+  type: "image" | "file";
+  name: string;
+  mime_type?: string;
+  data_url?: string;
+  text?: string;
+  char_count?: number;
+  truncated?: boolean;
+}
+
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
@@ -38,6 +48,7 @@ export interface ChatMessage {
   process?: Array<{ phase: string; message: string; toolName?: string; elapsed?: number }>;
   artifacts?: ChatArtifact[];
   references?: ChatReference[];
+  attachments?: ChatAttachment[];
   personalization?: PersonalizationRef[];
 }
 

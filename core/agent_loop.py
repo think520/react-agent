@@ -278,6 +278,7 @@ class AgentLoop:
         *,
         resume_tool_call_id: str | None = None,
         resume_tool_content: str = "",
+        user_attachments: list[dict] | None = None,
     ) -> Iterator[dict]:
         """Run one turn and yield UI-friendly progress events.
 
@@ -320,7 +321,11 @@ class AgentLoop:
                     self.session.messages.append(message)
                     turn_injections.append(message)
                 # W1 E12：预检索块追加到末尾 user 消息（attach_kb_seed 自己保证幂等）。
-                self.session.add_message("user", attach_kb_seed(user_input, self.kb_seed or ""))
+                self.session.add_message(
+                    "user",
+                    attach_kb_seed(user_input, self.kb_seed or ""),
+                    attachments=user_attachments,
+                )
             else:
                 # Prompts and injections are already persisted from the paused
                 # turn; re-running them would duplicate the dynamic tail.
