@@ -8,6 +8,7 @@
 
 > 本节记录尚未发布的变更与历史条目；历史条目中的分支、提交和推送状态是撰写时快照。
 
+- **工程底盘、体验打磨与文档架构收口（2026-11-20）**：修复 `core/event_log.py` 未显式关闭 SQLite 连接导致的 Windows 文件锁隐患；在 `tests/test_architecture_boundaries.py` 新增 `AGENTS.md` / `CLAUDE.md` 一致性守卫；编辑已保存供应商点击「读取模型」时同源复用服务端已存密钥（绝不下发前端、跨源不转发）；设置页备份面板展示本机历史备份并支持直接按 `backup_id` 校验恢复，同时修复校验区复选框与资料库检索命中条目样式；资料库 0 命中时给出「换关键词 / 去对话问 AI」引导；将 `PROJECT_GUIDE.md` §12–§14 拆出为轻量速查 `docs/ARCHITECTURE_AND_CONTRACTS.md`。
 - **W4-RESTORE-01 整库备份 / 恢复与迁移失败回滚（2026-11-20，提交 `175064e`）**：新增 `core/db.py::backup_sqlite`（SQLite 在线快照保证 WAL 一致性 + `PRAGMA integrity_check`）、`service/backup_service.py`、`/api/backup/*` 路由与设置页「记忆与数据 → 整库备份与恢复」面板；备份默认排除 `provider.json`（API 密钥）、`.env*` 与 `libraries.json`，规范化工作区路径并在异地干净目录恢复时自动重定位；恢复与资料库/旧图谱迁移中途失败自动回滚；`QA-LIVE-01` 补齐资料移动撤销冲突与整库干净目录异地恢复闭环验收。
 - **供应商模型发现**：获取模型时区分 API Key 错误、未提供 `/models`、限流、非 JSON 响应、空模型列表和响应格式不兼容；模型 ID 支持常见 `id` / `model` / `model_id` 字段。读取失败会保留模板已有模型，统一中文错误提示并去重手动填写引导，不再出现双句号。
 

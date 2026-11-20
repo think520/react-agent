@@ -6,10 +6,13 @@ import { BackupRestorePanel } from "./BackupRestorePanel";
 
 const mockApi = vi.hoisted(() => ({
   backupPlan: vi.fn(),
+  backupList: vi.fn(),
   createBackup: vi.fn(),
   backupDownloadUrl: vi.fn((id: string) => `/api/backup/download/${id}`),
   verifyBackupFile: vi.fn(),
+  verifySavedBackup: vi.fn(),
   restoreBackupFile: vi.fn(),
+  restoreSavedBackup: vi.fn(),
   libraryDefaults: vi.fn(),
 }));
 
@@ -34,6 +37,7 @@ describe("BackupRestorePanel (W4-RESTORE-01)", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockApi.backupList.mockResolvedValue({ backups: [] });
     mockApi.backupPlan.mockResolvedValue({
       library: { library_id: "lib-1", name: "算法与数据结构", is_portable: true },
       library_databases: ["knowledge.db", "bobodan.db"],
@@ -116,6 +120,44 @@ describe("BackupRestorePanel (W4-RESTORE-01)", () => {
         activate: true,
       });
       expect(screen.getByRole("alert").textContent).toContain("已自动回滚到恢复前状态");
+    });
+  });
+
+  it("lists saved local backups and verifies a saved backup directly by id", async () => {
+    mockApi.backupList.mockResolvedValueOnce({
+      backups: [
+        {
+          backup_id: "bobodan-backup-saved.zip",
+          filename: "bobodan-backup-saved.zip",
+          size_bytes: 4096,
+          created_at: "2026-11-20T07:00:00+00:00",
+          library: { library_id: "lib-1", name: "算法与数据结构", is_portable: true },
+          includes_global: true,
+          counts: { materials: 3, questions: 8 },
+        },
+      ],
+    });
+    mockApi.verifySavedBackup.mockResolvedValueOnce({
+      valid: true,
+      created_at: "2026-11-20T07:00:00+00:00",
+      library: { library_id: "lib-1", name: "算法与数据结构", is_portable: true },
+      storage_dir: ".bobodan",
+      includes_global: true,
+      global_items: ["preferences.json"],
+      excluded_items: [],
+      counts: { materials: 3, questions: 8, sessions: 4 },
+      sqlite_databases: ["library/.bobodan/knowledge.db"],
+      verified_files: 12,
+    });
+
+    render(<BackupRestorePanel activeLibrary={ACTIVE_LIBRARY} />);
+
+    expect(await screen.findByText(/本机已保存的备份（最近 1 份）/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "校验恢复" }));
+
+    await waitFor(() => {
+      expect(mockApi.verifySavedBackup).toHaveBeenCalledWith("bobodan-backup-saved.zip");
+      expect(screen.getByText(/校验通过：共 12 个文件/)).toBeTruthy();
     });
   });
 });

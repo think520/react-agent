@@ -19,16 +19,24 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 }
 
+function formatBackupTime(iso: string): string {
+  if (!iso) return "";
+  return iso.replace("T", " ").replace(/\+00:00|Z$/, " UTC").slice(0, 19);
+}
+
+type RestoreSource = { kind: "file"; file: File; label: string } | { kind: "saved"; backupId: string; label: string };
+
 export function BackupRestorePanel({ activeLibrary }: { activeLibrary: LibrarySummary | null }) {
   const { confirm, confirmElement } = useConfirm();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [includeGlobal, setIncludeGlobal] = useState(true);
   const [plan, setPlan] = useState<BackupPlan | null>(null);
+  const [backups, setBackups] = useState<BackupSummary[]>([]);
   const [creating, setCreating] = useState(false);
   const [latestBackup, setLatestBackup] = useState<BackupSummary | null>(null);
 
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [restoreSource, setRestoreSource] = useState<RestoreSource | null>(null);
   const [verifying, setVerifying] = useState(false);
   const [verification, setVerification] = useState<BackupVerification | null>(null);
   const [targetDir, setTargetDir] = useState("");
@@ -37,6 +45,14 @@ export function BackupRestorePanel({ activeLibrary }: { activeLibrary: LibrarySu
 
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    void api.backupList().then((result) => {
+      if (!cancelled) setBackups(result.backups || []);
+    }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     if (!activeLibrary) {
@@ -52,6 +68,16 @@ export function BackupRestorePanel({ activeLibrary }: { activeLibrary: LibrarySu
     return () => { cancelled = true; };
   }, [activeLibrary, includeGlobal]);
 
+  async function ensureDefaultTargetDir() {
+    if (targetDir) return;
+    try {
+      const defaults = await api.libraryDefaults();
+      setTargetDir(defaults.root_path);
+    } catch {
+      // Optional helper; user can still enter target directory manually.
+    }
+  }
+
   async function handleCreateBackup() {
     if (!activeLibrary || creating) return;
     setCreating(true);
@@ -60,6 +86,7 @@ export function BackupRestorePanel({ activeLibrary }: { activeLibrary: LibrarySu
     try {
       const created = await api.createBackup(includeGlobal);
       setLatestBackup(created);
+      setBackups((current) => [created, ...current.filter((item) => item.backup_id !== created.backup_id)]);
       setNotice(`已生成备份 ${created.filename}（${formatBytes(created.size_bytes)}），已通过 SQLite 完整性校验。`);
     } catch (reason) {
       setError(userMessageFor(reason, "创建备份失败。"));
@@ -68,26 +95,20 @@ export function BackupRestorePanel({ activeLibrary }: { activeLibrary: LibrarySu
     }
   }
 
-  async function handleFileSelect(file: File | null) {
-    setSelectedFile(file);
+  async function verifySource(source: RestoreSource) {
+    setRestoreSource(source);
     setVerification(null);
     setRestoreGlobal(false);
     setError("");
     setNotice("");
-    if (!file) return;
     setVerifying(true);
     try {
-      const result = await api.verifyBackupFile(file);
+      const result = source.kind === "file"
+        ? await api.verifyBackupFile(source.file)
+        : await api.verifySavedBackup(source.backupId);
       setVerification(result);
       setRestoreGlobal(result.includes_global);
-      if (!targetDir) {
-        try {
-          const defaults = await api.libraryDefaults();
-          setTargetDir(defaults.root_path);
-        } catch {
-          // Optional helper; user can still enter target directory manually.
-        }
-      }
+      await ensureDefaultTargetDir();
       setNotice(`校验通过：共 ${result.verified_files} 个文件、${result.sqlite_databases.length} 个 SQLite 数据库完整无损。`);
     } catch (reason) {
       setError(userMessageFor(reason, "备份包校验失败。"));
@@ -96,8 +117,17 @@ export function BackupRestorePanel({ activeLibrary }: { activeLibrary: LibrarySu
     }
   }
 
+  async function handleFileSelect(file: File | null) {
+    if (!file) {
+      setRestoreSource(null);
+      setVerification(null);
+      return;
+    }
+    await verifySource({ kind: "file", file, label: `${file.name}（${formatBytes(file.size)}）` });
+  }
+
   async function handleRestore() {
-    if (!selectedFile || !verification || restoring) return;
+    if (!restoreSource || !verification || restoring) return;
     const cleanedTarget = targetDir.trim();
     if (!cleanedTarget) {
       setError("请填写一个空白的目标文件夹路径用于恢复。");
@@ -116,11 +146,14 @@ export function BackupRestorePanel({ activeLibrary }: { activeLibrary: LibrarySu
     setError("");
     setNotice("");
     try {
-      const result = await api.restoreBackupFile(selectedFile, {
+      const options = {
         targetDir: cleanedTarget,
         restoreGlobal: restoreGlobal && verification.includes_global,
         activate: true,
-      });
+      };
+      const result = restoreSource.kind === "file"
+        ? await api.restoreBackupFile(restoreSource.file, options)
+        : await api.restoreSavedBackup(restoreSource.backupId, options);
       setNotice(`已恢复资料库「${result.library.name}」并完成校验（${result.verified_files} 个文件）。刷新页面或切换资料库即可使用。`);
     } catch (reason) {
       setError(userMessageFor(reason, "恢复失败，已尝试回滚到恢复前状态。"));
@@ -132,6 +165,7 @@ export function BackupRestorePanel({ activeLibrary }: { activeLibrary: LibrarySu
   const globalSummary = plan?.global_items.length
     ? plan.global_items.map((name) => GLOBAL_ITEM_LABELS[name] || name).join("、")
     : "当前无可导出的全局文件";
+  const recentBackups = backups.slice(0, 5);
 
   return <>
     {confirmElement}
@@ -168,13 +202,42 @@ export function BackupRestorePanel({ activeLibrary }: { activeLibrary: LibrarySu
         </SettingsRow>
       )}
 
+      {recentBackups.length > 0 && (
+        <details className="migration-preview">
+          <summary>本机已保存的备份（最近 {recentBackups.length} 份）</summary>
+          <div>
+            {recentBackups.map((item) => (
+              <div className="setting-row" key={item.backup_id}>
+                <span>
+                  <strong>{item.library?.name || item.filename}</strong>
+                  <small>{formatBytes(item.size_bytes)}{item.created_at ? ` · ${formatBackupTime(item.created_at)}` : ""}{item.includes_global ? " · 含全局数据" : ""}</small>
+                </span>
+                <div className="migration-actions">
+                  <a className="quiet-button" href={api.backupDownloadUrl(item.backup_id)} download={item.filename}>
+                    <Download size={14} />下载
+                  </a>
+                  <button
+                    className="quiet-button"
+                    type="button"
+                    disabled={verifying || restoring}
+                    onClick={() => void verifySource({ kind: "saved", backupId: item.backup_id, label: item.filename })}
+                  >
+                    <RotateCcw size={14} />校验恢复
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+
       <p className="settings-model-hint">
         安全边界：备份默认<strong>不包含</strong> <code>provider.json</code>（云端 API 密钥）、本地 <code>.env</code> 与本机 <code>libraries.json</code> 路径表；换机恢复后请重新填写模型密钥。
       </p>
 
       <SettingsRow
         label="校验并恢复备份包"
-        hint={selectedFile ? `${selectedFile.name}（${formatBytes(selectedFile.size)}）` : "选择 .zip 备份包，先校验 SHA-256 与数据库完整性，再恢复到空白目录"}
+        hint={restoreSource ? restoreSource.label : "选择 .zip 备份包，先校验 SHA-256 与数据库完整性，再恢复到空白目录"}
       >
         <input
           ref={fileInputRef}
@@ -191,11 +254,12 @@ export function BackupRestorePanel({ activeLibrary }: { activeLibrary: LibrarySu
       </SettingsRow>
 
       {verification && (
-        <div className="settings-field">
+        <>
           <p className="settings-model-hint">
-            <CheckCircle2 size={14} /> 备份资料库：<strong>{verification.library.name || "未命名资料库"}</strong> · {verification.counts.materials ?? 0} 份资料 · {verification.counts.questions ?? 0} 道题 · {verification.counts.sessions ?? 0} 个会话
+            <CheckCircle2 size={14} style={{ display: "inline", verticalAlign: "-2px", marginRight: 5 }} />
+            备份资料库：<strong>{verification.library.name || "未命名资料库"}</strong> · {verification.counts.materials ?? 0} 份资料 · {verification.counts.questions ?? 0} 道题 · {verification.counts.sessions ?? 0} 个会话
           </p>
-          <label>
+          <label className="settings-field">
             <span>恢复目标空白目录</span>
             <input
               type="text"
@@ -211,7 +275,7 @@ export function BackupRestorePanel({ activeLibrary }: { activeLibrary: LibrarySu
                 checked={restoreGlobal}
                 onChange={(event) => setRestoreGlobal(event.target.checked)}
               />
-              同时恢复全局数据（{verification.global_items.map((name) => GLOBAL_ITEM_LABELS[name] || name).join("、")}；不含 API 密钥）
+              <span>同时恢复全局数据（{verification.global_items.map((name) => GLOBAL_ITEM_LABELS[name] || name).join("、")}；不含 API 密钥）</span>
             </label>
           )}
           <div className="migration-actions">
@@ -220,7 +284,7 @@ export function BackupRestorePanel({ activeLibrary }: { activeLibrary: LibrarySu
               {restoring ? "正在恢复并核对…" : "恢复到目标目录"}
             </button>
           </div>
-        </div>
+        </>
       )}
 
       {notice && <p className="settings-model-hint" role="status">{notice}</p>}

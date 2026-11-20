@@ -79,7 +79,11 @@ export function ProvidersPane({ providers, onChanged }: {
     setError("");
     setNotice("");
     try {
-      const result = await api.fetchProviderModels(editing.base_url.trim(), editing.api_key.trim() || undefined);
+      const result = await api.fetchProviderModels(
+        editing.base_url.trim(),
+        editing.api_key.trim() || undefined,
+        editingName || editing.name.trim() || undefined,
+      );
       setEditing((current) => current && { ...current, models: result.models, model_default: current.model_default || result.models[0]?.id || "" });
       if (result.models.length) setNotice("已获取 " + result.models.length + " 个模型，可继续手输补充。");
       else setNotice("没有读取到模型，可手动添加。");

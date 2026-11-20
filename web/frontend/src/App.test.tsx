@@ -41,6 +41,7 @@ describe("Bobodan app shell", () => {
       if (path.includes("/api/kb/documents")) return jsonResponse({ documents: [] });
       if (path.endsWith("/api/learning/review-queue")) return jsonResponse({ due_concepts: [], wrong_answers: [], weaknesses: [] });
       if (path.endsWith("/api/memory/overview")) return jsonResponse({ knowledge_count: 0, pending_candidate_count: 0 });
+      if (path.includes("/api/backup/list")) return jsonResponse({ backups: [] });
       if (path.includes("/api/backup/plan")) return jsonResponse({
         library: { library_id: "library-1", name: "Study Library", is_portable: true },
         library_databases: ["knowledge.db", "bobodan.db"],

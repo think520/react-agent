@@ -74,6 +74,7 @@ export async function mockApi(page: Page, options: MockApiOptions = {}) {
   await page.route("**/api/kb/wiki/coverage", (route) => route.fulfill(json({ documents: [], counts: { uncovered: 0, partial: 0, covered: 0, stale: 0 } })));
   await page.route("**/api/learning/review-queue", (route) => route.fulfill(json({ due_concepts: [], wrong_answers: [], weaknesses: [], personalization: [] })));
   await page.route("**/api/quiz/sessions/active", (route) => route.fulfill(json({ sessions: [] })));
+  await page.route("**/api/backup/list", (route) => route.fulfill(json({ backups: [] })));
   await page.route("**/api/backup/plan*", (route) => route.fulfill(json({
     library: { library_id: "library-1", name: "测试资料库", is_portable: true },
     library_databases: ["knowledge.db", "bobodan.db"],

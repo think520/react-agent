@@ -53,9 +53,9 @@ export const workspaceApi = {
     `/api/settings/providers/${encodeURIComponent(name)}`,
     { method: "DELETE" },
   ),
-  fetchProviderModels: (baseUrl: string, apiKey?: string) => request<{ ok: boolean; models: ProviderModel[] }>(
+  fetchProviderModels: (baseUrl: string, apiKey?: string, providerName?: string) => request<{ ok: boolean; models: ProviderModel[] }>(
     "/api/settings/providers/fetch-models",
-    json({ base_url: baseUrl, api_key: apiKey || null }),
+    json({ base_url: baseUrl, api_key: apiKey || null, provider_name: providerName || null }),
   ),
   searchProviderTest: (provider: "auto" | "tavily" | "exa") => request<{ provider: string; latency_ms: number; result_count: number }>(
     `/api/settings/search/${encodeURIComponent(provider)}/test`,
@@ -227,12 +227,35 @@ export const workspaceApi = {
       body: form,
     });
   },
+  verifySavedBackup: (backupId: string) => {
+    const form = new FormData();
+    form.append("backup_id", backupId);
+    return request<import("../../../types").BackupVerification>("/api/backup/verify", {
+      method: "POST",
+      body: form,
+    });
+  },
   restoreBackupFile: (
     file: File,
     options: { targetDir: string; restoreGlobal: boolean; activate?: boolean; newLibraryId?: boolean },
   ) => {
     const form = new FormData();
     form.append("file", file);
+    form.append("target_dir", options.targetDir);
+    form.append("restore_global", options.restoreGlobal ? "true" : "false");
+    form.append("activate", options.activate === false ? "false" : "true");
+    form.append("new_library_id", options.newLibraryId ? "true" : "false");
+    return request<import("../../../types").BackupRestoreResult>("/api/backup/restore", {
+      method: "POST",
+      body: form,
+    });
+  },
+  restoreSavedBackup: (
+    backupId: string,
+    options: { targetDir: string; restoreGlobal: boolean; activate?: boolean; newLibraryId?: boolean },
+  ) => {
+    const form = new FormData();
+    form.append("backup_id", backupId);
     form.append("target_dir", options.targetDir);
     form.append("restore_global", options.restoreGlobal ? "true" : "false");
     form.append("activate", options.activate === false ? "false" : "true");

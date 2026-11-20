@@ -40,6 +40,7 @@ describe("ProvidersPane model discovery", () => {
 
     expect(await screen.findByText("model-known")).toBeTruthy();
     expect(await screen.findByText(/服务未提供模型列表接口。可手动输入模型 ID。/)).toBeTruthy();
+    expect(api.fetchProviderModels).toHaveBeenCalledWith("https://api.example.com/v1", undefined, "custom");
   });
 
   it("does not duplicate punctuation or manual-entry hint when backend message already provides one", async () => {

@@ -263,6 +263,40 @@ def test_fetch_models_classifies_non_json_response_as_unsupported_format(monkeyp
     assert exc_info.value.code == "fetch_models_unsupported_format"
 
 
+def test_fetch_models_reuses_stored_api_key_only_for_same_origin(monkeypatch, tmp_path):
+    import httpx
+    from providers.catalog import upsert_provider
+    from web.backend.routers.settings import ProviderFetchModelsRequest, fetch_provider_models
+
+    monkeypatch.setenv("BOBODAN_HOME", str(tmp_path / "home"))
+    upsert_provider("custom-keyed", {
+        "base_url": "https://api.example.com/v1",
+        "api_key": "sk-stored-secret-key",
+        "model_default": "m1",
+    })
+
+    seen_headers: list[dict] = []
+
+    def fake_get(url, headers=None, timeout=10):
+        seen_headers.append(dict(headers or {}))
+        return httpx.Response(200, json={"data": [{"id": "m1"}]}, request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(httpx, "get", fake_get)
+
+    # Same origin with blank api_key -> reuses stored key
+    res = fetch_provider_models(ProviderFetchModelsRequest(
+        base_url="https://api.example.com/v1", api_key=None, provider_name="custom-keyed",
+    ))
+    assert [m["id"] for m in res["models"]] == ["m1"]
+    assert seen_headers[-1].get("Authorization") == "Bearer sk-stored-secret-key"
+
+    # Different host -> MUST NOT forward stored key
+    fetch_provider_models(ProviderFetchModelsRequest(
+        base_url="https://evil.other.example/v1", api_key=None, provider_name="custom-keyed",
+    ))
+    assert "Authorization" not in seen_headers[-1]
+
+
 def test_parse_provider_ref():
     from web.backend.deps import parse_provider_ref
 

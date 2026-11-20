@@ -14,7 +14,7 @@ import json
 import os
 import time
 
-from core.db import begin_immediate, create_connection
+from core.db import begin_immediate, open_connection
 from knowledge.paths import knowledge_dir
 
 EVENTS_FILENAME = "events.db"
@@ -54,7 +54,7 @@ class EventLog:
             connection.executescript(_DDL)
 
     def _connect(self):
-        return create_connection(self.path, busy_timeout_ms=15000)
+        return open_connection(self.path, busy_timeout_ms=15000)
 
     def append(self, stream_id: str, event: str, data) -> int:
         """Append one frame and return its sequence number.

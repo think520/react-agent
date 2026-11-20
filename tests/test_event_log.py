@@ -92,3 +92,21 @@ def test_prune_never_deletes_a_stream_that_is_still_live(tmp_path):
 
     assert capped.max_seq("live") == 1
     assert capped.max_seq("s1") + capped.max_seq("s2") == 1, "the cap still applies"
+
+
+def test_event_log_closes_sqlite_connections_promptly(tmp_path):
+    """EventLog must close SQLite handles on exit so Windows deletes don't hit WinError 32."""
+    import shutil
+
+    workspace = tmp_path / "ephemeral-workspace"
+    workspace.mkdir()
+    log = EventLog(str(workspace))
+    log.append("s1", "message_delta", {"content": "hello"})
+    assert log.read_after("s1", 0)[0]["data"] == {"content": "hello"}
+    assert log.max_seq("s1") == 1
+    log.prune(now=1e12)
+    log.clear("s1")
+
+    # Deleting the workspace immediately without gc.collect() fails on Windows if any handle leaked.
+    shutil.rmtree(workspace)
+    assert not workspace.exists()

@@ -56,6 +56,7 @@ class ProviderUpsertRequest(BaseModel):
 class ProviderFetchModelsRequest(BaseModel):
     base_url: str = Field(..., min_length=1, max_length=300)
     api_key: str | None = None
+    provider_name: str | None = Field(default=None, max_length=80)
 
 
 class SettingsProposalRequest(BaseModel):
@@ -219,11 +220,27 @@ def fetch_provider_models(body: ProviderFetchModelsRequest) -> dict:
     失败返回 409，由前端提示手输兜底。
     """
     import httpx
+    from urllib.parse import urlparse
+    from providers.catalog import load_catalog, resolve_api_key
 
     base_url = body.base_url.rstrip("/")
+    resolved_key = (body.api_key or "").strip()
+    if not resolved_key and body.provider_name:
+        saved = load_catalog().get("providers", {}).get(body.provider_name.strip())
+        if isinstance(saved, dict):
+            saved_url = str(saved.get("base_url") or "").strip()
+            req_parsed = urlparse(base_url)
+            saved_parsed = urlparse(saved_url)
+            if (
+                req_parsed.scheme
+                and req_parsed.netloc
+                and req_parsed.scheme.lower() == saved_parsed.scheme.lower()
+                and req_parsed.netloc.lower() == saved_parsed.netloc.lower()
+            ):
+                resolved_key = resolve_api_key(saved)
     headers = {}
-    if body.api_key:
-        headers["Authorization"] = f"Bearer {body.api_key}"
+    if resolved_key:
+        headers["Authorization"] = f"Bearer {resolved_key}"
     try:
         response = httpx.get(f"{base_url}/models", headers=headers, timeout=10)
         response.raise_for_status()

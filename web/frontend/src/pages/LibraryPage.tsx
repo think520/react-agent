@@ -117,6 +117,7 @@ export function LibraryPage() {
   // 的那一段（?chunk= 通道已在 2026-09-23 验证可用）。
   const [hits, setHits] = useState<Array<{ chunk_id: string; document_id: string; collection?: string; title?: string; source?: string; text?: string }>>([]);
   const [hitsError, setHitsError] = useState(false);
+  const [hitsSearchedQuery, setHitsSearchedQuery] = useState("");
   const [maintenanceOpen, setMaintenanceOpen] = useState(false);
   const [maintenanceLoading, setMaintenanceLoading] = useState(false);
   const [wikiHealth, setWikiHealth] = useState<WikiHealth | null>(null);
@@ -385,12 +386,24 @@ export function LibraryPage() {
   });
   useEffect(() => {
     const query = documentQuery.trim();
-    if (query.length < 2) { setHits([]); setHitsError(false); return; }
+    if (query.length < 2) { setHits([]); setHitsError(false); setHitsSearchedQuery(""); return; }
     let cancelled = false;
     const timer = window.setTimeout(() => {
       void api.searchKnowledge(query, collection)
-        .then((result) => { if (!cancelled) { setHits((result.results || []).slice(0, 5)); setHitsError(false); } })
-        .catch(() => { if (!cancelled) { setHits([]); setHitsError(true); } });
+        .then((result) => {
+          if (!cancelled) {
+            setHits((result.results || []).slice(0, 5));
+            setHitsError(false);
+            setHitsSearchedQuery(query);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setHits([]);
+            setHitsError(true);
+            setHitsSearchedQuery(query);
+          }
+        });
     }, 300);
     return () => { cancelled = true; window.clearTimeout(timer); };
   }, [documentQuery, collection]);
@@ -509,7 +522,7 @@ export function LibraryPage() {
             {collection === "material" && tree && !treeCollapsed && (
             <LibraryTreePanel
               archive={archive} restoreArchived={restoreArchived} tree={tree} documentQuery={documentQuery}
-              setDocumentQuery={setDocumentQuery} hits={hits} hitsError={hitsError} navigate={navigate} collection={collection}
+              setDocumentQuery={setDocumentQuery} hits={hits} hitsError={hitsError} hitsEmpty={!hitsError && hits.length === 0 && hitsSearchedQuery === documentQuery.trim() && documentQuery.trim().length >= 2} navigate={navigate} collection={collection}
               selectedFolder={selectedFolder} setSelectedFolder={setSelectedFolder} selectedId={selectedId} selectDocument={selectDocument}
               moveDocument={moveDocument} archiveDocument={archiveDocument} createFolder={createFolder} deleteFolder={deleteFolder}
               organizeProposals={organizeProposals} organizeBusy={organizeBusy} organizeSource={organizeSource} organizeDegraded={organizeDegraded}

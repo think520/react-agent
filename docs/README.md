@@ -9,14 +9,15 @@
 | 你要做的事 | 只看这份 | 别再翻 |
 |---|---|---|
 | 决定下一步做什么、先做什么、不做什么 | [`ROADMAP.md`](ROADMAP.md) | 任何评审报告或调研报告的排期结论 |
-| 判断某能力是否在边界内、架构真相、发布门槛 | [`PROJECT_GUIDE.md`](PROJECT_GUIDE.md) | 根 `README.md` 的能力介绍（给人看的，不是契约） |
+| 判断某能力是否在边界内、产品定位、发布门槛 | [`PROJECT_GUIDE.md`](PROJECT_GUIDE.md) | 根 `README.md` 的能力介绍（给人看的，不是契约） |
+| 查常用命令、架构目录树、依赖方向与运行时契约 | [`ARCHITECTURE_AND_CONTRACTS.md`](ARCHITECTURE_AND_CONTRACTS.md) | 翻完整份 `PROJECT_GUIDE.md` |
 | 改界面：颜色、字号、间距、圆角、动效、可访问性 | [`DESIGN.md`](DESIGN.md) | `VISUAL_SYSTEM_PLAN.md`（已归档） |
 | 改前端：组件迁移、页面配方、依赖引入、迁移顺序 | [`FRONTEND_UPGRADE_PLAN.md`](FRONTEND_UPGRADE_PLAN.md) | 历史 `FRONTEND_OPTIMIZATION*.md` |
 | 改 RAG：分块、embedding、FTS、RRF、检索权重 | [`rag_design.md`](rag_design.md)，评测看 [`RAG_EVAL.md`](RAG_EVAL.md) | 调研报告里的 RAG 章节 |
 | 改资料库：文件树、分栏阅读、资料范围、归档 | [`LIBRARY_TREE_DESIGN.md`](LIBRARY_TREE_DESIGN.md) | `archive/` 里的旧资料库任务书 |
 | 改题库 / 练习 / 复习取题 | [`QUESTION_BANK_DESIGN.md`](QUESTION_BANK_DESIGN.md) | — |
 | 改流式请求、导入、后台任务的中止 | [`CANCELLATION_DESIGN.md`](CANCELLATION_DESIGN.md) | — |
-| 改整库备份、恢复、迁移回滚或数据隐私边界 | [`../PRIVACY.md`](../PRIVACY.md) + [`PROJECT_GUIDE.md`](PROJECT_GUIDE.md) §4 / §8 / §14 | 旧版「备份待交付」说法 |
+| 改整库备份、恢复、迁移回滚或数据隐私边界 | [`../PRIVACY.md`](../PRIVACY.md) + [`ARCHITECTURE_AND_CONTRACTS.md`](ARCHITECTURE_AND_CONTRACTS.md) | 旧版「备份待交付」说法 |
 | 改 Agent 人格、教学风格 | [`PERSONA.md`](PERSONA.md) | 调研报告的 prompt 章节 |
 | 配置 MCP / Skills 扩展 | [`MCP.md`](MCP.md) / [`tools/skills.md`](tools/skills.md) | — |
 | 找同构实现、借鉴机制 | [`REFERENCE_PROJECTS.md`](REFERENCE_PROJECTS.md) → [`Bobodan参考项目调研报告.md`](Bobodan参考项目调研报告.md) | 直接读参考仓 |
@@ -60,7 +61,8 @@
 | 文档 | 用途 |
 |---|---|
 | [`ROADMAP.md`](ROADMAP.md) | 唯一执行路线（两屏）：当前基线、当前批次、下一批候选、发布阻塞项、待拍板与已拍板决策 |
-| [`PROJECT_GUIDE.md`](PROJECT_GUIDE.md) | 产品定位、成熟度、架构真相、数据边界、发布门槛与编码纪律 |
+| [`PROJECT_GUIDE.md`](PROJECT_GUIDE.md) | 产品定位、成熟度、发布门槛与产品边界 |
+| [`ARCHITECTURE_AND_CONTRACTS.md`](ARCHITECTURE_AND_CONTRACTS.md) | 常用命令、架构目录树、依赖方向与运行时关键契约（轻量速查） |
 | [`DESIGN.md`](DESIGN.md) | 可执行设计规范：token、排版、表面阶梯、动效、可访问性、性能预算、打包清单、契约测试 |
 | [`FRONTEND_UPGRADE_PLAN.md`](FRONTEND_UPGRADE_PLAN.md) | 前端唯一整合方案：token 落地、组件行为、页面配方、依赖矩阵、迁移顺序与验收 |
 
@@ -91,7 +93,7 @@
 | [`archive/README.md`](archive/README.md) | 归档清单与去向表 |
 | [`reviews/README.md`](reviews/README.md) | 项目审查与整改复审索引 |
 | [`../CHANGELOG.md`](../CHANGELOG.md) | 变更流水：每批改了什么、怎么验证的、哪些尝试被回滚 |
-| [`../AGENTS.md`](../AGENTS.md) | 根目录唯一 Agent 红线与编码纪律（`CLAUDE.md` 为同内容镜像；常用命令 / 架构目录 / 关键契约见 `PROJECT_GUIDE.md` §12–§14） |
+| [`../AGENTS.md`](../AGENTS.md) | 根目录唯一 Agent 红线与编码纪律（`CLAUDE.md` 与其内容一致，由单测守护；命令/架构/契约见 [`ARCHITECTURE_AND_CONTRACTS.md`](ARCHITECTURE_AND_CONTRACTS.md)） |
 | [`../PRIVACY.md`](../PRIVACY.md) | 数据分类、本地/云端流向、密钥隔离与整库备份/恢复边界 |
 | [`../tests/README.md`](../tests/README.md) | 测试分层、LLM 单缝、真实后端闭环门禁、Playwright 政策 |
 

@@ -614,5 +614,10 @@ describe("原文搜索失败不能显示成「没命中」（2026-11-11 审查�
     vi.mocked(api.searchKnowledge).mockResolvedValueOnce({ results: [] } as never);
     fireEvent.change(box, { target: { value: "贪心策略" } });
     await waitFor(() => expect(screen.queryByText("原文搜索暂时不可用，下面只按标题筛选。")).toBeNull(), { timeout: 2000 });
+    expect(await screen.findByText("本地原文未命中「贪心策略」", {}, { timeout: 2000 })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "换关键词" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "去对话问 AI" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "换关键词" }));
+    expect((box as HTMLInputElement).value).toBe("");
   });
 });

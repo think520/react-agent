@@ -1,8 +1,8 @@
 # AGENTS.md
 
-Bobodan（波波蛋）是本地优先、Chat-first 的个人学习助手。开始产品、架构或界面工作前，先按 `docs/README.md` 的「按任务查文档」路由表定位：产品 / 架构 / 发布看 `docs/PROJECT_GUIDE.md`，界面看 `docs/DESIGN.md`，常用命令与 CLI 见 `docs/PROJECT_GUIDE.md` §12。
+Bobodan（波波蛋）是本地优先、Chat-first 的个人学习助手。开始产品、架构或界面工作前，先按 `docs/README.md` 的「按任务查文档」路由表定位：产品边界 / 发布看 `docs/PROJECT_GUIDE.md`，界面看 `docs/DESIGN.md`，常用命令、架构目录与关键契约见 `docs/ARCHITECTURE_AND_CONTRACTS.md`。
 
-（本文件是根目录唯一指令源；`CLAUDE.md` 是指向它的硬链接，勿单独维护。）
+（本文件是根目录唯一指令源；`CLAUDE.md` 与其保持内容一致，由 `tests/test_architecture_boundaries.py` 守护，修改时需同步。）
 
 ## 红线（每轮都适用）
 

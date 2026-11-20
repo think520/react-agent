@@ -26,3 +26,13 @@ def test_rag_learning_import_is_rejected():
 
     assert len(violations) == 1
     assert "RAG must not depend" in violations[0]
+
+
+def test_agents_md_and_claude_md_stay_in_sync():
+    """Git checkouts break NTFS hardlinks; guard against multi-agent instruction drift."""
+    agents_text = (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8").replace("\r\n", "\n")
+    claude_text = (REPO_ROOT / "CLAUDE.md").read_text(encoding="utf-8").replace("\r\n", "\n")
+    assert agents_text == claude_text, (
+        "AGENTS.md and CLAUDE.md have diverged. Keep AGENTS.md as the single source "
+        "and mirror identical content to CLAUDE.md."
+    )
