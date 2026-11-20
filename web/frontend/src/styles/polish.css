@@ -190,6 +190,111 @@
 /* 暗色主题下未开启开关轨道可读性修复（从固定深色 rgba 改为随主题 --ink 混合） */
 .setting-toggle:not(.on) { background: color-mix(in srgb, var(--ink) 20%, transparent); }
 
+/* ── 对话输入框与欢迎区工艺升级（2026-11-20）──
+   保留 Surface 3 + 发丝环（满足 L2-3），通过「书写区 + 工具底条」双层结构、
+   胶囊化控制项、圆形呼吸感发送按钮与暖纸建议胶囊提升质感。 */
+.composer {
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--surface-3);
+  box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-lift);
+  transition: box-shadow var(--dur-base) var(--ease-out), background var(--dur-base) var(--ease-out);
+}
+.composer:focus-within {
+  box-shadow: 0 0 0 var(--hairline) color-mix(in srgb, var(--blue) 36%, transparent), 0 0 0 3px color-mix(in srgb, var(--blue) 8%, transparent), var(--shadow-float);
+}
+.composer textarea {
+  min-height: 54px;
+  padding: 15px 18px 10px;
+  color: var(--ink);
+  font-size: 15px;
+  line-height: 1.65;
+}
+.composer-toolbar {
+  min-height: 44px;
+  flex-wrap: wrap;
+  gap: 6px;
+  border-top: 1px solid var(--border-subtle);
+  padding: 7px 10px 7px 12px;
+  background: color-mix(in srgb, var(--surface-0) 45%, var(--surface-3));
+}
+.composer-toolbar .icon-button {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+}
+.composer-toolbar .icon-button svg { width: 16px; height: 16px; }
+.composer-select {
+  min-height: 30px;
+  border-radius: var(--radius-sm);
+  padding: 0 3px 0 9px;
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.composer-select:hover { background: color-mix(in srgb, var(--ink) 7%, transparent); }
+.composer-select .dropdown-trigger { min-height: 28px; padding: 0 6px; font-size: 12.5px; }
+.composer-select .dropdown-trigger:hover { border-color: transparent; background: transparent; color: var(--ink); }
+.composer-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  color: var(--faint);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.composer-hint kbd {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 1px 5px;
+  background: var(--surface-3);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.25;
+}
+.send-button {
+  width: 34px;
+  height: 34px;
+  margin-left: 4px;
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-soft);
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--spring-press);
+}
+.send-button:not(:disabled):hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-lift);
+}
+.send-button:disabled {
+  background: color-mix(in srgb, var(--ink) 10%, transparent);
+  color: var(--faint);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+.starter-actions { gap: 8px; margin-top: 18px; }
+.starter-actions button {
+  min-height: 34px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  padding: 0 13px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 12.5px;
+  box-shadow: 0 0 0 var(--hairline) var(--ring);
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--spring-press);
+}
+.starter-actions button:hover {
+  background: var(--surface-3);
+  color: var(--blue);
+  transform: translateY(-1px);
+  box-shadow: 0 0 0 var(--hairline) color-mix(in srgb, var(--blue) 28%, transparent), var(--shadow-lift);
+}
+.starter-actions button:active { transform: scale(0.98); }
+@media (max-width: 767px) {
+  .composer-hint { display: none; }
+  .send-button { margin-left: auto; }
+}
+
 /* ── 浮层与交互手感统一（暖纸发丝环 + 物理弹簧轻反馈）── */
 .dropdown-panel,
 .reader-more-actions > div,

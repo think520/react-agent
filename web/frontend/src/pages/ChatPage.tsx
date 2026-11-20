@@ -558,8 +558,8 @@ export function ChatPage() {
           {webOnce && <span className="composer-web-scope"><Globe2 size={13} />本轮联网</span>}
           <label className={`composer-select model ${activeProvider?.configured ? "connected" : "offline"}`} title="本会话使用的模型"><i /><ModelSelect providers={settings?.providers || []} label="当前模型" value={selectedProvider} onChange={(value) => void changeProvider(value)} /></label>
           <label className="composer-select depth" title="回答深度"><DropdownSelect ariaLabel="回答深度" value={settings?.preferences.assistant.answer_depth || "standard"} disabled={sending || !settings} onChange={(value) => void changeAnswerDepth(value as "concise" | "standard" | "deep")} options={[{ value: "concise", label: "简洁" }, { value: "standard", label: "标准" }, { value: "deep", label: "深入" }]} /></label>
-          <span className="composer-hint">Enter 发送 · Shift Enter 换行</span>
-          {sending ? <button className="send-button stop" type="button" aria-label="停止生成" onClick={() => { const id = streamIdRef.current; abortRef.current?.abort(); if (id) void api.cancelRun(id).catch(() => undefined); }}><Square /></button> : <button className="send-button" type="submit" disabled={!draft.trim() || !libraryReady} aria-label="发送"><ArrowUp /></button>}
+          <span className="composer-hint" title="Enter 发送，Shift+Enter 换行"><kbd>Enter</kbd> 发送</span>
+          {sending ? <button className="send-button stop" type="button" aria-label="停止生成" onClick={() => { const id = streamIdRef.current; abortRef.current?.abort(); if (id) void api.cancelRun(id).catch(() => undefined); }}><Square size={15} /></button> : <button className="send-button" type="submit" disabled={!draft.trim() || !libraryReady} aria-label="发送"><ArrowUp size={17} /></button>}
         </div>
       </div>
     </form>

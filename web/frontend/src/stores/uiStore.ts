@@ -35,6 +35,8 @@ interface UiState {
   graphRevision: number;
   knowledgeContext: KnowledgeContext | null;
   sourceContext: Attribution | null;
+  lastChatSessionId: string | null;
+  lastChatSessionTitle: string;
   setPanelOpen: (side: "left" | "right", open: boolean) => void;
   setMobileSidebarOpen: (open: boolean) => void;
   setMobileContextOpen: (open: boolean) => void;
@@ -47,6 +49,7 @@ interface UiState {
   bumpGraphRevision: () => void;
   setKnowledgeContext: (context: KnowledgeContext | null) => void;
   setSourceContext: (attribution: Attribution | null) => void;
+  setLastChatSession: (sessionId: string | null, title?: string) => void;
   setDocumentScope: (documentIds: string[]) => void;
   toggleDocumentScope: (documentId: string) => void;
   pruneDocumentScope: (validIds: string[]) => void;
@@ -87,6 +90,8 @@ export const useUiStore = create<UiState>()(
       graphRevision: 0,
       knowledgeContext: null,
       sourceContext: null,
+      lastChatSessionId: null,
+      lastChatSessionTitle: "",
       setPanelOpen: (side, open) => set(side === "left" ? { leftSidebarOpen: open } : { rightSidebarOpen: open }),
       setMobileSidebarOpen: (open) => set({ mobileSidebarOpen: open }),
       setMobileContextOpen: (open) => set({ mobileContextOpen: open }),
@@ -101,6 +106,7 @@ export const useUiStore = create<UiState>()(
       bumpGraphRevision: () => set((state) => ({ graphRevision: state.graphRevision + 1 })),
       setKnowledgeContext: (context) => set({ knowledgeContext: context }),
       setSourceContext: (attribution) => set({ sourceContext: attribution }),
+      setLastChatSession: (sessionId, title = "") => set({ lastChatSessionId: sessionId, lastChatSessionTitle: sessionId ? title : "" }),
       setDocumentScope: (documentIds) => set({ documentScope: Array.from(new Set(documentIds)) }),
       toggleDocumentScope: (documentId) => set((state) => ({
         documentScope: state.documentScope.includes(documentId)

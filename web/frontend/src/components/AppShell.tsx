@@ -77,6 +77,8 @@ export function AppShell() {
   const setKnowledgeContext = useUiStore((state) => state.setKnowledgeContext);
   const sourceContext = useUiStore((state) => state.sourceContext);
   const setSourceContext = useUiStore((state) => state.setSourceContext);
+  const lastChatSessionId = useUiStore((state) => state.lastChatSessionId);
+  const setLastChatSession = useUiStore((state) => state.setLastChatSession);
 
   const settingsSection = searchParams.get("settings");
 
@@ -287,6 +289,7 @@ export function AppShell() {
     setConceptDetailId(null);
     setKnowledgeContext(null);
     setSourceContext(null);
+    setLastChatSession(null);
     const library = await api.activateLibrary(libraryId);
     setActiveLibraryId(library.library_id);
     setActiveLibrary(library);
@@ -310,6 +313,20 @@ export function AppShell() {
     () => sessions.find((session) => session.chat_session_id === params.sessionId),
     [params.sessionId, sessions],
   );
+
+  useEffect(() => {
+    if (section === "chat" && params.sessionId) {
+      setLastChatSession(params.sessionId, activeSession?.name || "");
+    }
+  }, [activeSession?.name, params.sessionId, section, setLastChatSession]);
+
+  const chatNavTarget = useMemo(() => {
+    if (!lastChatSessionId) return "/chat";
+    if (sessions.length > 0 && !sessions.some((session) => session.chat_session_id === lastChatSessionId)) {
+      return "/chat";
+    }
+    return `/chat/${encodeURIComponent(lastChatSessionId)}`;
+  }, [lastChatSessionId, sessions]);
   const meta = pageMeta[section] || pageMeta.chat;
   const title = activeSession?.name || meta[1];
 
@@ -470,13 +487,16 @@ export function AppShell() {
           <div><strong>Bobodan</strong><span>Local learning companion</span></div>
           <IconButton label="收起导航" className="mobile-only" onClick={() => setSidebarOpen(false)}><ChevronLeft /></IconButton>
         </div>
-        <button className="new-chat-button" onClick={() => navigate("/chat")}><span><Plus size={17} />新对话</span><kbd>Ctrl N</kbd></button>
+        <button className="new-chat-button" onClick={() => { setLastChatSession(null); navigate("/chat"); }}><span><Plus size={17} />新对话</span><kbd>Ctrl N</kbd></button>
         <nav className="primary-nav">
-          {navItems.map(({ to, label, icon: Icon }) => (
-            <NavLink to={to} key={to} className={({ isActive }) => isActive ? "nav-item active" : "nav-item"}>
-              <Icon size={18} /><span>{label}</span>
-            </NavLink>
-          ))}
+          {navItems.map(({ to, label, icon: Icon }) => {
+            const target = to === "/chat" ? chatNavTarget : to;
+            return (
+              <NavLink to={target} key={to} className={({ isActive }) => (isActive || (to === "/chat" && section === "chat")) ? "nav-item active" : "nav-item"}>
+                <Icon size={18} /><span>{label}</span>
+              </NavLink>
+            );
+          })}
         </nav>
         <SessionRail
           sessions={sessions}
@@ -506,7 +526,10 @@ export function AppShell() {
       {!leftOpen && <div className="panel-hover-edge left" onMouseEnter={() => schedulePreview("left", true)} onMouseLeave={() => schedulePreview("left", false)} />}
 
       <nav className="mobile-nav" aria-label="移动端主导航">
-        {navItems.map(({ to, label, icon: Icon }) => <NavLink to={to} key={to} className={({ isActive }) => isActive ? "active" : ""}><Icon /><span>{label}</span></NavLink>)}
+        {navItems.map(({ to, label, icon: Icon }) => {
+          const target = to === "/chat" ? chatNavTarget : to;
+          return <NavLink to={target} key={to} className={({ isActive }) => (isActive || (to === "/chat" && section === "chat")) ? "active" : ""}><Icon /><span>{label}</span></NavLink>;
+        })}
       </nav>
       {(sidebarOpen || contextOpen) && <button className="scrim" aria-label="关闭浮层" onClick={() => { setSidebarOpen(false); setContextOpen(false); }} />}
       {onboardingOpen && <OnboardingDialog

@@ -216,8 +216,10 @@
 .library-reader-placeholder { display: flex; align-items: center; justify-content: center; min-width: 0; }
 .library-workspace.list-only.with-tree .document-rail { max-width: none; margin: 0; }
 
-.reader-container { max-width: 900px; }
-.reader-topbar { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+.reader-container { max-width: 900px; padding-top: 0; }
+.reader-topbar { position: sticky; top: 0; z-index: 15; display: flex; align-items: center; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--paper) 92%, transparent); backdrop-filter: blur(12px); }
+.reader-return-chat { max-width: 240px; border-color: color-mix(in srgb, var(--blue) 24%, transparent); background: var(--blue-wash); color: var(--blue); }
+.reader-return-chat span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .reader-topbar-nav { display: flex; gap: 2px; }
 .reader-topbar-title { min-width: 0; flex: 1; }
 .reader-topbar-title span { color: var(--clay); font-size: 12px; font-weight: 700; text-transform: uppercase; }

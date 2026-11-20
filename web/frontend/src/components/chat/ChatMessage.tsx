@@ -1,7 +1,7 @@
 import { FileText, MessageCircle } from "lucide-react";
 import { memo, useMemo } from "react";
 import ReactMarkdown, { defaultUrlTransform, type Components } from "react-markdown";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import remarkGfm from "remark-gfm";
 import type { PluggableList } from "unified";
 
@@ -9,7 +9,8 @@ import type { ProcessBrandState } from "../../hooks/useChatStream";
 import { remarkCitations, type CitationTarget } from "../../lib/citations";
 import { readerLocation } from "../../lib/documentLinks";
 import { BobodanProcess, PersonalizationChip, RunSummary } from "../../pages/chat/chatPrimitives";
-import type { Attribution, ChatArtifact, ChatMessage, RunSummaryArtifact } from "../../types";
+import { useUiStore } from "../../stores/uiStore";
+import type { Attribution, ChatArtifact, ChatMessage, KnowledgeContextArtifact, RunSummaryArtifact } from "../../types";
 import { BlockErrorBoundary } from "../../ui";
 import { AttributionBadges } from "../common";
 import { ProcessFoldBlock } from "../ProcessFoldBlock";
@@ -28,6 +29,63 @@ export function UserMessage({ message, onOpenReference }: {
   </div>;
 }
 
+/** 合并单条消息内多次概念检索产生的重复 knowledge_context 卡片，并过滤空卡片。 */
+export function normalizeMessageArtifacts(artifacts: ChatArtifact[] | undefined): ChatArtifact[] {
+  if (!artifacts?.length) return [];
+  const result: ChatArtifact[] = [];
+  let mergedIndex = -1;
+  let mergedContext: KnowledgeContextArtifact | null = null;
+  const mergedRelationships: NonNullable<KnowledgeContextArtifact["context"]["relationships"]> = [];
+  const seenConcepts = new Set<string>();
+  const seenRels = new Set<string>();
+
+  for (const artifact of artifacts) {
+    if (artifact.type !== "knowledge_context") {
+      result.push(artifact);
+      continue;
+    }
+    const ctx = artifact.context;
+    const concepts = ctx?.concepts || [];
+    const relationships = ctx?.relationships || [];
+    if (!concepts.length && !relationships.length && !ctx?.root) continue;
+
+    if (!mergedContext) {
+      mergedContext = {
+        ...artifact,
+        context: {
+          ...ctx,
+          concepts: [],
+          relationships: mergedRelationships,
+        },
+      };
+      mergedIndex = result.length;
+      result.push(mergedContext);
+    } else if (!mergedContext.context.root && ctx.root) {
+      mergedContext.context.root = ctx.root;
+    }
+
+    for (const concept of concepts) {
+      if (!seenConcepts.has(concept.concept_id)) {
+        seenConcepts.add(concept.concept_id);
+        mergedContext.context.concepts.push(concept);
+      }
+    }
+    for (const relation of relationships) {
+      const key = relation.rel_id || `${relation.from_id}|${relation.rel_type}|${relation.to_id}`;
+      if (!seenRels.has(key)) {
+        seenRels.add(key);
+        mergedRelationships.push(relation);
+      }
+    }
+  }
+
+  if (mergedContext && mergedIndex >= 0) {
+    const hasContent = mergedRelationships.length > 0 || mergedContext.context.concepts.length > 0;
+    if (!hasContent) result.splice(mergedIndex, 1);
+  }
+  return result;
+}
+
 export function AssistantMessage({ message, index, assistantName, status, brandState, sending, error, onPreparePractice, onRetry, renderArtifact, onOpenSources }: {
   message: ChatMessage;
   index: number;
@@ -41,13 +99,14 @@ export function AssistantMessage({ message, index, assistantName, status, brandS
   renderArtifact: (artifact: ChatArtifact) => React.ReactNode;
   onOpenSources: (attribution: Attribution) => void;
 }) {
+  const visibleArtifacts = useMemo(() => normalizeMessageArtifacts(message.artifacts), [message.artifacts]);
   return <article className={"assistant-message " + (message.failed ? "failed" : "")}>
     <div className="assistant-heading"><img src={message.failed ? "/assets/brand/expressions/bobodan-expression-curious.webp" : "/assets/brand/expressions/bobodan-expression-neutral.webp"} alt="" /><span>{assistantName}</span></div>
     {message.pending && status && <BobodanProcess state={brandState} detail={status} />}
     {!message.pending && <RunSummary artifact={message.artifacts?.find((artifact): artifact is RunSummaryArtifact => artifact.type === "run_summary")} />}
     {!message.pending && message.process?.length ? <ProcessFoldBlock steps={message.process} /> : null}
     <BlockErrorBoundary><div className="answer-prose"><AnswerMarkdown attribution={message.attribution} content={message.content || (message.pending ? "正在整理回答…" : message.failed ? "回答没有完成。" : "本轮没有生成可显示的内容。")} /></div></BlockErrorBoundary>
-    {message.artifacts?.map((artifact) => <BlockErrorBoundary key={artifact.artifact_id}>{renderArtifact(artifact)}</BlockErrorBoundary>)}
+    {visibleArtifacts.map((artifact) => <BlockErrorBoundary key={artifact.artifact_id}>{renderArtifact(artifact)}</BlockErrorBoundary>)}
     <AttributionBadges attribution={message.attribution} onOpenSources={onOpenSources} />
     <PersonalizationChip references={message.personalization} />
     {!message.pending && !message.failed && message.content && !message.artifacts?.some((artifact) => artifact.type === "practice_ready") && <AnswerActions onPreparePractice={() => onPreparePractice(index)} />}
@@ -80,12 +139,20 @@ const AnswerMarkdown = memo(function AnswerMarkdown({ content, attribution }: { 
 });
 
 function CitationMark({ target }: { target: CitationTarget }) {
+  const routerLocation = useLocation();
+  const lastChatSessionTitle = useUiStore((state) => state.lastChatSessionTitle);
   const { source, index } = target;
   const location = source.heading || (source.page ? `第 ${source.page} 页` : source.slide ? `第 ${source.slide} 页` : "");
   const title = source.title + (location ? " · " + location : "");
   const label = `来源 ${index}：${title}`;
   const reader = source.source_type === "local" ? readerLocation(source) : null;
-  if (reader) return <Link className="citation-mark" to={reader} title={title} aria-label={label}>{index}</Link>;
+  const returnState = routerLocation.pathname.startsWith("/chat/")
+    ? {
+        returnTo: routerLocation.pathname + routerLocation.search,
+        returnLabel: lastChatSessionTitle ? `返回对话 · ${lastChatSessionTitle}` : "返回刚才的对话",
+      }
+    : undefined;
+  if (reader) return <Link className="citation-mark" to={reader} state={returnState} title={title} aria-label={label}>{index}</Link>;
   if (source.url) return <a className="citation-mark" href={source.url} target="_blank" rel="noreferrer" title={title} aria-label={label}>{index}</a>;
   return <span className="citation-mark" title={title} aria-label={label}>{index}</span>;
 }

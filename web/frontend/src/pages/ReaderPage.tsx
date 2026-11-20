@@ -7,8 +7,8 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, CheckCircle2, Pencil, RefreshCw, Sparkles } from "lucide-react";
-import { useNavigate, useOutletContext, useParams, useSearchParams } from "react-router-dom";
+import { ArrowLeft, ArrowRight, CheckCircle2, MessageCircle, Pencil, RefreshCw, Sparkles } from "lucide-react";
+import { useLocation, useNavigate, useOutletContext, useParams, useSearchParams } from "react-router-dom";
 
 import type { AppOutletContext } from "../components/AppShell";
 import { EmptyState, ErrorNotice, LoadingState } from "../components/common";
@@ -17,8 +17,14 @@ import { DocumentReader } from "../components/DocumentReader";
 import { ApiError, api } from "../lib/api";
 import { shouldIgnoreShortcut } from "../lib/ime";
 import { useReaderTabsStore } from "../stores/readerTabsStore";
+import { useUiStore } from "../stores/uiStore";
 import { useConfirm } from "../ui/Modal";
 import type { DocumentExtractionStatus, DocumentSection, DocumentSummary } from "../types";
+
+type ReaderLocationState = {
+  returnTo?: string;
+  returnLabel?: string;
+} | null;
 
 const EDITABLE_KINDS = new Set(["md", "txt", "markdown", "course_document", "obsidian_note"]);
 
@@ -26,11 +32,17 @@ const EDITABLE_KINDS = new Set(["md", "txt", "markdown", "course_document", "obs
 
 export function ReaderPage() {
   const { id } = useParams();
+  const location = useLocation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const collection = searchParams.get("collection") === "wiki" ? "wiki" : "material";
   const chunkParam = searchParams.get("chunk");
   const { activeLibrary } = useOutletContext<AppOutletContext>();
+  const lastChatSessionId = useUiStore((state) => state.lastChatSessionId);
+  const lastChatSessionTitle = useUiStore((state) => state.lastChatSessionTitle);
+  const navState = (location.state as ReaderLocationState) || null;
+  const returnTo = navState?.returnTo || (chunkParam && lastChatSessionId ? `/chat/${encodeURIComponent(lastChatSessionId)}` : "");
+  const returnLabel = navState?.returnLabel || (lastChatSessionTitle ? `返回对话 · ${lastChatSessionTitle}` : "返回刚才的对话");
 
   const [documents, setDocuments] = useState<DocumentSummary[]>([]);
   // 阅读区（DocumentReader）加载完小节后回传的副本：顶栏的「提取概念」按它判断
@@ -103,7 +115,7 @@ export function ReaderPage() {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { if (!shouldIgnoreShortcut(e)) navigate("/library?collection=" + collection); return; }
+      if (e.key === "Escape") { if (!shouldIgnoreShortcut(e)) navigate(returnTo || ("/library?collection=" + collection)); return; }
       if (shouldIgnoreShortcut(e)) return;
       if (e.shiftKey && (e.key === "J" || e.key === "j")) goTo(1);
       if (e.shiftKey && (e.key === "K" || e.key === "k")) goTo(-1);
@@ -111,7 +123,7 @@ export function ReaderPage() {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedIndex, documents.length, collection]);
+  }, [selectedIndex, documents.length, collection, returnTo]);
 
   function documentContentVersion(doc: DocumentSummary) {
     return doc.content_hash || [doc.updated_at || "", doc.chunk_count || 0].join(":");
@@ -171,7 +183,16 @@ export function ReaderPage() {
       {confirmElement}
       <div className="page-container reader-container">
         <header className="reader-topbar">
-          <button className="quiet-button" title="Esc 返回列表" onClick={() => navigate("/library?collection=" + collection)}><ArrowLeft size={15} />返回资料库</button>
+          {returnTo ? (
+            <button className="quiet-button reader-return-chat" title={`${returnLabel}（Esc）`} onClick={() => navigate(returnTo)}>
+              <MessageCircle size={15} /><span>{returnLabel}</span>
+            </button>
+          ) : (
+            <button className="quiet-button" title="Esc 返回列表" onClick={() => navigate("/library?collection=" + collection)}><ArrowLeft size={15} />返回资料库</button>
+          )}
+          {returnTo && (
+            <button className="icon-button" aria-label="前往资料库" title="前往资料库" onClick={() => navigate("/library?collection=" + collection)}><ArrowLeft size={15} /></button>
+          )}
           <div className="reader-topbar-nav">
             <button className="icon-button" aria-label="上一份" title="上一份 · Shift+K" disabled={!documents.length} onClick={() => goTo(-1)}><ArrowLeft size={15} /></button>
             <button className="icon-button" aria-label="下一份" title="下一份 · Shift+J" disabled={!documents.length} onClick={() => goTo(1)}><ArrowRight size={15} /></button>
