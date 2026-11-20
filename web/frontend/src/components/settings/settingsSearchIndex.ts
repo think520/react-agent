@@ -40,6 +40,7 @@ export const SETTINGS_SEARCH_ENTRIES: SettingsSearchEntry[] = [
   { id: "rag-eval", label: "评测与降级可见性", aliases: "评测 基线 用例", tab: "rag" },
   { id: "memory-enabled", label: "启用学习记忆", aliases: "记忆 个性化 开关", tab: "memory" },
   { id: "memory-knowledge", label: "个人知识", aliases: "知识 候选 管理", tab: "memory" },
+  { id: "memory-backup", label: "整库备份与恢复", aliases: "备份 恢复 迁移 回滚 导出 zip 换机 校验", tab: "memory" },
   { id: "memory-migrate", label: "旧版知识图谱迁移", aliases: "迁移 旧数据 json", tab: "memory" },
   { id: "memory-boundary", label: "本地数据边界", aliases: "隐私 本地 只读", tab: "memory" },
   { id: "skills-list", label: "Web 安全 Skills", aliases: "技能 skills 命令", tab: "skills" },

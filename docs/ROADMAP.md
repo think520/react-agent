@@ -1,6 +1,6 @@
 # Bobodan 路线图
 
-> **v2.1（2026-11-18，体验审查两轮整改）** · 分支：`codex/experience-review-two-rounds` · 验证：后端 1933、Vitest 390；desktop Playwright 48 passed / 7 skipped。发布阻塞仍见 §4。
+> **v2.2（2026-11-20，W4-RESTORE-01 整库备份 / 恢复与迁移回滚）** · 分支：`main` · 验证：后端 1951、Vitest 393、desktop + narrow-desktop Playwright 96 passed / 14 skipped。剩余发布阻塞见 §4。
 >
 > **这是唯一的"现在做什么"文档，控制在两屏。** 只写四件事：当前基线、当前批次、下一批候选、发布阻塞项。交付经过写进 [`../CHANGELOG.md`](../CHANGELOG.md)；v1.5 及以前的完整路线（W1–W5 交付长表、A0–A4、E1–E18、G1–G5 的复测记录）原样归档在 [`archive/delivery/ROADMAP_HISTORY_2026-09_11.md`](archive/delivery/ROADMAP_HISTORY_2026-09_11.md)，只用于追溯。
 
@@ -13,7 +13,7 @@
 | ID | 工作流 | 事项 | 状态 | 证据 / 下一步 |
 |---|---|---|---|---|
 | W1-E6.2 | W1 学习闭环 | 掌握度统一消费契约（事实 / 估计 / 调度三分） | `已验证` | `learning/contract.py`；`tests/test_mastery_contract.py` 23 条；已合入 main |
-| QA-LIVE-01 | 横贯 | 真实后端核心闭环门禁（只替换模型） | `已验证`（第一版） | `tests/test_live_core_loop.py` 12 条：导入→检索→出题→作答→复习→重启、批改失败、跨库隔离、引用链路、预检索范围。**余项**：资料移动撤销冲突、整体备份恢复（并入 W4-RESTORE-01） |
+| QA-LIVE-01 | 横贯 | 真实后端核心闭环门禁（只替换模型） | `已验证` | `tests/test_live_core_loop.py` 14 条：导入→检索→出题→作答→复习→重启、批改失败、跨库隔离、引用链路、预检索范围、资料移动撤销冲突、整库备份与干净目录恢复 |
 | W2-EVID-01 | W2 检索 | 引用校验第一阶段：确定性引用标签 + 运行时引用门禁 | `已验证` | `rag/citations.py`、`CitationPolicy`；`tests/test_citation_policy.py` 12 条 + 真实链路 5 条。**真实模型未抽查**（标签是否被照抄）——见 §2 |
 | W2-EVID-02 | W2 检索 | 引用支持度：引用真实但结论与原文矛盾时给风险信号 | `未开始` | 评审原始复现（原文「非负权」→ 回答「支持负权」+ 真实标签）**现在仍会通过**。规则/模型辅助 + 人工抽样，结果只作风险信号 |
 | W2-CITE-CODE-01 | W2 检索 | Markdown 代码示例中的引用形状文本保持原样 | `已验证` | `citations.ts` 在 Markdown AST 解析后只转换普通文本节点；`ChatMessage.test.tsx` 覆盖正文、行内代码和围栏代码 |
@@ -31,14 +31,14 @@
 | W3-PERF | W3 | 前端性能与一致性（审查 2026-11-11 余项，见 §3） | `进行中` | 已做：流式不再重解析历史、全局快捷键避开输入框、未定义 CSS 变量清零、「读取失败」不再显示成「空 / 尚未练习」 |
 | AUDIT-P2 | 横贯 | 2026-11-11 审查 P2：错误码结构化、导入状态拆出 AppShell、`app.css` 清死规则 + 合并互相覆盖的规则 + 按原顺序拆成 7 个文件（构建产物逐字节不变）、quiz 测试迁到 ScriptedProvider、`kb_service.py` 3032 → 895 行（Wiki 维护与资料文件管理移到 mixin） | `已验证` | 每步全量门禁；拆分前后行为不变 |
 | AUDIT-P1 | 横贯 | 2026-11-11 审查 P1 全部：CLI 证据门禁、检索不列全库、按 id 打开会话、失败与空分开、store 迁移按库一次、图谱随主题取色、AppShell 无关重渲染 | `已验证` | `service/turn_policy.py`；`KBService.search` 300 份资料 48.9ms → 13.1ms；回归均在旧代码上先红 |
-| W4-RESTORE-01 | W4 | 整体备份 / 恢复与迁移失败演练 | `未开始` | **发布硬门禁** |
-| W5-RC-01 | W5 | 锁定发布依赖；安装 / 升级 / 退出 / 卸载验收 | `未开始` | **发布硬门禁**；依赖 W4-RESTORE-01 |
+| W4-RESTORE-01 | W4 | 整体备份 / 恢复与迁移失败演练 | `已验证` | `core/db.py::backup_sqlite`、`service/backup_service.py`、`/api/backup/*`、`BackupRestorePanel.tsx`；`tests/test_backup_service.py` 9 条 + `tests/test_live_core_loop.py` 干净目录异地恢复（不含密钥、原文/错题/引用/笔记/会话/全局偏好可核对）+ 恢复/迁移失败回滚演练 |
+| W5-RC-01 | W5 | 锁定发布依赖；安装 / 升级 / 退出 / 卸载验收 | `未开始` | **发布硬门禁**；W4-RESTORE-01 已满足 |
 
 ## 2. 当前批次
 
 同一时间只有**一个主交付批次 + 一个不互相阻塞的验证批次**。
 
-- **主批次：2026-11-18 外部体验审查整改两轮**。本轮关闭 `FE-ONBOARD-01`、`W1-DRAFT-01`、`W2-CITE-CODE-01`、`W3-EMPTY-01`、`W3-READER-01`、`W3-TODAY-01` 与 `W5-PRIVACY-01`；测试和门禁记录见 CHANGELOG。
+- **主批次：W4-RESTORE-01 已完成**（下一步转入 `W5-RC-01` Windows 桌面打包与安装 / 升级 / 退出 / 卸载验收）。
 - **验证批次：真实模型抽查引用标签**。用真实模型问 3–5 个基于资料的问题，确认回答带 `[Sxxxxxx]` 且门禁不误伤；不照抄就改提示位置，而不是放宽门禁。
 
 ## 3. 下一批候选（按依赖排序）
@@ -54,7 +54,7 @@
 
 进入 Windows Prerelease 之前必须全部 `已验证`：
 
-1. **W4-RESTORE-01** 整体备份 / 恢复：干净目录恢复后关键记录与引用可核对；迁移失败可回滚。
+1. ~~**W4-RESTORE-01** 整体备份 / 恢复~~：`已验证`（干净目录异地恢复、不含密钥与迁移/恢复回滚已验收）。
 2. **W5-RC-01** 干净机器安装、sidecar 生命周期、升级 / 退出 / 卸载契约（细则见 `PROJECT_GUIDE.md` 发布验收）。
 3. **W2-EVID-01 真实模型抽查**通过（§2 验证批次）。
 4. 核心 P0（E6.2、QA-LIVE-01、EVID-01）保持绿灯。

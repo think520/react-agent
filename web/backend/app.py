@@ -9,7 +9,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from .errors import APIError
-from .routers import chat, graph, kb, learning, libraries, memory, quiz, research, settings
+from .routers import backup, chat, graph, kb, learning, libraries, memory, quiz, research, settings
 from .deps import get_config, get_library_service, get_session_save_dir, get_workspace
 
 
@@ -126,6 +126,7 @@ def create_app() -> FastAPI:
     app.include_router(memory.router, prefix="/api/memory", tags=["memory"])
     app.include_router(settings.router, prefix="/api/settings", tags=["settings"])
     app.include_router(libraries.router, prefix="/api/libraries", tags=["libraries"])
+    app.include_router(backup.router, prefix="/api/backup", tags=["backup"])
 
     @app.get("/api/health")
     def health() -> dict[str, bool]:

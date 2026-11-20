@@ -11,14 +11,18 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
+import tempfile
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
+from core.db import backup_sqlite, clear_schema_migrated_cache, remove_sqlite_sidecars
 from graph.concept_store import ConceptStore
 from knowledge.paths import knowledge_path
 from memory.legacy import LegacyMemoryReader
+from memory.personal_store import GLOBAL_DB_FILENAME, LIBRARY_DB_FILENAME, _home as _personal_home
 from service._result import err as _err, ok as _ok
 from service.memory_service import MemoryService
 
@@ -182,107 +186,148 @@ class LegacyGraphMigrationService:
                 "enabled": True,
             })
 
-        concept_store = ConceptStore(knowledge_path(self.workspace, "concept_graph.db"))
-        concept_candidates = []
-        for node_id, node in selected_concepts.items():
-            properties = node.get("properties") if isinstance(node.get("properties"), dict) else {}
-            candidate = concept_store.add_candidate(
-                name=concept_names[node_id],
-                level="core",
-                definition=str(properties.get("definition") or properties.get("description") or ""),
-                confidence="low",
-                source_doc_id="legacy_graph",
-                source_doc_title="旧版知识图谱",
-                excerpt="来自旧版索引，需人工审查后才能用于回答。",
-                suggested_rels=suggestions[node_id],
-            )
-            concept_candidates.append(candidate)
-
-        memory_service = MemoryService(self.workspace, home=self.home)
-        legacy_memory_names = {
-            entry.name.casefold()
-            for entry in LegacyMemoryReader(self.workspace).list_entries()
-        }
-        memory_candidates = []
-        memory_skipped = []
-        for node_id, node in selected_memories.items():
-            name = str(node.get("name") or node_id.split(":", 1)[-1]).strip()
-            if name.casefold() in legacy_memory_names:
-                memory_skipped.append({"id": node_id, "reason": "covered_by_legacy_memory"})
-                continue
-            quality, content = self._quality(node)
-            result = memory_service.add_candidate(
-                scope="global",
-                kind="profile_fact",
-                operation="create",
-                title=name,
-                content=content,
-                confidence=0.8 if quality == "complete" else 0.35,
-                reason=(
-                    "从旧版知识图谱导入。"
-                    + ("该节点只有名称，确认前请补充内容。" if quality == "name_only" else "")
-                ),
-                evidence=[{"source_type": "legacy_graph", "source_id": node_id, "quality": quality}],
-                generated_by="legacy_graph_import",
-            )
-            if result.get("candidate"):
-                memory_candidates.append(result["candidate"])
+        concept_db_path = Path(knowledge_path(self.workspace, "concept_graph.db"))
+        library_db_path = Path(knowledge_path(self.workspace, LIBRARY_DB_FILENAME))
+        home_dir = Path(self.home).expanduser().resolve() if self.home else _personal_home()
+        global_db_path = home_dir / GLOBAL_DB_FILENAME
+        tracked_dbs = [concept_db_path, library_db_path, global_db_path]
+        rollback_dir = Path(tempfile.mkdtemp(prefix="bobodan-legacy-migrate-"))
+        snapshots: dict[Path, Path | None] = {}
+        for index, db_path in enumerate(tracked_dbs):
+            if db_path.is_file():
+                snap = rollback_dir / f"db-{index}.sqlite"
+                backup_sqlite(str(db_path), str(snap))
+                snapshots[db_path] = snap
             else:
-                memory_skipped.append({"id": node_id, "reason": "duplicate_candidate"})
+                snapshots[db_path] = None
 
-        accounted = (
-            len(concept_candidates) == len(selected_concepts)
-            and len(memory_candidates) + len(memory_skipped) == len(selected_memories)
-        )
-        if not accounted:
-            return _err("迁移校验失败，旧文件未归档")
-
-        archive_path = None
-        checksum = hashlib.sha256(self.source_path.read_bytes()).hexdigest()
-        if archive:
-            timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-            target = self.source_path.with_name(f"{self.source_path.name}.archived")
-            if target.exists():
-                target = self.source_path.with_name(f"{self.source_path.name}.{timestamp}.archived")
-            metadata = {
-                "migrated_at": datetime.now(timezone.utc).isoformat(),
-                "source": str(self.source_path),
-                "archive": str(target),
-                "sha256": checksum,
-                "concept_candidates": len(concept_candidates),
-                "memory_candidates": len(memory_candidates),
-                "memory_skipped": memory_skipped,
-            }
-            metadata_path = target.with_name(f"{target.name}.migration.json")
-            try:
-                os.replace(self.source_path, target)
-                metadata_path.write_text(
-                    json.dumps(metadata, ensure_ascii=False, indent=2),
-                    encoding="utf-8",
-                )
-            except OSError as exc:
-                if target.exists() and not self.source_path.exists():
+        def _rollback_dbs() -> None:
+            for db_path, snap in snapshots.items():
+                remove_sqlite_sidecars(str(db_path))
+                if snap is not None and snap.is_file():
+                    db_path.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(snap, db_path)
+                elif db_path.exists():
                     try:
-                        os.replace(target, self.source_path)
+                        db_path.unlink()
                     except OSError:
-                        return _err(
-                            f"迁移已完成，但归档元数据写入失败；旧文件保留在 {target}: {exc}",
-                            code="legacy_archive_metadata_failed",
-                            archive_path=str(target),
-                            sha256=checksum,
-                        )
-                return _err(
-                    f"旧版知识图谱归档失败，源文件未删除: {exc}",
-                    code="legacy_archive_failed",
-                    sha256=checksum,
-                )
-            archive_path = str(target)
+                        pass
+                clear_schema_migrated_cache(str(db_path.parent))
 
-        return _ok(
-            concept_candidates=concept_candidates,
-            memory_candidates=memory_candidates,
-            memory_skipped=memory_skipped,
-            archived=bool(archive_path),
-            archive_path=archive_path,
-            sha256=checksum,
-        )
+        try:
+            concept_store = ConceptStore(str(concept_db_path))
+            concept_candidates = []
+            for node_id, node in selected_concepts.items():
+                properties = node.get("properties") if isinstance(node.get("properties"), dict) else {}
+                candidate = concept_store.add_candidate(
+                    name=concept_names[node_id],
+                    level="core",
+                    definition=str(properties.get("definition") or properties.get("description") or ""),
+                    confidence="low",
+                    source_doc_id="legacy_graph",
+                    source_doc_title="旧版知识图谱",
+                    excerpt="来自旧版索引，需人工审查后才能用于回答。",
+                    suggested_rels=suggestions[node_id],
+                )
+                concept_candidates.append(candidate)
+
+            memory_service = MemoryService(self.workspace, home=self.home)
+            legacy_memory_names = {
+                entry.name.casefold()
+                for entry in LegacyMemoryReader(self.workspace).list_entries()
+            }
+            memory_candidates = []
+            memory_skipped = []
+            for node_id, node in selected_memories.items():
+                name = str(node.get("name") or node_id.split(":", 1)[-1]).strip()
+                if name.casefold() in legacy_memory_names:
+                    memory_skipped.append({"id": node_id, "reason": "covered_by_legacy_memory"})
+                    continue
+                quality, content = self._quality(node)
+                result = memory_service.add_candidate(
+                    scope="global",
+                    kind="profile_fact",
+                    operation="create",
+                    title=name,
+                    content=content,
+                    confidence=0.8 if quality == "complete" else 0.35,
+                    reason=(
+                        "从旧版知识图谱导入。"
+                        + ("该节点只有名称，确认前请补充内容。" if quality == "name_only" else "")
+                    ),
+                    evidence=[{"source_type": "legacy_graph", "source_id": node_id, "quality": quality}],
+                    generated_by="legacy_graph_import",
+                )
+                if result.get("candidate"):
+                    memory_candidates.append(result["candidate"])
+                else:
+                    memory_skipped.append({"id": node_id, "reason": "duplicate_candidate"})
+
+            accounted = (
+                len(concept_candidates) == len(selected_concepts)
+                and len(memory_candidates) + len(memory_skipped) == len(selected_memories)
+            )
+            if not accounted:
+                _rollback_dbs()
+                return _err("迁移校验失败，已回滚写入，旧文件未归档", code="legacy_migration_failed", rolled_back=True)
+
+            archive_path = None
+            checksum = hashlib.sha256(self.source_path.read_bytes()).hexdigest()
+            if archive:
+                timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+                target = self.source_path.with_name(f"{self.source_path.name}.archived")
+                if target.exists():
+                    target = self.source_path.with_name(f"{self.source_path.name}.{timestamp}.archived")
+                metadata = {
+                    "migrated_at": datetime.now(timezone.utc).isoformat(),
+                    "source": str(self.source_path),
+                    "archive": str(target),
+                    "sha256": checksum,
+                    "concept_candidates": len(concept_candidates),
+                    "memory_candidates": len(memory_candidates),
+                    "memory_skipped": memory_skipped,
+                }
+                metadata_path = target.with_name(f"{target.name}.migration.json")
+                try:
+                    os.replace(self.source_path, target)
+                    metadata_path.write_text(
+                        json.dumps(metadata, ensure_ascii=False, indent=2),
+                        encoding="utf-8",
+                    )
+                except OSError as exc:
+                    if target.exists() and not self.source_path.exists():
+                        try:
+                            os.replace(target, self.source_path)
+                        except OSError:
+                            return _err(
+                                f"迁移已完成，但归档元数据写入失败；旧文件保留在 {target}: {exc}",
+                                code="legacy_archive_metadata_failed",
+                                archive_path=str(target),
+                                sha256=checksum,
+                            )
+                    _rollback_dbs()
+                    return _err(
+                        f"旧版知识图谱归档失败，已回滚写入且源文件未删除: {exc}",
+                        code="legacy_archive_failed",
+                        sha256=checksum,
+                        rolled_back=True,
+                    )
+                archive_path = str(target)
+
+            return _ok(
+                concept_candidates=concept_candidates,
+                memory_candidates=memory_candidates,
+                memory_skipped=memory_skipped,
+                archived=bool(archive_path),
+                archive_path=archive_path,
+                sha256=checksum,
+            )
+        except Exception as exc:
+            _rollback_dbs()
+            return _err(
+                f"旧版知识图谱迁移中途失败，已回滚所有更改且源文件未删除: {exc}",
+                code="legacy_migration_failed",
+                rolled_back=True,
+            )
+        finally:
+            shutil.rmtree(rollback_dir, ignore_errors=True)

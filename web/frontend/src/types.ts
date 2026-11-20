@@ -957,3 +957,66 @@ export interface ConceptDetail {
 }
 
 export type KnowledgeMapView = "map" | "directory" | "sources";
+
+export interface BackupExclusion {
+  name: string;
+  reason: string;
+}
+
+export interface BackupCounts {
+  files?: number;
+  materials?: number;
+  questions?: number;
+  notes_and_knowledge?: number;
+  concepts?: number;
+  sessions?: number;
+}
+
+export interface BackupLibraryMeta {
+  library_id: string;
+  name: string;
+  is_portable: boolean;
+}
+
+export interface BackupPlan {
+  library: BackupLibraryMeta;
+  library_databases: string[];
+  includes_global: boolean;
+  global_items: string[];
+  excluded_items: BackupExclusion[];
+  counts: BackupCounts;
+}
+
+export interface BackupSummary {
+  backup_id: string;
+  filename: string;
+  size_bytes: number;
+  created_at: string;
+  library: BackupLibraryMeta | null;
+  includes_global: boolean;
+  global_items?: string[];
+  excluded_items?: BackupExclusion[];
+  counts: BackupCounts;
+  valid_manifest?: boolean;
+}
+
+export interface BackupVerification {
+  valid: boolean;
+  created_at: string;
+  library: BackupLibraryMeta;
+  storage_dir: string;
+  includes_global: boolean;
+  global_items: string[];
+  excluded_items: BackupExclusion[];
+  counts: BackupCounts;
+  sqlite_databases: string[];
+  verified_files: number;
+}
+
+export interface BackupRestoreResult {
+  library: LibrarySummary;
+  restored_global: string[];
+  excluded_items: BackupExclusion[];
+  counts: BackupCounts;
+  verified_files: number;
+}

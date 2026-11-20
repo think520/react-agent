@@ -193,6 +193,13 @@ STORES: dict[str, dict[str, Any]] = {
         "rebuildable": True,
         "purpose": "Wiki task persistence for resume/retry (re-scannable from disk)",
     },
+    "backup_manifest.json": {
+        "owner": "service/backup_service.py",
+        "scope": "library",
+        "format": "json",
+        "rebuildable": False,
+        "purpose": "Full backup archive manifest with SHA-256 checksums and scope disclosure (W4-RESTORE-01)",
+    },
     # --- Legacy (migration source only, never written at runtime) -----------
     "graph_store.json": {
         "owner": "web/backend (lazy migration detection only)",

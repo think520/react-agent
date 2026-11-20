@@ -315,9 +315,9 @@ def _sse(text: str) -> list[tuple[str, dict]]:
     return events
 
 
-def _chat(client, headers, message: str) -> tuple[str, list[tuple[str, dict]]]:
+def _chat(client, headers, message: str, *, save: bool = False) -> tuple[str, list[tuple[str, dict]]]:
     response = client.post("/api/chat/runs", headers=headers, json={
-        "message": message, "save": False, "memory_enabled": False,
+        "message": message, "save": save, "memory_enabled": False,
     })
     assert response.status_code == 200, response.text
     events = _sse(response.text)
@@ -492,3 +492,195 @@ def test_a_citation_survives_an_ask_user_pause_and_resume(live):
     assert f"[{label}]" in answer, answer
     assert "无法对应本轮资料的引用" not in answer, answer
     client.close()
+
+
+def test_organize_undo_conflict_preserves_new_file_and_keeps_ledger(live):
+    """QA-LIVE-01 余项：资料移动后原位出现新文件，撤销必须跳过冲突项、绝不覆盖新文件。"""
+    client = _client()
+    headers = _create_library_and_import(client, live)
+    library_root = next(p for p in live["parent"].iterdir() if p.is_dir())
+    loose_name = "loose-dijkstra.md"
+    original_disk = library_root / loose_name
+    original_disk.write_text(MATERIAL, encoding="utf-8")
+    _ok(client.post(f"/api/libraries/{headers['X-Bobodan-Library-ID']}/sync", headers=headers))
+
+    # 通过整理批量接口把根目录散落资料收进新文件夹
+    applied = _ok(client.post("/api/kb/organize/apply", headers=headers, json={
+        "items": [loose_name],
+        "target_folder": "图论讲义",
+    }))
+    assert len(applied["moved"]) == 1, applied
+    batch_id = applied["batch_id"]
+
+    # 用户在原位新建了一份同名新资料
+    original_disk.write_text("# 新建同名讲义\n\n绝对不能被撤销覆盖。", encoding="utf-8")
+
+    # 触发一键撤销
+    undone = _ok(client.post("/api/kb/organize/undo", headers=headers, json={"batch_id": batch_id}))
+    assert undone["restored"] == [], undone
+    assert any(item.get("reason") == "target_exists" for item in undone["skipped"]), undone
+
+    # 原位的新文件完好无损，已搬走的旧资料也仍在目标位置，撤销台账保持待处理
+    assert "绝对不能被撤销覆盖" in original_disk.read_text(encoding="utf-8")
+    assert (library_root / "图论讲义" / loose_name).is_file()
+    state = _ok(client.get("/api/kb/organize/state", headers=headers))
+    assert state["pending_undo"] is not None
+    client.close()
+
+
+def test_full_backup_and_clean_directory_restore_preserves_records_and_citations(live, monkeypatch):
+    """W4-RESTORE-01 + QA-LIVE-01：小库放入资料+引用对话+错题+笔记 → 整库备份（不含密钥）→ 干净目录异地恢复 → 全部可核对。"""
+    import shutil
+    import zipfile
+    from pathlib import Path
+
+    provider = live["provider"]
+    client = _client()
+
+    # 1. 建库 + 导入资料
+    headers = _create_library_and_import(client, live)
+    library_id = headers["X-Bobodan-Library-ID"]
+    documents = _ok(client.get("/api/kb/documents?collection=material", headers=headers))["documents"]
+    document_id = documents[0]["document_id"]
+    detail = _ok(client.get(f"/api/kb/documents/{document_id}", headers=headers))
+    chunk_id = detail["sections"][0]["chunk_id"]
+    label = _chunk_label(client, headers, "负权边")
+
+    # 2. 带真实引用的对话并落盘
+    provider.queue(
+        {"tool": "rag_search", "args": {"query": "负权边"}},
+        f"Dijkstra 不能处理负权边 [{label}]。",
+    )
+    answer, events = _chat(client, headers, "为什么 Dijkstra 不能处理负权边？", save=True)
+    assert f"[{label}]" in answer
+    chat_session_id = next(data["chat_session_id"] for _, data in events if data.get("chat_session_id"))
+
+    # 3. 带原文锚点的笔记 + 全局个人知识 + 偏好 + 本地 API 密钥（密钥绝不能被备份）
+    note = _ok(client.post("/api/memory/knowledge", headers=headers, json={
+        "scope": "library",
+        "kind": "course_insight",
+        "title": "Dijkstra 限制笔记",
+        "content": "遇到负权边要换 Bellman-Ford。",
+        "references": [{"document_id": document_id, "chunk_id": chunk_id, "quote": "Dijkstra 算法不能处理负权边"}],
+    }))
+    assert note["item"]["id"]
+    _ok(client.post("/api/memory/knowledge", headers=headers, json={
+        "scope": "global",
+        "kind": "goal",
+        "title": "算法长期目标",
+        "content": "完成图论全部练习。",
+    }))
+    settings_before = _ok(client.get("/api/settings"))
+    _ok(client.patch("/api/settings/preferences", json={
+        "revision": settings_before["preferences"]["revision"],
+        "patch": {"user": {"display_name": "恢复验收测试者"}},
+    }))
+    old_home = Path(live["tmp"]) / "home"
+    (old_home / "provider.json").write_text(
+        json.dumps({"providers": {"deepseek": {"api_key": "sk-live-secret-never-backup"}}}),
+        encoding="utf-8",
+    )
+
+    # 4. 出题并答错简答题，产生错题、掌握度历史和复习队列
+    provider.queue(json.dumps(GENERATED, ensure_ascii=False))
+    generated = _ok(client.post("/api/quiz/questions", headers=headers, json={"query": "Dijkstra 算法", "count": 2}))
+    short_q = next(q for q in generated["questions"] if q["type"] == "short_answer")
+    quiz_session = _ok(client.post("/api/quiz/sessions", headers=headers, json={
+        "count": 2, "question_ids": generated["question_ids"],
+    }))
+    provider.queue(json.dumps({"verdict": "incorrect", "feedback": "缺少贪心失效说明"}, ensure_ascii=False))
+    _ok(client.post("/api/quiz/answers", headers=headers, json={
+        "practice_session_id": quiz_session["practice_session_id"],
+        "question_id": short_q["id"],
+        "answer": "不清楚",
+    }))
+
+    # 5. 查看备份计划并创建整库备份 + 下载 ZIP
+    plan = _ok(client.get("/api/backup/plan?include_global=true", headers=headers))
+    assert any(item["name"] == "provider.json" for item in plan["excluded_items"])
+    created = _ok(client.post("/api/backup/create", headers=headers, json={"include_global": True}))
+    assert created["includes_global"] is True
+    assert created["counts"]["materials"] == 1
+    assert created["counts"]["questions"] == 2
+    downloaded = client.get(f"/api/backup/download/{created['backup_id']}")
+    assert downloaded.status_code == 200
+    archive_bytes = downloaded.content
+    assert b"sk-live-secret-never-backup" not in archive_bytes
+    client.close()
+
+    # 6. 关闭缓存句柄、彻底删除旧库原件并切换到全新干净的 BOBODAN_HOME，模拟异地/换机恢复
+    import gc
+
+    clear_retrieval_cache()
+    reset_dependency_caches()
+    gc.collect()
+    shutil.rmtree(live["parent"])
+    clean_home = Path(live["tmp"]) / "clean-machine-home"
+    clean_target = Path(live["tmp"]) / "clean-machine-restored-library"
+    monkeypatch.setenv("BOBODAN_HOME", str(clean_home))
+    monkeypatch.setenv("BOBODAN_WORKSPACE", str(Path(live["tmp"]) / "clean-default-workspace"))
+
+    fresh = _client()
+    assert _ok(fresh.get("/api/libraries"))["libraries"] == []
+
+    # 7. 校验并恢复到干净目录
+    verified = _ok(fresh.post(
+        "/api/backup/verify",
+        files={"file": (created["filename"], archive_bytes, "application/zip")},
+    ))
+    assert verified["valid"] is True
+    assert verified["includes_global"] is True
+
+    restored = _ok(fresh.post(
+        "/api/backup/restore",
+        data={"target_dir": str(clean_target), "restore_global": "true", "activate": "true"},
+        files={"file": (created["filename"], archive_bytes, "application/zip")},
+    ))
+    restored_lib_id = restored["library"]["library_id"]
+    assert restored_lib_id == library_id
+    assert not (clean_home / "provider.json").exists(), "API keys must never be restored from backup"
+    fresh.close()
+
+    # 8. 再次“重启”后端，逐项核对关键记录、原文锚点、错题回原文、笔记、会话与全局数据
+    after_restart = _client()
+    restored_headers = {"X-Bobodan-Library-ID": restored_lib_id}
+
+    # 原件与路径重定位
+    docs_after = _ok(after_restart.get("/api/kb/documents?collection=material", headers=restored_headers))["documents"]
+    assert len(docs_after) == 1
+    assert docs_after[0]["document_id"] == document_id
+    assert docs_after[0]["has_original"] is True, docs_after[0]
+    assert docs_after[0]["relative_path"], docs_after[0]
+    raw_resp = after_restart.get(f"/api/kb/documents/{document_id}/raw", headers=restored_headers)
+    assert raw_resp.status_code == 200 and "Bellman-Ford" in raw_resp.text
+
+    # 检索正常
+    search_after = _ok(after_restart.post("/api/kb/search", headers=restored_headers, json={"query": "负权边", "top_k": 5}))
+    assert search_after["results"]
+
+    # 错题仍能点回原文 document_id 与 chunk
+    review_after = _ok(after_restart.get("/api/learning/review-queue", headers=restored_headers))
+    wrong_questions = review_after.get("wrong_answers") or []
+    assert any(q.get("question_id") == short_q["id"] for q in wrong_questions), review_after
+    bank_after = _ok(after_restart.get("/api/quiz/bank?state=incorrect", headers=restored_headers))
+    bank_wrong = next(q for q in (bank_after.get("items") or bank_after.get("questions") or []) if q["id"] == short_q["id"])
+    source_doc_ids = [s.get("document_id") for s in (bank_wrong.get("attribution") or {}).get("sources") or []]
+    assert document_id in source_doc_ids, bank_wrong
+    doc_back = _ok(after_restart.get(f"/api/kb/documents/{document_id}", headers=restored_headers))
+    assert any(sec["chunk_id"] == chunk_id for sec in doc_back["sections"])
+
+    # 掌握度与复习历史保留
+    progress_after = _ok(after_restart.get("/api/learning/progress", headers=restored_headers, params={"concept": CONCEPT}))
+    assert progress_after["status_source"] == "history"
+    assert progress_after["attempts_total"] == 1
+
+    # 笔记锚点、会话与全局偏好/个人知识保留
+    notes_after = _ok(after_restart.get(f"/api/memory/knowledge/by-document/{document_id}", headers=restored_headers))["items"]
+    assert any(item["title"] == "Dijkstra 限制笔记" for item in notes_after)
+    global_after = _ok(after_restart.get("/api/memory/knowledge?scope=global", headers=restored_headers))["items"]
+    assert any(item["title"] == "算法长期目标" for item in global_after)
+    session_after = _ok(after_restart.get(f"/api/chat/sessions/{chat_session_id}", headers=restored_headers))
+    assert any(f"[{label}]" in (m.get("content") or "") for m in session_after.get("messages") or [])
+    prefs_after = _ok(after_restart.get("/api/settings"))["preferences"]
+    assert prefs_after["user"]["display_name"] == "恢复验收测试者"
+    after_restart.close()

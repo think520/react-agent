@@ -3,6 +3,7 @@ import { Brain, Database, ShieldCheck } from "lucide-react";
 
 import type { LegacyGraphPreview, LibrarySummary, MemoryOverview, UserPreferences } from "../../../types";
 import { SettingsRow, SettingsSection, SettingsToggle } from "../SettingsPrimitives";
+import { BackupRestorePanel } from "../memory/BackupRestorePanel";
 import { MemoryManagerPanel } from "../memory/MemoryManagerPanel";
 
 /**
@@ -36,6 +37,8 @@ export function MemorySection({ preferences, patch, memoryOverview, activeLibrar
       </SettingsRow>
       {managerOpen && <MemoryManagerPanel memoryEnabled={preferences.memory.enabled} onClose={() => setManagerOpen(false)} />}
     </SettingsSection>
+
+    <BackupRestorePanel activeLibrary={activeLibrary} />
 
     {legacyGraph?.detected && <SettingsSection title="旧版知识图谱迁移" description="旧 JSON 不再参与回答。逐项核对后导入候选区，校验成功才归档原文件。">
       <SettingsRow label="概念候选" hint={legacyConceptIds.length + "/" + legacyGraph.concepts.length + " 个已选择 · " + legacyGraph.relationships + " 条语义关系"}>

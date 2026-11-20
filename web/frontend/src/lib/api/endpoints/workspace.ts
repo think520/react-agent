@@ -211,6 +211,37 @@ export const workspaceApi = {
     ),
   graphSavePositions: (positions: Array<{ concept_id: string; x: number; y: number }>, viewId = "default") =>
     request<{ saved: number }>("/api/graph/positions", json({ positions, view_id: viewId })),
+  backupPlan: (includeGlobal = true) =>
+    request<import("../../../types").BackupPlan>(`/api/backup/plan?include_global=${includeGlobal ? "true" : "false"}`),
+  backupList: () =>
+    request<{ backups: import("../../../types").BackupSummary[] }>("/api/backup/list"),
+  createBackup: (includeGlobal = true) =>
+    request<import("../../../types").BackupSummary>("/api/backup/create", json({ include_global: includeGlobal })),
+  backupDownloadUrl: (backupId: string) =>
+    `/api/backup/download/${encodeURIComponent(backupId)}`,
+  verifyBackupFile: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return request<import("../../../types").BackupVerification>("/api/backup/verify", {
+      method: "POST",
+      body: form,
+    });
+  },
+  restoreBackupFile: (
+    file: File,
+    options: { targetDir: string; restoreGlobal: boolean; activate?: boolean; newLibraryId?: boolean },
+  ) => {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("target_dir", options.targetDir);
+    form.append("restore_global", options.restoreGlobal ? "true" : "false");
+    form.append("activate", options.activate === false ? "false" : "true");
+    form.append("new_library_id", options.newLibraryId ? "true" : "false");
+    return request<import("../../../types").BackupRestoreResult>("/api/backup/restore", {
+      method: "POST",
+      body: form,
+    });
+  },
   // P0-1: a run outlives its fetch now, so stopping one is a request to the
   // server rather than a side effect of closing the connection.
 };

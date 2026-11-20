@@ -1390,6 +1390,7 @@ service/
   memory_service.py   个人知识、候选、事件和旧记忆迁移
   quiz_service.py     出题、练习、批改、错题变式
   learning_service.py 学习计划、SM-2 复习和掌握度
+  backup_service.py   整库在线备份（WAL 一致）、SHA-256 校验、干净目录恢复与失败回滚
 
 rag/
   sqlite_store.py     documents/chunks/FTS5 真相源；中文 CJK 2-gram

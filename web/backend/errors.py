@@ -52,6 +52,13 @@ def unwrap_service_result(
             "relationship_exists": 409,
             "self_relationship": 409,
             "invalid_rel_type": 400,
+            "backup_not_found": 404,
+            "backup_corrupt": 422,
+            "backup_create_failed": 500,
+            "restore_target_invalid": 400,
+            "restore_target_not_empty": 409,
+            "restore_failed": 500,
+            "legacy_migration_failed": 500,
         }.get(error_code, 400)
         # 审查 F07：失败结果里的**结构化部分结果**（moved / failed / batch_id …）必须穿过
         # HTTP 边界。丢掉它们，界面就不知道"已经搬走了哪几份"，也就没有恢复入口。

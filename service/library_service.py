@@ -320,8 +320,30 @@ class LibraryService:
         return self.register(str(path), activate=activate)
 
     def migrate(self, root: str, name: str | None = None, config: dict[str, Any] | None = None) -> dict[str, Any]:
+        import shutil
+        from core.db import clear_schema_migrated_cache
+        from rag.retriever import clear_retrieval_cache
+
         preview = self.preview_migration(root)
+        path = Path(root).expanduser().resolve()
         registry_before = self._load()
+        already_initialized = preview["already_initialized"]
+        scaffold_files = [
+            LIBRARY_DESCRIPTOR,
+            "WIKI_SCHEMA.md",
+            "raw/README.md",
+            "wiki/index.md",
+            "wiki/log.md",
+            *(f"wiki/templates/{filename}" for filename in TEMPLATES),
+        ]
+        scaffold_dirs = [
+            "raw/inbox", "raw/assets", "raw/articles", "raw/papers", "raw/books", "raw/misc", "raw",
+            "wiki/templates", "wiki/sources", "wiki/entities", "wiki/concepts", "wiki/analyses", "wiki/questions", "wiki",
+        ]
+        existed_files = {rel for rel in scaffold_files if (path / rel).exists()}
+        existed_dirs = {rel for rel in scaffold_dirs if (path / rel).exists()}
+        bobodan_existed = (path / ".bobodan").exists()
+
         try:
             staged = self.initialize(
                 root,
@@ -332,6 +354,29 @@ class LibraryService:
             library = self.activate(staged["library_id"])
         except Exception:
             self._save(registry_before)
+            clear_retrieval_cache()
+            clear_schema_migrated_cache(str(path))
+            if not already_initialized:
+                for rel in scaffold_files:
+                    if rel in existed_files:
+                        continue
+                    target = path / rel
+                    if target.is_file():
+                        try:
+                            target.unlink()
+                        except OSError:
+                            pass
+                if not bobodan_existed and (path / ".bobodan").is_dir():
+                    shutil.rmtree(path / ".bobodan", ignore_errors=True)
+                for rel in scaffold_dirs:
+                    if rel in existed_dirs:
+                        continue
+                    target = path / rel
+                    if target.is_dir():
+                        try:
+                            target.rmdir()  # Only removes if empty — never touches user files.
+                        except OSError:
+                            pass
             raise
         return {"library": library, "preview": preview, "sync": sync}
 

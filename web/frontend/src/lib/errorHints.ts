@@ -21,6 +21,12 @@ const HINTS: Record<string, string> = {
   session_ambiguous: "有不止一个会话匹配，请从左侧列表直接点开要的那一个。",
   session_delete_failed: "会话文件没能删除（可能被别的程序占用）。稍后再试一次。",
   knowledge_item_not_found: "这条个人知识已经不在了（可能在别处被删除）。刷新列表看看当前还有哪些。",
+  backup_not_found: "找不到这个备份文件，可能已被移动或删除。",
+  backup_corrupt: "备份包校验未通过（文件可能损坏或被修改），本次恢复已取消，原资料未受影响。",
+  backup_invalid: "这不是有效的 Bobodan 备份包（或包含不允许导入的敏感文件），已拒绝恢复。",
+  restore_target_not_empty: "恢复目标文件夹不是空的，请换一个空白目录，以免覆盖已有资料。",
+  restore_target_invalid: "恢复目标目录不能与应用数据目录重叠，请选择单独的资料库文件夹。",
+  restore_failed: "恢复过程出错，已自动回滚到恢复前状态；原资料与配置未受破坏。",
 };
 
 export function errorHint(code?: string): string {

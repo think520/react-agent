@@ -41,6 +41,14 @@ describe("Bobodan app shell", () => {
       if (path.includes("/api/kb/documents")) return jsonResponse({ documents: [] });
       if (path.endsWith("/api/learning/review-queue")) return jsonResponse({ due_concepts: [], wrong_answers: [], weaknesses: [] });
       if (path.endsWith("/api/memory/overview")) return jsonResponse({ knowledge_count: 0, pending_candidate_count: 0 });
+      if (path.includes("/api/backup/plan")) return jsonResponse({
+        library: { library_id: "library-1", name: "Study Library", is_portable: true },
+        library_databases: ["knowledge.db", "bobodan.db"],
+        includes_global: true,
+        global_items: ["preferences.json"],
+        excluded_items: [{ name: "provider.json", reason: "云端 API 密钥与供应商凭证默认不导出" }],
+        counts: { materials: 0, questions: 0, notes_and_knowledge: 0, concepts: 0, sessions: 0 },
+      });
       if (path.endsWith("/api/graph/legacy/preview")) return jsonResponse({
         detected: true,
         path: "F:/study/.knowledge/graph_store.json",
