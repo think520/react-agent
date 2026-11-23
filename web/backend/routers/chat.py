@@ -21,6 +21,7 @@ from core.session_compactor import resolve_context_window
 from core.agent_events import canonicalize_event
 from core.event_bus import get_default_bus
 from core.memory_injector import MemoryInjector
+from core.prompt_blocks import attach_concept_map_seed
 from service.agent_service import AgentService
 from service.chat_attachment_service import MAX_CHAT_FILE_BYTES, extract_chat_file
 from core.skills import build_skills_system_prompt, find_skill_by_name
@@ -1760,6 +1761,7 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
     )
     kb_seed = turn.kb_seed
     response_guard = turn.response_guard
+    request_prompt = attach_concept_map_seed(request_prompt, turn.concept_map_seed)
 
     def event_stream():
         run_started_at = time.monotonic()
@@ -1893,6 +1895,24 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
                             "support_warnings": [item.to_dict() for item in support_warnings],
                         }
                         yield emitter.emit("citation", {"run_id": run_id, "attribution": latest_attribution})
+
+            if (
+                termination_reason == "final_answer"
+                and turn.concept_map_context
+                and not any(item.get("type") == "knowledge_context" for item in pending_artifacts)
+            ):
+                ctx_concepts = turn.concept_map_context.get("concepts") or []
+                ctx_rels = turn.concept_map_context.get("relationships") or []
+                if ctx_concepts and (
+                    ctx_rels or any(str(c.get("definition") or "").strip() for c in ctx_concepts)
+                ):
+                    kc_artifact = {
+                        "artifact_id": f"knowledge-{uuid.uuid4().hex[:12]}",
+                        "type": "knowledge_context",
+                        "context": turn.concept_map_context,
+                    }
+                    pending_artifacts.append(kc_artifact)
+                    yield emitter.emit("chat_artifact", {"run_id": run_id, "artifact": kc_artifact})
 
             run_summary = {
                 "artifact_id": f"run-summary-{uuid.uuid4().hex[:12]}",

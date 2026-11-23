@@ -55,7 +55,17 @@ describe("graphPalette", () => {
     expect(ratio(palette.inkBlue, palette.paperSoft)).toBeGreaterThanOrEqual(4.5);
   });
 
-  it.each(["slateNode", "detailNode", "sageSoft", "selectedNode", "newConcept"] as const)(
+  it.each([
+    "slateNode",
+    "detailNode",
+    "sageSoft",
+    "selectedNode",
+    "newConcept",
+    "masteryMastered",
+    "masteryLearning",
+    "masteryNeedsReview",
+    "masteryUnseen",
+  ] as const)(
     "%s stays visible as a graphic on both papers (>= 3:1)",
     (key) => {
       const lightPalette = graphPalette("light", (name) => light[name] ?? "");

@@ -190,6 +190,8 @@ export const workspaceApi = {
     request<{ stored: number; tags: string[]; pending_total: number }>("/api/graph/extract", json(body)),
   graphStartExtraction: (body: { document_id: string; document_title: string; content: string; sections?: import("../../../types").DocumentSection[]; document_path?: string; content_version?: string; provider?: string; force?: boolean }) =>
     request<{ run: import("../../../types").GraphExtractionRun; started: boolean }>("/api/graph/extractions", json(body)),
+  graphStartBatchExtraction: (body: { document_ids: string[]; provider?: string; force?: boolean }) =>
+    request<import("../../../types").BatchExtractionResponse>("/api/graph/extractions/batch", json(body)),
   graphExtractionStatuses: () =>
     request<{ documents: Record<string, import("../../../types").DocumentExtractionStatus> }>("/api/graph/extractions"),
   graphExtraction: (runId: string) =>

@@ -5,6 +5,7 @@ import { useNavigate, useOutletContext, useSearchParams } from "react-router-dom
 import {} from "../components/DropdownSelect";
 import { ImportDropZone } from "../components/ImportDropZone";
 import {} from "../components/ImportReportPanel";
+import { BatchExtractModal } from "../components/BatchExtractModal";
 import { DocumentEditor } from "../components/DocumentEditor";
 
 import type { AppOutletContext } from "../components/AppShell";
@@ -23,6 +24,7 @@ import {} from "../components/DocumentReader";
 import {} from "../components/ScrollIndicator";
 import {} from "../components/LibraryTree";
 import { useReaderTabsStore } from "../stores/readerTabsStore";
+import { notifyInfo } from "../stores/noticeStore";
 import { useConfirm } from "../ui/Modal";
 import {} from "../stores/handoffStore";
 import type { DocumentExtractionStatus, DocumentSection, DocumentSummary, WikiEditablePage, WikiGenerationMode, WikiHealth, WikiPlan, WikiRepairPlan, WikiRunEstimate, WikiScopeMode, WikiTask } from "../types";
@@ -112,6 +114,8 @@ export function LibraryPage() {
   const [readerReloadToken, setReaderReloadToken] = useState(0);
   const [startingExtractionId, setStartingExtractionId] = useState<string | null>(null);
   const [extractionStatuses, setExtractionStatuses] = useState<Record<string, DocumentExtractionStatus>>({});
+  const [extractionPollTick, setExtractionPollTick] = useState(0);
+  const [batchExtractFilenames, setBatchExtractFilenames] = useState<string[] | null>(null);
   const [documentQuery, setDocumentQuery] = useState("");
   // ④ 搜索命中 → 定位：标题过滤之外，再问一次后端的原文检索，命中直接深链到阅读器
   // 的那一段（?chunk= 通道已在 2026-09-23 验证可用）。
@@ -266,7 +270,7 @@ export function LibraryPage() {
       cancelled = true;
       if (timer) window.clearTimeout(timer);
     };
-  }, [activeLibrary, collection]);
+  }, [activeLibrary, collection, extractionPollTick]);
 
   const planningWikiRunId = wikiPlan?.status === "planning"
     ? wikiPlan.run_id || wikiPlan.plan_id
@@ -489,6 +493,7 @@ export function LibraryPage() {
               documentImportNotice={documentImportNotice} documentImportError={documentImportError} documentImportErrorCode={documentImportErrorCode} documentImportDuplicateCount={documentImportDuplicateCount}
               importDuplicatesAsCopies={importDuplicatesAsCopies} documentImportVersion={documentImportVersion} documentImportProgress={documentImportProgress} documentImportResults={documentImportResults}
               documentImportCanRetry={documentImportCanRetry} cancelDocumentImport={cancelDocumentImport} retryFailedImports={retryFailedImports} dismissImportReport={dismissImportReport}
+              onBatchExtract={(filenames) => setBatchExtractFilenames(filenames)}
               tree={tree} treeCollapsed={treeCollapsed} setTreeCollapsed={setTreeCollapsed} selected={selected}
               selectedDocumentIds={selectedDocumentIds} uncoveredCount={uncoveredCount} notice={notice} confirmElement={confirmElement}
               syncSummary={syncSummary} syncingFolder={syncingFolder} setSyncSummary={setSyncSummary} maintenanceOpen={maintenanceOpen}
@@ -566,6 +571,20 @@ export function LibraryPage() {
             setEditingDocumentId(null);
             void loadDocuments();
             setReaderReloadToken((token) => token + 1);
+          }}
+        />
+      )}
+      {batchExtractFilenames !== null && (
+        <BatchExtractModal
+          initialFilenames={batchExtractFilenames}
+          onClose={() => setBatchExtractFilenames(null)}
+          onStarted={(res) => {
+            setExtractionPollTick((tick) => tick + 1);
+            notifyInfo(
+              res.started_count > 0
+                ? `已启动 ${res.started_count} 份资料的概念提取，完成后可在知识地图待审查候选里确认。`
+                : "所选资料已在提取中或已完成提取。",
+            );
           }}
         />
       )}

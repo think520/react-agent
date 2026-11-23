@@ -6,8 +6,9 @@ import { EmptyState, ErrorNotice, LoadingState, textValue } from "../components/
 import { api } from "../lib/api";
 import { wrongAnswerFallbackNotice } from "../lib/wrongAnswerMode";
 import { masteryLabel, nextObjectiveText } from "../lib/reviewObjective";
+import { useHandoffStore } from "../stores/handoffStore";
 import { notifyInfo } from "../stores/noticeStore";
-import type { ReviewQueue } from "../types";
+import type { ReviewQueue, WeakPrerequisite } from "../types";
 
 interface ReviewItem {
   id: string;
@@ -18,6 +19,21 @@ interface ReviewItem {
   attemptId?: number;
   /** W1 E6：引擎推导的掌握度（含来源说明），没有就不显示。 */
   mastery?: string;
+  weakPrerequisites: WeakPrerequisite[];
+}
+
+function parseWeakPrerequisites(record: Record<string, unknown>): WeakPrerequisite[] {
+  if (!Array.isArray(record.weak_prerequisites)) return [];
+  return record.weak_prerequisites.filter(
+    (item): item is WeakPrerequisite =>
+      Boolean(item && typeof item === "object" && typeof (item as WeakPrerequisite).concept === "string"),
+  );
+}
+
+function prereqStatusText(status: string): string {
+  if (status === "needs_review") return "需复习";
+  if (status === "learning") return "学习中";
+  return "未练过";
 }
 
 function questionIds(record: Record<string, unknown>): number[] {
@@ -68,12 +84,17 @@ export function ReviewPage() {
       return "按照学习计划到期";
     };
     return [
-      ...queue.due_concepts.map((record, index) => ({ id: `due-${index}`, kind: "到期" as const, title: textValue(record, ["concept", "title", "name"], "待复习知识点"), meta: dueMeta(textValue(record, ["status"], "按照学习计划到期")), questionIds: questionIds(record), attemptId: lastAttemptId(record), mastery: masteryLabel(record) })),
-      ...queue.wrong_answers.map((record, index) => ({ id: `wrong-${index}`, kind: "错题" as const, title: textValue(record, ["question", "concept", "title"], "需要回看的错题"), meta: textValue(record, ["feedback", "course"], "将生成考察同一误区的变式题"), questionIds: questionIds(record), attemptId: typeof record.attempt_id === "number" ? record.attempt_id : undefined })),
-      ...queue.weaknesses.map((record, index) => ({ id: `weak-${index}`, kind: "薄弱点" as const, title: textValue(record, ["concept", "name", "title"], "尚未掌握的知识点"), meta: textValue(record, ["reason", "status"], "建议进行针对性练习"), questionIds: questionIds(record), attemptId: lastAttemptId(record), mastery: masteryLabel(record) })),
+      ...queue.due_concepts.map((record, index) => ({ id: `due-${index}`, kind: "到期" as const, title: textValue(record, ["concept", "title", "name"], "待复习知识点"), meta: dueMeta(textValue(record, ["status"], "按照学习计划到期")), questionIds: questionIds(record), attemptId: lastAttemptId(record), mastery: masteryLabel(record), weakPrerequisites: parseWeakPrerequisites(record) })),
+      ...queue.wrong_answers.map((record, index) => ({ id: `wrong-${index}`, kind: "错题" as const, title: textValue(record, ["question", "concept", "title"], "需要回看的错题"), meta: textValue(record, ["feedback", "course"], "将生成考察同一误区的变式题"), questionIds: questionIds(record), attemptId: typeof record.attempt_id === "number" ? record.attempt_id : undefined, weakPrerequisites: parseWeakPrerequisites(record) })),
+      ...queue.weaknesses.map((record, index) => ({ id: `weak-${index}`, kind: "薄弱点" as const, title: textValue(record, ["concept", "name", "title"], "尚未掌握的知识点"), meta: textValue(record, ["reason", "status"], "建议进行针对性练习"), questionIds: questionIds(record), attemptId: lastAttemptId(record), mastery: masteryLabel(record), weakPrerequisites: parseWeakPrerequisites(record) })),
     ];
   }, [queue]);
   const nextReview = nextReviewText(queue);
+
+  function practicePrerequisite(concept: string) {
+    useHandoffStore.getState().setPracticeTopic(concept);
+    navigate("/practice");
+  }
 
   async function startReview(item: ReviewItem) {
     setWorkingId(item.id);
@@ -123,6 +144,22 @@ export function ReviewPage() {
                 <h3>{item.title}</h3>
                 <p>{item.meta}</p>
                 {item.mastery && <small className="review-mastery">{item.mastery}</small>}
+                {item.weakPrerequisites.length > 0 && (
+                  <div className="review-prereqs">
+                    <span>可能卡在前置：</span>
+                    {item.weakPrerequisites.map((prereq) => (
+                      <button
+                        key={prereq.concept_id || prereq.concept}
+                        type="button"
+                        className="review-prereq-pill"
+                        title="先补前置：点击开始该概念练习"
+                        onClick={() => practicePrerequisite(prereq.concept)}
+                      >
+                        {prereq.concept}（{prereqStatusText(prereq.status)}）
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
               <button className="quiet-button" disabled={Boolean(workingId)} onClick={() => void startReview(item)}>{workingId === item.id ? "正在准备" : item.kind === "错题" ? "生成变式题" : "开始复习"}<ArrowRight size={15} /></button>
             </article>

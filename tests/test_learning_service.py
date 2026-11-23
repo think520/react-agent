@@ -441,3 +441,107 @@ def test_due_concept_carries_the_last_wrong_attempt_for_variants(store, svc):
     item = next(entry for entry in due if entry["concept"] == "最短路径")
 
     assert item["last_attempt_id"] == wrong_id, item
+
+
+# --- W1-GRAPH-01 / W1-GRAPH-02 ---
+
+def test_get_mastery_map_returns_contract_states(store, svc):
+    # Stale snapshot says mastered=0.9, but attempts show wrong -> contract derives needs_review.
+    store.upsert_mastery(Mastery(concept="Dijkstra", status="mastered", score=0.9))
+    store.record_mastery_attempt("Dijkstra", is_correct=False, verdict="incorrect")
+    store.upsert_mastery(Mastery(concept="BFS", status="unseen", score=0.0))
+    store.record_mastery_attempt("BFS", is_correct=True, verdict="correct")
+    store.record_mastery_attempt("BFS", is_correct=True, verdict="correct")
+
+    result = svc.get_mastery_map()
+    assert result["ok"] is True
+    states = result["states"]
+    assert states["dijkstra"]["status"] == "needs_review"
+    assert states["bfs"]["status"] == "mastered"
+
+
+def test_review_queue_attaches_weak_prerequisites_and_skips_mastered(store, svc):
+    from datetime import datetime, timezone, timedelta
+    from service.concept_service import ConceptService
+
+    # Without concept_graph.db, review queue succeeds and does not create an empty DB.
+    empty_queue = svc.get_review_queue()
+    assert empty_queue["ok"] is True
+    assert not os.path.exists(os.path.join(svc.workspace, ".knowledge", "concept_graph.db"))
+
+    concept_svc = ConceptService(svc.workspace)
+    c_base = concept_svc.upsert_concept(name="基础矩阵", level="core")["concept"]
+    c_mid = concept_svc.upsert_concept(name="特征值", level="core")["concept"]
+    c_pca = concept_svc.upsert_concept(name="主成分分析", level="core")["concept"]
+    concept_svc.add_relationship(from_id=c_base["concept_id"], to_id=c_mid["concept_id"], rel_type="前置知识")
+    concept_svc.add_relationship(from_id=c_mid["concept_id"], to_id=c_pca["concept_id"], rel_type="前置知识")
+
+    # 基础矩阵 is mastered -> must NOT appear in weak_prerequisites.
+    store.record_mastery_attempt("基础矩阵", is_correct=True, verdict="correct")
+    store.record_mastery_attempt("基础矩阵", is_correct=True, verdict="correct")
+    # 特征值 needs review -> MUST appear as weak prerequisite.
+    store.record_mastery_attempt("特征值", is_correct=False, verdict="incorrect")
+    # 主成分分析 is due and has a wrong answer in quiz.
+    store.upsert_mastery(Mastery(
+        concept="主成分分析",
+        status="needs_review",
+        score=0.2,
+        next_review=(datetime.now(timezone.utc) - timedelta(hours=1)).isoformat(),
+    ))
+    quiz_store = QuizStore(svc.workspace)
+    qid = quiz_store.add_question(Question(question="PCA 的投影方向是什么？", answer="特征向量", concepts=["主成分分析"]))
+    session = quiz_store.create_session([qid])
+    quiz_store.record_attempt(QuizAttempt(
+        session_id=session.id,
+        question_id=qid,
+        user_answer="随机方向",
+        is_correct=False,
+        verdict="incorrect",
+        feedback="错误",
+    ))
+
+    queue = svc.get_review_queue()
+    due_item = next(item for item in queue["due_concepts"] if item["concept"] == "主成分分析")
+    weak_item = next(item for item in queue["weaknesses"] if item["concept"] == "主成分分析")
+    wrong_item = queue["wrong_answers"][0]
+
+    for entry in (due_item, weak_item, wrong_item):
+        names = [p["concept"] for p in entry["weak_prerequisites"]]
+        assert "特征值" in names
+        assert "基础矩阵" not in names
+
+
+def test_generate_path_injects_prerequisite_order_and_orders_fallback(store, svc, monkeypatch):
+    from service.concept_service import ConceptService
+    from tests.llm_fake import ScriptedProvider
+
+    concept_svc = ConceptService(svc.workspace)
+    c_a = concept_svc.upsert_concept(name="矩阵乘法", level="core")["concept"]
+    c_b = concept_svc.upsert_concept(name="注意力机制", level="core")["concept"]
+    concept_svc.add_relationship(from_id=c_a["concept_id"], to_id=c_b["concept_id"], rel_type="前置知识")
+
+    # Offline fallback orders prerequisite "矩阵乘法" before "注意力机制".
+    monkeypatch.setattr("service.learning_service._get_llm_provider", lambda _cfg: (_ for _ in ()).throw(RuntimeError("offline")))
+    offline = svc.generate_path(goal="学习 注意力机制")
+    assert offline["ok"] is True
+    assert offline["prerequisite_order"] == ["矩阵乘法", "注意力机制"]
+    assert offline["prerequisite_cycles"] == []
+    topics_seq = [t for step in offline["steps"] for t in step["topics"]]
+    assert topics_seq.index("矩阵乘法") < topics_seq.index("注意力机制")
+
+    # Online LLM receives the topological prerequisite order in the prompt.
+    fake_llm = ScriptedProvider([
+        '{"title":"注意力学习计划","steps":[{"day":1,"topics":["矩阵乘法"],"tasks":["复习矩阵"]},{"day":2,"topics":["注意力机制"],"tasks":["推导 QKV"]}]}'
+    ])
+    monkeypatch.setattr("service.learning_service._get_llm_provider", lambda _cfg: fake_llm)
+    online = svc.generate_path(goal="学习 注意力机制")
+    assert online["ok"] is True
+    assert online["prerequisite_order"] == ["矩阵乘法", "注意力机制"]
+    sent_prompt = fake_llm.last_messages()[0]["content"]
+    assert "建议前置学习顺序：矩阵乘法 → 注意力机制" in sent_prompt
+
+    # Cycle in prerequisite edges is reported cleanly without crashing.
+    concept_svc.add_relationship(from_id=c_b["concept_id"], to_id=c_a["concept_id"], rel_type="前置知识")
+    cycled = svc.generate_path(goal="学习 注意力机制")
+    assert cycled["ok"] is True
+    assert set(cycled["prerequisite_cycles"]) == {"矩阵乘法", "注意力机制"}

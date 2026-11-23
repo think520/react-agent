@@ -94,3 +94,75 @@ def attach_kb_seed(message: str, block: str) -> str:
         return message
     separator = "\n\n" if message and not message.endswith("\n") else ""
     return f"{message}{separator}{block}"
+
+
+CONCEPT_MAP_CONTEXT_HEADER = "[Reviewed Concept Map Context]"
+
+CONCEPT_MAP_SEED_NOTE = (
+    "以上是用户已审查知识地图中的概念结构，仅用于理清前置依赖、组成与对比关系；"
+    "不可替代原文证据，具体事实与引用仍须以 rag_search 原文片段为准。"
+)
+
+
+def build_concept_map_seed_block(
+    context: dict[str, Any],
+    *,
+    max_chars: int = 1600,
+) -> str:
+    """Format matched reviewed concepts and 1-hop relationships without citation tags."""
+    if not isinstance(context, dict):
+        return ""
+    concepts = [c for c in (context.get("concepts") or []) if isinstance(c, dict)]
+    relationships = [r for r in (context.get("relationships") or []) if isinstance(r, dict)]
+    if not concepts:
+        return ""
+
+    ordered_concepts = sorted(concepts, key=lambda c: str(c.get("concept_id") or ""))
+    ordered_rels = sorted(
+        relationships,
+        key=lambda r: (0 if r.get("rel_type") == "前置知识" else 1, str(r.get("rel_id") or "")),
+    )
+
+    budget = max(240, int(max_chars))
+    body: list[str] = []
+    used_len = len(CONCEPT_MAP_CONTEXT_HEADER) + len(CONCEPT_MAP_SEED_NOTE) + 4
+
+    for concept in ordered_concepts:
+        name = str(concept.get("name") or "").strip()
+        if not name:
+            continue
+        definition = " ".join(str(concept.get("definition") or "").split())
+        line = f"- 概念 {name}：{definition}" if definition else f"- 概念 {name}"
+        if len(line) > 220:
+            line = line[:216].rstrip() + "…"
+        if used_len + len(line) + 1 > budget:
+            break
+        body.append(line)
+        used_len += len(line) + 1
+
+    for rel in ordered_rels:
+        from_name = str(rel.get("from_name") or rel.get("from_id") or "").strip()
+        to_name = str(rel.get("to_name") or rel.get("to_id") or "").strip()
+        rel_type = str(rel.get("rel_type") or "").strip()
+        if not from_name or not to_name or not rel_type:
+            continue
+        stale_note = "（来源已更新）" if rel.get("evidence_status") == "stale" else ""
+        line = f"- 关系 {from_name} --[{rel_type}]--> {to_name}{stale_note}"
+        if used_len + len(line) + 1 > budget:
+            break
+        body.append(line)
+        used_len += len(line) + 1
+
+    if not body:
+        return ""
+    return "\n".join([CONCEPT_MAP_CONTEXT_HEADER, *body, CONCEPT_MAP_SEED_NOTE])
+
+
+def attach_concept_map_seed(prompt: str | None, block: str) -> str | None:
+    """Idempotently append ``block`` to a request prompt."""
+    if not block:
+        return prompt
+    base = str(prompt or "")
+    if CONCEPT_MAP_CONTEXT_HEADER in base:
+        return base
+    return f"{base}\n\n{block}" if base else block

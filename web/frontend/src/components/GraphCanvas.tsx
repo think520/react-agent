@@ -44,6 +44,13 @@ function nodeColor(level: string): string {
   return level === "detail" ? C.detailNode : C.slateNode;
 }
 
+function masteryNodeColor(status: string | undefined): string {
+  if (status === "mastered") return C.masteryMastered;
+  if (status === "learning") return C.masteryLearning;
+  if (status === "needs_review") return C.masteryNeedsReview;
+  return C.masteryUnseen;
+}
+
 function edgeColor(evidenceLevel: string): string {
   return evidenceLevel === "user" ? C.sageSoft : C.inkBlueFaint;
 }
@@ -81,6 +88,8 @@ export interface GraphCanvasProps {
   showAll?: boolean;
   searchQuery?: string;
   focusDegree?: number;
+  colorMode?: "level" | "mastery";
+  masteryByConcept?: Record<string, string>;
   onNodeClick: (conceptId: string) => void;
   onBackgroundClick: () => void;
   onPositionsChanged?: (positions: Array<{ concept_id: string; x: number; y: number }>) => void;
@@ -97,6 +106,8 @@ export function GraphCanvas({
   showAll = false,
   searchQuery = "",
   focusDegree = 1,
+  colorMode = "level",
+  masteryByConcept = {},
   onNodeClick,
   onBackgroundClick,
   onPositionsChanged,
@@ -117,12 +128,22 @@ export function GraphCanvas({
   const hoverTargetRef = useRef(0);
   const hoverRafRef = useRef<number | null>(null);
   const searchQueryRef = useRef(searchQuery);
+  const colorModeRef = useRef(colorMode);
+  const masteryByConceptRef = useRef(masteryByConcept);
   // W1 E16：刚确认的概念 —— 用 ref 给渲染器读，变化时刷一次即可。
   const emphasizedRef = useRef<Set<string>>(new Set());
   const emphasisKey = (emphasizedIds || []).filter(Boolean).join("|");
   const focusDegreeRef = useRef(focusDegree);
   // Edge identity for incremental syncs: composite key -> sigma edge key.
   const edgeKeysRef = useRef(new Map<string, string>());
+
+  function resolveBaseNodeColor(label: string, level: string): string {
+    if (colorModeRef.current === "mastery") {
+      const status = masteryByConceptRef.current[label.trim().toLowerCase()];
+      return masteryNodeColor(status);
+    }
+    return nodeColor(level);
+  }
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -177,9 +198,9 @@ export function GraphCanvas({
                   ? C.selectedNode
                   : hoveredNodeRef.current === node
                     ? C.hoverNode
-                    : selected && focused.has(node)
+                    : selected && focused.has(node) && colorModeRef.current !== "mastery"
                       ? C.sageSoft
-                      : nodeColor(level),
+                      : resolveBaseNodeColor(label, level),
           label: emphasized || (matchesSearch && (isFocused || !selected)) ? data.label : "",
           labelColor: C.inkBlue,
           highlighted: emphasized || (matchesSearch && (node === selected || node === hoveredNodeRef.current || Boolean(query))),
@@ -221,7 +242,10 @@ export function GraphCanvas({
       renderer.setSetting("defaultNodeColor", C.paperSoft);
       renderer.setSetting("defaultEdgeColor", C.inkBlueFaint);
       graph.forEachNode((node, attributes) => {
-        graph.mergeNodeAttributes(node, { color: nodeColor(String(attributes.level || "")), labelColor: C.inkBlue });
+        graph.mergeNodeAttributes(node, {
+          color: resolveBaseNodeColor(String(attributes.label || ""), String(attributes.level || "")),
+          labelColor: C.inkBlue,
+        });
       });
       graph.forEachEdge((edge, attributes) => {
         graph.mergeEdgeAttributes(edge, { color: edgeColor(String(attributes.evidenceLevel || "")) });
@@ -418,7 +442,7 @@ export function GraphCanvas({
       const attributes = {
         label: concept.name,
         size,
-        color: nodeColor(concept.level),
+        color: resolveBaseNodeColor(concept.name, concept.level),
         labelColor: C.inkBlue,
         level: concept.level,
       };
@@ -542,8 +566,18 @@ export function GraphCanvas({
     showAllRef.current = showAll;
     searchQueryRef.current = searchQuery;
     focusDegreeRef.current = focusDegree;
+    colorModeRef.current = colorMode;
+    masteryByConceptRef.current = masteryByConcept;
+    const graph = graphRef.current;
+    if (graph) {
+      graph.forEachNode((node, attributes) => {
+        graph.mergeNodeAttributes(node, {
+          color: resolveBaseNodeColor(String(attributes.label || ""), String(attributes.level || "")),
+        });
+      });
+    }
     sigmaRef.current?.refresh();
-  }, [showAll, searchQuery, focusDegree]);
+  }, [showAll, searchQuery, focusDegree, colorMode, masteryByConcept]);
 
   // W1 E16：高亮出现/消失时先更新 ref 再刷一次
   //（渲染期间写 ref 会被 react-hooks/refs 拦下；用拼接 key 避免数组每次新建都重绘）。

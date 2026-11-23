@@ -102,6 +102,11 @@ export function ConceptSidebar({ conceptId, onClose, onConceptUpdated, onNavigat
     navigate("/chat");
   }
 
+  function practiceConcept(name: string) {
+    useHandoffStore.getState().setPracticeTopic(name);
+    navigate("/practice");
+  }
+
   const loadDetail = useCallback(() => {
     if (!conceptId) return;
     setLoading(true);
@@ -317,6 +322,9 @@ export function ConceptSidebar({ conceptId, onClose, onConceptUpdated, onNavigat
                 <select value={relType} onChange={(e) => setRelType(e.target.value)}>
                   {REL_TYPE_OPTIONS.map((t) => <option key={t} value={t}>{t}</option>)}
                 </select>
+                {relType === "前置知识" && (
+                  <p className="sidebar-rel-hint">方向：{detail.concept.name} → 目标概念（先学当前概念，再学目标概念）</p>
+                )}
                 <input value={relNote} onChange={(e) => setRelNote(e.target.value)} placeholder="备注（可选）" />
                 <div className="sidebar-rel-candidates">
                   {matchingTargets.map((c) => (
@@ -384,7 +392,7 @@ export function ConceptSidebar({ conceptId, onClose, onConceptUpdated, onNavigat
               <span className="mastery-label">{masteryText}</span>
               {mastery?.mastery !== undefined && <small className="mastery-score">掌握度 {Math.round(mastery.mastery * 100)}%{mastery.evidence ? ` · ${mastery.evidence} 条证据` : ""}</small>}
               {mastery?.next_review && <small className="mastery-next">下次复习 {new Date(mastery.next_review).toLocaleDateString("zh-CN")}</small>}
-              <a href="/practice" className="btn-sm btn-ghost mastery-practice"><PenLine size={13} />生成练习题</a>
+              <button type="button" className="btn-sm btn-ghost mastery-practice" onClick={() => practiceConcept(detail.concept.name)}><PenLine size={13} />生成练习题</button>
             </div>
           </section>
         </div>

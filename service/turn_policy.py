@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from typing import Any
 
 from service.evidence_policy import (
     CitationPolicy,
@@ -227,12 +228,62 @@ def paused_turn_evidence(messages: list[dict]) -> str:
     return "\n".join(reversed(tail))
 
 
+def wants_concept_map_seed(message: str) -> bool:
+    """Match reviewed concept-map structure on normal study turns without touching practice/bypass turns."""
+    if requests_practice(message):
+        return False
+    normalized = (message or "").lower()
+    bypass_phrases = (
+        "不查资料",
+        "不要查资料",
+        "不用资料",
+        "通用知识",
+        "without searching",
+        "general knowledge only",
+    )
+    if any(phrase in normalized for phrase in bypass_phrases):
+        return False
+    return len((message or "").strip()) >= 2
+
+
+def concept_map_seed_for(
+    message: str,
+    *,
+    workspace: str,
+) -> tuple[str, dict[str, Any] | None]:
+    """Deterministically match reviewed concept-map context; errors degrade silently to empty."""
+    from core.prompt_blocks import build_concept_map_seed_block
+    from service.concept_service import match_concepts_in_text_readonly
+
+    if not wants_concept_map_seed(message):
+        return "", None
+    try:
+        result = match_concepts_in_text_readonly(workspace, message)
+    except Exception as exc:  # pragma: no cover - 读库异常不阻断主对话
+        logger.warning("Concept map seed lookup failed: %s", exc)
+        return "", None
+    if not result.get("ok") or not result.get("matched"):
+        return "", None
+    concepts = result.get("concepts") or []
+    if not concepts:
+        return "", None
+    context = {
+        "operation": result.get("operation", "auto_seed"),
+        "root": result.get("root"),
+        "concepts": concepts,
+        "relationships": result.get("relationships") or [],
+    }
+    return build_concept_map_seed_block(context), context
+
+
 @dataclass(frozen=True)
 class TurnPolicy:
     """一轮对话进入 AgentLoop 前要准备好的两样东西。"""
 
     kb_seed: str
     response_guard: CombinedResponsePolicy
+    concept_map_seed: str = ""
+    concept_map_context: dict[str, Any] | None = None
 
 
 def prepare_turn(
@@ -259,6 +310,16 @@ def prepare_turn(
         document_ids=document_ids,
         preferred_document_ids=preferred_document_ids,
     )
+    concept_map_seed, concept_map_context = concept_map_seed_for(
+        message,
+        workspace=workspace,
+    )
     # W2-EVID-01：引用门禁无条件挂载（它只看回答里出现的标签）。
+    # 注意：concept_map_seed 绝不进入 CitationPolicy(preset_text)，也不能替代原文证据。
     policies.append(CitationPolicy(preset_text="\n".join([kb_seed or "", preset_evidence or ""])))
-    return TurnPolicy(kb_seed=kb_seed, response_guard=CombinedResponsePolicy(*policies))
+    return TurnPolicy(
+        kb_seed=kb_seed,
+        response_guard=CombinedResponsePolicy(*policies),
+        concept_map_seed=concept_map_seed,
+        concept_map_context=concept_map_context,
+    )

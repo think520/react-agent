@@ -19,6 +19,10 @@ export interface GraphPalette {
   selectedNode: string;
   hoverNode: string;
   newConcept: string;
+  masteryMastered: string;
+  masteryLearning: string;
+  masteryNeedsReview: string;
+  masteryUnseen: string;
 }
 
 /** 浅色主题的取值（也是读不到变量时的兜底，与改造前逐项相同）。 */
@@ -36,6 +40,10 @@ export const LIGHT_GRAPH_PALETTE: GraphPalette = {
   hoverNode: "#d98a68",
   // W1 E16：刚确认的概念 —— 比"选中"更醒目，几秒后自己回到常态。
   newConcept: "#b45309",
+  masteryMastered: "#62875e",
+  masteryLearning: "#2f4f78",
+  masteryNeedsReview: "#a85143",
+  masteryUnseen: "#9c9589",
 };
 
 /** 暗色主题：节点要在深色纸面上可辨，标签贴片跟着纸面变深。 */
@@ -49,6 +57,10 @@ const DARK_OVERRIDES: Partial<GraphPalette> = {
   selectedNode: "#e08a72",
   hoverNode: "#e6a284",
   newConcept: "#f0a35b",
+  masteryMastered: "#9dbf98",
+  masteryLearning: "#8eb1dc",
+  masteryNeedsReview: "#e69487",
+  masteryUnseen: "#756e64",
 };
 
 type ReadVar = (name: string) => string;

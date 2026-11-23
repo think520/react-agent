@@ -7,6 +7,7 @@ Returns structured dicts: {"ok": bool, ...}.
 from __future__ import annotations
 
 import os
+import re
 import time
 from collections import deque
 from typing import Any
@@ -20,6 +21,30 @@ def _store(workspace: str) -> ConceptStore:
     db_path = knowledge_path(workspace, "concept_graph.db")
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
     return ConceptStore(db_path)
+
+
+def match_concepts_in_text_readonly(
+    workspace: str,
+    text: str,
+    *,
+    max_concepts: int = 3,
+    max_relationships: int = 8,
+) -> dict[str, Any]:
+    """Match reviewed concepts without creating ``concept_graph.db`` when absent."""
+    db_path = knowledge_path(workspace, "concept_graph.db")
+    if not os.path.isfile(db_path):
+        return _ok(
+            matched=False,
+            operation="auto_seed",
+            root=None,
+            concepts=[],
+            relationships=[],
+        )
+    return ConceptService(workspace).match_concepts_in_text(
+        text,
+        max_concepts=max_concepts,
+        max_relationships=max_relationships,
+    )
 
 
 class ConceptService:
@@ -81,6 +106,120 @@ class ConceptService:
                 limit=max(1, min(limit, 20)),
             )
             return _ok(operation="search", concepts=concepts, count=len(concepts))
+        except Exception as exc:
+            return _err(str(exc))
+
+    def match_concepts_in_text(
+        self,
+        text: str,
+        *,
+        max_concepts: int = 3,
+        max_relationships: int = 8,
+    ) -> dict[str, Any]:
+        """Deterministically match reviewed concepts mentioned in ``text``."""
+        query_text = str(text or "").strip()
+        if len(query_text) < 2:
+            return _ok(
+                matched=False,
+                operation="auto_seed",
+                root=None,
+                concepts=[],
+                relationships=[],
+            )
+        try:
+            all_concepts = self._store.list_concepts(limit=1000)
+            if not all_concepts:
+                return _ok(
+                    matched=False,
+                    operation="auto_seed",
+                    root=None,
+                    concepts=[],
+                    relationships=[],
+                )
+            by_id = {c["concept_id"]: c for c in all_concepts}
+            level_rank = {"core": 0, "cluster": 1, "detail": 2}
+            folded_query = query_text.casefold()
+            scored: list[tuple[int, int, str, dict[str, Any]]] = []
+            for concept in all_concepts:
+                terms = [
+                    str(concept.get("name") or "").strip(),
+                    *(str(alias or "").strip() for alias in (concept.get("aliases") or [])),
+                ]
+                best_len = 0
+                for term in terms:
+                    if len(term) < 2:
+                        continue
+                    if term.isascii():
+                        pattern = rf"(?<![A-Za-z0-9_]){re.escape(term)}(?![A-Za-z0-9_])"
+                        if re.search(pattern, query_text, flags=re.IGNORECASE):
+                            best_len = max(best_len, len(term))
+                    elif term.casefold() in folded_query:
+                        best_len = max(best_len, len(term))
+                if best_len > 0:
+                    scored.append((
+                        -best_len,
+                        level_rank.get(str(concept.get("level") or ""), 3),
+                        str(concept.get("concept_id") or ""),
+                        concept,
+                    ))
+
+            if not scored:
+                return _ok(
+                    matched=False,
+                    operation="auto_seed",
+                    root=None,
+                    concepts=[],
+                    relationships=[],
+                )
+
+            scored.sort(key=lambda item: (item[0], item[1], item[2]))
+            cap_concepts = max(1, int(max_concepts))
+            cap_rels = max(1, int(max_relationships))
+            matched_concepts = [item[3] for item in scored[:cap_concepts]]
+            matched_ids = {c["concept_id"] for c in matched_concepts}
+
+            all_rels = self._store.list_relationships()
+            touching = [
+                rel for rel in all_rels
+                if rel["from_id"] in matched_ids or rel["to_id"] in matched_ids
+            ]
+            touching.sort(
+                key=lambda rel: (
+                    0 if rel.get("rel_type") == "前置知识" else 1,
+                    str(rel.get("rel_id") or ""),
+                )
+            )
+            selected_rels: list[dict[str, Any]] = []
+            seen_rel_ids: set[str] = set()
+            for rel in touching:
+                rid = str(rel.get("rel_id") or "")
+                if rid in seen_rel_ids:
+                    continue
+                seen_rel_ids.add(rid)
+                selected_rels.append(self._relationship_payload(rel))
+                if len(selected_rels) >= cap_rels:
+                    break
+
+            concepts: list[dict[str, Any]] = []
+            seen_cids: set[str] = set()
+            for item in matched_concepts:
+                cid = item["concept_id"]
+                if cid not in seen_cids:
+                    seen_cids.add(cid)
+                    concepts.append(item)
+            for rel in selected_rels:
+                for cid in (rel["from_id"], rel["to_id"]):
+                    if cid not in seen_cids and cid in by_id:
+                        seen_cids.add(cid)
+                        concepts.append(by_id[cid])
+
+            return _ok(
+                matched=True,
+                operation="auto_seed",
+                root=matched_concepts[0],
+                concepts=concepts,
+                relationships=selected_rels,
+            )
         except Exception as exc:
             return _err(str(exc))
 

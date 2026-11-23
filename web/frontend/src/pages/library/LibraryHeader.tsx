@@ -74,6 +74,7 @@ export interface LibraryHeaderProps {
   cancelDocumentImport: AppOutletContext["cancelDocumentImport"];
   retryFailedImports: AppOutletContext["retryFailedImports"];
   dismissImportReport: AppOutletContext["dismissImportReport"];
+  onBatchExtract?: (filenames: string[]) => void;
   tree: KnowledgeTree | null;
   treeCollapsed: boolean;
   setTreeCollapsed: Dispatch<SetStateAction<boolean>>;
@@ -159,6 +160,7 @@ export function LibraryHeader(props: LibraryHeaderProps) {
     cancelDocumentImport,
     retryFailedImports,
     dismissImportReport,
+    onBatchExtract,
     tree,
     treeCollapsed,
     setTreeCollapsed,
@@ -426,6 +428,7 @@ export function LibraryHeader(props: LibraryHeaderProps) {
       canRetry={documentImportCanRetry}
       onRetryFailed={retryFailedImports}
       onDismiss={dismissImportReport}
+      onBatchExtract={onBatchExtract}
     />
   )}
     </>

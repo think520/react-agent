@@ -216,6 +216,10 @@ export const practiceApi = {
     "/api/quiz/export/restore", json({ backup }),
   ),
   reviewQueue: () => request<ReviewQueue>("/api/learning/review-queue"),
+  masteryMap: () => request<{
+    states: Record<string, import("../../../types").ConceptMasterySummary>;
+    count: number;
+  }>("/api/learning/mastery-map"),
   conceptMastery: (concept: string) => request<{
     concept: string;
     status?: string;

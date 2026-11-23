@@ -44,3 +44,5 @@ class LearningPlan:
     deadline: str | None = None
     status: str = "active"          # active | completed
     current_day: int | None = None
+    prerequisite_order: list[str] = field(default_factory=list)
+    prerequisite_cycles: list[str] = field(default_factory=list)

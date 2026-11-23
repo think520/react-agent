@@ -476,4 +476,205 @@ font-size: 12px;
   .km-map-wrapper { display: none; }
 }
 
+/* ------------------------------------------------------------------
+   W1-GRAPH-01: Mastery legend, batch extraction, directory mastery
+   ------------------------------------------------------------------ */
+.km-extracting-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--blue-wash);
+  color: var(--blue);
+  font-size: 12px;
+}
+
+.km-mastery-banner {
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--clay-wash);
+  color: var(--clay);
+  font-size: 12px;
+}
+
+.km-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.km-mastery-legend {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  z-index: 10;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--paper-soft);
+  box-shadow: var(--shadow-soft);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.km-mastery-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.km-mastery-legend .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.km-mastery-legend .dot.is-mastered { background: var(--sage); }
+.km-mastery-legend .dot.is-learning { background: var(--blue-soft); }
+.km-mastery-legend .dot.is-needs-review { background: var(--danger); }
+.km-mastery-legend .dot.is-unseen { background: var(--faint); }
+
+.km-dir-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.km-dir-mastery {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+}
+
+.km-dir-mastery.is-mastered { background: var(--sage-wash); color: var(--sage-deep); }
+.km-dir-mastery.is-learning { background: var(--blue-wash); color: var(--blue); }
+.km-dir-mastery.is-needs_review { background: var(--clay-wash); color: var(--danger); }
+
+.km-rel-hint,
+.sidebar-rel-hint {
+  margin: 4px 0 8px;
+  padding: 6px 8px;
+  border-left: 2px solid var(--blue);
+  background: var(--blue-wash);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.km-batch-dialog {
+  width: min(500px, calc(100vw - 48px));
+}
+
+.km-batch-note {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.km-batch-status {
+  margin: 12px 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.km-batch-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.km-batch-count {
+  margin-left: auto;
+  color: var(--faint);
+  font-size: 12px;
+}
+
+.km-batch-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.km-batch-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  flex-direction: row;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--paper);
+  cursor: pointer;
+}
+
+.km-batch-row.is-disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.km-batch-doc {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.km-batch-doc strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.km-batch-doc small {
+  color: var(--faint);
+  font-size: 12px;
+}
+
+.km-batch-badge {
+  flex: none;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--paper-sunken);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.km-batch-badge.tone-extracting,
+.km-batch-badge.tone-review {
+  background: var(--blue-wash);
+  color: var(--blue);
+}
+
+.km-batch-badge.tone-completed {
+  background: var(--sage-wash);
+  color: var(--sage-deep);
+}
+
+.km-batch-badge.tone-failed {
+  background: var(--clay-wash);
+  color: var(--danger);
+}
+
+
 

@@ -7,7 +7,8 @@ Returns structured dicts, no ANSI/HTML formatting.
 from __future__ import annotations
 
 import logging
-from typing import Any
+import os
+from typing import Any, Iterable
 
 from learning.store import LearningStore
 from learning.scheduler import ReviewScheduler
@@ -73,6 +74,8 @@ class LearningService:
             course=plan.course,
             deadline=plan.deadline,
             steps=steps,
+            prerequisite_order=plan.prerequisite_order,
+            prerequisite_cycles=plan.prerequisite_cycles,
         )
 
     # --- Progress ---
@@ -134,6 +137,15 @@ class LearningService:
         states = mastery_states(store, limit=max(1, int(limit)))
         return _ok(overview=[state.as_dict() for state in states])
 
+    def get_mastery_map(self) -> dict[str, Any]:
+        """Return canonical contract-derived mastery states keyed by casefolded concept name."""
+        store = LearningStore(self.workspace)
+        states = mastery_states(store)
+        return _ok(
+            states={state.concept.casefold(): state.as_dict() for state in states},
+            count=len(states),
+        )
+
     def get_next_objective(self) -> dict[str, Any] | None:
         """今天下一件该做的事（纯函数引擎给优先级）。
 
@@ -169,6 +181,74 @@ class LearningService:
     # total comes from the bank, so Review and the bank always agree.
     WRONG_ANSWER_LIMIT = 200
 
+    @staticmethod
+    def _load_reviewed_graph_readonly(
+        workspace: str,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        from graph.concept_store import ConceptStore
+        from knowledge.paths import knowledge_path
+
+        db_path = knowledge_path(workspace, "concept_graph.db")
+        if not os.path.isfile(db_path):
+            return [], []
+        store = ConceptStore(db_path)
+        return store.list_concepts(limit=1000), store.list_relationships()
+
+    @staticmethod
+    def _weak_prerequisites_for(
+        concept_names: Iterable[str],
+        concepts: list[dict[str, Any]],
+        relationships: list[dict[str, Any]],
+        learning_store: LearningStore,
+        *,
+        limit: int = 3,
+    ) -> list[dict[str, Any]]:
+        if not concepts or not relationships:
+            return []
+        from graph.prerequisites import find_prerequisites
+
+        target_names = [str(name or "").strip() for name in concept_names if str(name or "").strip()]
+        if not target_names:
+            return []
+        target_folded = {name.casefold() for name in target_names}
+
+        best_by_id: dict[str, dict[str, Any]] = {}
+        for name in target_names:
+            for prereq in find_prerequisites(name, concepts, relationships, max_depth=2):
+                cid = prereq["concept_id"]
+                if prereq["name"].casefold() in target_folded:
+                    continue
+                prev = best_by_id.get(cid)
+                if prev is None or prereq["depth"] < prev["depth"]:
+                    best_by_id[cid] = prereq
+
+        status_rank = {MASTERY_NEEDS_REVIEW: 0, "unseen": 1, MASTERY_LEARNING: 2}
+        weak: list[tuple[tuple[int, int, float, str], dict[str, Any]]] = []
+        for prereq in best_by_id.values():
+            state = mastery_state(learning_store, prereq["name"])
+            if state.status == MASTERY_MASTERED:
+                continue
+            rank = (
+                status_rank.get(state.status, 3),
+                int(prereq["depth"]),
+                float(state.mastery),
+                prereq["name"].casefold(),
+            )
+            weak.append((
+                rank,
+                {
+                    "concept_id": prereq["concept_id"],
+                    "concept": prereq["name"],
+                    "depth": prereq["depth"],
+                    "via": prereq["via"],
+                    "status": state.status,
+                    "mastery": state.mastery,
+                    "evidence": state.evidence,
+                },
+            ))
+        weak.sort(key=lambda item: item[0])
+        return [item[1] for item in weak[: max(1, int(limit))]]
+
     def get_review_queue(
         self, limit: int = 20, wrong_limit: int | None = None
     ) -> dict[str, Any]:
@@ -182,6 +262,7 @@ class LearningService:
         wrong_result = quiz_service.get_wrong_answer_book(limit=bounded_wrong)
         wrong_total = quiz_service.count_bank(state="incorrect").get("total", 0)
         weakness_result = quiz_service.get_weakness_analysis()
+        concepts, relationships = self._load_reviewed_graph_readonly(self.workspace)
         # W1 E9：带上"最近一次答错是哪次"，让界面能走 E3 已交付的**变式**通道，
         # 而不是把原题重放一遍（变式通道只认 attempt_id）。
         due_concepts = [
@@ -189,21 +270,38 @@ class LearningService:
                 **record,
                 "question_ids": quiz_store.find_question_ids_by_concept(record["concept"]),
                 "last_attempt_id": quiz_store.last_wrong_attempt_id_for_concept(record["concept"]),
+                "weak_prerequisites": self._weak_prerequisites_for(
+                    [record["concept"]], concepts, relationships, learning_store
+                ),
             }
             for record in due_result.get("concepts", [])
         ]
+        wrong_answers = []
+        for entry in wrong_result.get("entries", []):
+            prereqs = self._weak_prerequisites_for(
+                entry.get("concepts") or ([entry["concept"]] if entry.get("concept") else []),
+                concepts,
+                relationships,
+                learning_store,
+            )
+            wrong_answers.append(
+                {**entry, "weak_prerequisites": prereqs} if prereqs else entry
+            )
         weaknesses = [
             self._state_fields({
                 **record,
                 "question_ids": quiz_store.find_question_ids_by_concept(record["concept"]),
                 "last_attempt_id": quiz_store.last_wrong_attempt_id_for_concept(record["concept"]),
+                "weak_prerequisites": self._weak_prerequisites_for(
+                    [record["concept"]], concepts, relationships, learning_store
+                ),
             }, learning_store)
             for record in weakness_result.get("analysis", [])
         ]
         next_review = learning_store.get_next_scheduled_review()
         return _ok(
             due_concepts=due_concepts,
-            wrong_answers=wrong_result.get("entries", []),
+            wrong_answers=wrong_answers,
             wrong_total=wrong_total,
             weaknesses=weaknesses,
             next_review=(

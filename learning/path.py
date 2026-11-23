@@ -8,7 +8,9 @@ Priority of data sources:
 """
 
 import logging
+import os
 from datetime import datetime, timezone
+from typing import Any
 
 from .schema import LearningPlan
 from .store import LearningStore
@@ -23,6 +25,7 @@ PATH_GENERATION_PROMPT = """你是一个学习规划助手。根据以下信息�
 课程资料：{course_info}
 薄弱知识点：{weakness_info}
 已有掌握度：{mastery_info}
+已审查知识地图前置顺序：{prerequisite_info}
 
 要求：
 1. 按天拆分学习任务，每天 2-3 个知识点
@@ -31,6 +34,7 @@ PATH_GENERATION_PROMPT = """你是一个学习规划助手。根据以下信息�
 4. 每天末尾安排 3-5 道练习题巩固
 5. 计划要现实可行，考虑截止日期
 6. 所有内容用中文
+7. 若提供了已审查知识地图前置顺序，严格按先学前置概念、再学后续概念的顺序排期；若提示存在循环依赖，拆分交叉复习
 
 严格按以下 JSON 格式输出，不要添加 markdown 代码块或其他文字：
 {{
@@ -64,12 +68,21 @@ class LearningPathGenerator:
         """Generate a learning plan based on user goal, mastery state, and course materials."""
         # Gather data sources
         weakness_info = self._get_weakness_summary(workspace)
+        weakness_concepts = self._extract_weakness_concepts(weakness_info)
         mastery_info = self._get_mastery_summary(course)
         course_info = self._get_course_info(workspace, course)
+        prereq_plan = self._get_prerequisite_plan(workspace, goal, weakness_concepts)
 
         if not self.llm:
-            # Fallback: generate a simple plan from weakness data
-            return self._generate_simple_plan(goal, weakness_info, course, deadline)
+            # Fallback: generate a simple plan from weakness + prerequisite data
+            return self._generate_simple_plan(
+                goal,
+                weakness_info,
+                course,
+                deadline,
+                ordered_concepts=prereq_plan["ordered_concepts"],
+                cycle_concepts=prereq_plan["cycle_concepts"],
+            )
 
         # Use LLM to generate a personalized plan
         prompt = PATH_GENERATION_PROMPT.format(
@@ -78,6 +91,7 @@ class LearningPathGenerator:
             course_info=course_info or "未找到相关课程资料",
             weakness_info=weakness_info or "暂无做题记录",
             mastery_info=mastery_info or "暂无掌握度数据",
+            prerequisite_info=prereq_plan["text"] or "暂无已审查前置依赖关系",
         )
 
         try:
@@ -86,7 +100,14 @@ class LearningPathGenerator:
             plan_data = self._parse_plan_json(raw)
         except Exception as e:
             logger.error("LLM plan generation failed: %s", e)
-            return self._generate_simple_plan(goal, weakness_info, course, deadline)
+            return self._generate_simple_plan(
+                goal,
+                weakness_info,
+                course,
+                deadline,
+                ordered_concepts=prereq_plan["ordered_concepts"],
+                cycle_concepts=prereq_plan["cycle_concepts"],
+            )
 
         plan = LearningPlan(
             title=plan_data.get("title", f"学习计划: {goal}"),
@@ -94,6 +115,8 @@ class LearningPathGenerator:
             steps=plan_data.get("steps", []),
             course=course,
             deadline=deadline,
+            prerequisite_order=prereq_plan["ordered_concepts"],
+            prerequisite_cycles=prereq_plan["cycle_concepts"],
         )
 
         # Save to store
@@ -158,19 +181,85 @@ class LearningPathGenerator:
             logger.warning("Course information unavailable for learning plan: %s", exc)
             return ""
 
-    def _generate_simple_plan(
-        self, goal: str, weakness_info: str, course: str | None, deadline: str | None
-    ) -> LearningPlan:
-        """Fallback: generate a basic plan without LLM."""
-        steps = []
-        # Simple plan based on weakness data
-        if weakness_info:
-            concepts = []
-            for line in weakness_info.split("\n"):
-                if line.startswith("- "):
-                    concept = line.split(":")[0].replace("- ", "").strip()
+    @staticmethod
+    def _extract_weakness_concepts(weakness_info: str) -> list[str]:
+        concepts: list[str] = []
+        for line in (weakness_info or "").splitlines():
+            if line.startswith("- "):
+                concept = line.split(":", 1)[0].replace("- ", "", 1).strip()
+                if concept:
                     concepts.append(concept)
-            for i, concept in enumerate(concepts[:7], 1):
+        return concepts
+
+    def _get_prerequisite_plan(
+        self,
+        workspace: str,
+        goal: str,
+        weakness_concepts: list[str],
+    ) -> dict[str, Any]:
+        """Read reviewed prerequisite relations without creating an empty concept DB."""
+        empty = {"text": "", "ordered_concepts": [], "cycle_concepts": [], "has_cycles": False}
+        try:
+            from graph.concept_store import ConceptStore
+            from graph.prerequisites import topological_prerequisite_order
+            from knowledge.paths import knowledge_path
+
+            db_path = knowledge_path(workspace, "concept_graph.db")
+            if not os.path.isfile(db_path):
+                return empty
+            store = ConceptStore(db_path)
+            concepts = store.list_concepts(limit=1000)
+            relationships = store.list_relationships()
+            topo = topological_prerequisite_order(
+                concepts,
+                relationships,
+                scope_names=[goal, *weakness_concepts],
+            )
+            ordered = topo["ordered_concepts"]
+            if not ordered:
+                return empty
+            lines = [f"建议前置学习顺序：{' → '.join(ordered)}"]
+            if topo["edges"]:
+                edge_text = "；".join(f"{u} -> {v}" for u, v in topo["edges"][:10])
+                lines.append(f"关键前置依赖：{edge_text}")
+            if topo["has_cycles"]:
+                lines.append(
+                    f"⚠ 检测到前置关系存在环：{'、'.join(topo['cycle_concepts'])}（请拆分交叉复习）"
+                )
+            return {
+                "text": "\n".join(lines),
+                "ordered_concepts": ordered,
+                "cycle_concepts": topo["cycle_concepts"],
+                "has_cycles": topo["has_cycles"],
+            }
+        except Exception as exc:
+            logger.warning("Prerequisite order unavailable for learning plan: %s", exc)
+            return empty
+
+    def _generate_simple_plan(
+        self,
+        goal: str,
+        weakness_info: str,
+        course: str | None,
+        deadline: str | None,
+        *,
+        ordered_concepts: list[str] | None = None,
+        cycle_concepts: list[str] | None = None,
+    ) -> LearningPlan:
+        """Fallback: generate a basic plan ordered by reviewed prerequisites and weaknesses."""
+        steps = []
+        weak_concepts = self._extract_weakness_concepts(weakness_info)
+        merged: list[str] = []
+        seen_folded: set[str] = set()
+        for name in [*(ordered_concepts or []), *weak_concepts]:
+            cleaned = str(name or "").strip()
+            folded = cleaned.casefold()
+            if cleaned and folded not in seen_folded:
+                seen_folded.add(folded)
+                merged.append(cleaned)
+
+        if merged:
+            for i, concept in enumerate(merged[:7], 1):
                 steps.append({
                     "day": i,
                     "date": "",
@@ -195,6 +284,8 @@ class LearningPathGenerator:
             steps=steps,
             course=course,
             deadline=deadline,
+            prerequisite_order=list(ordered_concepts or []),
+            prerequisite_cycles=list(cycle_concepts or []),
         )
         plan.id = self.store.save_plan(plan)
         return plan

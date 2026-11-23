@@ -1041,3 +1041,37 @@ export interface BackupRestoreResult {
   counts: BackupCounts;
   verified_files: number;
 }
+
+export interface ConceptMasterySummary {
+  concept: string;
+  status: "unseen" | "learning" | "mastered" | "needs_review" | string;
+  status_source: string;
+  mastery: number;
+  mastery_source: string;
+  evidence: number;
+  next_review?: string | null;
+}
+
+export interface WeakPrerequisite {
+  concept_id: string;
+  concept: string;
+  depth: number;
+  via?: string | null;
+  status: string;
+  mastery: number;
+  evidence: number;
+}
+
+export interface BatchExtractionItem {
+  document_id: string;
+  document_title?: string;
+  status: "queued" | "already_running" | "already_extracted" | "empty" | "not_found" | string;
+  run_id?: string;
+}
+
+export interface BatchExtractionResponse {
+  runs: GraphExtractionRun[];
+  items: BatchExtractionItem[];
+  started_count: number;
+  skipped_count: number;
+}

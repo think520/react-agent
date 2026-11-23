@@ -57,6 +57,11 @@ def progress(request: Request, concept: str | None = None) -> dict:
     return _unwrap(_service(request).get_progress(concept=concept))
 
 
+@router.get("/mastery-map")
+def mastery_map(request: Request) -> dict:
+    return _unwrap(_service(request).get_mastery_map())
+
+
 @router.get("/reviews")
 def reviews(request: Request, limit: int = 20) -> dict:
     return _unwrap(_service(request).get_due_reviews(limit=limit))

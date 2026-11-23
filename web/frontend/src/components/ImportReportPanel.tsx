@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle2, Info, RotateCcw, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Info, RotateCcw, Sparkles, X } from "lucide-react";
 
 import { describeImportOutcome } from "../lib/importSummary";
 import type { ImportBatchResult } from "../lib/api";
@@ -10,6 +10,7 @@ interface ImportReportPanelProps {
   retrying?: boolean;
   onRetryFailed: () => void;
   onDismiss: () => void;
+  onBatchExtract?: (filenames: string[]) => void;
 }
 
 /** 这一份要不要人管：解析失败 / 格式被拒 / 取消了。 */
@@ -30,10 +31,12 @@ export function ImportReportPanel({
   retrying = false,
   onRetryFailed,
   onDismiss,
+  onBatchExtract,
 }: ImportReportPanelProps) {
   if (!results.length) return null;
   const attention = results.filter(needsAttention);
   const ordered = [...attention, ...results.filter((item) => !needsAttention(item))];
+  const extractable = results.filter((item) => item.status === "imported" && item.searchable);
 
   return (
     <section className="import-report" aria-label="导入结果">
@@ -45,6 +48,15 @@ export function ImportReportPanel({
           </span>
         </div>
         <div className="import-report-actions">
+          {onBatchExtract && extractable.length > 0 && (
+            <button
+              className="quiet-button"
+              type="button"
+              onClick={() => onBatchExtract(extractable.map((item) => item.filename))}
+            >
+              <Sparkles size={14} />提取概念
+            </button>
+          )}
           {canRetry && attention.length > 0 && (
             <button className="quiet-button" disabled={retrying} onClick={onRetryFailed}>
               <RotateCcw size={14} />{retrying ? "正在重试" : `重试这 ${attention.length} 份`}

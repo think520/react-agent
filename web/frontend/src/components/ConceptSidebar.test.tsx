@@ -1,8 +1,9 @@
-import { cleanup, render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api, ApiError } from "../lib/api";
+import { useHandoffStore } from "../stores/handoffStore";
 import { ConceptSidebar } from "./ConceptSidebar";
 
 vi.mock("../lib/api", async (importOriginal) => {
@@ -28,7 +29,7 @@ beforeEach(() => {
   vi.mocked(api.graphState).mockResolvedValue({ concepts: [] } as never);
 });
 
-afterEach(() => { cleanup(); vi.clearAllMocks(); });
+afterEach(() => { cleanup(); vi.clearAllMocks(); useHandoffStore.getState().clearPracticeHandoff(); });
 
 describe("掌握度读取失败不能冒充「尚未练习」（2026-11-11 审查）", () => {
   it("only a real mastery_not_found reads as never practiced", async () => {
@@ -43,4 +44,20 @@ describe("掌握度读取失败不能冒充「尚未练习」（2026-11-11 审�
     expect(await screen.findByText("暂时读不到掌握度")).toBeTruthy();
     expect(screen.queryByText("尚未练习")).toBeNull();
   });
+});
+
+it("clicking 生成练习题 hands off the concept name and navigates to /practice", async () => {
+  vi.mocked(api.conceptMastery).mockRejectedValue(new ApiError("未找到", "mastery_not_found", 404));
+  render(
+    <MemoryRouter initialEntries={["/knowledge-map"]}>
+      <Routes>
+        <Route path="/practice" element={<div>Practice Screen</div>} />
+        <Route path="*" element={<ConceptSidebar conceptId="c1" onClose={() => undefined} />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+
+  fireEvent.click(await screen.findByRole("button", { name: /生成练习题/ }));
+  expect(useHandoffStore.getState().practiceTopic).toBe("Dijkstra 算法");
+  expect(screen.getByText("Practice Screen")).toBeTruthy();
 });

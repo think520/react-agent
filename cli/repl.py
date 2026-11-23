@@ -698,6 +698,7 @@ class REPL:
 
         # 与 Web 同一套运行时证据门禁（预检索 + 本地证据 / 出题卡 / 概念地图 / 引用）：
         # CLI 以前只靠 prompt，编造引用、该查资料不查都不会被拦（2026-11-11 审查）。
+        from core.prompt_blocks import attach_concept_map_seed
         from service.turn_policy import prepare_turn
 
         turn = prepare_turn(
@@ -705,6 +706,7 @@ class REPL:
             workspace=self.session.workspace_root,
             config=self.config,
         )
+        request_prompt = attach_concept_map_seed(request_prompt, turn.concept_map_seed)
 
         agent_copy = AgentLoop(
             self._make_active_provider(),

@@ -54,3 +54,31 @@ it("全部没有可重试的文件对象时不显示重试按钮", () => {
   render(<ImportReportPanel results={results} canRetry={false} onRetryFailed={() => {}} onDismiss={() => {}} />);
   expect(screen.queryByRole("button", { name: /重试/ })).toBeNull();
 });
+
+it("有可检索新资料且提供 onBatchExtract 时显示提取概念按钮", () => {
+  const onBatchExtract = vi.fn();
+  render(
+    <ImportReportPanel
+      results={results}
+      canRetry={false}
+      onRetryFailed={() => {}}
+      onDismiss={() => {}}
+      onBatchExtract={onBatchExtract}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: /提取概念/ }));
+  expect(onBatchExtract).toHaveBeenCalledWith(["good.md"]);
+});
+
+it("没有可检索新资料时不显示提取概念按钮", () => {
+  render(
+    <ImportReportPanel
+      results={[{ filename: "broken.pdf", status: "imported", searchable: false }]}
+      canRetry={false}
+      onRetryFailed={() => {}}
+      onDismiss={() => {}}
+      onBatchExtract={() => {}}
+    />,
+  );
+  expect(screen.queryByRole("button", { name: /提取概念/ })).toBeNull();
+});

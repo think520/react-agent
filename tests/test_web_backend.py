@@ -2697,3 +2697,148 @@ def test_session_errors_keep_their_structured_code(backend_client, tmp_path):
     ambiguous = backend_client.get("/api/chat/sessions/复习")
     assert ambiguous.status_code == 409, ambiguous.text
     assert ambiguous.json()["error"]["code"] == "session_ambiguous"
+
+
+def test_learning_mastery_map_endpoint(backend_client, tmp_path):
+    library, root = create_test_library(backend_client, tmp_path)
+    headers = {"X-Bobodan-Library-ID": library["library_id"]}
+    from learning.store import LearningStore
+
+    lstore = LearningStore(str(root))
+    lstore.record_mastery_attempt("Transformer", is_correct=True, verdict="correct")
+    lstore.record_mastery_attempt("Transformer", is_correct=True, verdict="correct")
+    lstore.record_mastery_attempt("Attention", is_correct=False, verdict="incorrect")
+
+    response = backend_client.get("/api/learning/mastery-map", headers=headers)
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["count"] == 2
+    assert data["states"]["transformer"]["status"] == "mastered"
+    assert data["states"]["attention"]["status"] == "needs_review"
+
+
+def test_graph_batch_extraction_queues_skips_and_handles_provider_failure(
+    backend_client,
+    tmp_path,
+    monkeypatch,
+):
+    from rag.sqlite_store import KBSQLiteStore, make_chunk_row
+    from tests.llm_fake import ScriptedProvider
+
+    library, root = create_test_library(backend_client, tmp_path)
+    headers = {"X-Bobodan-Library-ID": library["library_id"]}
+    kb = KBSQLiteStore(str(root))
+    kb.init_db()
+    kb.upsert_document("doc-1", "notes/transformer.md", "hash-1", title="Transformer 笔记")
+    kb.insert_chunks([
+        make_chunk_row(
+            "chunk-1",
+            "doc-1",
+            "notes/transformer.md",
+            0,
+            "Transformer 使用注意力机制处理序列。",
+            title="Transformer 笔记",
+            heading_text="架构",
+        ),
+    ])
+    kb.upsert_document("doc-empty", "notes/empty.md", "hash-empty", title="空文档")
+    kb.close()
+
+    # Provider failure cleans up queued runs instead of leaving them orphaned.
+    monkeypatch.setattr(
+        "providers.factory.ProviderFactory.create",
+        lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("provider offline")),
+    )
+    failed_resp = backend_client.post(
+        "/api/graph/extractions/batch",
+        headers=headers,
+        json={"document_ids": ["doc-1"]},
+    )
+    assert failed_resp.status_code == 503
+    statuses_after_fail = backend_client.get("/api/graph/extractions", headers=headers).json()["documents"]
+    assert statuses_after_fail["doc-1"]["status"] == "failed"
+
+    # Successful batch queues searchable doc and skips empty/missing docs.
+    scripted = ScriptedProvider([
+        '{"core_concepts":[{"name":"Transformer","definition":"序列模型架构","confidence":"high","excerpt":"Transformer 使用注意力机制"}],"detail_concepts":[],"relationships":[],"tags":[]}',
+        '{"relationships":[]}',
+    ])
+    monkeypatch.setattr("providers.factory.ProviderFactory.create", lambda *_a, **_k: scripted)
+
+    ok_resp = backend_client.post(
+        "/api/graph/extractions/batch",
+        headers=headers,
+        json={
+            "document_ids": ["doc-1", "doc-empty", "doc-missing"],
+            "force": True,
+        },
+    )
+    assert ok_resp.status_code == 202, ok_resp.text
+    payload = ok_resp.json()
+    assert payload["started_count"] == 1
+    assert payload["skipped_count"] == 2
+    by_id = {item["document_id"]: item for item in payload["items"]}
+    assert by_id["doc-1"]["status"] == "queued"
+    assert by_id["doc-empty"]["status"] == "empty"
+    assert by_id["doc-missing"]["status"] == "not_found"
+
+    cands = backend_client.get(
+        "/api/graph/candidates",
+        headers=headers,
+        params={"status": "pending", "document_id": "doc-1"},
+    ).json()
+    assert cands["count"] == 1
+    assert cands["candidates"][0]["name"] == "Transformer"
+
+
+def test_chat_stream_auto_concept_map_seed_emits_once(backend_client, monkeypatch):
+    from service.concept_service import ConceptService
+
+    concept_svc = ConceptService(str(backend_client.workspace))
+    c1 = concept_svc.upsert_concept(name="Attention", level="core", definition="注意力机制")["concept"]
+    c2 = concept_svc.upsert_concept(name="Transformer", level="core", definition="自注意力模型")["concept"]
+    concept_svc.add_relationship(from_id=c1["concept_id"], to_id=c2["concept_id"], rel_type="前置知识")
+
+    captured = {}
+
+    class DummyProvider:
+        def get_name(self):
+            return "dummy"
+
+    runtime = SimpleNamespace(
+        workspace=str(backend_client.workspace),
+        skills_prompt="skills",
+        memory_prompt="",
+        create_provider=lambda _name, model=None: DummyProvider(),
+        refresh_memory=lambda: "",
+        create_trace=lambda _sid: object(),
+    )
+    monkeypatch.setattr("web.backend.routers.chat.get_runtime_context", lambda: runtime)
+
+    def fake_run_without_kc(**kwargs):
+        captured["request_prompt"] = kwargs["request_prompt"]
+        yield {"type": "assistant_delta", "content": "Transformer 基于 Attention。"}
+        yield {"type": "assistant_done", "content": "Transformer 基于 Attention。", "termination_reason": "final_answer"}
+
+    monkeypatch.setattr("web.backend.routers.chat.AgentService.run_stream", fake_run_without_kc)
+    resp = backend_client.post("/api/chat/runs", json={"message": "为什么 Transformer 用 Attention？", "save": False})
+    assert resp.status_code == 200
+    assert "[Reviewed Concept Map Context]" in captured["request_prompt"]
+    assert resp.text.count('"type": "knowledge_context"') == 1
+
+    # When tool already emitted knowledge_context, auto-seed must not emit a duplicate artifact.
+    def fake_run_with_kc(**kwargs):
+        yield {
+            "type": "tool_end",
+            "tool_name": "concept_map_query",
+            "ok": True,
+            "content": "{}",
+            "artifacts": [{"artifact_id": "k1", "type": "knowledge_context", "context": {"concepts": [c2], "relationships": []}}],
+        }
+        yield {"type": "assistant_delta", "content": "已查询图谱。"}
+        yield {"type": "assistant_done", "content": "已查询图谱。", "termination_reason": "final_answer"}
+
+    monkeypatch.setattr("web.backend.routers.chat.AgentService.run_stream", fake_run_with_kc)
+    resp2 = backend_client.post("/api/chat/runs", json={"message": "为什么 Transformer 用 Attention？", "save": False})
+    assert resp2.status_code == 200
+    assert resp2.text.count('"type": "knowledge_context"') == 1

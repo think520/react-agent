@@ -1,8 +1,9 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "../lib/api";
+import { useHandoffStore } from "../stores/handoffStore";
 import { ReviewPage } from "./ReviewPage";
 
 vi.mock("../lib/api", async (importOriginal) => {
@@ -41,6 +42,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  useHandoffStore.getState().clearPracticeHandoff();
 });
 
 describe("ReviewPage queue explanations", () => {
@@ -149,4 +151,41 @@ it("显示引擎给的下一步，并标注推导/存量掌握度", async () => 
   expect(await screen.findByText(/现在该复习「极限」/)).toBeTruthy();
   expect(screen.getByText("掌握度 0.5（1 次作答记录）")).toBeTruthy();
   expect(screen.getByText("掌握度 0.7（存量分数，没有逐次记录）")).toBeTruthy();
+});
+
+it("renders weak prerequisite pills and hands off clicked prerequisite to /practice", async () => {
+  vi.mocked(api.reviewQueue).mockResolvedValue({
+    due_concepts: [{
+      concept: "Dijkstra",
+      status: "needs_review",
+      question_ids: [1],
+      weak_prerequisites: [{
+        concept_id: "c0",
+        concept: "图基础",
+        depth: 1,
+        status: "needs_review",
+        mastery: 0.2,
+        evidence: 1,
+      }],
+    }],
+    wrong_answers: [],
+    weaknesses: [],
+    wrong_total: 0,
+    personalization: [],
+    next_review: null,
+  });
+
+  render(
+    <MemoryRouter initialEntries={["/review"]}>
+      <Routes>
+        <Route path="/practice" element={<div>Practice Page</div>} />
+        <Route path="*" element={<ReviewPage />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+
+  expect(await screen.findByText("可能卡在前置：")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "图基础（需复习）" }));
+  expect(useHandoffStore.getState().practiceTopic).toBe("图基础");
+  expect(screen.getByText("Practice Page")).toBeTruthy();
 });

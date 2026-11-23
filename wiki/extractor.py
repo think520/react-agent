@@ -76,6 +76,7 @@ _RELATION_PROMPT = """\
 1. 只输出有原文 excerpt 直接支撑的关系。
 2. rel_type 只能是：属于 | 前置知识 | 组成部分 | 对比 | 应用于 | 来源于 | 影响 | 优化 | 示例。
 3. from/to 必须来自候选概念，不要新增概念。
+4. 当 rel_type 为「前置知识」时，from 是先学的前置概念，to 是依赖它的后续概念（即 from 是 to 的前置知识）。
 
 返回 JSON：
 {{"relationships":[{{"from":"概念A","to":"概念B","rel_type":"组成部分","excerpt":"原文证据"}}]}}
@@ -96,6 +97,7 @@ _SUPPLEMENT_RELATION_PROMPT = """\
 {content}
 关系必须有 excerpt 支撑，不能仅凭常识或语义相似度推断。
 rel_type 只能是：属于 | 前置知识 | 组成部分 | 对比 | 应用于 | 来源于 | 影响 | 优化 | 示例。
+当 rel_type 为「前置知识」时，from 是先学的前置概念，to 是依赖它的后续概念（即 from 是 to 的前置知识）。
 返回 JSON：{{"relationships":[]}}
 """
 

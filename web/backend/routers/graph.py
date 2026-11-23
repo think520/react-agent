@@ -98,6 +98,12 @@ class ExtractRequest(BaseModel):
     force: bool = False
 
 
+class BatchExtractRequest(BaseModel):
+    document_ids: list[str] = Field(..., min_length=1, max_length=20)
+    provider: str | None = None
+    force: bool = False
+
+
 class LegacyGraphImportRequest(BaseModel):
     concept_ids: list[str] = Field(default_factory=list, max_length=1000)
     memory_ids: list[str] = Field(default_factory=list, max_length=1000)
@@ -290,6 +296,113 @@ def start_extraction(
             llm_provider=llm,
         )
     return {"run": run, "started": created["started"]}
+
+
+@router.post("/extractions/batch", status_code=202)
+def start_batch_extraction(
+    body: BatchExtractRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+) -> dict:
+    from service.kb_service import KBService
+
+    workspace = get_request_workspace(request)
+    svc = ConceptService(workspace)
+    kb_svc = KBService(workspace)
+
+    items: list[dict] = []
+    runs: list[dict] = []
+    queued: list[dict] = []
+
+    for doc_id in dict.fromkeys(item.strip() for item in body.document_ids if item.strip()):
+        doc_res = kb_svc.get_document(doc_id)
+        if not doc_res.get("ok"):
+            items.append({"document_id": doc_id, "status": "not_found"})
+            continue
+        doc = doc_res["document"]
+        title = str(doc.get("title") or doc.get("source") or doc_id)
+        sections = doc_res.get("sections") or []
+        content = "\n\n".join(
+            str(sec.get("text") or "").strip()
+            for sec in sections
+            if str(sec.get("text") or "").strip()
+        )
+        if not sections or not content:
+            items.append({"document_id": doc_id, "document_title": title, "status": "empty"})
+            continue
+
+        content_version = str(
+            doc.get("content_hash")
+            or f"{doc.get('updated_at') or ''}:{doc.get('chunk_count') or 0}"
+        )
+        created = _unwrap(svc.create_extraction_run(
+            document_id=doc_id,
+            document_title=title,
+            content_version=content_version,
+            force=body.force,
+        ))
+        run = created["run"]
+        runs.append(run)
+        if created["started"]:
+            queued.append({
+                "run_id": run["run_id"],
+                "document_id": doc_id,
+                "document_title": title,
+                "document_path": str(doc.get("relative_path") or doc.get("source") or ""),
+                "content": content,
+                "sections": sections,
+            })
+            items.append({
+                "document_id": doc_id,
+                "document_title": title,
+                "status": "queued",
+                "run_id": run["run_id"],
+            })
+        else:
+            status = (
+                "already_running"
+                if run.get("status") in {"queued", "running"}
+                else "already_extracted"
+            )
+            items.append({
+                "document_id": doc_id,
+                "document_title": title,
+                "status": status,
+                "run_id": run["run_id"],
+            })
+
+    if queued:
+        config = get_config()
+        extraction_config = config.get("concept_extraction") or {}
+        provider_name = body.provider or extraction_config.get("provider") or get_default_provider_name(config)
+        try:
+            llm = _create_llm_provider(config, provider_name)
+        except APIError as exc:
+            for job in queued:
+                svc.fail_extraction_run(job["run_id"], exc.message)
+            raise
+
+        def _run_batch() -> None:
+            for job in queued:
+                svc.execute_extraction_run(
+                    run_id=job["run_id"],
+                    document_id=job["document_id"],
+                    document_title=job["document_title"],
+                    document_path=job["document_path"],
+                    content=job["content"],
+                    sections=job["sections"],
+                    llm_provider=llm,
+                )
+
+        background_tasks.add_task(_run_batch)
+
+    started_count = len(queued)
+    return {
+        "runs": runs,
+        "items": items,
+        "started_count": started_count,
+        "skipped_count": len(items) - started_count,
+    }
 
 
 @router.get("/extractions")

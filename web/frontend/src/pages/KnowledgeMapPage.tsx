@@ -10,18 +10,21 @@
  */
 
 import { readerLocation } from "../lib/documentLinks";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useOutletContext } from "react-router-dom";
 import { List, Map as MapIcon, Link2, Maximize2, Network, Plus, Sparkles, Table, X } from "lucide-react";
 import { api } from "../lib/api";
 import { shouldIgnoreShortcut } from "../lib/ime";
 import { useUiStore } from "../stores/uiStore";
+import { notifyInfo } from "../stores/noticeStore";
 import type {
+  ConceptMasterySummary,
   ConceptNode,
   GraphState,
   KnowledgeMapView,
   RelationshipEdge,
 } from "../types";
+import { BatchExtractModal } from "../components/BatchExtractModal";
 import { GraphCanvas, type ForceParams } from "../components/GraphCanvas";
 import { CandidateReviewPanel } from "../components/CandidateReviewPanel";
 import { useTemporaryHighlight } from "../hooks/useTemporaryHighlight";
@@ -77,16 +80,30 @@ export function KnowledgeMapPage() {
   const [showCandidates, setShowCandidates] = useState(initialExtraction !== null);
   const [showAddConcept, setShowAddConcept] = useState(false);
   const [showAddRelation, setShowAddRelation] = useState(false);
+  const [showBatchExtract, setShowBatchExtract] = useState(false);
+  const [colorMode, setColorMode] = useState<"level" | "mastery">("level");
+  const [masteryStates, setMasteryStates] = useState<Record<string, ConceptMasterySummary>>({});
+  const [masteryError, setMasteryError] = useState(false);
+  const [extractingCount, setExtractingCount] = useState(0);
   const [extractionSource, setExtractionSource] = useState<ExtractionSource | null>(initialExtraction);
   const positionsSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const graphActionsRef = useRef<{ fit: () => void; relayout: (params?: ForceParams) => void } | null>(null);
   const initialFocusHandled = useRef(false);
+  const prevExtractingRef = useRef(0);
   const graphRevision = useUiStore((state) => state.graphRevision);
   const lastGraphRevisionRef = useRef(graphRevision);
 
   const loadGraph = useCallback(async () => {
     setLoading(true);
     setError(null);
+    void api.masteryMap()
+      .then((res) => {
+        setMasteryStates(res.states || {});
+        setMasteryError(false);
+      })
+      .catch(() => {
+        setMasteryError(true);
+      });
     try {
       const state = await api.graphState({
         topic_id: selectedTopicId ?? undefined,
@@ -100,9 +117,40 @@ export function KnowledgeMapPage() {
     }
   }, [selectedTopicId]);
 
+  const refreshExtractionStatuses = useCallback(async () => {
+    try {
+      const res = await api.graphExtractionStatuses();
+      const count = Object.values(res.documents || {}).filter((item) => item.status === "extracting").length;
+      if (prevExtractingRef.current > 0 && count === 0) {
+        void loadGraph();
+      }
+      prevExtractingRef.current = count;
+      setExtractingCount(count);
+    } catch {
+      // Status polling should not interrupt map viewing.
+    }
+  }, [loadGraph]);
+
   useEffect(() => {
     void loadGraph();
-  }, [loadGraph]);
+    void refreshExtractionStatuses();
+  }, [loadGraph, refreshExtractionStatuses]);
+
+  useEffect(() => {
+    if (extractingCount <= 0) return;
+    const timer = window.setInterval(() => {
+      void refreshExtractionStatuses();
+    }, 4000);
+    return () => window.clearInterval(timer);
+  }, [extractingCount, refreshExtractionStatuses]);
+
+  const masteryByConcept = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const [key, item] of Object.entries(masteryStates)) {
+      map[key] = item.status;
+    }
+    return map;
+  }, [masteryStates]);
 
   // Reload the graph after a concept/relationship edit (bumped via uiStore).
   useEffect(() => {
@@ -235,6 +283,14 @@ export function KnowledgeMapPage() {
 
         {view === "map" && !isEmpty && (
           <div className="km-map-actions">
+            <button
+              type="button"
+              className={`km-density-toggle ${colorMode === "mastery" ? "active" : ""}`}
+              aria-pressed={colorMode === "mastery"}
+              onClick={() => setColorMode((mode) => (mode === "level" ? "mastery" : "level"))}
+            >
+              按掌握度
+            </button>
             <button className={`km-density-toggle ${showAllNodes ? "active" : ""}`} onClick={() => setShowAllNodes((value) => !value)}>{showAllNodes ? "渐进显示" : "显示全部"}</button>
             <button className="icon-button" title="适配视图" aria-label="适配视图" onClick={() => graphActionsRef.current?.fit()}><Maximize2 size={15} /></button>
             <button className="icon-button" title="重新布局" aria-label="重新布局" onClick={() => graphActionsRef.current?.relayout(forceParams)}><Network size={15} /></button>
@@ -251,6 +307,16 @@ export function KnowledgeMapPage() {
           </div>
         )}
 
+        <button type="button" className="km-edit-action" onClick={() => setShowBatchExtract(true)}>
+          <Sparkles size={14} />批量提取
+        </button>
+
+        {extractingCount > 0 && (
+          <span className="km-extracting-badge" role="status" aria-live="polite">
+            后台提取中（{extractingCount} 份）
+          </span>
+        )}
+
         {/* Candidate alert */}
         {pendingCount > 0 && !showCandidates && (
           <button
@@ -265,6 +331,11 @@ export function KnowledgeMapPage() {
 
       {/* Main content */}
       <div className="km-content">
+        {/* Mastery unavailable notice */}
+        {colorMode === "mastery" && masteryError && (
+          <div className="km-mastery-banner" role="status">暂时读不到掌握度，当前以未练习样式显示。</div>
+        )}
+
         {/* Error */}
         {error && (
           <div className="km-error" role="alert">
@@ -279,12 +350,16 @@ export function KnowledgeMapPage() {
             <MapIcon size={40} />
             <h3>还没有概念</h3>
             <p>
-              在资料库导入资料后，点击资料卡上的"提取概念"按钮，
-              AI 会识别核心概念和关系候选，由你确认后加入图谱。
+              挑选核心资料批量提取概念，或在资料阅读页按需提取。AI 识别后会进入候选区，由你确认才加入正式图谱。
             </p>
-            <Link to="/library" className="btn-sm">
-              去资料库
-            </Link>
+            <div className="km-empty-actions">
+              <button type="button" className="primary-button" onClick={() => setShowBatchExtract(true)}>
+                <Sparkles size={15} />选择资料批量提取概念
+              </button>
+              <Link to="/library" className="btn-sm btn-ghost">
+                去资料库
+              </Link>
+            </div>
           </div>
         )}
 
@@ -294,19 +369,31 @@ export function KnowledgeMapPage() {
             {loading ? (
               <div className="km-loading" aria-live="polite"><LoadingState label="正在加载图谱…" state="reading" /></div>
             ) : (
-              <GraphCanvas
-                emphasizedIds={highlighted}
-                concepts={graphState?.concepts ?? []}
-                relationships={graphState?.relationships ?? []}
-                selectedConceptId={selectedConceptId}
-                showAll={showAllNodes}
-                searchQuery={searchQuery}
-                focusDegree={focusDegree}
-                onNodeClick={handleNodeClick}
-                onBackgroundClick={handleBackgroundClick}
-                onPositionsChanged={handlePositionsChanged}
-                actionsRef={graphActionsRef}
-              />
+              <>
+                <GraphCanvas
+                  emphasizedIds={highlighted}
+                  concepts={graphState?.concepts ?? []}
+                  relationships={graphState?.relationships ?? []}
+                  selectedConceptId={selectedConceptId}
+                  showAll={showAllNodes}
+                  searchQuery={searchQuery}
+                  focusDegree={focusDegree}
+                  colorMode={colorMode}
+                  masteryByConcept={masteryByConcept}
+                  onNodeClick={handleNodeClick}
+                  onBackgroundClick={handleBackgroundClick}
+                  onPositionsChanged={handlePositionsChanged}
+                  actionsRef={graphActionsRef}
+                />
+                {colorMode === "mastery" && (
+                  <div className="km-mastery-legend" aria-label="掌握度图例">
+                    <span><i className="dot is-mastered" />已掌握</span>
+                    <span><i className="dot is-learning" />学习中</span>
+                    <span><i className="dot is-needs-review" />需要复习</span>
+                    <span><i className="dot is-unseen" />未练习</span>
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
@@ -316,6 +403,7 @@ export function KnowledgeMapPage() {
           <DirectoryView
             concepts={filteredConcepts}
             selectedConceptId={selectedConceptId}
+            masteryByConcept={masteryByConcept}
             onSelect={handleNodeClick}
           />
         )}
@@ -332,6 +420,19 @@ export function KnowledgeMapPage() {
       </div>
 
       {/* Add concept / add relation dialogs (toolbar edit entries) */}
+      {showBatchExtract && (
+        <BatchExtractModal
+          onClose={() => setShowBatchExtract(false)}
+          onStarted={(res) => {
+            void refreshExtractionStatuses();
+            notifyInfo(
+              res.started_count > 0
+                ? `已启动 ${res.started_count} 份资料的概念提取，完成后可在上方待审查候选里确认。`
+                : "所选资料已在提取中或已完成提取。",
+            );
+          }}
+        />
+      )}
       {showAddConcept && (
         <AddConceptDialog
           onClose={() => setShowAddConcept(false)}
@@ -376,18 +477,27 @@ export function KnowledgeMapPage() {
 interface DirectoryViewProps {
   concepts: ConceptNode[];
   selectedConceptId: string | null;
+  masteryByConcept?: Record<string, string>;
   onSelect: (id: string) => void;
 }
+
+const MASTERY_BADGE: Record<string, { label: string; className: string }> = {
+  mastered: { label: "已掌握", className: "km-dir-mastery is-mastered" },
+  learning: { label: "学习中", className: "km-dir-mastery is-learning" },
+  needs_review: { label: "需要复习", className: "km-dir-mastery is-needs_review" },
+};
 
 function DirectorySection({
   title,
   items,
   selectedConceptId,
+  masteryByConcept = {},
   onSelect,
 }: {
   title: string;
   items: ConceptNode[];
   selectedConceptId: string | null;
+  masteryByConcept?: Record<string, string>;
   onSelect: (conceptId: string) => void;
 }) {
   if (!items.length) return null;
@@ -395,25 +505,32 @@ function DirectorySection({
     <section className="km-dir-section">
       <div className="km-dir-section-title">{title}</div>
       <ul className="km-dir-list">
-        {items.map((c) => (
-          <li key={c.concept_id}>
-            <button
-              className={`km-dir-item ${selectedConceptId === c.concept_id ? "selected" : ""}`}
-              onClick={() => onSelect(c.concept_id)}
-            >
-              <span className="km-dir-name">{c.name}</span>
-              {c.definition && (
-                <span className="km-dir-def">{c.definition}</span>
-              )}
-            </button>
-          </li>
-        ))}
+        {items.map((c) => {
+          const status = masteryByConcept[c.name.trim().toLowerCase()];
+          const statusBadge = status ? MASTERY_BADGE[status] : undefined;
+          return (
+            <li key={c.concept_id}>
+              <button
+                className={`km-dir-item ${selectedConceptId === c.concept_id ? "selected" : ""}`}
+                onClick={() => onSelect(c.concept_id)}
+              >
+                <span className="km-dir-head">
+                  <span className="km-dir-name">{c.name}</span>
+                  {statusBadge && <span className={statusBadge.className}>{statusBadge.label}</span>}
+                </span>
+                {c.definition && (
+                  <span className="km-dir-def">{c.definition}</span>
+                )}
+              </button>
+            </li>
+          );
+        })}
       </ul>
     </section>
   );
 }
 
-function DirectoryView({ concepts, selectedConceptId, onSelect }: DirectoryViewProps) {
+function DirectoryView({ concepts, selectedConceptId, masteryByConcept, onSelect }: DirectoryViewProps) {
   const clusters = concepts.filter((c) => c.level === "cluster");
   const cores = concepts.filter((c) => c.level === "core");
   const details = concepts.filter((c) => c.level === "detail");
@@ -428,9 +545,9 @@ function DirectoryView({ concepts, selectedConceptId, onSelect }: DirectoryViewP
 
   return (
     <div className="km-directory">
-      <DirectorySection title="主题簇" items={clusters} selectedConceptId={selectedConceptId} onSelect={onSelect} />
-      <DirectorySection title="核心概念" items={cores} selectedConceptId={selectedConceptId} onSelect={onSelect} />
-      <DirectorySection title="细分概念" items={details} selectedConceptId={selectedConceptId} onSelect={onSelect} />
+      <DirectorySection title="主题簇" items={clusters} selectedConceptId={selectedConceptId} masteryByConcept={masteryByConcept} onSelect={onSelect} />
+      <DirectorySection title="核心概念" items={cores} selectedConceptId={selectedConceptId} masteryByConcept={masteryByConcept} onSelect={onSelect} />
+      <DirectorySection title="细分概念" items={details} selectedConceptId={selectedConceptId} masteryByConcept={masteryByConcept} onSelect={onSelect} />
     </div>
   );
 }
@@ -599,6 +716,9 @@ function AddRelationDialog({ concepts, onClose, onCreated }: { concepts: Concept
           <DropdownSelect ariaLabel="关系类型" value={relType} onChange={setRelType}
             options={REL_TYPES.map((t) => ({ value: t, label: t === "user:custom" ? "自定义" : t }))} />
         </label>
+        {relType === "前置知识" && (
+          <p className="km-rel-hint">起点概念是终点概念的前置知识：先学起点，再学终点。</p>
+        )}
         <label>
           <span>备注</span>
           <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="可选" />
