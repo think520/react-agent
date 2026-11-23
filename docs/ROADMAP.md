@@ -1,6 +1,6 @@
 # Bobodan 路线图
 
-> **v2.2（2026-11-20，W4-RESTORE-01 整库备份 / 恢复与迁移回滚）** · 分支：`main` · 验证：后端 1951、Vitest 393、desktop + narrow-desktop Playwright 96 passed / 14 skipped。剩余发布阻塞见 §4。
+> **v2.3（2026-11-23，W1-GRAPH-01 / W1-GRAPH-02 知识图谱闭环增强）** · 分支：`feat/w1-graph-loop` · 验证：后端 1984、Vitest 419。剩余发布阻塞见 §4。
 >
 > **这是唯一的"现在做什么"文档，控制在两屏。** 只写四件事：当前基线、当前批次、下一批候选、发布阻塞项。交付经过写进 [`../CHANGELOG.md`](../CHANGELOG.md)；v1.5 及以前的完整路线（W1–W5 交付长表、A0–A4、E1–E18、G1–G5 的复测记录）原样归档在 [`archive/delivery/ROADMAP_HISTORY_2026-09_11.md`](archive/delivery/ROADMAP_HISTORY_2026-09_11.md)，只用于追溯。
 
@@ -32,13 +32,15 @@
 | AUDIT-P2 | 横贯 | 2026-11-11 审查 P2：错误码结构化、导入状态拆出 AppShell、`app.css` 清死规则 + 合并互相覆盖的规则 + 按原顺序拆成 7 个文件（构建产物逐字节不变）、quiz 测试迁到 ScriptedProvider、`kb_service.py` 3032 → 895 行（Wiki 维护与资料文件管理移到 mixin） | `已验证` | 每步全量门禁；拆分前后行为不变 |
 | AUDIT-P1 | 横贯 | 2026-11-11 审查 P1 全部：CLI 证据门禁、检索不列全库、按 id 打开会话、失败与空分开、store 迁移按库一次、图谱随主题取色、AppShell 无关重渲染 | `已验证` | `service/turn_policy.py`；`KBService.search` 300 份资料 48.9ms → 13.1ms；回归均在旧代码上先红 |
 | W4-RESTORE-01 | W4 | 整体备份 / 恢复与迁移失败演练 | `已验证` | `core/db.py::backup_sqlite`、`service/backup_service.py`、`/api/backup/*`、`BackupRestorePanel.tsx`；`tests/test_backup_service.py` 9 条 + `tests/test_live_core_loop.py` 干净目录异地恢复（不含密钥、原文/错题/引用/笔记/会话/全局偏好可核对）+ 恢复/迁移失败回滚演练 |
+| W1-GRAPH-01 | W1 | 知识地图学习闭环增强：概念直达出题、图谱按掌握度着色、Chat 无感命中已审查图谱（不含候选、不替原文引用）、导入后与空状态批量概念提取 | `已验证` | `service/concept_service.py`、`service/turn_policy.py`、`core/prompt_blocks.py`、`web/backend/routers/graph.py`、`BatchExtractModal.tsx`、`GraphCanvas.tsx`、`ConceptSidebar.tsx`；`tests/test_turn_policy_concept_map.py`、`tests/test_web_backend.py`、`BatchExtractModal.test.tsx`、`ConceptSidebar.test.tsx`、`graphPalette.test.ts` |
+| W1-GRAPH-02 | W1 | 复习页前置知识溯源与点击先补前置、学习计划接入前置依赖拓扑排序与环检测 | `已验证` | `graph/prerequisites.py`、`learning/path.py`、`service/learning_service.py`、`ReviewPage.tsx`；`tests/test_graph_prerequisites.py`、`tests/test_learning_service.py`、`ReviewPage.test.tsx` |
 | W5-RC-01 | W5 | 锁定发布依赖；安装 / 升级 / 退出 / 卸载验收 | `未开始` | **发布硬门禁**；W4-RESTORE-01 已满足 |
 
 ## 2. 当前批次
 
 同一时间只有**一个主交付批次 + 一个不互相阻塞的验证批次**。
 
-- **主批次：W4-RESTORE-01 已完成**（下一步转入 `W5-RC-01` Windows 桌面打包与安装 / 升级 / 退出 / 卸载验收）。
+- **主批次：W1-GRAPH-01 与 W1-GRAPH-02 已完成**（当前位于 `feat/w1-graph-loop` 分支；后续转入 `W5-RC-01` Windows 桌面打包与安装 / 升级 / 退出 / 卸载验收）。
 - **验证批次：真实模型抽查引用标签**。用真实模型问 3–5 个基于资料的问题，确认回答带 `[Sxxxxxx]` 且门禁不误伤；不照抄就改提示位置，而不是放宽门禁。
 
 ## 3. 下一批候选（按依赖排序）
