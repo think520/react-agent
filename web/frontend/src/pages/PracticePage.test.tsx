@@ -33,7 +33,9 @@ vi.mock("../lib/api", async (importOriginal) => {
     api: {
       ...actual.api,
       practice: vi.fn(),
+      activePractice: vi.fn().mockResolvedValue({ sessions: [] }),
       generateSessionTitle: vi.fn(),
+      generateQuestions: vi.fn(),
       startPractice: vi.fn(),
       streamQuestionPipeline: vi.fn(),
     },
@@ -250,4 +252,55 @@ it("逐题生成：边出边显示，出完再开练习", async () => {
     emit?.({ event: "pipeline_done", question_ids: [11, 12], total: 2 });
   });
   await waitFor(() => expect(api.startPractice).toHaveBeenCalledWith(undefined, [11, 12], "practice"));
+});
+
+it("支持按课程或文件夹筛选出题范围", async () => {
+  hoisted.practiceId = "";
+  hoisted.ctx = {
+    ...hoisted.ctx,
+    selectedDocumentIds: [],
+    selectedDocuments: [],
+    documents: [
+      {
+        document_id: "doc-algo-1",
+        title: "Dijkstra 最短路",
+        source: "algo/dijkstra.md",
+        relative_path: "algo/dijkstra.md",
+        course: "数据结构",
+        chunk_count: 5,
+      },
+      {
+        document_id: "doc-algo-2",
+        title: "动态规划基础",
+        source: "algo/dp.md",
+        relative_path: "algo/dp.md",
+        course: "数据结构",
+        chunk_count: 4,
+      },
+      {
+        document_id: "doc-ml-1",
+        title: "Transformer 结构",
+        source: "ml/transformer.md",
+        relative_path: "ml/transformer.md",
+        chunk_count: 6,
+      },
+    ],
+  };
+  vi.mocked(api.activePractice).mockResolvedValue({ sessions: [] } as never);
+  vi.mocked(api.generateQuestions).mockResolvedValue({ question_ids: [91, 92] } as never);
+  vi.mocked(api.startPractice).mockResolvedValue({ practice_session_id: 21 } as never);
+
+  render(<PracticePage />);
+
+  const scopeButton = await screen.findByLabelText("按课程或文件夹筛选出题范围");
+  fireEvent.click(scopeButton);
+  fireEvent.click(await screen.findByRole("option", { name: /数据结构（2 份）/ }));
+
+  expect(screen.getByText(/已选范围：数据结构（2 份资料）/)).toBeTruthy();
+
+  fireEvent.submit(document.querySelector("form.practice-create")!);
+  await waitFor(() => expect(api.generateQuestions).toHaveBeenCalled());
+  expect(vi.mocked(api.generateQuestions).mock.calls[0][1]).toBe("数据结构");
+  expect(vi.mocked(api.generateQuestions).mock.calls[0][2]).toEqual(["doc-algo-1", "doc-algo-2"]);
+  await waitFor(() => expect(api.startPractice).toHaveBeenCalledWith("数据结构", [91, 92], "practice", []));
 });

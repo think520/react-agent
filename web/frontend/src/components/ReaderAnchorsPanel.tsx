@@ -1,4 +1,5 @@
-import { Quote, Target, Trash2 } from "lucide-react";
+import type { ReactNode } from "react";
+import { NotebookPen, Quote, Target, Trash2 } from "lucide-react";
 
 export interface ReaderAnchor {
   anchor_id: string;
@@ -35,15 +36,46 @@ export function anchorStatusLabel(status?: string): string {
  * 每条都显示**还能不能指到**（exact / relocated / stale）—— 资料被编辑或分段重切之后，
  * 划线可能已经对不上原文；那时的正确做法是说出来，而不是假装还指得到。
  */
-export function ReaderAnchorsPanel({ anchors, onLocate, onDelete }: {
+export function ReaderAnchorsPanel({
+  anchors,
+  onLocate,
+  onDelete,
+  onSaveToNote,
+  onSaveAllToNote,
+  savingNote = false,
+  noteActionSlot,
+}: {
   anchors: ReaderAnchor[];
   onLocate: (anchor: ReaderAnchor) => void;
   onDelete: (anchor: ReaderAnchor) => void;
+  onSaveToNote?: (anchor: ReaderAnchor) => void;
+  onSaveAllToNote?: () => void;
+  savingNote?: boolean;
+  noteActionSlot?: ReactNode;
 }) {
   if (!anchors.length) return null;
   return (
     <section className="reader-anchors" aria-label="我的划线">
-      <header><Quote size={14} /><strong>我的划线（{anchors.length}）</strong></header>
+      <header>
+        <div className="reader-anchors-title">
+          <Quote size={14} />
+          <strong>我的划线（{anchors.length}）</strong>
+        </div>
+        {onSaveAllToNote && (
+          <div className="reader-anchors-header-actions">
+            <button
+              type="button"
+              className="quiet-button"
+              disabled={savingNote}
+              onClick={onSaveAllToNote}
+            >
+              <NotebookPen size={14} />
+              {savingNote ? "正在写入..." : "全部转笔记"}
+            </button>
+          </div>
+        )}
+      </header>
+      {noteActionSlot}
       <ul>
         {anchors.map((anchor) => (
           <li key={anchor.anchor_id} className={`reader-anchor ${anchor.resolution?.status || ""}`}>
@@ -52,6 +84,18 @@ export function ReaderAnchorsPanel({ anchors, onLocate, onDelete }: {
             </button>
             <div className="reader-anchor-actions">
               <small>{anchorStatusLabel(anchor.resolution?.status)}</small>
+              {onSaveToNote && (
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label="转为笔记"
+                  title="转为笔记"
+                  disabled={savingNote}
+                  onClick={() => onSaveToNote(anchor)}
+                >
+                  <NotebookPen size={14} />
+                </button>
+              )}
               <button type="button" className="icon-button" aria-label="定位到这段" onClick={() => onLocate(anchor)}>
                 <Target size={14} />
               </button>

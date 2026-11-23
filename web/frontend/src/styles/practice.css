@@ -347,8 +347,54 @@
 .reader-anchors header {
   display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: space-between;
+  gap: 8px;
   font-size: 13px;
+}
+
+.reader-anchors-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.reader-anchors-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.reader-anchor-note-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--paper-soft);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.reader-anchor-note-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.reader-anchor-feedback {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--sage);
+  border-radius: var(--radius-sm);
+  background: var(--paper);
+  font-size: 12px;
+  color: var(--ink);
 }
 
 .reader-anchors ul {

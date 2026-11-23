@@ -1,4 +1,4 @@
-import { FileText, MessageCircle } from "lucide-react";
+import { AlertTriangle, FileText, MessageCircle } from "lucide-react";
 import { memo, useMemo } from "react";
 import ReactMarkdown, { defaultUrlTransform, type Components } from "react-markdown";
 import { Link, useLocation } from "react-router-dom";
@@ -129,6 +129,28 @@ export function AssistantMessage({ message, index, assistantName, status, brandS
     {!message.pending && message.process?.length ? <ProcessFoldBlock steps={message.process} /> : null}
     <BlockErrorBoundary><div className="answer-prose"><AnswerMarkdown attribution={message.attribution} content={message.content || (message.pending ? "正在整理回答…" : message.failed ? "回答没有完成。" : "本轮没有生成可显示的内容。")} /></div></BlockErrorBoundary>
     {visibleArtifacts.map((artifact) => <BlockErrorBoundary key={artifact.artifact_id}>{renderArtifact(artifact)}</BlockErrorBoundary>)}
+    {!message.pending && (message.attribution?.support_warnings?.length ?? 0) > 0 && (
+      <details className="citation-support-warning">
+        <summary>
+          <AlertTriangle size={14} />
+          <span>部分引用断言与原文可能存在偏差，请核对原文（{message.attribution!.support_warnings!.length}）</span>
+        </summary>
+        <ul className="citation-support-warning-list">
+          {message.attribution!.support_warnings!.map((warning, wIdx) => (
+            <li key={`${warning.cite_label}:${warning.reason_code}:${wIdx}`} className="citation-support-warning-item">
+              <div className="citation-support-warning-reason">
+                <strong>[{warning.cite_label}]{warning.source_title ? ` ${warning.source_title}` : ""}</strong>
+                <span>{warning.reason}</span>
+              </div>
+              <p>{warning.claim}</p>
+              {warning.evidence_excerpt && (
+                <small className="citation-support-warning-excerpt">原文片段：{warning.evidence_excerpt}</small>
+              )}
+            </li>
+          ))}
+        </ul>
+      </details>
+    )}
     <AttributionBadges attribution={message.attribution} onOpenSources={onOpenSources} />
     <PersonalizationChip references={message.personalization} />
     {!message.pending && !message.failed && message.content && !message.artifacts?.some((artifact) => artifact.type === "practice_ready") && <AnswerActions onPreparePractice={() => onPreparePractice(index)} />}

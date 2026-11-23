@@ -202,7 +202,7 @@ def run_question_pipeline(
                 generated: list[Any] = []
             else:
                 generated = generator.generate_from_query(
-                    item.topic, count=1, document_ids=document_ids,
+                    item.topic, course=course, count=1, document_ids=document_ids,
                 )
         except Exception as exc:
             logger.warning("Question %d failed: %s", index, exc)

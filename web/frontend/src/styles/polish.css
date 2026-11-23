@@ -503,3 +503,63 @@
 .setting-row > span small {
   overflow-wrap: anywhere;
 }
+
+/* ── W2-EVID-02：引用支持度风险提示（仅作核对提醒，不阻断回答）── */
+.citation-support-warning {
+  margin-top: var(--space-3);
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--clay);
+  border-radius: var(--radius-md);
+  padding: 8px 12px;
+  background: var(--clay-wash);
+  font-size: 12.5px;
+  color: var(--ink);
+}
+
+.citation-support-warning > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  color: var(--clay);
+  font-weight: 600;
+}
+
+.citation-support-warning-list {
+  margin: 8px 0 0;
+  padding: 8px 0 0;
+  list-style: none;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.citation-support-warning-item {
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  background: var(--surface-2);
+}
+
+.citation-support-warning-item p {
+  margin: 4px 0 2px;
+  color: var(--ink);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.citation-support-warning-reason {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--clay);
+  font-size: 12px;
+}
+
+.citation-support-warning-excerpt {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}

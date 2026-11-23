@@ -320,6 +320,33 @@ def _session_detail(session: Session, workspace: str | None = None) -> dict[str,
     }
 
 
+def _sanitize_support_warnings(value: Any) -> list[dict[str, str]]:
+    if not isinstance(value, list):
+        return []
+    warnings: list[dict[str, str]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        cite_label_val = str(item.get("cite_label") or "").strip()
+        claim = str(item.get("claim") or "").strip()
+        reason_code = str(item.get("reason_code") or "").strip()
+        reason = str(item.get("reason") or "").strip()
+        if not (cite_label_val and claim and reason_code and reason):
+            continue
+        entry: dict[str, str] = {
+            "cite_label": cite_label_val,
+            "claim": claim,
+            "reason_code": reason_code,
+            "reason": reason,
+        }
+        if item.get("evidence_excerpt"):
+            entry["evidence_excerpt"] = str(item["evidence_excerpt"])
+        if item.get("source_title"):
+            entry["source_title"] = str(item["source_title"])
+        warnings.append(entry)
+    return warnings
+
+
 def _public_attribution(value: Any) -> dict[str, Any] | None:
     if not isinstance(value, dict):
         return None
@@ -347,7 +374,11 @@ def _public_attribution(value: Any) -> dict[str, Any] | None:
             public["url"] = source["url"]
         if public.get("source_id") and public.get("title"):
             sources.append(public)
-    return {"kind": kind, "sources": sources}
+    result: dict[str, Any] = {"kind": kind, "sources": sources}
+    warnings = _sanitize_support_warnings(value.get("support_warnings"))
+    if warnings:
+        result["support_warnings"] = warnings
+    return result
 
 
 def _merge_attribution(current: Any, incoming: Any) -> Any:
@@ -392,6 +423,11 @@ def _merge_attribution(current: Any, incoming: Any) -> Any:
     merged = {**incoming, "kind": kind, "sources": sources}
     if sources:
         merged["status"] = "found"
+    warnings = _sanitize_support_warnings(incoming.get("support_warnings"))
+    if not warnings:
+        warnings = _sanitize_support_warnings(current.get("support_warnings"))
+    if warnings:
+        merged["support_warnings"] = warnings
     return merged
 
 
@@ -1709,17 +1745,18 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
     # run that is still producing: the log is that run's transport now.
     stream_store.prune(exempt=live_stream_ids())
     emitter = StreamEmitter(stream_store, stream_id)
+    preset_evidence_text = "\n".join([
+        (web_evidence or {}).get("content", ""),
+        # 续跑 ask_user：暂停前那半轮的检索结果也是本轮证据。
+        paused_turn_evidence(session.messages) if resume_record else "",
+    ])
     turn = prepare_turn(
         body.message,
         workspace=workspace,
         config=config,
         document_ids=document_ids,
         preferred_document_ids=preferred_document_ids,
-        preset_evidence="\n".join([
-            (web_evidence or {}).get("content", ""),
-            # 续跑 ask_user：暂停前那半轮的检索结果也是本轮证据。
-            paused_turn_evidence(session.messages) if resume_record else "",
-        ]),
+        preset_evidence=preset_evidence_text,
     )
     kb_seed = turn.kb_seed
     response_guard = turn.response_guard
@@ -1764,6 +1801,8 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
 
         try:
             run_operations: list[dict[str, Any]] = []
+            tool_end_events: list[dict[str, Any]] = []
+            final_answer_text = ""
             if initial_attribution:
                 yield emitter.emit("citation", {"run_id": run_id, "attribution": initial_attribution})
             if personalization.get("references"):
@@ -1801,8 +1840,11 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
                 )
                 if event.get("type") == "tool_end":
                     run_operations.append(_run_summary_operation(event, body.message))
+                    tool_end_events.append(event)
                 if event.get("type") == "assistant_done":
                     termination_reason = event.get("termination_reason", "final_answer")
+                    if isinstance(event.get("content"), str) and event["content"].strip():
+                        final_answer_text = event["content"]
                     pause = event.get("pause") or {}
                     if pause.get("interaction_id") and pause.get("tool_call_id"):
                         # E4: bind the paused call so the answer can resume it.
@@ -1827,6 +1869,30 @@ def create_run(body: ChatRunRequest, request: Request) -> StreamingResponse:
                     if web_event == "chat_artifact" and isinstance(payload.get("artifact"), dict):
                         pending_artifacts.append(payload["artifact"])
                     yield emitter.emit(web_event, {"run_id": run_id, **payload})
+
+            if termination_reason == "final_answer" and latest_attribution:
+                answer_text = final_answer_text
+                if not answer_text:
+                    for message in reversed(session.messages):
+                        if message.get("role") == "assistant" and not message.get("tool_calls") and message.get("content"):
+                            answer_text = str(message["content"])
+                            break
+                if answer_text:
+                    from service.citation_support import check_citation_support, collect_turn_evidence_map
+
+                    evidence_map = collect_turn_evidence_map(
+                        preset_evidence=preset_evidence_text,
+                        kb_seed=kb_seed,
+                        tool_events=tool_end_events,
+                        attribution=latest_attribution,
+                    )
+                    support_warnings = check_citation_support(answer_text, evidence_map)
+                    if support_warnings:
+                        latest_attribution = {
+                            **latest_attribution,
+                            "support_warnings": [item.to_dict() for item in support_warnings],
+                        }
+                        yield emitter.emit("citation", {"run_id": run_id, "attribution": latest_attribution})
 
             run_summary = {
                 "artifact_id": f"run-summary-{uuid.uuid4().hex[:12]}",

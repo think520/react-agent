@@ -21,10 +21,20 @@ export interface SourceRef {
   cite_label?: string | null;
 }
 
+export interface CitationSupportWarning {
+  cite_label: string;
+  claim: string;
+  reason_code: "polarity_contradiction" | "low_overlap" | string;
+  reason: string;
+  evidence_excerpt?: string;
+  source_title?: string;
+}
+
 export interface Attribution {
   kind: AttributionKind;
   sources: SourceRef[];
   status?: "found" | "no_hit";
+  support_warnings?: CitationSupportWarning[];
 }
 
 export interface ChatAttachment {

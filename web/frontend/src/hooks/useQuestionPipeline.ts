@@ -70,7 +70,7 @@ export function useQuestionPipeline() {
     }
   }, []);
 
-  const start = useCallback(async (topic: string, count = 5, documentIds: string[] = []) => {
+  const start = useCallback(async (topic: string, count = 5, documentIds: string[] = [], course?: string) => {
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
@@ -81,7 +81,11 @@ export function useQuestionPipeline() {
     setPlanSource("");
     setError("");
     try {
-      await api.streamQuestionPipeline({ topic, count, document_ids: documentIds }, handle, controller.signal);
+      await api.streamQuestionPipeline(
+        { topic, count, document_ids: documentIds, ...(course ? { course } : {}) },
+        handle,
+        controller.signal,
+      );
       setStatus((current) => (current === "running" ? "done" : current));
     } catch (reason) {
       if (controller.signal.aborted) {

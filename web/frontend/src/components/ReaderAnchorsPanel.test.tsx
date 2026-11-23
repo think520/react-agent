@@ -69,3 +69,43 @@ it("定位优先用重锚定后的分段", () => {
   // 没有 resolution.chunk_id 时退回锚点自己的分段。
   expect(anchorLocateChunkId({ anchor_id: "a4", chunk_id: "c1", quote: "x" })).toBe("c1");
 });
+
+it("支持单条和批量将划线转为笔记", () => {
+  const onSaveToNote = vi.fn();
+  const onSaveAllToNote = vi.fn();
+  render(
+    <ReaderAnchorsPanel
+      anchors={anchors}
+      onLocate={() => {}}
+      onDelete={() => {}}
+      onSaveToNote={onSaveToNote}
+      onSaveAllToNote={onSaveAllToNote}
+      noteActionSlot={<div>选择要追加的笔记</div>}
+    />,
+  );
+
+  expect(screen.getByText("选择要追加的笔记")).toBeTruthy();
+  fireEvent.click(screen.getAllByLabelText("转为笔记")[0]);
+  expect(onSaveToNote).toHaveBeenCalledWith(anchors[0]);
+
+  fireEvent.click(screen.getByRole("button", { name: "全部转笔记" }));
+  expect(onSaveAllToNote).toHaveBeenCalledTimes(1);
+});
+
+it("写入笔记中时禁用转笔记按钮", () => {
+  render(
+    <ReaderAnchorsPanel
+      anchors={anchors}
+      onLocate={() => {}}
+      onDelete={() => {}}
+      onSaveToNote={() => {}}
+      onSaveAllToNote={() => {}}
+      savingNote
+    />,
+  );
+
+  expect((screen.getByRole("button", { name: "正在写入..." }) as HTMLButtonElement).disabled).toBe(true);
+  for (const btn of screen.getAllByLabelText("转为笔记")) {
+    expect((btn as HTMLButtonElement).disabled).toBe(true);
+  }
+});

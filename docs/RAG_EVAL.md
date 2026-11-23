@@ -24,9 +24,12 @@
 | 字段 | 必填 | 说明 |
 |---|---|---|
 | `query` | ✅ | 学习者会问的那句话（自然语言 15–40 字） |
-| `expect_sources` | ✅ | 允许命中的**文件名 basename**（不是路径、不是标题；chunk id 会随重切变化）；判定是「任一命中 top-k」 |
+| `expect_sources` | ✅ | 允许命中的来源（支持纯文件名 basename 兼容旧用例；含 `/` 时如 `algo/summary.md` 按相对路径后缀精确消歧） |
 | `kind` | ❌ | `keyword`（默认，关键词型，防回归）/ `paraphrase`（换述型，只有语义检索才可能中） |
 | `source` | ❌ | `generated`（默认）/ `human` |
+| `expect_headings` | ❌ | 片段级期望标题子串列表；与 `expect_sources` 组合计算 `chunk_hit@k` 与 `chunk_MRR` |
+| `expect_snippets` | ❌ | 片段级期望原文子串列表；与 `expect_sources` 组合验证命中片段是否包含关键内容 |
+| `note` | ❌ | 用例说明或易混淆点备注 |
 
 ## 3. 怎么写（六条规则）
 
@@ -49,10 +52,13 @@
 
 ```powershell
 # ① fts_only 对照：把 embedding 关掉（占位 provider）
-.venv\\Scripts\\python.exe -m rag.recall_eval --workspace note/vault --cases note/vault/.bobodan/eval/cases.jsonl --modes hybrid --k 5 --embedding-backend local
+.venv\Scripts\python.exe -m rag.recall_eval --workspace note/vault --cases note/vault/.bobodan/eval/cases.jsonl --modes hybrid --k 5 --embedding-backend local
 
 # ② 真实配置（hybrid）：不传 --embedding-backend 即用 config.yaml
-.venv\\Scripts\\python.exe -m rag.recall_eval --workspace note/vault --cases note/vault/.bobodan/eval/cases.jsonl --modes hybrid --k 5
+.venv\Scripts\python.exe -m rag.recall_eval --workspace note/vault --cases note/vault/.bobodan/eval/cases.jsonl --modes hybrid --k 5
+
+# ③ W2-G4.2 单命令对比 fts_only 与当前配置并输出 §6 冻结判据（支持 text/markdown/json/csv）
+.venv\Scripts\python.exe -m rag.recall_eval --workspace note/vault --cases note/vault/.bobodan/eval/cases.jsonl --modes hybrid --k 5 --compare-fts --format markdown
 ```
 
 跑完请重启服务。真实库用例文件在 `note/vault/.bobodan/eval/cases.jsonl`（`note/` 已被 gitignore，真实内容不进仓库）。
@@ -100,8 +106,24 @@
    降权能找回这 1 条（排第 5），但换述 MRR −0.04~−0.07、关键词 MRR 从 1.000 掉到 0.900 —— 用整体排序换 1 条样本不划算；样本量也太小（1 条 = 4.2pp）。**维持 vector weight = 1.0**；扩到 40–60 条后再重跑这个对照。
 2. **排名有升有降**：约 6 条排名提升、4 条下降，这是 RRF 融合的正常代价，不是 bug。
 3. **样本量偏小**：24 条换述 → 每条约 4.2pp，2–3 条的差异仍在噪声范围。建议后续扩到 40–60 条（方案 §5.2 的 L3 全量）。
-4. **两种配置要跑两次进程**：CLI 已支持 `--embedding-backend`，但还没做「一次跑两配置出对比报告」的入口。
+4. ~~两种配置要跑两次进程~~ → **已由 W2-G4.2 解决**：使用 `--compare-fts --format markdown|json|csv` 单命令即可完成 `fts_only` vs 目标配置对比与 §6 `judge_hybrid_decision` 判据。
 
-## 8. 什么时候必须重跑
+## 8. W2-G4.2 合成多目录基准（`sample_corpus_v2`，40 条用例）
+
+为验证同名文件消歧（`algo/summary.md` vs `ml/summary.md`）、`hit@1`/`hit@3` 与片段级指标（`chunk_hit@5` / `chunk_MRR`），仓库内置了可复现合成语料 [`../tests/eval/sample_corpus_v2/`](../tests/eval/sample_corpus_v2/)（8 篇多目录文档）与 40 条用例 [`../tests/eval/recall_cases_v2.jsonl`](../tests/eval/recall_cases_v2.jsonl)（12 条 `keyword` + 28 条 `paraphrase`，其中 39 条带 `expect_headings` / `expect_snippets`）。在离线 `fts_only`（无向量模型）下的实测基线：
+
+| 配置 | 分组 | hit@1 | hit@3 | hit@5 | MRR | chunk_hit@5 | chunk_MRR | 命中 | 实际模式 |
+|---|---|---|---|---|---|---|---|---|---|
+| hybrid | 全部 | 0.900 | 0.975 | 1.000 | 0.944 | 0.923 | 0.840 | 40/40 | fts_only×40 |
+| hybrid | keyword | 0.917 | 1.000 | 1.000 | 0.958 | 0.917 | 0.875 | 12/12 | - |
+| hybrid | paraphrase | 0.893 | 0.964 | 1.000 | 0.938 | 0.926 | 0.824 | 28/28 | - |
+
+> 注：该合成库只有 8 篇领域区分度高的文档，因此纯 FTS 也能达到较高文档级命中率，但仍能清晰暴露章节定位差距（`chunk_MRR=0.824` < 文档 `MRR=0.938`）。向量腿的价值验证仍以真实大库 `--compare-fts` 为准。
+
+### 引用支持度基准（W2-EVID-02）
+
+配套 [`../scripts/eval_citation_support.py`](../scripts/eval_citation_support.py) 与 26 条双语对照用例 [`../tests/eval/citation_support_cases.jsonl`](../tests/eval/citation_support_cases.jsonl)（16 条矛盾/低重合正例 + 10 条忠实转述/让步「不仅…还…」/代码噪声反例），当前实测：**Precision=1.000 / Recall=1.000 / F1=1.000 / FPR=0.000**（原因码准确度 1.000）。
+
+## 9. 什么时候必须重跑
 
 改以下任一项之后：chunking 策略、embedding 模型或维度、Qdrant 版本或集合配置、FTS 分词或查询构造、RRF 权重或 top_k、检索器缓存逻辑。

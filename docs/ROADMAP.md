@@ -15,14 +15,14 @@
 | W1-E6.2 | W1 学习闭环 | 掌握度统一消费契约（事实 / 估计 / 调度三分） | `已验证` | `learning/contract.py`；`tests/test_mastery_contract.py` 23 条；已合入 main |
 | QA-LIVE-01 | 横贯 | 真实后端核心闭环门禁（只替换模型） | `已验证` | `tests/test_live_core_loop.py` 14 条：导入→检索→出题→作答→复习→重启、批改失败、跨库隔离、引用链路、预检索范围、资料移动撤销冲突、整库备份与干净目录恢复 |
 | W2-EVID-01 | W2 检索 | 引用校验第一阶段：确定性引用标签 + 运行时引用门禁 | `已验证` | `rag/citations.py`、`CitationPolicy`；`tests/test_citation_policy.py` 12 条 + 真实链路 5 条。**真实模型未抽查**（标签是否被照抄）——见 §2 |
-| W2-EVID-02 | W2 检索 | 引用支持度：引用真实但结论与原文矛盾时给风险信号 | `未开始` | 评审原始复现（原文「非负权」→ 回答「支持负权」+ 真实标签）**现在仍会通过**。规则/模型辅助 + 人工抽样，结果只作风险信号 |
+| W2-EVID-02 | W2 检索 | 引用支持度：引用真实但结论与原文矛盾时给风险信号 | `已验证` | `service/citation_support.py` 在 `final_answer` 后检测极性/约束/复杂度/低重合度偏差，只产 `support_warnings` 风险提示（「请核对原文」），不修改原文回答也不阻断 `CitationPolicy`；`ChatMessage` 折叠展示；26 条双语基准 `scripts/eval_citation_support.py`（P=1.000 / R=1.000 / F1=1.000 / FPR=0.000），`tests/test_citation_support.py` 6 条 |
 | W2-CITE-CODE-01 | W2 检索 | Markdown 代码示例中的引用形状文本保持原样 | `已验证` | `citations.ts` 在 Markdown AST 解析后只转换普通文本节点；`ChatMessage.test.tsx` 覆盖正文、行内代码和围栏代码 |
 | FE-ONBOARD-01 | 横贯 | 跳过引导不提交空偏好或默认开关 | `已验证` | `OnboardingDialog.test.tsx`；跳过与完成分别处理 |
 | GOV-01 | 治理 | 单一状态表、历史归档、Wiki 边界决策记录 | `已验证` | 本文即单一状态表；历史已归档；D-WIKI 已拍板（§5）；CHANGELOG 已切 0.13 / 0.14 / 0.15 |
 | W1-DRAFT-01 | W1 | 暂离后恢复当前练习题的未提交答案 | `已验证` | `PracticePage.test.tsx`；草稿按资料库、练习与题目隔离，成功提交后清除 |
-| W1-RES | W1 | 残留：练习页课程选择器；划线只能同步进正在编辑的笔记 | `未开始` | 无依赖，体验改进 |
+| W1-RES | W1 | 残留：练习页课程选择器；划线只能同步进正在编辑的笔记 | `已验证` | 阅读器选区「记笔记」与 `ReaderAnchorsPanel` 支持单条/全部保存或追加到关联笔记（`readerNoteDraft.ts` + `DocumentReader`）；练习页支持按课程/文件夹 `<DropdownSelect>` 限定范围并透传 `quiz/pipeline.py`（`practiceScope.ts` + `PracticePage`） |
 | W1-QUALITY-01 | W1 | 题目 / 批改人工审阅集 + 模型评测记录 | `未开始` | 依赖 E6.2（已满足）；预算上限 + 人工复核 |
-| W2-G4.2 | W2 | 召回评测扩充：人工集、去 basename 歧义、片段级指标、冻结判据 | `未开始` | 现有 G4 基线见 [`RAG_EVAL.md`](RAG_EVAL.md) |
+| W2-G4.2 | W2 | 召回评测扩充：人工集、去 basename 歧义、片段级指标、冻结判据 | `已验证` | `rag/recall_eval.py` 新增相对路径消歧、`hit@1`/`hit@3`/`chunk_hit@k`/`chunk_mrr`、`judge_hybrid_decision`、`--compare-fts` 与 `--format text|markdown|json|csv`；新增 8 篇多目录 `sample_corpus_v2/` + 40 题 `recall_cases_v2.jsonl`，`tests/test_recall_eval.py` 20 条通过；详见 [`RAG_EVAL.md`](RAG_EVAL.md) |
 | W2-G5 | W2 | PDF 四级降级链（outline→heading→印刷目录→粗体） | `暂缓` | 真实库没有 PDF；有失败样本再谈 |
 | W3-EMPTY-01 | W3 | 复习队列读取失败不显示为零任务 | `已验证` | AppShell 区分 loading / ready / error；`LearningContext.test.tsx` 覆盖读取失败 |
 | W3-READER-01 | W3 | 阅读器区分读取失败、提取失败和无可读文本 | `已验证` | `readerEmptyState.test.ts`；空提取不再宣称索引仍在建立，请求失败有独立提示 |

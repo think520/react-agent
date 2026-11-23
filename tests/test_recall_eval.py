@@ -15,16 +15,24 @@ import pytest
 
 from rag.recall_eval import (
     EvalCase,
+    RetrievalHit,
     evaluate,
+    evaluate_workspace,
+    format_report,
     hit_at_k,
+    judge_hybrid_decision,
     load_cases,
+    main as recall_main,
     reciprocal_rank,
+    source_matches,
     summarize,
 )
 
 EVAL_DIR = Path(__file__).parent / "eval"
 SAMPLE_CORPUS = EVAL_DIR / "sample_corpus"
 SAMPLE_CASES = EVAL_DIR / "recall_cases.jsonl"
+SAMPLE_CORPUS_V2 = EVAL_DIR / "sample_corpus_v2"
+SAMPLE_CASES_V2 = EVAL_DIR / "recall_cases_v2.jsonl"
 
 
 # --- 度量本身 ---------------------------------------------------------------
@@ -258,4 +266,187 @@ def test_eval_config_can_switch_embedding_backend(monkeypatch):
 
     assert ev.load_eval_config(embedding_backend="local")["rag"]["embedding_backend"] == "local"
     assert ev.load_eval_config()["rag"]["embedding_backend"] == "openai_compat"
+
+
+# --- W2-G4.2：相对路径消歧、片段级指标、冻结判据、v2 40 题语料 ---------------
+
+
+def test_source_matches_disambiguates_relative_paths_and_preserves_basename():
+    assert source_matches("algo/summary.md", "course/algo/summary.md") is True
+    assert source_matches("algo/summary.md", "F:\\vault\\raw\\algo\\summary.md") is True
+    assert source_matches("algo/summary.md", "course/ml/summary.md") is False
+    # 不含 "/" 时保持按 basename 兼容旧用例
+    assert source_matches("summary.md", "course/ml/summary.md") is True
+
+
+def test_evaluate_computes_hit_at_1_3_k_and_chunk_level_metrics():
+    cases = [
+        EvalCase(
+            query="q1",
+            expect_sources=("algo/summary.md",),
+            kind="keyword",
+            expect_headings=("拓扑排序",),
+            expect_snippets=("入度",),
+        ),
+        EvalCase(
+            query="q2",
+            expect_sources=("ml/summary.md",),
+            kind="paraphrase",
+            expect_headings=("召回与排序指标口径",),
+        ),
+        EvalCase(
+            query="q3",
+            expect_sources=("systems/sqlite_wal.md",),
+            kind="paraphrase",
+        ),
+    ]
+
+    def retrieve(query, mode):
+        if query == "q1":
+            return ([
+                RetrievalHit(source="course/ml/summary.md", heading="其他小节", text="无关正文"),
+                RetrievalHit(source="course/algo/summary.md", heading="拓扑排序与环路判定", text="计算顶点入度即可排课"),
+            ], mode)
+        if query == "q2":
+            return ([
+                RetrievalHit(source="course/ml/summary.md", heading="实验基线", text="随机种子固定"),
+                RetrievalHit(source="course/ml/summary.md", heading="召回与排序指标口径", text="片段级命中率"),
+            ], mode)
+        return ([
+            RetrievalHit(source="course/systems/sqlite_wal.md", heading="预写日志", text="并发读写"),
+        ], mode)
+
+    report = evaluate(cases, retrieve, modes=["hybrid"], k=5)
+    m = report["hybrid"]
+    assert m["hit_at_1"] == pytest.approx(2 / 3)
+    assert m["hit_at_3"] == pytest.approx(1.0)
+    assert m["hit_at_k"] == pytest.approx(1.0)
+    assert m["chunk_cases"] == 2
+    assert m["chunk_hits"] == 2
+    assert m["chunk_hit_at_k"] == pytest.approx(1.0)
+    # q1 第 2 个片段才对、q2 第 1 个命中了同文档不同小节，第 2 个命中目标小节 → (0.5 + 0.5) / 2 = 0.5
+    assert m["chunk_mrr"] == pytest.approx(0.5)
+
+
+def test_judge_hybrid_decision_covers_all_frozen_rules():
+    def run_for(fts_hits, hyb_hits):
+        cases = [
+            EvalCase(query="k1", expect_sources=("k1.md",), kind="keyword"),
+            EvalCase(query="p1", expect_sources=("p1.md",), kind="paraphrase"),
+            EvalCase(query="p2", expect_sources=("p2.md",), kind="paraphrase"),
+            EvalCase(query="p3", expect_sources=("p3.md",), kind="paraphrase"),
+        ]
+        fts_rep = evaluate(cases, lambda q, m: (fts_hits[q], "fts_only"), modes=["fts_only"], k=5)["fts_only"]
+        hyb_rep = evaluate(cases, lambda q, m: (hyb_hits[q], "hybrid"), modes=["hybrid"], k=5)["hybrid"]
+        return judge_hybrid_decision(fts_rep, hyb_rep)
+
+    # 全满足：keyword 1.0→1.0，换述找回 2 / 弄丢 0，MRR 从 0.333→0.667
+    pass_dec = run_for(
+        {"k1": ["k1.md"], "p1": ["p1.md"], "p2": ["other.md"], "p3": ["other.md"]},
+        {"k1": ["k1.md"], "p1": ["p1.md"], "p2": ["p2.md"], "p3": ["p3.md"]},
+    )
+    assert pass_dec["keep_vector_leg"] is True
+    assert pass_dec["paraphrase_net_recovered"] == 2
+
+    # 规则 1 失败：keyword 退化
+    kw_fail = run_for(
+        {"k1": ["k1.md"], "p1": ["p1.md"], "p2": ["other.md"], "p3": ["other.md"]},
+        {"k1": ["other.md"], "p1": ["p1.md"], "p2": ["p2.md"], "p3": ["p3.md"]},
+    )
+    assert kw_fail["keyword_non_regression"] is False
+    assert kw_fail["keep_vector_leg"] is False
+
+    # 规则 2 失败：仅净找回 1（< +2）
+    rec_fail = run_for(
+        {"k1": ["k1.md"], "p1": ["p1.md"], "p2": ["other.md"], "p3": ["other.md"]},
+        {"k1": ["k1.md"], "p1": ["p1.md"], "p2": ["p2.md"], "p3": ["other.md"]},
+    )
+    assert rec_fail["paraphrase_recovery_ok"] is False
+    assert rec_fail["keep_vector_leg"] is False
+
+    # 规则 3 失败：MRR 提升不足 10%
+    mrr_fail = run_for(
+        {"k1": ["k1.md"], "p1": ["p1.md"], "p2": ["other.md"], "p3": ["other.md"]},
+        {"k1": ["k1.md"], "p1": ["other.md", "other2.md", "other3.md", "other4.md", "p1.md"], "p2": ["other.md", "other2.md", "other3.md", "p2.md"], "p3": ["other.md", "other2.md", "other3.md", "p3.md"]},
+    )
+    assert mrr_fail["paraphrase_recovery_ok"] is True
+    assert mrr_fail["paraphrase_mrr_ok"] is False
+    assert mrr_fail["keep_vector_leg"] is False
+
+
+def test_format_report_supports_markdown_json_csv():
+    cases = [EvalCase(query="q", expect_sources=("algo/summary.md",), kind="paraphrase", expect_headings=("H",))]
+    rep = evaluate(cases, lambda q, m: ([RetrievalHit("algo/summary.md", "H", "body")], m), modes=["hybrid"], k=5)
+
+    md = format_report(rep, k=5, fmt="markdown")
+    assert "| 配置 | 分组 | hit@1 | hit@3 | hit@5 |" in md
+    assert "algo/summary.md" not in md  # table summarizes metrics cleanly
+    assert "paraphrase" in md
+
+    parsed = json.loads(format_report(rep, k=5, fmt="json"))
+    assert parsed["report"]["hybrid"]["chunk_hit_at_k"] == 1.0
+
+    csv_text = format_report(rep, k=5, fmt="csv")
+    assert "mode,kind,cases,hits,hit_at_1,hit_at_3,hit_at_5,mrr" in csv_text
+
+
+@pytest.fixture
+def sample_library_v2(tmp_path):
+    """按原始多级子目录拷贝 sample_corpus_v2 并建库，校验同名文件消歧。"""
+    from obsidian.sync import sync_sources
+    from service.library_service import LibraryService
+
+    root = tmp_path / "library_v2"
+    LibraryService(str(tmp_path / "home")).initialize(str(root), name="EvalV2")
+    raw = root / "raw"
+    for src in SAMPLE_CORPUS_V2.rglob("*.md"):
+        rel = src.relative_to(SAMPLE_CORPUS_V2)
+        dest = raw / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
+    sync_sources(workspace=str(root), vault_path=str(root), course_dir=str(raw), mode="full")
+    return root
+
+
+def test_sample_corpus_v2_and_cli_compare_fts(sample_library_v2, monkeypatch, capsys):
+    from unittest.mock import MagicMock
+
+    from rag.recall_eval import cases_from_workspace
+    from rag.retriever import clear_retrieval_cache
+
+    monkeypatch.setattr("rag.qdrant_store.QdrantStore", MagicMock())
+    clear_retrieval_cache(str(sample_library_v2))
+
+    cases = load_cases(str(SAMPLE_CASES_V2))
+    assert len(cases) == 40
+    assert sum(1 for c in cases if c.kind == "keyword") == 12
+    assert sum(1 for c in cases if c.kind == "paraphrase") == 28
+    assert sum(1 for c in cases if c.expect_headings or c.expect_snippets) >= 24
+
+    report = evaluate_workspace(str(sample_library_v2), cases, modes=["hybrid"], k=5, config={})
+    m = report["hybrid"]
+    assert m["by_kind"]["keyword"]["hit_at_k"] == 1.0, m["by_kind"]["keyword"]
+    assert m["chunk_cases"] >= 24
+    assert m["chunk_hit_at_k"] is not None
+
+    # 同名 summary.md 存在多个时，自动生成用例也应带相对路径消歧
+    auto_cases = cases_from_workspace(str(sample_library_v2), limit=10)
+    summary_refs = [c.expect_sources[0] for c in auto_cases if c.expect_sources[0].endswith("summary.md")]
+    assert len(summary_refs) == 2
+    assert all("/" in ref for ref in summary_refs), summary_refs
+
+    # CLI --compare-fts + --format json 单命令跑通
+    monkeypatch.setattr("rag.recall_eval.load_eval_config", lambda **kwargs: {})
+    rc = recall_main([
+        "--workspace", str(sample_library_v2),
+        "--cases", str(SAMPLE_CASES_V2),
+        "--modes", "hybrid",
+        "--compare-fts",
+        "--format", "json",
+    ])
+    assert rc == 0
+    out = json.loads(capsys.readouterr().out)
+    assert "fts_only" in out["report"]
+    assert "hybrid" in out["report"]
+    assert "decision" in out
 

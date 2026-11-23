@@ -22,6 +22,13 @@ import { READER_VIEW_KEY, resolveReaderView, type ReaderView } from "../lib/read
 import { readerEmptyState } from "../lib/readerEmptyState";
 import { shouldIgnoreShortcut } from "../lib/ime";
 import { ReaderAnchorsPanel, anchorLocateChunkId, type ReaderAnchor } from "./ReaderAnchorsPanel";
+import {
+  appendHighlightToNoteContent,
+  buildHighlightQuoteBlock,
+  formatHighlightsSummaryNote,
+  formatSingleHighlightNote,
+  mergeDocumentReferences,
+} from "../lib/readerNoteDraft";
 import { useHandoffStore } from "../stores/handoffStore";
 import { useReaderTabsStore } from "../stores/readerTabsStore";
 import type { DocumentSection, DocumentSummary, PersonalKnowledgeItem } from "../types";
@@ -67,6 +74,13 @@ export function DocumentReader({
   // W1 E7：这份资料上的划线（每条带 resolution：还能不能指到）。
   const [readerAnchors, setReaderAnchors] = useState<ReaderAnchor[]>([]);
   const [anchorError, setAnchorError] = useState("");
+  const [savingNote, setSavingNote] = useState(false);
+  const [pendingNoteAction, setPendingNoteAction] = useState<
+    | { kind: "single"; quote: string; chunkId?: string | null; heading?: string | null }
+    | { kind: "all" }
+    | null
+  >(null);
+  const [noteFeedback, setNoteFeedback] = useState("");
   const [view, setView] = useState<ReaderView>(() => {
     try {
       return window.localStorage.getItem(READER_VIEW_KEY) === "sections" ? "sections" : "original";
@@ -168,6 +182,8 @@ export function DocumentReader({
   useEffect(() => {
     setSelectionQuote("");
     setRelatedNotes([]);
+    setPendingNoteAction(null);
+    setNoteFeedback("");
     if (!chunkId) setHighlightedChunk(null);
     if (!selectedId) { setSections([]); onSectionsLoaded?.([]); return; }
     let cancelled = false;
@@ -427,6 +443,146 @@ export function DocumentReader({
     }
   }
 
+  function sectionHeadingForChunk(cid?: string | null): string | null {
+    if (!cid) return null;
+    return sections.find((section) => section.chunk_id === cid)?.heading ?? null;
+  }
+
+  async function commitNewNote(
+    action: { kind: "single"; quote: string; chunkId?: string | null; heading?: string | null } | { kind: "all" },
+  ) {
+    if (!selected) return;
+    const docTitle = selected.title || selected.source;
+    setSavingNote(true);
+    setAnchorError("");
+    try {
+      const draft = action.kind === "single"
+        ? formatSingleHighlightNote(action.quote, docTitle, action.heading)
+        : formatHighlightsSummaryNote(
+          readerAnchors.map((anchor) => {
+            const cid = anchorLocateChunkId(anchor);
+            return { quote: anchor.quote, heading: sectionHeadingForChunk(cid) };
+          }),
+          docTitle,
+        );
+      const rawRefs = action.kind === "single"
+        ? [{ document_id: selected.document_id, title: docTitle, chunk_id: action.chunkId ?? undefined }]
+        : readerAnchors.map((anchor) => ({
+          document_id: selected.document_id,
+          title: docTitle,
+          chunk_id: anchorLocateChunkId(anchor) || undefined,
+        }));
+      const created = await api.createMemoryKnowledge({
+        scope: "library",
+        kind: "course_insight",
+        title: draft.title,
+        content: draft.content,
+        pinned: false,
+        references: mergeDocumentReferences([], rawRefs),
+      });
+      setRelatedNotes((current) => [created.item, ...current]);
+      setPendingNoteAction(null);
+      setNoteFeedback(`已保存到新笔记「${created.item.title}」`);
+    } catch (reason) {
+      setAnchorError(reason instanceof Error ? reason.message : "笔记未能保存。");
+    } finally {
+      setSavingNote(false);
+    }
+  }
+
+  async function commitAppendToNote(
+    note: PersonalKnowledgeItem,
+    action: { kind: "single"; quote: string; chunkId?: string | null; heading?: string | null } | { kind: "all" },
+  ) {
+    if (!selected) return;
+    const docTitle = selected.title || selected.source;
+    setSavingNote(true);
+    setAnchorError("");
+    try {
+      const addition = action.kind === "single"
+        ? buildHighlightQuoteBlock(action.quote, docTitle, action.heading)
+        : readerAnchors
+          .map((anchor) => buildHighlightQuoteBlock(
+            anchor.quote,
+            docTitle,
+            sectionHeadingForChunk(anchorLocateChunkId(anchor)),
+          ))
+          .join("\n\n");
+      const rawRefs = action.kind === "single"
+        ? [{ document_id: selected.document_id, title: docTitle, chunk_id: action.chunkId ?? undefined }]
+        : readerAnchors.map((anchor) => ({
+          document_id: selected.document_id,
+          title: docTitle,
+          chunk_id: anchorLocateChunkId(anchor) || undefined,
+        }));
+      const appended = appendHighlightToNoteContent(note.content, addition);
+      const refs = mergeDocumentReferences(note.references, rawRefs);
+      const updated = await api.updateMemoryKnowledge(note.id, note.revision, {
+        title: note.title,
+        content: appended.content,
+        pinned: note.pinned,
+        references: refs,
+      });
+      setRelatedNotes((current) => current.map((item) => (item.id === note.id ? updated.item : item)));
+      setPendingNoteAction(null);
+      setNoteFeedback(
+        appended.truncated
+          ? `已追加到「${note.title}」，笔记接近长度上限（部分内容未写入），建议另建新笔记。`
+          : `已追加到笔记「${note.title}」`,
+      );
+    } catch (reason) {
+      setAnchorError(reason instanceof Error ? reason.message : "未能追加到笔记。");
+    } finally {
+      setSavingNote(false);
+    }
+  }
+
+  async function triggerNoteAction(
+    action: { kind: "single"; quote: string; chunkId?: string | null; heading?: string | null } | { kind: "all" },
+  ) {
+    if (action.kind === "all" && !readerAnchors.length) return;
+    setAnchorError("");
+    setNoteFeedback("");
+    if (relatedNotes.length > 0) {
+      setPendingNoteAction(action);
+      return;
+    }
+    await commitNewNote(action);
+  }
+
+  function saveAnchorToNote(anchor: ReaderAnchor) {
+    const cid = anchorLocateChunkId(anchor);
+    void triggerNoteAction({
+      kind: "single",
+      quote: anchor.quote,
+      chunkId: cid,
+      heading: sectionHeadingForChunk(cid),
+    });
+  }
+
+  function saveAllAnchorsToNote() {
+    void triggerNoteAction({ kind: "all" });
+  }
+
+  async function saveNoteFromSelection() {
+    if (!selectionQuote || !selected) return;
+    const range = selectionRangeRef.current;
+    const node = range?.startContainer;
+    const el = node instanceof Element ? node : node?.parentElement;
+    const cid = el?.closest("[data-chunk-id]")?.getAttribute("data-chunk-id") ?? null;
+    const quote = selectionQuote;
+    setSelectionQuote("");
+    selectionRangeRef.current = null;
+    setSelectionAnchor(null);
+    window.getSelection()?.removeAllRanges();
+    await triggerNoteAction({
+      kind: "single",
+      quote,
+      chunkId: cid,
+      heading: sectionHeadingForChunk(cid),
+    });
+  }
+
   // TASKS_LIBRARY_REWORK task 2: selection -> practice.
   function createPracticeFromSelection() {
     if (!selectionQuote || !selected) return;
@@ -496,12 +652,68 @@ export function DocumentReader({
             )}
           </div>
         )}
-        {/* W1 E7：我的划线（带"还能不能指到"的现状），点一下回到那一段。 */}
-        <ReaderAnchorsPanel
-          anchors={readerAnchors}
-          onLocate={(anchor) => jumpToChunk(anchorLocateChunkId(anchor))}
-          onDelete={(anchor) => void removeAnchor(anchor)}
-        />
+        {/* W1 E7：我的划线（带"还能不能指到"的现状），点一下回到那一段；W1-RES 一键转个人笔记。 */}
+        {(() => {
+          const anchorNotePicker = pendingNoteAction ? (
+            <div className="reader-anchor-note-picker" role="region" aria-label="选择写入哪条笔记">
+              <span>这份资料已有相关笔记，要追加还是新建？</span>
+              <div className="reader-anchor-note-options">
+                {relatedNotes.map((note) => (
+                  <button
+                    key={note.id}
+                    type="button"
+                    className="quiet-button"
+                    disabled={savingNote}
+                    onClick={() => void commitAppendToNote(note, pendingNoteAction)}
+                  >
+                    追加到「{note.title}」
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  className="quiet-button"
+                  disabled={savingNote}
+                  onClick={() => void commitNewNote(pendingNoteAction)}
+                >
+                  新建一条笔记
+                </button>
+                <button
+                  type="button"
+                  className="quiet-button"
+                  disabled={savingNote}
+                  onClick={() => setPendingNoteAction(null)}
+                >
+                  取消
+                </button>
+              </div>
+            </div>
+          ) : null;
+          return (
+            <>
+              <ReaderAnchorsPanel
+                anchors={readerAnchors}
+                onLocate={(anchor) => jumpToChunk(anchorLocateChunkId(anchor))}
+                onDelete={(anchor) => void removeAnchor(anchor)}
+                onSaveToNote={saveAnchorToNote}
+                onSaveAllToNote={saveAllAnchorsToNote}
+                savingNote={savingNote}
+                noteActionSlot={readerAnchors.length > 0 ? anchorNotePicker : undefined}
+              />
+              {readerAnchors.length === 0 && anchorNotePicker}
+            </>
+          );
+        })()}
+        {noteFeedback && (
+          <div className="reader-anchor-feedback" role="status">
+            <span>{noteFeedback}</span>
+            <button type="button" className="quiet-button" onClick={() => navigate("/notes")}>
+              去笔记查看
+            </button>
+            <button type="button" className="icon-button" aria-label="关闭提示" onClick={() => setNoteFeedback("")}>
+              <X size={14} />
+            </button>
+          </div>
+        )}
         {anchorError && <p className="error-hint">{anchorError}</p>}
         {arrivedViaCitation && (
           <div className="reader-citation-bar" role="status">
@@ -511,7 +723,7 @@ export function DocumentReader({
             </button>
           </div>
         )}
-        {selectionQuote && createPortal(<div className={selectionAnchor ? "selection-toolbar floating" : "selection-toolbar"} style={selectionToolbarStyle}><Quote size={15} /><span>已选择 {selectionQuote.length} 个字符</span><button className="quiet-button" onClick={askAboutSelection}>带到对话</button><button className="quiet-button" onClick={createPracticeFromSelection}>基于此出题</button><button className="quiet-button" onClick={() => void saveAnchorFromSelection()}>划线</button><button className="quiet-button" onClick={() => setSelectionQuote("")}>取消</button></div>, document.body)}
+        {selectionQuote && createPortal(<div className={selectionAnchor ? "selection-toolbar floating" : "selection-toolbar"} style={selectionToolbarStyle}><Quote size={15} /><span>已选择 {selectionQuote.length} 个字符</span><button className="quiet-button" onClick={askAboutSelection}>带到对话</button><button className="quiet-button" onClick={createPracticeFromSelection}>基于此出题</button><button className="quiet-button" onClick={() => void saveAnchorFromSelection()}>划线</button><button className="quiet-button" onClick={() => void saveNoteFromSelection()}>记笔记</button><button className="quiet-button" onClick={() => setSelectionQuote("")}>取消</button></div>, document.body)}
         {detailLoading && !sections.length ? <LoadingState label="正在打开资料…" state="reading" /> : detailError && !sections.length && !showOriginal ? (
           <EmptyState compact title="暂时无法读取文本" description="读取失败；请重试或检查 Bobodan 后端连接。" state="resting" />
         ) : showOriginal ? (

@@ -3,9 +3,11 @@ import { ArrowRight, BookOpen, Brain, CheckCircle2, CircleHelp, Globe2, LogOut, 
 import { useNavigate, useOutletContext, useParams } from "react-router-dom";
 
 import type { AppOutletContext } from "../components/AppShell";
+import { DropdownSelect } from "../components/DropdownSelect";
 import { AttributionBadges, BrandIllustration, ErrorNotice, LoadingState, formatRelativeDate } from "../components/common";
 import { api, streamChat } from "../lib/api";
 import { useQuestionPipeline } from "../hooks/useQuestionPipeline";
+import { derivePracticeScopeGroups, resolveEffectivePracticeScope } from "../lib/practiceScope";
 import {
   difficultyLabel as sharedDifficultyLabel,
   questionTypeLabel as sharedQuestionTypeLabel,
@@ -141,7 +143,8 @@ function writePracticeDraft(libraryId: string | undefined, practiceSessionId: nu
 export function PracticePage() {
   const { practiceSessionId } = useParams();
   const navigate = useNavigate();
-  const { activeLibrary, refreshSessions, selectedDocumentIds, selectedDocuments } = useOutletContext<AppOutletContext>();
+  const { activeLibrary, documents = [], refreshSessions, selectedDocumentIds, selectedDocuments } = useOutletContext<AppOutletContext>();
+  const [scopeKey, setScopeKey] = useState("");
   const id = practiceSessionId ? Number(practiceSessionId) : null;
   const [session, setSession] = useState<PracticeSession | null>(null);
   const [active, setActive] = useState<Array<{ practice_session_id: number; updated_at: string; question_count: number }>>([]);
@@ -199,6 +202,23 @@ export function PracticePage() {
     }
   }, [libraryId]);
 
+  const scopeGroups = useMemo(() => derivePracticeScopeGroups(documents), [documents]);
+  const selectedScopeGroup = useMemo(
+    () => scopeGroups.find((group) => group.key === scopeKey) ?? null,
+    [scopeGroups, scopeKey],
+  );
+  const effectiveScope = useMemo(
+    () => resolveEffectivePracticeScope(selectedScopeGroup, selectedDocumentIds),
+    [selectedScopeGroup, selectedDocumentIds],
+  );
+  const scopedDocuments = useMemo(() => {
+    if (effectiveScope.documentIds.length === 0) return [];
+    const byId = new Map(documents.map((doc) => [doc.document_id, doc]));
+    return effectiveScope.documentIds
+      .map((docId) => byId.get(docId) ?? selectedDocuments.find((doc) => doc.document_id === docId))
+      .filter((doc): doc is NonNullable<typeof doc> => Boolean(doc));
+  }, [documents, effectiveScope.documentIds, selectedDocuments]);
+
   // W1 E5：逐题生成跑完（且用户选了这条路）才开练习 —— 用 ref 守卫，避免导航后重复开局。
   const pipelineStartedRef = useRef(false);
   useEffect(() => {
@@ -207,7 +227,7 @@ export function PracticePage() {
     pipelineStartedRef.current = true;
     void (async () => {
       try {
-        const created = await api.startPractice(undefined, pipeline.questionIds, "practice");
+        const created = await api.startPractice(effectiveScope.course, pipeline.questionIds, "practice");
         navigate(`/practice/${created.practice_session_id}`);
       } catch (reason) {
         setError(toErrorMessage(reason, "暂时无法创建练习。请先导入相关资料。"));
@@ -215,7 +235,11 @@ export function PracticePage() {
         setWorking(false);
       }
     })();
-  }, [stepwise, pipeline.status, pipeline.questionIds, navigate]);
+  }, [stepwise, pipeline.status, pipeline.questionIds, effectiveScope.course, navigate]);
+
+  useEffect(() => {
+    setScopeKey("");
+  }, [activeLibrary?.library_id]);
 
   useEffect(() => {
     useHandoffStore.getState().clearPracticeHandoff();
@@ -252,7 +276,9 @@ export function PracticePage() {
     setError("");
     if (!webConfirmed) setWebConsent(null);
     try {
-      const scopeTopic = selectedDocuments.map((document) => document.title || document.source).join("、");
+      const scopeTopic = scopedDocuments.length > 0
+        ? scopedDocuments.map((document) => document.title || document.source).join("、")
+        : (selectedScopeGroup?.label || "");
       const query = topic.trim() || scopeTopic;
       if (mode === "search" && !query) {
         setError("搜现成的题需要先写明主题，或者先选一份资料作为范围。");
@@ -261,12 +287,12 @@ export function PracticePage() {
       if (stepwise && query && mode === "generate") {
         // W1 E5：逐题生成 —— 每就绪一道就显示一道，出完再开练习。
         pipelineStartedRef.current = false;
-        await pipeline.start(query, 5, selectedDocumentIds);
+        await pipeline.start(query, 5, effectiveScope.documentIds, effectiveScope.course);
         return;
       }
       const generated = query
         ? await api.generateQuestions(
-            query, undefined, selectedDocumentIds, webResearchId || undefined, webConfirmed, mode,
+            query, effectiveScope.course, effectiveScope.documentIds, webResearchId || undefined, webConfirmed, mode,
           )
         : null;
       if (generated?.status === "web_consent_required") {
@@ -278,7 +304,7 @@ export function PracticePage() {
         return;
       }
       const created = await api.startPractice(
-        undefined,
+        effectiveScope.course,
         generated?.question_ids || [],
         "practice",
         generated?.personalization || [],
@@ -447,7 +473,38 @@ export function PracticePage() {
           <small>{mode === "search"
             ? "只提取网页上已经存在的题目，不自己编写；来源页会存成快照，可以点回原文。"
             : "留空时会从现有题库与资料重点中选择。"}</small>
-          {selectedDocuments.length > 0 && <div className="practice-scope"><BookOpen size={15} /><span>当前范围：{selectedDocuments.map((document) => document.title || document.source).slice(0, 3).join("、")}{selectedDocuments.length > 3 ? ` 等 ${selectedDocuments.length} 份` : ""}</span></div>}
+          {scopeGroups.length > 0 && (
+            <div className="practice-scope-row">
+              <span className="practice-scope-label">课程 / 文件夹范围</span>
+              <DropdownSelect
+                value={scopeKey}
+                onChange={(next) => { setScopeKey(next); setWebConsent(null); }}
+                includeDefault
+                defaultLabel="全部资料 / 学习书桌"
+                ariaLabel="按课程或文件夹筛选出题范围"
+                disabled={working}
+                options={scopeGroups.map((group) => ({
+                  value: group.key,
+                  label: `${group.label}（${group.count} 份）`,
+                  hint: group.course ? "课程" : "文件夹",
+                }))}
+              />
+            </div>
+          )}
+          {(selectedScopeGroup || selectedDocuments.length > 0) && (
+            <div className="practice-scope">
+              <BookOpen size={15} />
+              <span>
+                {selectedScopeGroup
+                  ? `已选范围：${selectedScopeGroup.label}（${effectiveScope.documentIds.length} 份资料）${
+                      selectedDocuments.length > 0 && effectiveScope.documentIds.length < selectedScopeGroup.documentIds.length
+                        ? " · 已按书桌勾选缩窄"
+                        : ""
+                    }`
+                  : `当前范围：${selectedDocuments.map((document) => document.title || document.source).slice(0, 3).join("、")}${selectedDocuments.length > 3 ? ` 等 ${selectedDocuments.length} 份` : ""}`}
+              </span>
+            </div>
+          )}
           {webConsent && <section className="practice-web-consent">
             <BrandIllustration state="reading" size={54} />
             <div><strong>本地资料暂时不足</strong><p>{webConsent.reason}</p>{webConsent.suggestedQuery && <small>建议按“{webConsent.suggestedQuery}”继续查找</small>}</div>

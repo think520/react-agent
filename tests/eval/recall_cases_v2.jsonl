@@ -1,0 +1,40 @@
+{"query":"Dijkstra 最短路 非负边权 贪心选择","expect_sources":["algo/dijkstra.md"],"kind":"keyword","source":"human","expect_headings":["算法前提与非负权约束"],"expect_snippets":["非负实数"]}
+{"query":"最小堆 优先队列 稀疏图 时间复杂度 O((V + E) log V)","expect_sources":["algo/dijkstra.md"],"kind":"keyword","source":"human","expect_headings":["优先队列优化与时间复杂度"],"expect_snippets":["优先队列"]}
+{"query":"动态规划 无后效性 最优子结构 重叠子问题","expect_sources":["algo/dynamic_programming.md"],"kind":"keyword","source":"human","expect_headings":["最优子结构与无后效性"],"expect_snippets":["无后效性"]}
+{"query":"零一背包 逆序循环 完全背包 正序累加","expect_sources":["algo/dynamic_programming.md"],"kind":"keyword","source":"human","expect_headings":["经典背包模型"],"expect_snippets":["逆序循环"]}
+{"query":"有向无环图 DAG 入度 拓扑排序 并查集","expect_sources":["algo/summary.md"],"kind":"keyword","source":"human","expect_headings":["拓扑排序与环路判定"],"expect_snippets":["入度"]}
+{"query":"快速排序 归并排序 稳定性 基准值","expect_sources":["algo/summary.md"],"kind":"keyword","source":"human","expect_headings":["排序算法稳定性参考"],"expect_snippets":["不稳定排序"]}
+{"query":"Transformer 缩放点积 注意力 维度平方根 Softmax 饱和","expect_sources":["ml/transformer.md"],"kind":"keyword","source":"human","expect_headings":["缩放点积与多头自注意力"],"expect_snippets":["平方根"]}
+{"query":"KV Cache 自回归解码 键值矩阵 缓存复用","expect_sources":["ml/transformer.md"],"kind":"keyword","source":"human","expect_headings":["KV Cache 推理加速原理"],"expect_snippets":["冗余计算"]}
+{"query":"倒数排名融合 RRF FTS5 稀疏向量 混合检索","expect_sources":["ml/rag_retrieval.md"],"kind":"keyword","source":"human","expect_headings":["混合检索与倒数排名融合"],"expect_snippets":["RRF"]}
+{"query":"召回指标 hit MRR 片段级命中率 长文档","expect_sources":["ml/summary.md"],"kind":"keyword","source":"human","expect_headings":["召回与排序指标口径"],"expect_snippets":["片段级"]}
+{"query":"SQLite WAL 预写日志 快照隔离 并发读","expect_sources":["systems/sqlite_wal.md"],"kind":"keyword","source":"human","expect_headings":["预写日志与快照隔离"],"expect_snippets":["不阻塞"]}
+{"query":"多级页表 TLB 快表 LRU 页面置换 抖动","expect_sources":["systems/operating_systems.md"],"kind":"keyword","source":"human","expect_headings":["虚拟内存与多级页表","页面置换策略与抖动"]}
+{"query":"求单源最短路时如果边上权重会出现负数为什么原本的做法会错","expect_sources":["algo/dijkstra.md"],"kind":"paraphrase","source":"human","expect_headings":["算法前提与非负权约束"]}
+{"query":"用优先队列代替全量扫描顶点之后求最短路径效率如何提升","expect_sources":["algo/dijkstra.md"],"kind":"paraphrase","source":"human","expect_headings":["优先队列优化与时间复杂度"]}
+{"query":"想一次求任意两座城市之间最短车程应该改用哪种做法","expect_sources":["algo/dijkstra.md","algo/summary.md"],"kind":"paraphrase","source":"human"}
+{"query":"优先队列里存同一个节点的旧距离记录出队的时候要怎么处理","expect_sources":["algo/dijkstra.md"],"kind":"paraphrase","source":"human","expect_snippets":["懒惰过滤"]}
+{"query":"设计dp状态时怎么保证过去走过的路径历史不会干扰后面的选择","expect_sources":["algo/dynamic_programming.md"],"kind":"paraphrase","source":"human","expect_headings":["最优子结构与无后效性"]}
+{"query":"写递归加缓存和自底向上填表两种动态规划写法各自适合什么场景","expect_sources":["algo/dynamic_programming.md"],"kind":"paraphrase","source":"human","expect_headings":["状态转移与记忆化搜索"]}
+{"query":"每样物品只能挑一件的时候内层容量循环为什么必须从大往小算","expect_sources":["algo/dynamic_programming.md"],"kind":"paraphrase","source":"human","expect_headings":["经典背包模型"]}
+{"query":"不同条件下的几种图上最短距离方法分别适合哪些场景","expect_sources":["algo/summary.md"],"kind":"paraphrase","source":"human","expect_headings":["最短路与图遍历算法对比"]}
+{"query":"怎么用节点前置次数判断项目依赖或者选课顺序里面有没有死锁闭环","expect_sources":["algo/summary.md"],"kind":"paraphrase","source":"human","expect_headings":["拓扑排序与环路判定"]}
+{"query":"想在排序时保证值相等的记录依然维持原来的前后顺序该挑哪类算法","expect_sources":["algo/summary.md"],"kind":"paraphrase","source":"human","expect_headings":["排序算法稳定性参考"]}
+{"query":"为什么注意力分数相乘以后要除以根号下维度再喂进归一化层","expect_sources":["ml/transformer.md"],"kind":"paraphrase","source":"human","expect_headings":["缩放点积与多头自注意力"]}
+{"query":"解码阶段怎样避免前面已经生成的文字每次重复做键值线性映射","expect_sources":["ml/transformer.md"],"kind":"paraphrase","source":"human","expect_headings":["KV Cache 推理加速原理"]}
+{"query":"模型看序列怎么防止偷看后面还没生成的词以及怎样感知语序","expect_sources":["ml/transformer.md"],"kind":"paraphrase","source":"human","expect_headings":["位置编码与掩码矩阵"]}
+{"query":"为什么系统把全文关键词打分和语义近邻搜索两条路的结果拼到一起","expect_sources":["ml/rag_retrieval.md"],"kind":"paraphrase","source":"human","expect_headings":["混合检索与倒数排名融合"]}
+{"query":"系统如何检查回答结尾带的方括号来源号不是模型瞎编出来的","expect_sources":["ml/rag_retrieval.md"],"kind":"paraphrase","source":"human","expect_headings":["确定性引用与证据门禁"]}
+{"query":"当本地索引文件被另一个服务占住打不开向量库时系统会怎样处理","expect_sources":["ml/rag_retrieval.md"],"kind":"paraphrase","source":"human","expect_headings":["语义降级可见性"]}
+{"query":"同时修改分词切块和融合权重再做实验为什么很难分清到底是哪步起效","expect_sources":["ml/summary.md"],"kind":"paraphrase","source":"human","expect_headings":["实验基线与超参数对照"]}
+{"query":"只统计有没有搜中整篇文章而不看命中小节位置会带来什么盲区","expect_sources":["ml/summary.md"],"kind":"paraphrase","source":"human","expect_headings":["召回与排序指标口径"]}
+{"query":"设计用来验证检索换述理解能力的测试题库为什么不该包含原文标题词","expect_sources":["ml/summary.md"],"kind":"paraphrase","source":"human","expect_headings":["离线评测集构造规范"]}
+{"query":"写题对比不同模型实验配置前怎么保证每次结果可以稳定复现","expect_sources":["ml/summary.md"],"kind":"paraphrase","source":"human","expect_headings":["实验基线与超参数对照"]}
+{"query":"开启追加日志以后一个写操作为什么不会卡住同时读取数据的查询请求","expect_sources":["systems/sqlite_wal.md"],"kind":"paraphrase","source":"human","expect_headings":["预写日志与快照隔离"]}
+{"query":"日志文件越来越大什么时候才能把历史帧刷回主文件并收窄文件体积","expect_sources":["systems/sqlite_wal.md"],"kind":"paraphrase","source":"human","expect_headings":["检查点与日志回收机制"]}
+{"query":"为什么不能在数据库有写入时直接用系统拷贝命令复制文件做灾备","expect_sources":["systems/sqlite_wal.md"],"kind":"paraphrase","source":"human","expect_headings":["在线备份与一致性校验"]}
+{"query":"进程访问逻辑内存地址怎样靠硬件分层映射及快速缓存加快换算","expect_sources":["systems/operating_systems.md"],"kind":"paraphrase","source":"human","expect_headings":["虚拟内存与多级页表"]}
+{"query":"可用物理内存不够用的时候系统一直在倒腾换入换出是怎么回事","expect_sources":["systems/operating_systems.md"],"kind":"paraphrase","source":"human","expect_headings":["页面置换策略与抖动"]}
+{"query":"多线程等待共享条件满足时为什么醒来以后还需要用循环再检查一遍状态","expect_sources":["systems/operating_systems.md"],"kind":"paraphrase","source":"human","expect_headings":["互斥锁与条件变量同步"]}
+{"query":"只允许一次放一件物品的背包问题和能无限次挑选物品的代码循环方向有何区别","expect_sources":["algo/dynamic_programming.md"],"kind":"paraphrase","source":"human","expect_headings":["经典背包模型"]}
+{"query":"为什么两个都叫总结文档的文件要在测试预期里写上文件夹前缀才不会撞名","expect_sources":["ml/summary.md"],"kind":"paraphrase","source":"human","expect_headings":["离线评测集构造规范"]}
