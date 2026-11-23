@@ -2,9 +2,10 @@ import { useEffect, useState } from "react";
 import { Check, Cpu, Plus, Trash2 } from "lucide-react";
 
 import { api } from "../../../lib/api";
-import type { ProviderPreset, ProviderSummary } from "../../../types";
+import type { ModelKind, ProviderPreset, ProviderSummary } from "../../../types";
 import { ConfirmDialog } from "../../../ui/Modal";
 import { ProviderFormFields } from "./ProviderFormFields";
+import { classifyModelKind, resolveModelKind } from "./modelKind";
 import { formFromPreset, formFromProvider, type ProviderForm } from "./providerForm";
 
 /**
@@ -23,7 +24,7 @@ export function ProvidersPane({ providers, onChanged }: {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [testMsg, setTestMsg] = useState<Record<string, string>>({});
-  const [modelInput, setModelInput] = useState({ id: "", name: "" });
+  const [modelInput, setModelInput] = useState<{ id: string; name: string; kind?: ModelKind }>({ id: "", name: "" });
   const [confirmDelete, setConfirmDelete] = useState<ProviderSummary | null>(null);
 
   useEffect(() => {
@@ -84,8 +85,16 @@ export function ProvidersPane({ providers, onChanged }: {
         editing.api_key.trim() || undefined,
         editingName || editing.name.trim() || undefined,
       );
-      setEditing((current) => current && { ...current, models: result.models, model_default: current.model_default || result.models[0]?.id || "" });
-      if (result.models.length) setNotice("已获取 " + result.models.length + " 个模型，可继续手输补充。");
+      const firstChat = result.models.find((item) => resolveModelKind(item) === "chat")?.id;
+      setEditing((current) => current && {
+        ...current,
+        models: result.models,
+        model_default:
+          current.model_default && result.models.some((item) => item.id === current.model_default && resolveModelKind(item) === "chat")
+            ? current.model_default
+            : firstChat || current.model_default || result.models[0]?.id || "",
+      });
+      if (result.models.length) setNotice("已获取 " + result.models.length + " 个模型，可继续手输或切换类型。");
       else setNotice("没有读取到模型，可手动添加。");
     } catch (reason) {
       const message = reason instanceof Error && reason.message ? reason.message.trim() : "获取模型失败";
@@ -99,8 +108,16 @@ export function ProvidersPane({ providers, onChanged }: {
     const id = modelInput.id.trim();
     if (!editing || !id) return;
     if (editing.models.some((item) => item.id === id)) return;
-    const next = [...editing.models, { id, name: modelInput.name.trim() || id }];
-    setEditing({ ...editing, models: next, model_default: editing.model_default || id });
+    const kind = modelInput.kind || classifyModelKind(id);
+    const modelItem = kind === "chat"
+      ? { id, name: modelInput.name.trim() || id }
+      : { id, name: modelInput.name.trim() || id, kind };
+    const next = [...editing.models, modelItem];
+    setEditing({
+      ...editing,
+      models: next,
+      model_default: editing.model_default || (kind === "chat" ? id : ""),
+    });
     setModelInput({ id: "", name: "" });
   }
 
@@ -110,7 +127,9 @@ export function ProvidersPane({ providers, onChanged }: {
     const name = form.name.trim();
     if (!name) { setError("请填写供应商名称。"); return; }
     if (!form.base_url.trim()) { setError("请填写 API 地址（base_url）。"); return; }
-    if (!form.model_default && form.models.length) form.model_default = form.models[0].id;
+    if (!form.model_default && form.models.length) {
+      form.model_default = form.models.find((item) => resolveModelKind(item) === "chat")?.id || form.models[0].id;
+    }
     setWorking(true);
     setError("");
     setNotice("");
@@ -198,10 +217,19 @@ export function ProvidersPane({ providers, onChanged }: {
         <div className="providers-detail-head"><strong>{current.name}</strong>{current.is_default && <i>默认</i>}</div>
         <p className="settings-model-hint">{current.base_url || "未填写 API 地址"}</p>
         <div className="providers-detail-meta">
-          <span>默认模型：{current.model || "未设置"}</span>
-          <span>模型：{current.models?.length || 0} 个</span>
+          <span>默认对话模型：{current.model || "未设置"}</span>
+          <span>模型：{current.models?.length || 0} 个{(() => {
+            const embCount = (current.models || []).filter((item) => resolveModelKind(item) === "embedding").length;
+            return embCount > 0 ? `（含 ${embCount} 个向量）` : "";
+          })()}</span>
           <span>{current.configured ? "已配置" : "未配置密钥"}</span>
         </div>
+        {current.supports_embedding === true && (
+          <p className="settings-model-hint">同时支持向量模型，可在「检索与 RAG」直接复用这里的 API 密钥。</p>
+        )}
+        {current.supports_embedding === false && current.embedding_note && (
+          <p className="settings-model-hint">{current.embedding_note}</p>
+        )}
         <div className="providers-detail-actions">
           <button className="quiet-button" type="button" disabled={!current.configured || working} onClick={() => void testProvider(current)}>测试连接</button>
           <button className="quiet-button" type="button" disabled={working} onClick={() => startEdit(current)}>编辑</button>

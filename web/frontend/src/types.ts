@@ -302,9 +302,12 @@ export interface ReviewQueue {
   } | null;
 }
 
+export type ModelKind = "chat" | "embedding" | "rerank";
+
 export interface ProviderModel {
   id: string;
   name: string;
+  kind?: ModelKind;
 }
 
 export interface ProviderSummary {
@@ -317,6 +320,8 @@ export interface ProviderSummary {
   api_key_env?: string;
   preset?: string;
   base_url?: string;
+  supports_embedding?: boolean;
+  embedding_note?: string;
 }
 
 export interface ProviderPreset {
@@ -328,6 +333,8 @@ export interface ProviderPreset {
   /** 借自 openhanako：api-key（必须）/ optional（可空）/ none（本地免 key）。 */
   auth_type?: "api-key" | "optional" | "none";
   keyless?: boolean;
+  supports_embedding?: boolean;
+  embedding_note?: string;
   note?: string;
   model_default?: string;
   models?: ProviderModel[];
@@ -456,10 +463,144 @@ export interface RuntimeStatus {
   version: string;
   active_library: LibrarySummary | null;
   knowledge: { state: "ready" | "empty" | "not_selected"; documents: number };
+  retrieval?: {
+    effective_mode: "hybrid" | "fts_only" | "unavailable";
+    embedding_available: boolean;
+    active_provider: string;
+    active_model: string;
+    vector_indexed: number;
+    documents: number;
+  };
   memory: { enabled: boolean };
   skills: { enabled: number; available: number };
   providers: { configured: number; available: number; default: string };
   search: { default: string; permission: "ask" | "auto"; tavily_configured: boolean; exa_configured: boolean; jina_fallback: boolean };
+}
+
+export type RagEmbeddingMode = "auto" | "provider" | "custom" | "ollama" | "disabled";
+
+export interface RagEmbeddingConfig {
+  mode: RagEmbeddingMode;
+  provider_name: string;
+  preset: string;
+  base_url: string;
+  model: string;
+  dim: number | null;
+  ollama_url: string;
+  ollama_model: string;
+  has_api_key: boolean;
+  api_key_source: "saved" | "provider" | "env" | "none";
+}
+
+export interface RagSemanticStatus {
+  code: string;
+  title: string;
+  detail: string;
+  action: string;
+}
+
+export interface RagVectorStats {
+  documents: number;
+  chunks: number;
+  directory_entries?: number;
+  vector_indexed: number;
+  vector_pending: number;
+  vector_error: number;
+}
+
+export interface RagStatusSummary {
+  knowledge_ready: boolean;
+  effective_mode: "hybrid" | "fts_only" | "unavailable";
+  configured_mode: RagEmbeddingMode;
+  embedding_available: boolean;
+  provider_ready: boolean;
+  active_provider: string;
+  display_provider: string;
+  active_model: string;
+  active_dim: number | null;
+  stored_signature: { provider?: string; model?: string; dim?: number | null } | null;
+  signature_mismatch: string;
+  semantic_status: RagSemanticStatus;
+  vector_stats: RagVectorStats;
+  error_samples: Array<{ title: string; source: string; error: string }>;
+  needs_backfill: boolean;
+  needs_rebuild: boolean;
+}
+
+export interface RagEmbeddingPreset {
+  id: string;
+  label: string;
+  badge: string;
+  description: string;
+  base_url: string;
+  default_model: string;
+  dim: number | null;
+  api_key_env: string;
+  suggested_models: string[];
+}
+
+export interface RagReusableProvider {
+  name: string;
+  preset: string;
+  configured: boolean;
+  keyless: boolean;
+  base_url: string;
+  supports_embedding?: boolean | null;
+  embedding_note: string;
+  embedding_models: ProviderModel[];
+}
+
+export interface RagSettingsResponse {
+  ok?: boolean;
+  config: RagEmbeddingConfig;
+  status: RagStatusSummary;
+  presets: RagEmbeddingPreset[];
+  reusable_providers: RagReusableProvider[];
+}
+
+export interface RagEmbeddingTestResponse {
+  ok: boolean;
+  provider: string;
+  model: string;
+  dim: number;
+  latency_ms: number;
+}
+
+export interface RagBackfillResponse {
+  ok: boolean;
+  result: {
+    ok: boolean;
+    rebuilt: boolean;
+    backfilled: number;
+    dim: number;
+    model: string;
+    vector_stats: RagVectorStats;
+    error_samples: Array<{ title: string; source: string; error: string }>;
+  };
+  rag: RagSettingsResponse;
+}
+
+export interface RagSearchTestHit {
+  chunk_id: string;
+  document_id: string;
+  title: string;
+  source: string;
+  heading_text: string;
+  collection: string;
+  score: number;
+  retrievers: string[];
+  snippet: string;
+}
+
+export interface RagSearchTestResponse {
+  ok: boolean;
+  query: string;
+  latency_ms: number;
+  retrieval_mode: string;
+  resolved_mode: string;
+  semantic_available: boolean;
+  semantic_reason: RagSemanticStatus | null;
+  results: RagSearchTestHit[];
 }
 
 export interface WikiHealth {

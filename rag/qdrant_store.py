@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 import threading
 import uuid
 from pathlib import Path
@@ -281,11 +282,25 @@ class QdrantStore:
     def delete_collection(self) -> None:
         """Delete the entire collection (for full reindex)."""
         client = self._get_client()
+        if self.mode == "local":
+            inner = getattr(client, "_client", None)
+            collections = getattr(inner, "collections", None)
+            if isinstance(collections, dict):
+                local_col = collections.get(self.collection)
+                if local_col is not None and hasattr(local_col, "close"):
+                    local_col.close()
         try:
             client.delete_collection(self.collection)
             logger.info("Deleted Qdrant collection %s", self.collection)
         except Exception:
-            pass  # collection may not exist
+            if self.mode != "local":
+                self._embedding_dim = None
+                return  # collection may not exist
+        if self.mode == "local":
+            col_dir = self.local_path / "collection" / self.collection
+            if col_dir.exists():
+                shutil.rmtree(col_dir, ignore_errors=False)
+        self._embedding_dim = None
 
     def close(self) -> None:
         """Close the client connection."""

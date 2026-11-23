@@ -51,7 +51,7 @@ def create_app() -> FastAPI:
     async def resolve_library(request: Request, call_next):
         scoped_prefixes = (
             "/api/chat", "/api/kb", "/api/quiz", "/api/learning",
-            "/api/memory", "/api/settings/proposals", "/api/graph",
+            "/api/memory", "/api/settings/proposals", "/api/settings/rag", "/api/graph",
         )
         if request.url.path.startswith(scoped_prefixes):
             service = get_library_service()

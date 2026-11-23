@@ -506,6 +506,35 @@ class KBSQLiteStore:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def reset_all_vector_status(self) -> int:
+        """Mark all indexed documents pending again before rebuilding the vector index."""
+        conn = self._get_conn()
+        cursor = conn.execute(
+            "UPDATE documents SET vector_status = 'pending', vector_indexed_hash = NULL, vector_error = NULL"
+        )
+        conn.commit()
+        return int(cursor.rowcount or 0)
+
+    def get_vector_error_samples(self, limit: int = 3) -> list[dict[str, str]]:
+        """Return bounded error samples for UI diagnostics."""
+        conn = self._get_conn()
+        rows = conn.execute(
+            """SELECT title, source, vector_error
+               FROM documents
+               WHERE vector_status = 'error' AND COALESCE(vector_error, '') != ''
+               ORDER BY updated_at DESC
+               LIMIT ?""",
+            (max(1, min(int(limit), 10)),),
+        ).fetchall()
+        return [
+            {
+                "title": str(row["title"] or row["source"] or ""),
+                "source": str(row["source"] or ""),
+                "error": str(row["vector_error"] or ""),
+            }
+            for row in rows
+        ]
+
     # ── directory entries ────────────────────────────────────────────────
 
     def upsert_directory_entry(

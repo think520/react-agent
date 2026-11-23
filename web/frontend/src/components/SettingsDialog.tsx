@@ -236,10 +236,10 @@ export function SettingsDialog({
     if (active === "assistant") return <AssistantSection assistant={assistant} setAssistant={setAssistant} />;
     if (active === "me") return <MeSection profile={profile} setProfile={setProfile} />;
     if (active === "appearance") return <AppearanceSection appearance={preferences.appearance} patch={(patch) => void patchPreferences(patch)} />;
-    if (active === "models") return <ModelsSection settings={settings} preferences={preferences} usage={usage} usageDays={usageDays} setUsageDays={setUsageDays} patch={(patch) => void patchPreferences(patch)} searchTest={searchTest} testSearchProvider={testSearchProvider} onSettingsChange={onSettingsChange} />;
+    if (active === "models") return <ModelsSection settings={settings} preferences={preferences} usage={usage} usageDays={usageDays} setUsageDays={setUsageDays} patch={(patch) => void patchPreferences(patch)} searchTest={searchTest} testSearchProvider={testSearchProvider} onSettingsChange={onSettingsChange} onOpenRag={() => onSectionChange("rag")} />;
     if (active === "memory") return <MemorySection preferences={preferences} patch={(patch) => void patchPreferences(patch)} memoryOverview={memoryOverview} activeLibrary={activeLibrary} legacyGraph={legacyGraph} legacyConceptIds={legacyConceptIds} setLegacyConceptIds={setLegacyConceptIds} legacyMemoryIds={legacyMemoryIds} setLegacyMemoryIds={setLegacyMemoryIds} recommendedMemories={recommendedMemories} allConceptsSelected={allConceptsSelected} allRecommendedMemoriesSelected={allRecommendedMemoriesSelected} migrationBusy={migrationBusy} setConfirmLegacy={setConfirmLegacy} />;
     if (active === "skills") return <SkillsSection skills={settings.skills} preferences={preferences} patch={(patch) => void patchPreferences(patch)} />;
-    if (active === "rag") return <RagSection />;
+    if (active === "rag") return <RagSection onOpenModels={() => onSectionChange("models")} onStatusInvalidated={() => setRuntimeStatus(null)} />;
     if (active === "security") return <SecuritySection />;
     if (active === "experiments") return <ExperimentsSection />;
     return <StatusSection runtimeStatus={runtimeStatus} />;

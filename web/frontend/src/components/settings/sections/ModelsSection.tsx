@@ -1,7 +1,8 @@
+import { useEffect, useState } from "react";
 import { Search } from "lucide-react";
 
 import { api } from "../../../lib/api";
-import type { SettingsSummary, UserPreferences } from "../../../types";
+import type { RagSettingsResponse, SettingsSummary, UserPreferences } from "../../../types";
 import { DropdownSelect } from "../../DropdownSelect";
 import { ModelSelect } from "../../ModelSelect";
 import { SettingsRow, SettingsSection, SettingsSegmented, SettingsToggle } from "../SettingsPrimitives";
@@ -12,9 +13,9 @@ type Usage = Awaited<ReturnType<typeof api.llmUsage>>;
 /**
  * 设置 · AI 与模型（2026-10-17 S3）。
  * 供应商从嵌套弹窗改为**节内主从**（ProvidersPane），右侧详情常驻；
- * 模型/任务、用量台账、联网资料各一张卡。
+ * 模型/任务、用量台账、联网资料各一张卡；补齐语义向量模型分工直达。
  */
-export function ModelsSection({ settings, preferences, usage, usageDays, setUsageDays, patch, searchTest, testSearchProvider, onSettingsChange }: {
+export function ModelsSection({ settings, preferences, usage, usageDays, setUsageDays, patch, searchTest, testSearchProvider, onSettingsChange, onOpenRag }: {
   settings: SettingsSummary;
   preferences: UserPreferences;
   usage: Usage | null;
@@ -24,24 +25,67 @@ export function ModelsSection({ settings, preferences, usage, usageDays, setUsag
   searchTest: Record<string, string>;
   testSearchProvider: (name: "auto" | "tavily" | "exa") => void;
   onSettingsChange: (settings: SettingsSummary) => void;
+  onOpenRag?: () => void;
 }) {
+  const [rag, setRag] = useState<RagSettingsResponse | null>(null);
+
+  useEffect(() => {
+    void api.ragSettings?.().then(setRag).catch(() => setRag(null));
+  }, [settings.providers]);
+
+  const ragBadge = !rag
+    ? { tone: "muted", label: "读取中" }
+    : rag.status.effective_mode === "hybrid"
+      ? { tone: "ready", label: "hybrid 就绪" }
+      : rag.status.needs_rebuild
+        ? { tone: "warn", label: "待重建向量" }
+        : rag.status.embedding_available && rag.status.needs_backfill
+          ? { tone: "warn", label: "待建向量" }
+          : rag.status.provider_ready && rag.status.vector_stats.documents === 0
+            ? { tone: "muted", label: "待导入资料" }
+            : { tone: "muted", label: "仅纯文本" };
+
+  const ragHint = !rag
+    ? "用于资料库按意思搜索；支持复用硅基流动 / 百炼 / 智谱 / OpenAI 或本地 Ollama"
+    : rag.status.effective_mode === "hybrid"
+      ? `已启用：${rag.status.display_provider || rag.status.active_provider} · ${rag.status.active_model}`
+      : rag.status.needs_rebuild
+        ? "已切换向量模型，需在「检索与 RAG」重建向量索引后恢复语义检索"
+        : rag.status.embedding_available && rag.status.needs_backfill
+          ? `模型已就绪（${rag.status.display_provider || rag.status.active_provider} · ${rag.status.active_model}），还需在「检索与 RAG」为已有资料建向量`
+          : rag.status.provider_ready && rag.status.vector_stats.documents === 0
+            ? `模型已就绪（${rag.status.display_provider || rag.status.active_provider} · ${rag.status.active_model}），导入资料后将自动建立向量`
+            : "未启用（当前仅走纯文本检索；DeepSeek/MiniMax 为对话模型，不参与资料向量化）";
+
   return <>
-    <SettingsSection title="供应商" description="密钥明文保存在本地应用数据目录，不会写入资料库或日志。左侧选条目看详情，或从模板新增。">
+    <SettingsSection title="供应商" description="这里管理的密钥主要用于聊天与 Wiki 整理；其中支持向量接口的平台（如硅基流动、百炼、智谱、OpenAI），密钥可直接被「检索与 RAG」复用。密钥仅保存在本地应用数据目录。">
       <ProvidersPane
         providers={settings.providers}
         onChanged={async () => { onSettingsChange(await api.settings()); }}
       />
     </SettingsSection>
 
-    <SettingsSection title="模型与任务" description="聊天与未指定任务的默认模型；Wiki 的主题发现和页面撰写可以分别指定。">
-      <SettingsRow label="默认模型" hint="聊天与未指定任务默认使用">
-        <ModelSelect providers={settings.providers} label="默认模型" value={preferences.ai.default_provider || "default"} onChange={(value) => patch({ ai: { default_provider: value } })} includeDefault={false} bordered />
+    <SettingsSection title="模型与任务" description="不同岗位需要不同种类的模型：对话与 Wiki 整理用聊天模型，资料语义召回用向量模型。">
+      <SettingsRow label="默认模型" hint="聊天与未指定任务默认使用（仅列对话模型）">
+        <ModelSelect providers={settings.providers} kind="chat" label="默认模型" value={preferences.ai.default_provider || "default"} onChange={(value) => patch({ ai: { default_provider: value } })} includeDefault={false} bordered />
       </SettingsRow>
       <SettingsRow label="主题发现模型">
-        <ModelSelect providers={settings.providers} label="主题发现模型" value={preferences.ai.task_providers?.wiki_discovery || "default"} onChange={(value) => patch({ ai: { task_providers: { wiki_discovery: value } } })} includeDefault bordered />
+        <ModelSelect providers={settings.providers} kind="chat" label="主题发现模型" value={preferences.ai.task_providers?.wiki_discovery || "default"} onChange={(value) => patch({ ai: { task_providers: { wiki_discovery: value } } })} includeDefault bordered />
       </SettingsRow>
       <SettingsRow label="页面撰写模型">
-        <ModelSelect providers={settings.providers} label="页面撰写模型" value={preferences.ai.task_providers?.wiki_drafting || "default"} onChange={(value) => patch({ ai: { task_providers: { wiki_drafting: value } } })} includeDefault bordered />
+        <ModelSelect providers={settings.providers} kind="chat" label="页面撰写模型" value={preferences.ai.task_providers?.wiki_drafting || "default"} onChange={(value) => patch({ ai: { task_providers: { wiki_drafting: value } } })} includeDefault bordered />
+      </SettingsRow>
+      <SettingsRow label="语义向量模型" hint={ragHint}>
+        <div className="models-rag-row">
+          <span className="rag-mode-badge" data-tone={ragBadge.tone}>
+            {ragBadge.label}
+          </span>
+          {onOpenRag && (
+            <button className="quiet-button" type="button" onClick={onOpenRag}>
+              配置向量模型 →
+            </button>
+          )}
+        </div>
       </SettingsRow>
       <SettingsRow label="默认整理方式" hint="达到额度后任务会保存并暂停">
         <DropdownSelect className="bordered" ariaLabel="默认整理方式" value={preferences.wiki?.default_mode || "standard"} onChange={(value) => patch({ wiki: { default_mode: value } })} options={[{ value: "catalog", label: "快速建档" }, { value: "standard", label: "标准整理 · 每批 5 份" }, { value: "deep", label: "深度全库" }]} />

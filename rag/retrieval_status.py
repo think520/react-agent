@@ -156,7 +156,7 @@ def _build_semantic_status(
             code=RETURNED_NOTHING,
             title="当前是纯文本检索（embedding 返回了空向量）",
             detail="".join(details),
-            action="检查该 provider 的返回格式/模型名是否被服务端支持，或在「设置 → 模型」换一个可用的 embedding provider。",
+            action="检查该 provider 的返回格式/模型名是否被服务端支持，或在「设置 → 检索与 RAG」换一个可用的 embedding provider。",
         )
 
     # provider 探活失败 ≠ 没配后端：先看后端是不是那个"不可用"占位实现。
@@ -172,7 +172,7 @@ def _build_semantic_status(
                 code=NOT_CONFIGURED,
                 title="当前是纯文本检索（还没有配置 embedding 后端）",
                 detail="".join(details),
-                action="在「设置 → 模型」配置一个 embedding provider（例如 SiliconFlow / 智谱 / OpenAI 兼容接口），配置好后重新同步资料即可建立向量。",
+                action="在「设置 → 检索与 RAG」配置一个 embedding provider（例如硅基流动 / 智谱 / OpenAI 兼容接口），配置好后重新同步资料即可建立向量。",
             )
 
     if vector_error == PROVIDER_UNAVAILABLE:
@@ -185,7 +185,7 @@ def _build_semantic_status(
             code=PROVIDER_UNAVAILABLE,
             title="当前是纯文本检索（embedding 后端探活失败）",
             detail="".join(details),
-            action=("启动该服务（例如本地 Ollama）、检查它的地址/密钥，或在「设置 → 模型」换一个可用的 "
+            action=("启动该服务（例如本地 Ollama）、检查它的地址/密钥，或在「设置 → 检索与 RAG」换一个可用的 "
                     "embedding provider；修好后重新同步资料即可补上向量。"),
         )
 
@@ -207,7 +207,7 @@ def _build_semantic_status(
             code=UNKNOWN,
             title="当前是纯文本检索（原因未知）",
             detail="".join(details) or "拿不到足够信息判断向量腿为什么不可用。",
-            action="在「设置 → 模型」确认 embedding 配置，然后重新同步资料并查看同步报错。",
+            action="在「设置 → 检索与 RAG」确认 embedding 配置，然后重新同步资料并查看同步报错。",
         )
 
     if int(indexed_documents) <= 0:
@@ -231,5 +231,5 @@ def _build_semantic_status(
         code=UNKNOWN,
         title="当前是纯文本检索（原因未知）",
         detail="".join(details) or "拿不到足够信息判断向量腿为什么不可用。",
-        action="在「设置 → 模型」确认 embedding 配置，然后重新同步资料并查看同步汇总里的原因。",
+        action="在「设置 → 检索与 RAG」确认 embedding 配置，然后重新同步资料并查看同步汇总里的原因。",
     )

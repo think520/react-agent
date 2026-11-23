@@ -50,13 +50,48 @@ class ProviderUpsertRequest(BaseModel):
     api_key: str | None = None
     api_key_env: str | None = None
     model_default: str | None = None
-    models: list[dict[str, str]] = Field(default_factory=list, max_length=200)
+    models: list[dict[str, Any]] = Field(default_factory=list, max_length=200)
 
 
 class ProviderFetchModelsRequest(BaseModel):
     base_url: str = Field(..., min_length=1, max_length=300)
     api_key: str | None = None
     provider_name: str | None = Field(default=None, max_length=80)
+
+
+class RagSettingsUpdateRequest(BaseModel):
+    mode: Literal["auto", "provider", "custom", "ollama", "disabled"]
+    provider_name: str = Field(default="", max_length=80)
+    preset: str = Field(default="", max_length=40)
+    base_url: str = Field(default="", max_length=300)
+    model: str = Field(default="", max_length=120)
+    api_key: str = Field(default="", max_length=300)
+    clear_api_key: bool = False
+    dim: int | None = Field(default=None, ge=1, le=16384)
+    ollama_url: str = Field(default="http://localhost:11434", max_length=300)
+    ollama_model: str = Field(default="qwen3-embedding:0.6b", max_length=120)
+
+
+class RagEmbeddingTestRequest(BaseModel):
+    mode: Literal["auto", "provider", "custom", "ollama", "disabled"] | None = None
+    provider_name: str = Field(default="", max_length=80)
+    preset: str = Field(default="", max_length=40)
+    base_url: str = Field(default="", max_length=300)
+    model: str = Field(default="", max_length=120)
+    api_key: str = Field(default="", max_length=300)
+    dim: int | None = Field(default=None, ge=1, le=16384)
+    ollama_url: str = Field(default="http://localhost:11434", max_length=300)
+    ollama_model: str = Field(default="qwen3-embedding:0.6b", max_length=120)
+
+
+class RagBackfillRequest(BaseModel):
+    rebuild: bool = False
+
+
+class RagSearchTestRequest(BaseModel):
+    query: str = Field(..., min_length=1, max_length=300)
+    top_k: int = Field(default=5, ge=1, le=10)
+    mode: Literal["auto", "hybrid", "directory", "directory_grep"] = "auto"
 
 
 class SettingsProposalRequest(BaseModel):
@@ -173,6 +208,8 @@ def provider_presets() -> dict:
                 "models": raw.get("models", []),
                 "auth_type": raw.get("auth_type", "api-key"),
                 "keyless": bool(raw.get("keyless")),
+                "supports_embedding": raw.get("supports_embedding"),
+                "embedding_note": raw.get("embedding_note", ""),
                 "note": raw.get("note", ""),
             }
             for name, raw in sorted(BUILTIN_PRESETS.items())
@@ -184,6 +221,7 @@ def provider_presets() -> dict:
 def upsert_provider(body: ProviderUpsertRequest) -> dict:
     """新增或编辑供应商（P5G.4）。api_key 留空 = 保持原 key。"""
     from providers.catalog import upsert_provider as catalog_upsert
+    from rag.retriever import clear_retrieval_cache
 
     if body.name in ("auto", "default"):
         raise APIError(422, "invalid_provider_name", "This name is reserved.")
@@ -199,6 +237,7 @@ def upsert_provider(body: ProviderUpsertRequest) -> dict:
     }
     catalog_upsert(body.name, entry)
     reset_dependency_caches()
+    clear_retrieval_cache()
     return {"ok": True, "name": body.name}
 
 
@@ -206,10 +245,12 @@ def upsert_provider(body: ProviderUpsertRequest) -> dict:
 def remove_provider(provider_name: str) -> dict:
     """删除供应商（P5G.4）。"""
     from providers.catalog import delete_provider as catalog_delete
+    from rag.retriever import clear_retrieval_cache
 
     if not catalog_delete(provider_name):
         raise APIError(404, "provider_not_found", "The provider does not exist.")
     reset_dependency_caches()
+    clear_retrieval_cache()
     return {"ok": True, "name": provider_name}
 
 
@@ -221,7 +262,7 @@ def fetch_provider_models(body: ProviderFetchModelsRequest) -> dict:
     """
     import httpx
     from urllib.parse import urlparse
-    from providers.catalog import load_catalog, resolve_api_key
+    from providers.catalog import classify_model_kind, load_catalog, resolve_api_key
 
     base_url = body.base_url.rstrip("/")
     resolved_key = (body.api_key or "").strip()
@@ -299,8 +340,12 @@ def fetch_provider_models(body: ProviderFetchModelsRequest) -> dict:
             continue
         if model_id:
             existing = models_by_id.get(model_id)
+            kind = classify_model_kind(model_id)
             if existing is None or (existing["name"] == model_id and model_name and model_name != model_id):
-                models_by_id[model_id] = {"id": model_id, "name": model_name or model_id}
+                entry: dict[str, str] = {"id": model_id, "name": model_name or model_id}
+                if kind != "chat":
+                    entry["kind"] = kind
+                models_by_id[model_id] = entry
     models = sorted(models_by_id.values(), key=lambda item: item["id"])
     if items and not models:
         raise APIError(
@@ -369,24 +414,37 @@ def test_search_provider(provider_name: Literal["auto", "tavily", "exa"], reques
 
 @router.get("/status")
 def runtime_status() -> dict:
+    from service.rag_settings_service import RagSettingsService
+
     config = get_config()
     preferences = _service(config).get()
     registry = LibraryService().list_libraries()
     active = next((item for item in registry.get("libraries", []) if item.get("active")), None)
     knowledge = {"state": "not_selected", "documents": 0}
+    active_workspace: str | None = None
     if active and active.get("available"):
-        result = KBService(LibraryService().resolve(active["library_id"])["path"]).status()
+        active_workspace = LibraryService().resolve(active["library_id"])["path"]
+        result = KBService(active_workspace).status()
         knowledge = {
             "state": "ready" if result.get("ok") else "empty",
             "documents": int(result.get("total_files") or 0),
         }
     providers = AgentService.list_providers(config)["providers"]
+    retrieval_summary = RagSettingsService.get_summary(config, active_workspace)
     return {
         "ok": True,
         "backend": "connected",
         "version": "0.1.0",
         "active_library": active,
         "knowledge": knowledge,
+        "retrieval": {
+            "effective_mode": retrieval_summary["effective_mode"],
+            "embedding_available": retrieval_summary["embedding_available"],
+            "active_provider": retrieval_summary["display_provider"] or retrieval_summary["active_provider"],
+            "active_model": retrieval_summary["active_model"],
+            "vector_indexed": retrieval_summary["vector_stats"]["vector_indexed"],
+            "documents": retrieval_summary["vector_stats"]["documents"],
+        },
         "memory": {"enabled": preferences["memory"]["enabled"]},
         "skills": {
             "enabled": len(preferences["skills"]["enabled_names"]),
@@ -405,6 +463,94 @@ def runtime_status() -> dict:
             "jina_fallback": bool(preferences.get("search", {}).get("jina_fallback", True)),
         },
     }
+
+
+@router.get("/rag")
+def rag_settings(request: Request) -> dict:
+    from service.rag_settings_service import RagSettingsService
+
+    config = get_config()
+    workspace = get_request_workspace(request)
+    return RagSettingsService.get_settings(config, workspace)
+
+
+@router.put("/rag")
+def update_rag_settings(body: RagSettingsUpdateRequest, request: Request) -> dict:
+    from providers.catalog import save_embedding_config
+    from rag.retriever import clear_retrieval_cache
+    from service.rag_settings_service import RagSettingsService
+
+    try:
+        save_embedding_config(
+            body.model_dump(exclude={"clear_api_key"}),
+            clear_api_key=body.clear_api_key,
+        )
+    except ValueError as exc:
+        raise APIError(422, "invalid_rag_config", str(exc)) from exc
+    reset_dependency_caches()
+    clear_retrieval_cache()
+    config = get_config()
+    workspace = get_request_workspace(request)
+    return RagSettingsService.get_settings(config, workspace)
+
+
+@router.post("/rag/test")
+def test_rag_embedding(body: RagEmbeddingTestRequest | None = None) -> dict:
+    from service.rag_settings_service import RagSettingsService
+
+    config = get_config()
+    payload = body.model_dump() if body and body.mode is not None else None
+    try:
+        return RagSettingsService.test_embedding(payload, config)
+    except ValueError as exc:
+        raise APIError(422, "invalid_rag_test_config", str(exc)) from exc
+    except TimeoutError as exc:
+        raise APIError(504, "embedding_test_timeout", str(exc)) from exc
+    except Exception as exc:
+        raise APIError(409, "embedding_test_failed", str(exc)) from exc
+
+
+@router.post("/rag/backfill")
+def backfill_rag_vectors(request: Request, body: RagBackfillRequest | None = None) -> dict:
+    from service.rag_settings_service import RagSettingsService
+
+    config = get_config()
+    workspace = get_request_workspace(request)
+    try:
+        result = RagSettingsService.backfill_vectors(
+            workspace,
+            config,
+            rebuild=bool(body.rebuild if body else False),
+        )
+    except ValueError as exc:
+        raise APIError(422, "rag_backfill_invalid", str(exc)) from exc
+    except Exception as exc:
+        raise APIError(409, "rag_backfill_failed", str(exc)) from exc
+    return {
+        "ok": True,
+        "result": result,
+        "rag": RagSettingsService.get_settings(config, workspace),
+    }
+
+
+@router.post("/rag/search-test")
+def test_rag_search(body: RagSearchTestRequest, request: Request) -> dict:
+    from service.rag_settings_service import RagSettingsService
+
+    config = get_config()
+    workspace = get_request_workspace(request)
+    try:
+        return RagSettingsService.search_test(
+            workspace,
+            config,
+            query=body.query,
+            top_k=body.top_k,
+            mode=body.mode,
+        )
+    except ValueError as exc:
+        raise APIError(422, "invalid_search_test", str(exc)) from exc
+    except Exception as exc:
+        raise APIError(409, "search_test_failed", str(exc)) from exc
 
 
 @router.get("/usage")

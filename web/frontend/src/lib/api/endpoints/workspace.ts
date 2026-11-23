@@ -14,18 +14,10 @@ import type {
   PersonalKnowledgeItem,
   ProviderModel,
   ProviderPreset,
-
-
-
-
-
-
-
-
-
-
-
-
+  RagBackfillResponse,
+  RagEmbeddingTestResponse,
+  RagSearchTestResponse,
+  RagSettingsResponse,
 } from "../../../types";
 import type { } from "../../chatStreamEvents";
 import type {
@@ -62,6 +54,23 @@ export const workspaceApi = {
     { method: "POST" },
   ),
   runtimeStatus: () => request<RuntimeStatus>("/api/settings/status"),
+  ragSettings: () => request<RagSettingsResponse>("/api/settings/rag"),
+  saveRagSettings: (body: Record<string, unknown>) => request<RagSettingsResponse>(
+    "/api/settings/rag",
+    { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+  ),
+  testRagEmbedding: (body?: Record<string, unknown> | null) => request<RagEmbeddingTestResponse>(
+    "/api/settings/rag/test",
+    body ? json(body) : { method: "POST" },
+  ),
+  backfillRagVectors: (rebuild = false) => request<RagBackfillResponse>(
+    "/api/settings/rag/backfill",
+    json({ rebuild }),
+  ),
+  testRagSearch: (query: string, topK = 5, mode = "auto") => request<RagSearchTestResponse>(
+    "/api/settings/rag/search-test",
+    json({ query, top_k: topK, mode }),
+  ),
   llmUsage: (days = 7) => request<{
     days: number; requests: number; errors: number; input_tokens: number; output_tokens: number;
     cache_read_tokens: number; cache_miss_tokens: number; cache_reported: boolean;

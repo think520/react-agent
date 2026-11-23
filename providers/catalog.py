@@ -31,7 +31,66 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from typing import Any
+from urllib.parse import urlparse
+
+from core.atomic_io import atomic_write_json
+from rag.embedding_provider import PRESETS as EMBEDDING_PRESETS
+
+_RERANK_MODEL_PATTERNS = (
+    "rerank",
+    "bge-reranker",
+    "bce-reranker",
+    "jina-reranker",
+    "gte-rerank",
+    "cohere-rerank",
+)
+_EMBEDDING_MODEL_PATTERNS = (
+    "embedding",
+    "bge-m3",
+    "bge-large",
+    "bge-base",
+    "bge-small",
+    "bce-embedding",
+    "text-embedding",
+    "nomic-embed",
+    "mxbai-embed",
+    "snowflake-arctic-embed",
+    "multilingual-e5",
+    "e5-large",
+    "e5-base",
+    "e5-small",
+    "m3e-",
+    "gte-large",
+    "gte-base",
+    "gte-qwen",
+    "jina-embeddings",
+)
+_EMBED_WORD_RE = re.compile(r"(?:^|[^a-z0-9])embed(?:der)?(?:$|[^a-z0-9])")
+
+
+def classify_model_kind(model_id: str) -> str:
+    """Infer model capability kind ('chat' | 'embedding' | 'rerank') from model id."""
+    lower = (model_id or "").strip().lower()
+    if not lower:
+        return "chat"
+    if any(token in lower for token in _RERANK_MODEL_PATTERNS):
+        return "rerank"
+    if any(token in lower for token in _EMBEDDING_MODEL_PATTERNS) or _EMBED_WORD_RE.search(lower):
+        return "embedding"
+    return "chat"
+
+
+def _same_origin(url_a: str, url_b: str) -> bool:
+    a = urlparse((url_a or "").strip())
+    b = urlparse((url_b or "").strip())
+    return bool(
+        a.scheme and a.netloc and b.scheme and b.netloc
+        and a.scheme.lower() == b.scheme.lower()
+        and a.netloc.lower() == b.netloc.lower()
+    )
+
 
 BUILTIN_PRESETS: dict[str, dict[str, Any]] = {
     "deepseek": {
@@ -43,6 +102,8 @@ BUILTIN_PRESETS: dict[str, dict[str, Any]] = {
         "model_default": "deepseek-chat",
         "models": [{"id": "deepseek-chat", "name": "DeepSeek Chat"}, {"id": "deepseek-reasoner", "name": "DeepSeek Reasoner"}],
         "auth_type": "api-key",
+        "supports_embedding": False,
+        "embedding_note": "DeepSeek 官方暂不提供向量 API，请搭配硅基流动等或本地 Ollama 做语义检索。",
     },
     "minimax": {
         "type": "minimax",
@@ -53,6 +114,8 @@ BUILTIN_PRESETS: dict[str, dict[str, Any]] = {
         "model_default": "MiniMax-Text-01",
         "models": [{"id": "MiniMax-Text-01", "name": "MiniMax Text"}],
         "auth_type": "api-key",
+        "supports_embedding": False,
+        "embedding_note": "MiniMax 暂未内置标准向量接口，建议在「检索与 RAG」单独配置向量模型。",
     },
     "openai": {
         "type": "openai",
@@ -61,8 +124,13 @@ BUILTIN_PRESETS: dict[str, dict[str, Any]] = {
         "base_url": "https://api.openai.com/v1",
         "api_key_env": "OPENAI_API_KEY",
         "model_default": "gpt-4o-mini",
-        "models": [{"id": "gpt-4o-mini", "name": "GPT-4o mini"}, {"id": "gpt-4o", "name": "GPT-4o"}],
+        "models": [
+            {"id": "gpt-4o-mini", "name": "GPT-4o mini"},
+            {"id": "gpt-4o", "name": "GPT-4o"},
+            {"id": "text-embedding-3-small", "name": "Text Embedding 3 Small", "kind": "embedding"},
+        ],
         "auth_type": "api-key",
+        "supports_embedding": True,
     },
     "dashscope": {
         "type": "openai_compatible",
@@ -71,8 +139,13 @@ BUILTIN_PRESETS: dict[str, dict[str, Any]] = {
         "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
         "api_key_env": "DASHSCOPE_API_KEY",
         "model_default": "qwen-plus",
-        "models": [{"id": "qwen-plus", "name": "Qwen Plus"}, {"id": "qwen-max", "name": "Qwen Max"}],
+        "models": [
+            {"id": "qwen-plus", "name": "Qwen Plus"},
+            {"id": "qwen-max", "name": "Qwen Max"},
+            {"id": "text-embedding-v4", "name": "Text Embedding v4", "kind": "embedding"},
+        ],
         "auth_type": "api-key",
+        "supports_embedding": True,
     },
     "siliconflow": {
         "type": "openai_compatible",
@@ -81,8 +154,12 @@ BUILTIN_PRESETS: dict[str, dict[str, Any]] = {
         "base_url": "https://api.siliconflow.cn/v1",
         "api_key_env": "SILICONFLOW_API_KEY",
         "model_default": "deepseek-ai/DeepSeek-V3",
-        "models": [{"id": "deepseek-ai/DeepSeek-V3", "name": "DeepSeek V3"}],
+        "models": [
+            {"id": "deepseek-ai/DeepSeek-V3", "name": "DeepSeek V3"},
+            {"id": "BAAI/bge-m3", "name": "BGE-M3（推荐向量）", "kind": "embedding"},
+        ],
         "auth_type": "api-key",
+        "supports_embedding": True,
     },
     "openrouter": {
         "type": "openai_compatible",
@@ -112,8 +189,13 @@ BUILTIN_PRESETS: dict[str, dict[str, Any]] = {
         "base_url": "https://open.bigmodel.cn/api/paas/v4",
         "api_key_env": "ZHIPUAI_API_KEY",
         "model_default": "glm-4-flash",
-        "models": [{"id": "glm-4-flash", "name": "GLM-4 Flash"}, {"id": "glm-4-plus", "name": "GLM-4 Plus"}],
+        "models": [
+            {"id": "glm-4-flash", "name": "GLM-4 Flash"},
+            {"id": "glm-4-plus", "name": "GLM-4 Plus"},
+            {"id": "embedding-3", "name": "Embedding-3", "kind": "embedding"},
+        ],
         "auth_type": "api-key",
+        "supports_embedding": True,
         "note": "智谱 GLM",
     },
     "gemini": {
@@ -188,6 +270,7 @@ BUILTIN_PRESETS: dict[str, dict[str, Any]] = {
         "models": [],
         "auth_type": "none",
         "keyless": True,
+        "supports_embedding": True,
         "note": "本地 Ollama（免 key）",
     },
     "lmstudio": {
@@ -200,6 +283,7 @@ BUILTIN_PRESETS: dict[str, dict[str, Any]] = {
         "models": [],
         "auth_type": "none",
         "keyless": True,
+        "supports_embedding": True,
         "note": "本地 LM Studio（免 key）",
     },
     "vllm": {
@@ -212,11 +296,26 @@ BUILTIN_PRESETS: dict[str, dict[str, Any]] = {
         "models": [],
         "auth_type": "none",
         "keyless": True,
+        "supports_embedding": True,
         "note": "本地 vLLM（免 key；别和 Bobodan 的 8000 端口冲突）",
     },
 }
 
 _CATALOG_FILE = "provider.json"
+VALID_MODEL_KINDS = frozenset({"chat", "embedding", "rerank"})
+VALID_EMBEDDING_MODES = frozenset({"auto", "provider", "custom", "ollama", "disabled"})
+
+DEFAULT_EMBEDDING_CONFIG: dict[str, Any] = {
+    "mode": "auto",
+    "provider_name": "",
+    "preset": "",
+    "base_url": "",
+    "model": "",
+    "api_key": "",
+    "dim": None,
+    "ollama_url": "http://localhost:11434",
+    "ollama_model": "qwen3-embedding:0.6b",
+}
 
 
 def resolve_home() -> str:
@@ -235,10 +334,29 @@ def catalog_path() -> str:
     return os.path.join(resolve_home(), _CATALOG_FILE)
 
 
+def _normalize_models(raw_models: Any) -> list[dict[str, str]]:
+    if not isinstance(raw_models, list):
+        return []
+    result: list[dict[str, str]] = []
+    for item in raw_models:
+        if not isinstance(item, dict):
+            continue
+        model_id = str(item.get("id") or "").strip()
+        if not model_id:
+            continue
+        model_name = str(item.get("name") or model_id).strip() or model_id
+        normalized_item: dict[str, str] = {"id": model_id, "name": model_name}
+        kind = str(item.get("kind") or "").strip().lower()
+        if kind in VALID_MODEL_KINDS:
+            normalized_item["kind"] = kind
+        result.append(normalized_item)
+    return result
+
+
 def _normalize_provider(name: str, raw: dict[str, Any]) -> dict[str, Any]:
     """把任意来源的 provider 配置规整为 catalog 条目。"""
     model = raw.get("model") or raw.get("model_default") or ""
-    models = raw.get("models")
+    models = _normalize_models(raw.get("models"))
     if not models and model:
         models = [{"id": model, "name": model}]
     # auth_type 语义借自 openhanako：api-key（必须）/ optional（可空）/ none（本地免 key）。
@@ -246,7 +364,7 @@ def _normalize_provider(name: str, raw: dict[str, Any]) -> dict[str, Any]:
     auth_type = raw.get("auth_type") or ("none" if keyless else "api-key")
     if auth_type not in {"api-key", "optional", "none"}:
         auth_type = "api-key"
-    entry = {
+    entry: dict[str, Any] = {
         "auth_type": auth_type,
         "type": raw.get("type", "openai_compatible"),
         "provider_name": raw.get("provider_name") or raw.get("preset") or name,
@@ -261,6 +379,10 @@ def _normalize_provider(name: str, raw: dict[str, Any]) -> dict[str, Any]:
         entry["preset"] = preset
     if raw.get("keyless"):
         entry["keyless"] = True
+    if "supports_embedding" in raw:
+        entry["supports_embedding"] = bool(raw["supports_embedding"])
+    if raw.get("embedding_note"):
+        entry["embedding_note"] = str(raw["embedding_note"])
     return entry
 
 
@@ -271,7 +393,13 @@ def load_catalog() -> dict[str, Any]:
             data = json.load(handle)
         if not isinstance(data, dict) or not isinstance(data.get("providers"), dict):
             return {"version": 1, "providers": {}}
-        return data
+        result: dict[str, Any] = {
+            "version": int(data.get("version") or 1),
+            "providers": data.get("providers", {}),
+        }
+        if isinstance(data.get("embedding"), dict):
+            result["embedding"] = dict(data["embedding"])
+        return result
     except (OSError, ValueError):
         return {"version": 1, "providers": {}}
 
@@ -280,9 +408,10 @@ def save_catalog(catalog: dict[str, Any]) -> None:
     """写回 provider.json（含密钥）。目录不存在时创建。"""
     directory = resolve_home()
     os.makedirs(directory, exist_ok=True)
-    payload = {"version": 1, "providers": catalog.get("providers", {})}
-    with open(catalog_path(), "w", encoding="utf-8") as handle:
-        json.dump(payload, handle, ensure_ascii=False, indent=2)
+    payload: dict[str, Any] = {"version": 1, "providers": catalog.get("providers", {})}
+    if isinstance(catalog.get("embedding"), dict) and catalog["embedding"]:
+        payload["embedding"] = catalog["embedding"]
+    atomic_write_json(catalog_path(), payload)
 
 
 def migrate_from_config(config: dict[str, Any]) -> bool:
@@ -362,13 +491,88 @@ def delete_provider(name: str) -> bool:
     return True
 
 
+def _normalize_embedding(raw: dict[str, Any]) -> dict[str, Any]:
+    mode = str(raw.get("mode") or "auto").strip().lower()
+    if mode not in VALID_EMBEDDING_MODES:
+        raise ValueError(f"Unsupported embedding mode: {mode!r}")
+    dim_raw = raw.get("dim")
+    dim = int(dim_raw) if dim_raw not in (None, "", 0, "0") else None
+    if dim is not None and dim <= 0:
+        dim = None
+    return {
+        "mode": mode,
+        "provider_name": str(raw.get("provider_name") or "").strip(),
+        "preset": str(raw.get("preset") or "").strip().lower(),
+        "base_url": str(raw.get("base_url") or "").strip(),
+        "model": str(raw.get("model") or "").strip(),
+        "api_key": str(raw.get("api_key") or "").strip(),
+        "dim": dim,
+        "ollama_url": str(raw.get("ollama_url") or "http://localhost:11434").strip() or "http://localhost:11434",
+        "ollama_model": str(raw.get("ollama_model") or "qwen3-embedding:0.6b").strip() or "qwen3-embedding:0.6b",
+    }
+
+
+def _effective_custom_url(entry: dict[str, Any]) -> str:
+    base_url = str(entry.get("base_url") or "").strip()
+    if base_url:
+        return base_url
+    preset = str(entry.get("preset") or "").strip().lower()
+    return str(EMBEDDING_PRESETS.get(preset, {}).get("base_url") or "").strip()
+
+
+def get_embedding_config() -> dict[str, Any]:
+    """Read user-saved embedding config from ~/.bobodan/provider.json without creating it."""
+    raw = load_catalog().get("embedding")
+    if not isinstance(raw, dict) or not raw:
+        return {}
+    try:
+        return _normalize_embedding(raw)
+    except ValueError:
+        return {}
+
+
+def save_embedding_config(entry: dict[str, Any], *, clear_api_key: bool = False) -> dict[str, Any]:
+    """Persist embedding configuration in provider.json while keeping keys safe."""
+    catalog = _ensure_catalog()
+    normalized = _normalize_embedding(entry)
+    existing = catalog.get("embedding") if isinstance(catalog.get("embedding"), dict) else {}
+    if (
+        normalized["mode"] == "custom"
+        and not normalized["api_key"]
+        and not clear_api_key
+        and existing
+        and existing.get("api_key")
+    ):
+        prev_url = _effective_custom_url(existing)
+        next_url = _effective_custom_url(normalized)
+        if _same_origin(prev_url, next_url):
+            normalized["api_key"] = str(existing.get("api_key") or "")
+    elif clear_api_key:
+        normalized["api_key"] = ""
+    catalog["embedding"] = normalized
+    save_catalog(catalog)
+    return dict(normalized)
+
+
+def _strip_v1_suffix(url: str) -> str:
+    clean = (url or "").strip().rstrip("/")
+    if clean.lower().endswith("/v1"):
+        clean = clean[:-3].rstrip("/")
+    return clean or "http://localhost:11434"
+
+
 def apply_to_config(config: dict[str, Any]) -> dict[str, Any]:
     """把 catalog 合并进 config，返回新 dict（不修改原对象）。
 
     合并后 `config["llm"]["providers"]` 是 UI 管理的真相，且保留
-    `model` 字段（= model_default）以兼容现有 factory / 服务代码。
+    `model` 字段（= model_default）以兼容现有 factory / 服务代码；
+    若 `provider.json` 含 `embedding` 节，则同步覆盖 `config["rag"]` 向量配置。
     """
-    merged = {**config, "llm": {**config.get("llm", {})}}
+    merged = {
+        **config,
+        "llm": {**config.get("llm", {})},
+        "rag": {**(config.get("rag") or {})},
+    }
     providers = resolve_providers(config)
     normalized: dict[str, dict[str, Any]] = {}
     for name, raw in providers.items():
@@ -382,6 +586,80 @@ def apply_to_config(config: dict[str, Any]) -> dict[str, Any]:
         entry["models"] = models
         normalized[name] = entry
     merged["llm"]["providers"] = normalized
+
+    embedding_cfg = get_embedding_config()
+    rag = merged["rag"]
+    if embedding_cfg:
+        mode = embedding_cfg.get("mode", "auto")
+        if mode == "disabled":
+            rag["embedding_backend"] = "disabled"
+        elif mode == "ollama":
+            rag["embedding_backend"] = "ollama"
+            rag["ollama_url"] = embedding_cfg.get("ollama_url") or "http://localhost:11434"
+            rag["ollama_model"] = embedding_cfg.get("ollama_model") or "qwen3-embedding:0.6b"
+        elif mode == "provider":
+            pname = embedding_cfg.get("provider_name") or ""
+            provider_cfg = normalized.get(pname)
+            if provider_cfg and (pname == "ollama" or provider_cfg.get("preset") == "ollama"):
+                rag["embedding_backend"] = "ollama"
+                rag["ollama_url"] = _strip_v1_suffix(provider_cfg.get("base_url") or "")
+                rag["ollama_model"] = embedding_cfg.get("model") or "qwen3-embedding:0.6b"
+            elif provider_cfg:
+                preset = str(provider_cfg.get("preset") or "").strip().lower()
+                if preset not in EMBEDDING_PRESETS:
+                    preset = pname.lower() if pname.lower() in EMBEDDING_PRESETS else ""
+                model = embedding_cfg.get("model") or str(EMBEDDING_PRESETS.get(preset, {}).get("model") or "")
+                rag["embedding_backend"] = "openai_compat"
+                rag["embedding_preset"] = preset
+                rag["embedding_base_url"] = str(provider_cfg.get("base_url") or "")
+                rag["embedding_model"] = model
+                rag["embedding_api_key_env"] = str(provider_cfg.get("api_key_env") or "")
+                rag["embedding_api_key"] = resolve_api_key(provider_cfg)
+                rag["embedding_dim"] = int(embedding_cfg["dim"]) if embedding_cfg.get("dim") else 0
+            else:
+                rag["embedding_backend"] = "openai_compat"
+                rag["embedding_preset"] = ""
+                rag["embedding_base_url"] = ""
+                rag["embedding_model"] = embedding_cfg.get("model") or ""
+                rag["embedding_api_key_env"] = ""
+                rag["embedding_api_key"] = ""
+                rag["embedding_dim"] = 0
+        elif mode == "custom":
+            preset = str(embedding_cfg.get("preset") or "").strip().lower()
+            preset_meta = EMBEDDING_PRESETS.get(preset, {})
+            base_url = embedding_cfg.get("base_url") or str(preset_meta.get("base_url") or "")
+            model = embedding_cfg.get("model") or str(preset_meta.get("model") or "")
+            key = str(embedding_cfg.get("api_key") or "").strip()
+            key_env = str(preset_meta.get("api_key_env") or "")
+            if not key and preset and preset in normalized:
+                candidate = normalized[preset]
+                if _same_origin(base_url, str(candidate.get("base_url") or "")):
+                    key = resolve_api_key(candidate)
+            rag["embedding_backend"] = "openai_compat"
+            rag["embedding_preset"] = preset
+            rag["embedding_base_url"] = base_url
+            rag["embedding_model"] = model
+            rag["embedding_api_key_env"] = key_env
+            rag["embedding_api_key"] = key
+            rag["embedding_dim"] = int(embedding_cfg["dim"]) if embedding_cfg.get("dim") else 0
+
+    if not embedding_cfg or embedding_cfg.get("mode", "auto") == "auto":
+        # Auto mode preserves legacy env-var behavior, and also lets users who already
+        # entered a matching provider key in UI (`siliconflow`, `zhipu`, etc.) reuse it.
+        if str(rag.get("embedding_backend", "auto") or "auto").strip().lower() == "auto":
+            preset = str(rag.get("embedding_preset") or "").strip().lower()
+            preset_meta = EMBEDDING_PRESETS.get(preset, {})
+            key_env = str(rag.get("embedding_api_key_env") or preset_meta.get("api_key_env") or "")
+            has_env_key = bool(key_env and os.getenv(key_env, "").strip())
+            if preset == "zhipu" and not has_env_key:
+                has_env_key = bool(os.getenv("ZHIPU_API_KEY", "").strip() or os.getenv("ZHIPUAI_API_KEY", "").strip())
+            if not rag.get("embedding_api_key") and not has_env_key and preset in normalized:
+                candidate = normalized[preset]
+                target_url = str(rag.get("embedding_base_url") or preset_meta.get("base_url") or "")
+                if _same_origin(target_url, str(candidate.get("base_url") or "")):
+                    reused = resolve_api_key(candidate)
+                    if reused:
+                        rag["embedding_api_key"] = reused
     return merged
 
 
@@ -392,4 +670,7 @@ def resolve_api_key(provider_config: dict[str, Any]) -> str:
         api_key_env = provider_config.get("api_key_env", "")
         if api_key_env:
             api_key = os.getenv(api_key_env, "")
+        if not api_key and api_key_env in {"ZHIPUAI_API_KEY", "ZHIPU_API_KEY"}:
+            alt_env = "ZHIPU_API_KEY" if api_key_env == "ZHIPUAI_API_KEY" else "ZHIPUAI_API_KEY"
+            api_key = os.getenv(alt_env, "")
     return api_key or ""

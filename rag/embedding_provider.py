@@ -321,13 +321,25 @@ def _api_settings(rag_cfg: dict) -> dict:
     preset_name = str(rag_cfg.get("embedding_preset") or "").strip().lower()
     preset = PRESETS.get(preset_name, {})
     base_url = str(rag_cfg.get("embedding_base_url") or preset.get("base_url") or "").strip()
-    model = str(rag_cfg.get("embedding_model") or preset.get("model") or "").strip()
+    default_model = str(preset.get("model") or "").strip()
+    model = str(rag_cfg.get("embedding_model") or default_model).strip()
     key_env = str(rag_cfg.get("embedding_api_key_env") or preset.get("api_key_env") or "").strip()
-    api_key = os.environ.get(key_env, "").strip() if key_env else ""
-    if not api_key:
-        # Discouraged escape hatch for a local, untracked override.
-        api_key = str(rag_cfg.get("embedding_api_key") or "").strip()
-    dim = rag_cfg.get("embedding_dim") or preset.get("dim")
+    api_key = str(rag_cfg.get("embedding_api_key") or "").strip()
+    if not api_key and key_env:
+        api_key = os.environ.get(key_env, "").strip()
+    if not api_key and preset_name == "zhipu":
+        api_key = (
+            os.environ.get("ZHIPU_API_KEY", "").strip()
+            or os.environ.get("ZHIPUAI_API_KEY", "").strip()
+        )
+    configured_dim = rag_cfg.get("embedding_dim")
+    if configured_dim:
+        dim = int(configured_dim)
+    elif preset and (not default_model or model == default_model):
+        dim = preset.get("dim")
+    else:
+        # Custom/overridden model may have a different vector width than the preset default.
+        dim = None
     return {
         "base_url": base_url,
         "model": model,
@@ -362,6 +374,7 @@ def _api_provider(rag_cfg: dict, api: dict) -> OpenAICompatibleEmbeddingProvider
 def create_embedding_provider(config: dict | None = None) -> EmbeddingProvider:
     """Pick a provider from config.
 
+    - `disabled` / `none` / `fts_only`: user explicitly chose FTS-only retrieval.
     - `ollama`: force the local Ollama path.
     - `openai_compat` (aliases: `openai`, `api`): force the API path; if it is
       under-configured it stays unavailable and retrieval degrades to FTS5
@@ -371,6 +384,8 @@ def create_embedding_provider(config: dict | None = None) -> EmbeddingProvider:
     """
     rag_cfg = (config or {}).get("rag", {}) or {}
     backend = str(rag_cfg.get("embedding_backend", "auto") or "auto").strip().lower()
+    if backend in {"disabled", "none", "fts_only"}:
+        return UnavailableEmbeddingProvider("当前设置为仅纯文本检索（未启用向量模型）。")
     api = _api_settings(rag_cfg)
     if backend == "ollama":
         return _ollama_provider(rag_cfg)

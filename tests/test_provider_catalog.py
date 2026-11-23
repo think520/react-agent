@@ -430,3 +430,109 @@ def test_provider_presets_endpoint_exposes_auth_metadata(monkeypatch, tmp_path):
     assert by_name["ollama"]["keyless"] is True
     assert by_name["ollama"]["auth_type"] == "none"
     assert by_name["kimi"]["model_default"] == "moonshot-v1-8k"
+    assert by_name["siliconflow"]["supports_embedding"] is True
+    assert by_name["deepseek"]["supports_embedding"] is False
+
+
+def test_classify_model_kind_covers_chat_embedding_and_rerank():
+    assert catalog.classify_model_kind("BAAI/bge-m3") == "embedding"
+    assert catalog.classify_model_kind("text-embedding-v4") == "embedding"
+    assert catalog.classify_model_kind("qwen3-embedding:0.6b") == "embedding"
+    assert catalog.classify_model_kind("nomic-embed-text") == "embedding"
+    assert catalog.classify_model_kind("BAAI/bge-reranker-v2-m3") == "rerank"
+    assert catalog.classify_model_kind("deepseek-chat") == "chat"
+    assert catalog.classify_model_kind("glm-4-flash") == "chat"
+
+
+def test_fetch_models_tags_embedding_and_rerank_while_preserving_chat_shape(monkeypatch, tmp_path):
+    import httpx
+    from web.backend.routers.settings import ProviderFetchModelsRequest, fetch_provider_models
+
+    monkeypatch.setenv("BOBODAN_HOME", str(tmp_path / "home"))
+    monkeypatch.setattr(
+        httpx,
+        "get",
+        lambda url, headers=None, timeout=10: httpx.Response(
+            200,
+            json={
+                "data": [
+                    {"id": "deepseek-ai/DeepSeek-V3"},
+                    {"id": "BAAI/bge-m3"},
+                    {"id": "BAAI/bge-reranker-v2-m3"},
+                ]
+            },
+            request=httpx.Request("GET", url),
+        ),
+    )
+    res = fetch_provider_models(ProviderFetchModelsRequest(base_url="https://api.siliconflow.cn/v1", api_key="k"))
+    by_id = {item["id"]: item for item in res["models"]}
+    assert by_id["deepseek-ai/DeepSeek-V3"] == {"id": "deepseek-ai/DeepSeek-V3", "name": "deepseek-ai/DeepSeek-V3"}
+    assert by_id["BAAI/bge-m3"]["kind"] == "embedding"
+    assert by_id["BAAI/bge-reranker-v2-m3"]["kind"] == "rerank"
+
+
+def test_embedding_config_persists_across_provider_crud_and_guards_key_origin(monkeypatch, tmp_path):
+    monkeypatch.setenv("BOBODAN_HOME", str(tmp_path / "home"))
+    catalog.save_embedding_config({
+        "mode": "custom",
+        "preset": "siliconflow",
+        "base_url": "https://api.siliconflow.cn/v1",
+        "model": "BAAI/bge-m3",
+        "api_key": "sk-emb-secret",
+        "dim": 1024,
+    })
+
+    # Provider upsert / delete must preserve catalog["embedding"]
+    catalog.upsert_provider("kimi", {"preset": "kimi", "api_key": "sk-kimi"})
+    catalog.delete_provider("kimi")
+    saved = catalog.get_embedding_config()
+    assert saved["api_key"] == "sk-emb-secret"
+
+    # Same origin edit with blank api_key preserves saved secret
+    catalog.save_embedding_config({
+        "mode": "custom",
+        "preset": "siliconflow",
+        "base_url": "https://api.siliconflow.cn/v1",
+        "model": "Qwen/Qwen3-Embedding-8B",
+        "api_key": "",
+    })
+    assert catalog.get_embedding_config()["api_key"] == "sk-emb-secret"
+
+    # Origin change with blank api_key MUST NOT carry previous secret to new host
+    catalog.save_embedding_config({
+        "mode": "custom",
+        "preset": "",
+        "base_url": "https://other.invalid/v1",
+        "model": "custom-embed",
+        "api_key": "",
+    })
+    assert catalog.get_embedding_config()["api_key"] == ""
+
+
+def test_apply_to_config_merges_embedding_modes_and_reuses_provider_keys(monkeypatch, tmp_path):
+    home = tmp_path / "home"
+    monkeypatch.setenv("BOBODAN_HOME", str(home))
+    for env_key in ("ZHIPU_API_KEY", "ZHIPUAI_API_KEY", "SILICONFLOW_API_KEY"):
+        monkeypatch.delenv(env_key, raising=False)
+    cfg_path = _write_config(tmp_path, "llm: {}\nrag:\n  embedding_backend: auto\n  embedding_preset: zhipu\n")
+
+    # 1. Auto mode reuses configured matching preset key (including ZHIPUAI_API_KEY env compat)
+    catalog.upsert_provider("zhipu", {"preset": "zhipu", "api_key": "sk-zhipu-from-ui"})
+    loaded = ProviderFactory.load_config(cfg_path)
+    assert loaded["rag"]["embedding_api_key"] == "sk-zhipu-from-ui"
+
+    # 2. Provider mode reusing ollama strips /v1 suffix cleanly
+    catalog.save_embedding_config({
+        "mode": "provider",
+        "provider_name": "ollama",
+        "model": "nomic-embed-text",
+    })
+    loaded = ProviderFactory.load_config(cfg_path)
+    assert loaded["rag"]["embedding_backend"] == "ollama"
+    assert loaded["rag"]["ollama_url"] == "http://localhost:11434"
+    assert loaded["rag"]["ollama_model"] == "nomic-embed-text"
+
+    # 3. Disabled mode forces explicit disabled backend
+    catalog.save_embedding_config({"mode": "disabled"})
+    loaded = ProviderFactory.load_config(cfg_path)
+    assert loaded["rag"]["embedding_backend"] == "disabled"

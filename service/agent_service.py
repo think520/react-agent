@@ -61,7 +61,7 @@ class AgentService:
         configured, is_default, ...}, ...]). `model` is the default model
         (back-compat); `models` is the selectable list (P5G.4).
         """
-        from providers.catalog import resolve_api_key
+        from providers.catalog import BUILTIN_PRESETS, resolve_api_key
 
         providers_cfg = config.get("llm", {}).get("providers") or {}
         default_provider = config.get("llm", {}).get("default_provider", "")
@@ -71,18 +71,29 @@ class AgentService:
             api_key_env = cfg.get("api_key_env", "")
             models = cfg.get("models") or []
             model_default = cfg.get("model_default") or cfg.get("model") or ""
-            providers.append({
+            preset = cfg.get("preset") or name
+            preset_meta = BUILTIN_PRESETS.get(preset, {})
+            supports_embedding = cfg.get("supports_embedding")
+            if supports_embedding is None and "supports_embedding" in preset_meta:
+                supports_embedding = preset_meta["supports_embedding"]
+            embedding_note = cfg.get("embedding_note") or preset_meta.get("embedding_note", "")
+            entry: dict[str, Any] = {
                 "name": name,
                 "type": cfg.get("type", "unknown"),
                 "model": model_default,
                 "models": models,
                 "api_key_env": api_key_env,
                 "base_url": cfg.get("base_url", ""),
-                "preset": cfg.get("preset") or name,
+                "preset": preset,
                 # 有 key 或免 key 的本地服务（如 Ollama）视为已配置
                 "configured": bool(resolve_api_key(cfg)) or bool(cfg.get("keyless")),
                 "is_default": name == default_provider,
-            })
+            }
+            if supports_embedding is not None:
+                entry["supports_embedding"] = bool(supports_embedding)
+            if embedding_note:
+                entry["embedding_note"] = str(embedding_note)
+            providers.append(entry)
 
         return _ok(providers=providers)
 
