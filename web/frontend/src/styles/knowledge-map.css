@@ -612,12 +612,11 @@ font-size: 12px;
   overflow-y: auto;
 }
 
-.km-batch-row {
+.km-dialog label.km-batch-row {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  flex-direction: row;
-  gap: 8px;
+  gap: 10px;
   margin: 0;
   padding: 8px 10px;
   border: 1px solid var(--border);
@@ -626,15 +625,27 @@ font-size: 12px;
   cursor: pointer;
 }
 
-.km-batch-row.is-disabled {
+.km-dialog label.km-batch-row.is-disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.km-dialog .km-batch-row input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  accent-color: var(--blue);
+  cursor: pointer;
 }
 
 .km-batch-doc {
   display: grid;
   gap: 2px;
   min-width: 0;
+  text-align: left;
 }
 
 .km-batch-doc strong {
