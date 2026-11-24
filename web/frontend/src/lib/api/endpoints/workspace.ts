@@ -14,8 +14,10 @@ import type {
   PersonalKnowledgeItem,
   ProviderModel,
   ProviderPreset,
+  RagBackfillJobResponse,
   RagBackfillResponse,
   RagEmbeddingTestResponse,
+  RagOllamaDiscoveryResponse,
   RagSearchTestResponse,
   RagSettingsResponse,
 } from "../../../types";
@@ -66,6 +68,15 @@ export const workspaceApi = {
   backfillRagVectors: (rebuild = false) => request<RagBackfillResponse>(
     "/api/settings/rag/backfill",
     json({ rebuild }),
+  ),
+  startRagBackfill: (rebuild = false) => request<RagBackfillJobResponse>(
+    "/api/settings/rag/backfill",
+    json({ rebuild, background: true }),
+  ),
+  ragBackfillStatus: () => request<RagBackfillJobResponse>("/api/settings/rag/backfill/status"),
+  cancelRagBackfill: () => request<RagBackfillJobResponse>("/api/settings/rag/backfill/cancel", { method: "POST" }),
+  ragOllamaModels: (url?: string) => request<RagOllamaDiscoveryResponse>(
+    `/api/settings/rag/ollama-models${url ? `?url=${encodeURIComponent(url)}` : ""}`,
   ),
   testRagSearch: (query: string, topK = 5, mode = "auto") => request<RagSearchTestResponse>(
     "/api/settings/rag/search-test",

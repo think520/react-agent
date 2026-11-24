@@ -535,6 +535,18 @@ class KBSQLiteStore:
             for row in rows
         ]
 
+    def get_sample_titles(self, limit: int = 8) -> list[str]:
+        """Return distinct document titles/filenames for sample hit-test suggestions."""
+        conn = self._get_conn()
+        rows = conn.execute(
+            """SELECT DISTINCT COALESCE(NULLIF(TRIM(title), ''), source) AS label
+               FROM documents
+               ORDER BY updated_at DESC
+               LIMIT ?""",
+            (max(1, min(int(limit), 20)),),
+        ).fetchall()
+        return [str(row["label"]) for row in rows if row["label"]]
+
     # ── directory entries ────────────────────────────────────────────────
 
     def upsert_directory_entry(

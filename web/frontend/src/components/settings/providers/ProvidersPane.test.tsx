@@ -19,6 +19,17 @@ const provider: ProviderSummary = {
   base_url: "https://api.example.com/v1",
   model: "model-known",
   models: [{ id: "model-known", name: "Known model" }],
+  supports_embedding: true,
+};
+
+const secondProvider: ProviderSummary = {
+  name: "deepseek",
+  configured: true,
+  base_url: "https://api.deepseek.com/v1",
+  model: "deepseek-chat",
+  models: [{ id: "deepseek-chat", name: "DeepSeek Chat" }],
+  supports_embedding: false,
+  embedding_note: "DeepSeek 仅用于对话生成。",
 };
 
 beforeEach(() => {
@@ -31,7 +42,7 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe("ProvidersPane model discovery", () => {
+describe("ProvidersPane model discovery & UX protections", () => {
   it("keeps existing models when the provider cannot list models", async () => {
     render(<ProvidersPane providers={[provider]} onChanged={() => {}} />);
 
@@ -56,5 +67,34 @@ describe("ProvidersPane model discovery", () => {
     const alert = await screen.findByText(/该服务没有提供可用的 GET \/models 接口/);
     expect(alert.textContent).not.toContain("。。");
     expect(alert.textContent).not.toContain("可手动输入模型 ID");
+  });
+
+  it("renders capability pills, exits clean edit on Escape without bubbling, and guards dirty switch", async () => {
+    const outerKeyListener = vi.fn();
+    window.addEventListener("keydown", outerKeyListener);
+    try {
+      render(<ProvidersPane providers={[provider, secondProvider]} onChanged={() => {}} />);
+      expect(screen.getByText("对话 + 向量")).toBeTruthy();
+
+      fireEvent.click(screen.getByRole("button", { name: "编辑" }));
+      expect(screen.getByText("编辑 custom")).toBeTruthy();
+
+      // Escape while clean exits edit mode and stops propagation to outer modal
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(screen.queryByText("编辑 custom")).toBeNull();
+      expect(outerKeyListener).not.toHaveBeenCalled();
+
+      // Dirty form guards switching providers
+      fireEvent.click(screen.getByRole("button", { name: "编辑" }));
+      const inputs = screen.getAllByRole("textbox");
+      fireEvent.change(inputs[1], { target: { value: "https://changed.example.com/v1" } });
+      fireEvent.click(screen.getAllByRole("button", { name: /deepseek/ })[0]);
+      expect(await screen.findByText("放弃未保存的供应商修改？")).toBeTruthy();
+
+      fireEvent.click(screen.getByRole("button", { name: "放弃修改" }));
+      expect(screen.getByText("仅对话")).toBeTruthy();
+    } finally {
+      window.removeEventListener("keydown", outerKeyListener);
+    }
   });
 });

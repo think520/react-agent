@@ -231,6 +231,28 @@ kbd { color: var(--faint); font-family: inherit; font-size: 12px; }
   color: var(--muted);
   line-height: 1.5;
 }
+
+.retrieval-degraded-actions {
+  margin-top: 6px;
+}
+
+.retrieval-degraded-link {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 3px 9px;
+  background: var(--paper);
+  color: var(--blue);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.retrieval-degraded-link:hover {
+  border-color: var(--blue);
+  background: var(--blue-wash);
+}
 .context-source-list, .context-source-group > div { display: grid; gap: 8px; }
 .context-source-group { border: 1px solid var(--border); border-radius: 8px; background: rgba(255,255,255,.38); }
 .context-source-group > summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; cursor: pointer; list-style: none; padding: 9px 10px; }

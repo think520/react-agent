@@ -1,14 +1,15 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { RetrievalDegradedNotice, degradedHeadline } from "./RetrievalDegradedNotice";
 
-/**
- * W2 降级可见性：不能只说「降级了」，要说**为什么**和**下一步**。
- * 没有原因（老载荷）时也要有话说，且不能比原来更含糊。
- */
-
 afterEach(cleanup);
+
+function LocationProbe() {
+  const loc = useLocation();
+  return <span data-testid="loc-search">{loc.search}</span>;
+}
 
 describe("degradedHeadline", () => {
   it("prefers the reason's title", () => {
@@ -44,5 +45,17 @@ describe("RetrievalDegradedNotice", () => {
     render(<RetrievalDegradedNotice hitCount={0} />);
 
     expect(screen.getByText("关键词检索未命中，向量检索当前不可用")).toBeTruthy();
+  });
+
+  it("navigates directly to RAG settings when inside router", () => {
+    render(
+      <MemoryRouter initialEntries={["/chat"]}>
+        <RetrievalDegradedNotice hitCount={2} />
+        <LocationProbe />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /去「检索与 RAG」处理/ }));
+    expect(screen.getByTestId("loc-search").textContent).toBe("?settings=rag");
   });
 });

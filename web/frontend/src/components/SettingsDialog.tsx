@@ -1,11 +1,19 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity, Bot, BookOpenText, Brain, Check, ChevronLeft, CircleUserRound,
   Cpu, RefreshCw, Search, ShieldCheck, Sparkles, Wrench, X,
 } from "lucide-react";
 
 import { api } from "../lib/api";
-import type { LegacyGraphPreview, LibrarySummary, MemoryOverview, RuntimeStatus, SettingsSummary } from "../types";
+import { useRagBackfillStore } from "../stores/ragBackfillStore";
+import type {
+  LegacyGraphPreview,
+  LibrarySummary,
+  MemoryOverview,
+  RagSettingsResponse,
+  RuntimeStatus,
+  SettingsSummary,
+} from "../types";
 import { IconButton } from "./common";
 import {} from "./ModelSelect";
 import {} from "./DropdownSelect";
@@ -43,7 +51,6 @@ const sections: Array<{ id: SectionId; label: string; icon: typeof Bot; aliases:
 /** 旧版 URL/入口的 section id 兼容（?settings=user / ?settings=ai 仍可用）。 */
 const LEGACY_SECTION_IDS: Record<string, SectionId> = { user: "me", ai: "models" };
 
-
 export function SettingsDialog({
   settings,
   activeLibrary,
@@ -72,6 +79,8 @@ export function SettingsDialog({
   const [saving, setSaving] = useState(false);
   const [searchTest, setSearchTest] = useState<Record<string, string>>({});
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus | null>(null);
+  const [ragSettings, setRagSettings] = useState<RagSettingsResponse | null>(null);
+  const [ragError, setRagError] = useState("");
   const [memoryOverview, setMemoryOverview] = useState<MemoryOverview | null>(null);
   const [legacyGraph, setLegacyGraph] = useState<LegacyGraphPreview | null>(null);
   const [legacyConceptIds, setLegacyConceptIds] = useState<string[]>([]);
@@ -80,13 +89,44 @@ export function SettingsDialog({
   const [usage, setUsage] = useState<Awaited<ReturnType<typeof api.llmUsage>> | null>(null);
   const [usageDays, setUsageDays] = useState<7 | 30>(7);
   const [confirmLegacy, setConfirmLegacy] = useState<"migrate" | "archive" | null>(null);
+  const [dirtySource, setDirtySource] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
   const activeNavRef = useRef<HTMLButtonElement>(null);
+  const storeLatestRag = useRagBackfillStore((state) => state.latestRag);
 
   useEffect(() => {
     setPreferences(settings.preferences);
     setProfile({ ...settings.preferences.user });
     setAssistant({ ...settings.preferences.assistant });
   }, [settings]);
+
+  const refreshRagSettings = useCallback(async () => {
+    if (typeof api.ragSettings !== "function") return null;
+    setRagError("");
+    try {
+      const next = await api.ragSettings();
+      setRagSettings(next);
+      return next;
+    } catch (reason) {
+      setRagError(reason instanceof Error ? reason.message : "无法读取检索与 RAG 状态");
+      return null;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (active === "models" || active === "rag" || active === "status") {
+      void refreshRagSettings();
+    }
+    if (active === "rag" || active === "models") {
+      void useRagBackfillStore.getState().syncStatus();
+    }
+  }, [active, refreshRagSettings]);
+
+  useEffect(() => {
+    if (!storeLatestRag) return;
+    setRagSettings(storeLatestRag);
+    setRuntimeStatus(null);
+  }, [storeLatestRag]);
 
   useEffect(() => {
     if (active !== "status" || runtimeStatus) return;
@@ -102,6 +142,8 @@ export function SettingsDialog({
     setLegacyGraph(null);
     setLegacyConceptIds([]);
     setLegacyMemoryIds([]);
+    setRagSettings(null);
+    setRuntimeStatus(null);
   }, [activeLibrary?.library_id]);
 
   useEffect(() => {
@@ -146,6 +188,28 @@ export function SettingsDialog({
   useEffect(() => {
     activeNavRef.current?.scrollIntoView?.({ block: "nearest", inline: "center" });
   }, [active]);
+
+  const handleDirtyChange = useCallback((source: string, dirty: boolean) => {
+    setDirtySource((current) => {
+      if (dirty) return source;
+      return current === source ? null : current;
+    });
+  }, []);
+
+  const handleRagDirty = useCallback((dirty: boolean) => handleDirtyChange("向量模型配置", dirty), [handleDirtyChange]);
+  const handleProviderDirty = useCallback((dirty: boolean) => handleDirtyChange("供应商编辑", dirty), [handleDirtyChange]);
+
+  const runWithDirtyCheck = useCallback((action: () => void) => {
+    if (dirtySource) {
+      setPendingAction(() => action);
+      return;
+    }
+    action();
+  }, [dirtySource]);
+
+  const requestClose = useCallback(() => {
+    runWithDirtyCheck(onClose);
+  }, [runWithDirtyCheck, onClose]);
 
   async function patchPreferences(patch: Record<string, unknown>) {
     if (saving) return;
@@ -218,7 +282,7 @@ export function SettingsDialog({
   }
 
   function flashSetting(label: string) {
-    const selector = ".settings-main .settings-section, .settings-main .setting-row, .settings-main .settings-field, .settings-main .settings-boundary";
+    const selector = ".settings-main .settings-section, .settings-main .setting-row, .settings-main .settings-field, .settings-main .settings-boundary, .settings-main .rag-footnote";
     const target = Array.from(document.querySelectorAll<HTMLElement>(selector)).find((element) => element.textContent?.includes(label));
     if (!target) return;
     target.scrollIntoView({ block: "center" });
@@ -227,28 +291,35 @@ export function SettingsDialog({
   }
 
   function jumpTo(tab: SectionId, label?: string) {
-    onSectionChange(tab);
-    setQuery("");
-    if (label) window.setTimeout(() => flashSetting(label), 80);
+    const perform = () => {
+      onSectionChange(tab);
+      setQuery("");
+      if (label) window.setTimeout(() => flashSetting(label), 80);
+    };
+    if (tab !== active) {
+      runWithDirtyCheck(perform);
+      return;
+    }
+    perform();
   }
 
   function sectionContent() {
     if (active === "assistant") return <AssistantSection assistant={assistant} setAssistant={setAssistant} />;
     if (active === "me") return <MeSection profile={profile} setProfile={setProfile} />;
     if (active === "appearance") return <AppearanceSection appearance={preferences.appearance} patch={(patch) => void patchPreferences(patch)} />;
-    if (active === "models") return <ModelsSection settings={settings} preferences={preferences} usage={usage} usageDays={usageDays} setUsageDays={setUsageDays} patch={(patch) => void patchPreferences(patch)} searchTest={searchTest} testSearchProvider={testSearchProvider} onSettingsChange={onSettingsChange} onOpenRag={() => onSectionChange("rag")} />;
+    if (active === "models") return <ModelsSection settings={settings} preferences={preferences} ragSettings={ragSettings} onRagRefresh={refreshRagSettings} usage={usage} usageDays={usageDays} setUsageDays={setUsageDays} patch={(patch) => void patchPreferences(patch)} searchTest={searchTest} testSearchProvider={testSearchProvider} onSettingsChange={onSettingsChange} onOpenRag={() => jumpTo("rag")} onDirtyChange={handleProviderDirty} />;
     if (active === "memory") return <MemorySection preferences={preferences} patch={(patch) => void patchPreferences(patch)} memoryOverview={memoryOverview} activeLibrary={activeLibrary} legacyGraph={legacyGraph} legacyConceptIds={legacyConceptIds} setLegacyConceptIds={setLegacyConceptIds} legacyMemoryIds={legacyMemoryIds} setLegacyMemoryIds={setLegacyMemoryIds} recommendedMemories={recommendedMemories} allConceptsSelected={allConceptsSelected} allRecommendedMemoriesSelected={allRecommendedMemoriesSelected} migrationBusy={migrationBusy} setConfirmLegacy={setConfirmLegacy} />;
     if (active === "skills") return <SkillsSection skills={settings.skills} preferences={preferences} patch={(patch) => void patchPreferences(patch)} />;
-    if (active === "rag") return <RagSection onOpenModels={() => onSectionChange("models")} onStatusInvalidated={() => setRuntimeStatus(null)} />;
+    if (active === "rag") return <RagSection ragData={ragSettings} loadError={ragError} onReload={() => void refreshRagSettings()} onRagUpdated={(next) => { setRagSettings(next); setRuntimeStatus(null); }} onOpenModels={() => jumpTo("models")} onStatusInvalidated={() => setRuntimeStatus(null)} onDirtyChange={handleRagDirty} />;
     if (active === "security") return <SecuritySection />;
     if (active === "experiments") return <ExperimentsSection />;
     return <StatusSection runtimeStatus={runtimeStatus} />;
   }
 
-  return <Modal backdropClassName="settings-backdrop" onClose={onClose} ariaLabel="设置">
+  return <Modal backdropClassName="settings-backdrop" onClose={requestClose} ariaLabel="设置">
     {/* Nested managers render alongside instead of replacing this dialog, so
         the Modal stack decides which layer Escape closes. */}
-            {confirmLegacy && <ConfirmDialog
+    {confirmLegacy && <ConfirmDialog
       busy={migrationBusy}
       danger={confirmLegacy === "archive"}
       title={confirmLegacy === "migrate" ? "迁移所选旧数据？" : "全部跳过并归档？"}
@@ -259,8 +330,24 @@ export function SettingsDialog({
       onCancel={() => setConfirmLegacy(null)}
       onConfirm={() => void (confirmLegacy === "migrate" ? migrateLegacyGraph() : archiveLegacyGraphWithoutImport())}
     />}
+    {pendingAction && (
+      <ConfirmDialog
+        danger
+        title={`放弃未保存的${dirtySource || ""}修改？`}
+        detail="离开当前页面后，尚未保存的修改将会丢失。"
+        confirmLabel="放弃修改"
+        cancelLabel="留在此处"
+        onCancel={() => setPendingAction(null)}
+        onConfirm={() => {
+          const action = pendingAction;
+          setDirtySource(null);
+          setPendingAction(null);
+          action();
+        }}
+      />
+    )}
     <section className="settings-dialog">
-      <header className="settings-dialog-header"><button className="settings-back" onClick={onClose} aria-label="返回"><ChevronLeft /></button><strong>设置</strong><h2>{sections.find((item) => item.id === active)?.label}</h2><IconButton label="关闭设置" onClick={onClose}><X /></IconButton></header>
+      <header className="settings-dialog-header"><button className="settings-back" onClick={requestClose} aria-label="返回"><ChevronLeft /></button><strong>设置</strong><h2>{sections.find((item) => item.id === active)?.label}</h2><IconButton label="关闭设置" onClick={requestClose}><X /></IconButton></header>
       <div className="settings-dialog-body"><nav className="settings-nav" aria-label="设置分类"><SearchField className="settings-search" size="sm" value={query} onChange={setQuery} placeholder="搜索设置" ariaLabel="搜索设置" clearLabel="清空搜索" onCompositionStart={ime.compositionProps.onCompositionStart} onCompositionEnd={ime.compositionProps.onCompositionEnd} onKeyDown={(event) => { if (ime.isComposing(event)) return; if (!matches.length) return; if (event.key === "ArrowDown") { event.preventDefault(); setSearchIndex((current) => (current + 1) % matches.length); } else if (event.key === "ArrowUp") { event.preventDefault(); setSearchIndex((current) => (current - 1 + matches.length) % matches.length); } else if (event.key === "Enter") { event.preventDefault(); jumpTo(matches[Math.min(searchIndex, matches.length - 1)].tab, matches[Math.min(searchIndex, matches.length - 1)].label); } }} />{matches.length > 0 ? matches.map(({ id, label, icon: Icon, tab, hint }, index) => <button ref={active === id ? activeNavRef : undefined} className={`${active === tab ? "active" : ""} ${query && searchIndex === index ? "search-active" : ""}`} key={id} onClick={() => jumpTo(tab, query ? label : undefined)} title={hint ? `${label} · ${hint}` : label}><Icon size={17} /><span>{label}</span>{hint && <small>{hint}</small>}{id === "memory" && Boolean(memoryOverview?.pending_candidate_count) && <i className="settings-nav-badge">{memoryOverview?.pending_candidate_count}</i>}</button>) : <p className="sidebar-empty">没有匹配的设置项。</p>}</nav><main className="settings-main">{error && <div className="settings-error">{error}</div>}{notice && <div className="settings-notice"><Check size={14} />{notice}</div>}<SettingsHeading eyebrow="Bobodan Settings" title={sections.find((item) => item.id === active)?.label || ""} /><SettingsPage tab={active}>{sectionContent()}</SettingsPage></main></div>
       {(active === "assistant" || active === "me") && (
         <footer className="settings-dialog-footer">

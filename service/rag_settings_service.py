@@ -4,18 +4,24 @@ from __future__ import annotations
 
 import logging
 import os
+import re
+import threading
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from typing import Any
 from urllib.parse import urlparse
 
 import httpx
 
+from core.cancellation import CancelToken
 from knowledge.paths import knowledge_dir
 from providers.catalog import (
     BUILTIN_PRESETS,
     classify_model_kind,
+    find_matching_provider_key,
     get_embedding_config,
+    normalize_openai_base_url,
     resolve_api_key,
 )
 from rag.embedding_provider import (
@@ -99,6 +105,60 @@ def _strip_v1_suffix(url: str) -> str:
     if clean.lower().endswith("/v1"):
         clean = clean[:-3].rstrip("/")
     return clean or "http://localhost:11434"
+
+
+_DOC_EXTENSIONS = (".markdown", ".md", ".pdf", ".docx", ".pptx", ".txt", ".html", ".htm", ".csv", ".rst")
+_LEADING_PREFIX_RE = re.compile(r"^(?:\d{4}[-_]\d{2}[-_]\d{2}[\s_-]*|\d{1,3}[\.\-_、\s]+)")
+
+
+def _clean_sample_query(raw: str) -> str:
+    text = (raw or "").strip().replace("\\", "/")
+    if "/" in text:
+        text = text.rsplit("/", 1)[-1]
+    lower = text.lower()
+    for ext in _DOC_EXTENSIONS:
+        if lower.endswith(ext):
+            text = text[: -len(ext)]
+            break
+    text = text.replace("_", " ").strip()
+    text = _LEADING_PREFIX_RE.sub("", text).strip(" -·#")
+    text = re.sub(r"\s+", " ", text)
+    if len(text) < 2:
+        return ""
+    if len(text) > 28:
+        text = text[:28].rstrip()
+    return text
+
+
+def _extract_sample_queries(sqlite: KBSQLiteStore, limit: int = 3) -> list[str]:
+    queries: list[str] = []
+    seen: set[str] = set()
+    for raw in sqlite.get_sample_titles(limit=max(limit * 3, 8)):
+        cleaned = _clean_sample_query(raw)
+        if not cleaned:
+            continue
+        key = cleaned.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        queries.append(cleaned)
+        if len(queries) >= limit:
+            break
+    return queries
+
+
+def _format_size(size_bytes: Any) -> str:
+    try:
+        num = float(size_bytes)
+    except (TypeError, ValueError):
+        return ""
+    if num <= 0:
+        return ""
+    if num >= 1024 ** 3:
+        return f"{num / (1024 ** 3):.1f} GB"
+    if num >= 1024 ** 2:
+        return f"{round(num / (1024 ** 2))} MB"
+    return f"{round(num / 1024)} KB"
 
 
 def _effective_api_key_source(saved: dict[str, Any], config: dict[str, Any]) -> tuple[bool, str]:
@@ -226,6 +286,7 @@ class RagSettingsService:
             "vector_error": 0,
         }
         error_samples: list[dict[str, str]] = []
+        sample_queries: list[str] = []
         knowledge_ready = False
         stored_signature = None
 
@@ -244,6 +305,7 @@ class RagSettingsService:
                         }
                         for item in sqlite.get_vector_error_samples(limit=3)
                     ]
+                    sample_queries = _extract_sample_queries(sqlite, limit=3)
                 finally:
                     sqlite.close()
                 stored_signature = read_signature(workspace)
@@ -302,31 +364,31 @@ class RagSettingsService:
         if configured_mode == "disabled" or configured_backend in {"disabled", "none", "fts_only"}:
             semantic_status = {
                 "code": "disabled_by_user",
-                "title": "当前仅使用纯文本关键词检索",
-                "detail": "你已将检索设为「仅纯文本」，资料内容不会发送给外部向量接口，精确词和中文 2-gram 检索仍然完全可用。",
-                "action": "如需搜“意思相近但用词不同”的笔记，可在下方启用云端向量 API 或本地 Ollama。",
+                "title": "当前仅使用关键词检索",
+                "detail": "资料内容不会发送给外部向量接口，精确词和中文 2-gram 检索仍正常可用。",
+                "action": "如需搜“意思相近但用词不同”的内容，可在下方选择「云端向量模型」或「本地 Ollama」。",
             }
         elif provider_name == "openai_compat" and not provider_available:
             semantic_status = {
                 "code": NOT_CONFIGURED,
-                "title": "向量模型未就绪（缺少密钥或地址）",
-                "detail": "当前选择使用云端向量 API，但还没有可用的 API Key、模型名或地址；目前检索走纯文本 FTS5。",
-                "action": "补充 API Key 或切换到已配置的供应商（如硅基流动、百炼、智谱），再保存测试。",
+                "title": "云端向量模型未就绪（缺少密钥或地址）",
+                "detail": "当前选择使用云端向量模型，但还没有可用的 API Key、模型名或地址；目前检索走纯关键词 FTS5。",
+                "action": "补充 API Key 或选择已配置的供应商（如硅基流动、百炼、智谱），再测试并保存。",
             }
         elif configured_mode == "auto" and not provider_available and provider_name == "ollama":
             semantic_status = {
                 "code": NOT_CONFIGURED,
-                "title": "尚未开启向量检索（当前仅纯文本）",
-                "detail": "还没有在设置中启用可用的云端向量密钥，本机 Ollama 也未启动，因此检索自动走纯文本 FTS5 关键词匹配。",
-                "action": "在下方选择「云端向量 API」（推荐硅基流动 BGE-M3）或启动本地 Ollama 后一键补建向量。",
+                "title": "尚未开启向量检索（当前仅关键词）",
+                "detail": "还没有启用云端向量模型，本机 Ollama 也未启动，因此检索自动走纯关键词 FTS5 匹配。",
+                "action": "在下方选择「云端向量模型」（推荐硅基流动 BGE-M3）或启动本地 Ollama，测试后即可一键补建向量。",
             }
         elif not provider_available and provider_name == "ollama":
             ollama_url = str(rag_cfg.get("ollama_url") or "http://localhost:11434")
             semantic_status = {
                 "code": PROVIDER_UNAVAILABLE,
-                "title": "本地 Ollama 向量模型未就绪（当前仅纯文本）",
+                "title": "本地 Ollama 向量模型未就绪（当前仅关键词）",
                 "detail": f"未能从 {ollama_url} 调通模型「{active_model or 'qwen3-embedding:0.6b'}」（服务未启动或未拉取该向量模型）。",
-                "action": f"先启动 Ollama 并执行 `ollama pull {active_model or 'qwen3-embedding:0.6b'}`，点击下方「测试向量模型」确认后即可使用。",
+                "action": f"先启动 Ollama 并执行 `ollama pull {active_model or 'qwen3-embedding:0.6b'}`，刷新发现或点击「测试连通性」确认后保存。",
             }
         elif provider_available and (not knowledge_ready or total_docs == 0):
             semantic_status = {
@@ -413,6 +475,7 @@ class RagSettingsService:
             "semantic_status": semantic_status,
             "vector_stats": vector_stats,
             "error_samples": error_samples,
+            "sample_queries": sample_queries,
             "needs_backfill": needs_backfill,
             "needs_rebuild": needs_rebuild,
         }
@@ -420,6 +483,7 @@ class RagSettingsService:
     @staticmethod
     def get_settings(config: dict[str, Any], workspace: str | None) -> dict[str, Any]:
         saved = get_embedding_config()
+        saved_custom = saved.get("saved_custom") if isinstance(saved.get("saved_custom"), dict) else {}
         rag_cfg = config.get("rag", {}) or {}
         has_key, key_source = _effective_api_key_source(saved, config)
         mode = str(saved.get("mode") or "auto")
@@ -440,6 +504,10 @@ class RagSettingsService:
         if preset in EMBEDDING_PRESETS and not model:
             model = str(EMBEDDING_PRESETS[preset].get("model") or "")
 
+        has_saved_custom_key = bool(
+            (mode == "custom" and saved.get("api_key"))
+            or saved_custom.get("api_key")
+        )
         sanitized_cfg = {
             "mode": mode,
             "provider_name": str(saved.get("provider_name") or ""),
@@ -451,6 +519,9 @@ class RagSettingsService:
             "ollama_model": str(saved.get("ollama_model") or rag_cfg.get("ollama_model") or "qwen3-embedding:0.6b"),
             "has_api_key": has_key,
             "api_key_source": key_source,
+            "has_saved_custom_key": has_saved_custom_key,
+            "saved_custom_preset": str(saved_custom.get("preset") or ""),
+            "saved_custom_base_url": str(saved_custom.get("base_url") or ""),
         }
         return {
             "ok": True,
@@ -461,30 +532,89 @@ class RagSettingsService:
         }
 
     @staticmethod
-    def _build_test_provider(payload: dict[str, Any] | None, config: dict[str, Any]):
-        """Construct an ephemeral EmbeddingProvider for fast connectivity testing."""
+    def probe_ollama_models(ollama_url: str | None = None, config: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Discover locally installed Ollama models, highlighting embedding-capable ones."""
+        saved = get_embedding_config()
+        rag_cfg = (config or {}).get("rag", {}) or {}
+        raw_url = ollama_url or saved.get("ollama_url") or rag_cfg.get("ollama_url") or "http://localhost:11434"
+        clean_url = _strip_v1_suffix(str(raw_url))
+        try:
+            response = httpx.get(f"{clean_url}/api/tags", timeout=2.0)
+            response.raise_for_status()
+            payload = response.json()
+        except Exception as exc:
+            return {
+                "ok": True,
+                "reachable": False,
+                "url": clean_url,
+                "models": [],
+                "embedding_models": [],
+                "error": redact_secrets(str(exc)),
+            }
+        models: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        raw_list = payload.get("models") if isinstance(payload, dict) else []
+        for entry in raw_list if isinstance(raw_list, list) else []:
+            if not isinstance(entry, dict):
+                continue
+            name = str(entry.get("name") or entry.get("model") or "").strip()
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            details = entry.get("details") if isinstance(entry.get("details"), dict) else {}
+            family = str(details.get("family") or "").lower()
+            families = [str(f).lower() for f in (details.get("families") or []) if isinstance(f, str)]
+            kind = classify_model_kind(name)
+            is_embedding = kind == "embedding" or any("bert" in f or "nomic" in f for f in [family, *families])
+            models.append({
+                "name": name,
+                "kind": "embedding" if is_embedding else kind,
+                "is_embedding": is_embedding,
+                "size_label": _format_size(entry.get("size")),
+            })
+        models.sort(key=lambda item: (not item["is_embedding"], item["name"]))
+        return {
+            "ok": True,
+            "reachable": True,
+            "url": clean_url,
+            "models": models,
+            "embedding_models": [m["name"] for m in models if m["is_embedding"]],
+            "error": "",
+        }
+
+    @staticmethod
+    def _build_test_provider_with_meta(
+        payload: dict[str, Any] | None,
+        config: dict[str, Any],
+    ) -> tuple[Any, str, bool]:
+        """Construct an ephemeral EmbeddingProvider + URL normalization metadata."""
         if not payload:
             base_provider = create_embedding_provider(config)
             if isinstance(base_provider, OpenAICompatibleEmbeddingProvider):
-                return OpenAICompatibleEmbeddingProvider(
-                    base_url=base_provider.base_url,
-                    model=base_provider.model,
-                    api_key=base_provider._api_key,
-                    key_env=base_provider.key_env,
-                    dim=base_provider._configured_dim,
-                    request_timeout=12,
-                    max_retries=0,
+                cleaned, normalized = normalize_openai_base_url(base_provider.base_url)
+                return (
+                    OpenAICompatibleEmbeddingProvider(
+                        base_url=cleaned,
+                        model=base_provider.model,
+                        api_key=base_provider._api_key,
+                        key_env=base_provider.key_env,
+                        dim=base_provider._configured_dim,
+                        request_timeout=12,
+                        max_retries=0,
+                    ),
+                    cleaned,
+                    normalized,
                 )
-            return base_provider
+            return base_provider, str(getattr(base_provider, "base_url", "") or ""), False
 
         mode = str(payload.get("mode") or "auto").strip().lower()
         if mode == "disabled":
-            raise ValueError("当前选择了「仅纯文本」，不会请求向量模型；如需测试请先选择「复用供应商」「云端向量 API」或「本地 Ollama」。")
+            raise ValueError("当前选择了「仅关键词检索」，不会请求向量模型；如需测试请先选择「云端向量模型」或「本地 Ollama」。")
 
         if mode == "ollama":
-            url = str(payload.get("ollama_url") or "http://localhost:11434").strip() or "http://localhost:11434"
+            url = _strip_v1_suffix(str(payload.get("ollama_url") or "http://localhost:11434"))
             model = str(payload.get("ollama_model") or "qwen3-embedding:0.6b").strip() or "qwen3-embedding:0.6b"
-            return OllamaEmbeddingProvider(base_url=url, model=model, probe_timeout=3, request_timeout=12)
+            return OllamaEmbeddingProvider(base_url=url, model=model, probe_timeout=3, request_timeout=12), url, False
 
         providers_cfg = (config.get("llm") or {}).get("providers") or {}
         if mode == "provider":
@@ -494,36 +624,46 @@ class RagSettingsService:
             pcfg = providers_cfg[pname]
             preset = str(pcfg.get("preset") or "").strip().lower()
             if pname == "ollama" or preset == "ollama":
-                return OllamaEmbeddingProvider(
-                    base_url=_strip_v1_suffix(str(pcfg.get("base_url") or "")),
-                    model=str(payload.get("model") or "qwen3-embedding:0.6b").strip() or "qwen3-embedding:0.6b",
-                    probe_timeout=3,
-                    request_timeout=12,
+                url = _strip_v1_suffix(str(pcfg.get("base_url") or ""))
+                return (
+                    OllamaEmbeddingProvider(
+                        base_url=url,
+                        model=str(payload.get("model") or "qwen3-embedding:0.6b").strip() or "qwen3-embedding:0.6b",
+                        probe_timeout=3,
+                        request_timeout=12,
+                    ),
+                    url,
+                    False,
                 )
             api_key = resolve_api_key(pcfg)
             if not api_key:
                 raise RuntimeError(f"供应商「{pname}」尚未填写 API Key，请先在「AI 与模型」补充密钥。")
-            base_url = str(pcfg.get("base_url") or "").strip()
+            base_url, url_normalized = normalize_openai_base_url(str(pcfg.get("base_url") or ""))
             emb_defaults = EMBEDDING_PRESETS.get(preset, {})
             model = str(payload.get("model") or emb_defaults.get("model") or "").strip()
             if not base_url or not model:
                 raise ValueError("请填写或选择该供应商下的向量模型 ID。")
             dim_val = payload.get("dim")
             dim = int(dim_val) if dim_val not in (None, "", 0, "0") else None
-            return OpenAICompatibleEmbeddingProvider(
-                base_url=base_url,
-                model=model,
-                api_key=api_key,
-                key_env=str(pcfg.get("api_key_env") or ""),
-                dim=dim,
-                request_timeout=12,
-                max_retries=0,
+            return (
+                OpenAICompatibleEmbeddingProvider(
+                    base_url=base_url,
+                    model=model,
+                    api_key=api_key,
+                    key_env=str(pcfg.get("api_key_env") or ""),
+                    dim=dim,
+                    request_timeout=12,
+                    max_retries=0,
+                ),
+                base_url,
+                url_normalized,
             )
 
         if mode == "custom":
             preset = str(payload.get("preset") or "").strip().lower()
             preset_meta = EMBEDDING_PRESETS.get(preset, {})
-            base_url = str(payload.get("base_url") or preset_meta.get("base_url") or "").strip()
+            raw_url = str(payload.get("base_url") or preset_meta.get("base_url") or "").strip()
+            base_url, url_normalized = normalize_openai_base_url(raw_url)
             model = str(payload.get("model") or preset_meta.get("model") or "").strip()
             if not base_url:
                 raise ValueError("请填写向量接口根路径（base_url）。")
@@ -532,13 +672,19 @@ class RagSettingsService:
             api_key = str(payload.get("api_key") or "").strip()
             if not api_key:
                 saved = get_embedding_config()
-                prev_url = str(saved.get("base_url") or EMBEDDING_PRESETS.get(str(saved.get("preset") or ""), {}).get("base_url") or "")
-                if saved.get("api_key") and _same_origin(base_url, prev_url):
-                    api_key = str(saved["api_key"])
-            if not api_key and preset and preset in providers_cfg:
-                candidate = providers_cfg[preset]
-                if _same_origin(base_url, str(candidate.get("base_url") or "")):
-                    api_key = resolve_api_key(candidate)
+                candidates: list[dict[str, Any]] = [saved]
+                if isinstance(saved.get("saved_custom"), dict):
+                    candidates.append(saved["saved_custom"])
+                for cand in candidates:
+                    if not cand.get("api_key"):
+                        continue
+                    prev_raw = str(cand.get("base_url") or EMBEDDING_PRESETS.get(str(cand.get("preset") or ""), {}).get("base_url") or "")
+                    prev_url, _ = normalize_openai_base_url(prev_raw)
+                    if _same_origin(base_url, prev_url):
+                        api_key = str(cand["api_key"])
+                        break
+            if not api_key:
+                api_key = find_matching_provider_key(providers_cfg, base_url, preset=preset)
             if not api_key:
                 key_env = str(preset_meta.get("api_key_env") or "")
                 if key_env:
@@ -552,23 +698,32 @@ class RagSettingsService:
                 raise RuntimeError("请先填写 API Key（若「AI 与模型」已同域名配置，留空会自动复用）。")
             dim_val = payload.get("dim")
             dim = int(dim_val) if dim_val not in (None, "", 0, "0") else None
-            return OpenAICompatibleEmbeddingProvider(
-                base_url=base_url,
-                model=model,
-                api_key=api_key,
-                key_env=str(preset_meta.get("api_key_env") or ""),
-                dim=dim,
-                request_timeout=12,
-                max_retries=0,
+            return (
+                OpenAICompatibleEmbeddingProvider(
+                    base_url=base_url,
+                    model=model,
+                    api_key=api_key,
+                    key_env=str(preset_meta.get("api_key_env") or ""),
+                    dim=dim,
+                    request_timeout=12,
+                    max_retries=0,
+                ),
+                base_url,
+                url_normalized,
             )
 
         # mode == "auto"
-        return RagSettingsService._build_test_provider(None, config)
+        return RagSettingsService._build_test_provider_with_meta(None, config)
+
+    @staticmethod
+    def _build_test_provider(payload: dict[str, Any] | None, config: dict[str, Any]):
+        """Construct an ephemeral EmbeddingProvider for fast connectivity testing."""
+        return RagSettingsService._build_test_provider_with_meta(payload, config)[0]
 
     @staticmethod
     def test_embedding(payload: dict[str, Any] | None, config: dict[str, Any]) -> dict[str, Any]:
         """Execute a live 1-string embed probe and return dimension & latency."""
-        provider = RagSettingsService._build_test_provider(payload, config)
+        provider, normalized_base_url, url_normalized = RagSettingsService._build_test_provider_with_meta(payload, config)
         started = time.perf_counter()
 
         if isinstance(provider, OllamaEmbeddingProvider):
@@ -630,33 +785,29 @@ class RagSettingsService:
             "model": str(getattr(provider, "model", "")),
             "dim": len(vectors[0]),
             "latency_ms": latency_ms,
+            "normalized_base_url": normalized_base_url,
+            "url_normalized": url_normalized,
         }
 
     @staticmethod
-    def backfill_vectors(
+    def _prepare_backfill(
         workspace: str,
         config: dict[str, Any],
         *,
         rebuild: bool = False,
-    ) -> dict[str, Any]:
-        """Generate vectors for pending docs or rebuild the whole Qdrant collection."""
-        from obsidian.sync import backfill_vectors as run_backfill
-
+    ) -> tuple[EmbeddingService, dict[str, Any], int, bool, int]:
         db_path = os.path.join(knowledge_dir(workspace), "knowledge.db")
         if not os.path.exists(db_path):
             raise ValueError("当前资料库还没有导入任何资料，无法建立向量索引。")
 
-        # Drop cached pipeline so no open QdrantClient locks the directory on Windows.
-        clear_retrieval_cache(workspace)
-
         embedding = EmbeddingService(config)
         if not embedding.is_available():
-            raise RuntimeError("当前向量模型不可用，请先完成配置并确认测试连接通过。")
+            raise RuntimeError("当前向量模型不可用，请先完成配置并确认测试通过。")
 
         model_info = embedding.get_model_info()
         embedding_dim = model_info.get("dim")
         if not embedding_dim:
-            raise RuntimeError("无法获取向量维度（dim），请先执行「测试向量模型」或检查接口响应。")
+            raise RuntimeError("无法获取向量维度（dim），请先执行「测试连通性」或检查接口响应。")
         dim_int = int(embedding_dim)
 
         sig_mismatch = mismatch_reason(workspace, model_info)
@@ -671,6 +822,34 @@ class RagSettingsService:
             )
         )
         did_rebuild = bool(rebuild or model_changed)
+
+        sqlite = KBSQLiteStore(workspace)
+        try:
+            if did_rebuild:
+                total = int((sqlite.get_stats() or {}).get("documents") or 0)
+            else:
+                total = len(sqlite.get_pending_vector_documents())
+        finally:
+            sqlite.close()
+        return embedding, model_info, dim_int, did_rebuild, total
+
+    @staticmethod
+    def _execute_backfill(
+        workspace: str,
+        config: dict[str, Any],
+        embedding: EmbeddingService,
+        model_info: dict[str, Any],
+        dim_int: int,
+        did_rebuild: bool,
+        *,
+        cancel_token: CancelToken | None = None,
+        progress=None,
+    ) -> dict[str, Any]:
+        from obsidian.sync import backfill_vectors as run_backfill
+
+        # Evict cached pipeline and shared Qdrant instance before opening in caller thread.
+        clear_retrieval_cache(workspace)
+        close_shared_qdrant_store(workspace, config)
 
         sqlite = KBSQLiteStore(workspace)
         qdrant = shared_qdrant_store(workspace, config)
@@ -688,7 +867,16 @@ class RagSettingsService:
                     raise RuntimeError("本地向量库正被另一个进程占用，请先关闭其它 Bobodan 实例后重试。") from exc
                 raise RuntimeError(redact_secrets(str(exc))) from exc
 
-            backfilled = int(run_backfill(sqlite, qdrant, embedding, dim_int))
+            backfilled = int(
+                run_backfill(
+                    sqlite,
+                    qdrant,
+                    embedding,
+                    dim_int,
+                    cancel_token=cancel_token,
+                    progress=progress,
+                )
+            )
             stats = sqlite.get_stats()
             if int(stats.get("vector_indexed") or 0) > 0 or did_rebuild:
                 write_signature(workspace, model_info)
@@ -713,7 +901,50 @@ class RagSettingsService:
             "model": str(model_info.get("model") or ""),
             "vector_stats": stats,
             "error_samples": error_samples,
+            "cancelled": bool(cancel_token and cancel_token.is_cancelled()),
         }
+
+    @staticmethod
+    def backfill_vectors(
+        workspace: str,
+        config: dict[str, Any],
+        *,
+        rebuild: bool = False,
+    ) -> dict[str, Any]:
+        """Generate vectors for pending docs or rebuild the whole Qdrant collection."""
+        embedding, model_info, dim_int, did_rebuild, _ = RagSettingsService._prepare_backfill(
+            workspace,
+            config,
+            rebuild=rebuild,
+        )
+        return RagSettingsService._execute_backfill(
+            workspace,
+            config,
+            embedding,
+            model_info,
+            dim_int,
+            did_rebuild,
+        )
+
+    @staticmethod
+    def start_backfill_job(
+        workspace: str,
+        config: dict[str, Any],
+        *,
+        rebuild: bool = False,
+    ) -> dict[str, Any]:
+        """Start (or reuse) a non-blocking background vector backfill job for a workspace."""
+        return _BACKFILL_MANAGER.start(workspace, config, rebuild=rebuild)
+
+    @staticmethod
+    def get_backfill_job(workspace: str | None) -> dict[str, Any]:
+        """Return the latest background vector backfill job snapshot for a workspace."""
+        return _BACKFILL_MANAGER.get(workspace)
+
+    @staticmethod
+    def cancel_backfill_job(workspace: str | None) -> dict[str, Any]:
+        """Cooperatively cancel an active background vector backfill job."""
+        return _BACKFILL_MANAGER.cancel(workspace)
 
     @staticmethod
     def search_test(
@@ -766,3 +997,144 @@ class RagSettingsService:
             "semantic_reason": raw.get("semantic_reason"),
             "results": hits,
         }
+
+
+class RagBackfillManager:
+    """Thread-safe background vector backfill coordinator keyed by workspace."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._jobs: dict[str, dict[str, Any]] = {}
+        self._tokens: dict[str, CancelToken] = {}
+
+    @staticmethod
+    def _key(workspace: str | None) -> str:
+        return os.path.normcase(os.path.abspath(workspace or "."))
+
+    @staticmethod
+    def _idle_snapshot() -> dict[str, Any]:
+        return {
+            "job_id": "",
+            "status": "idle",
+            "rebuild": False,
+            "done": 0,
+            "total": 0,
+            "backfilled": 0,
+            "current_title": "",
+            "dim": None,
+            "model": "",
+            "error": "",
+            "cancelled": False,
+            "vector_stats": None,
+            "error_samples": [],
+        }
+
+    def get(self, workspace: str | None) -> dict[str, Any]:
+        key = self._key(workspace)
+        with self._lock:
+            job = self._jobs.get(key)
+            return dict(job) if job else self._idle_snapshot()
+
+    def cancel(self, workspace: str | None) -> dict[str, Any]:
+        key = self._key(workspace)
+        with self._lock:
+            job = self._jobs.get(key)
+            token = self._tokens.get(key)
+            if not job:
+                return self._idle_snapshot()
+            if job.get("status") == "running" and token is not None:
+                token.cancel()
+                job["cancel_requested"] = True
+            return dict(job)
+
+    def start(self, workspace: str, config: dict[str, Any], *, rebuild: bool = False) -> dict[str, Any]:
+        key = self._key(workspace)
+        with self._lock:
+            existing = self._jobs.get(key)
+            if existing and existing.get("status") == "running":
+                return dict(existing)
+
+        embedding, model_info, dim_int, did_rebuild, total = RagSettingsService._prepare_backfill(
+            workspace,
+            config,
+            rebuild=rebuild,
+        )
+        job_id = f"bf_{uuid.uuid4().hex[:10]}"
+        token = CancelToken()
+        initial: dict[str, Any] = {
+            "job_id": job_id,
+            "status": "running",
+            "rebuild": did_rebuild,
+            "done": 0,
+            "total": total,
+            "backfilled": 0,
+            "current_title": "",
+            "dim": dim_int,
+            "model": str(model_info.get("model") or ""),
+            "error": "",
+            "cancelled": False,
+            "cancel_requested": False,
+            "vector_stats": None,
+            "error_samples": [],
+            "started_at": time.time(),
+            "finished_at": None,
+        }
+        with self._lock:
+            existing = self._jobs.get(key)
+            if existing and existing.get("status") == "running":
+                return dict(existing)
+            self._jobs[key] = initial
+            self._tokens[key] = token
+
+        def _on_progress(update: dict[str, Any]) -> None:
+            with self._lock:
+                job = self._jobs.get(key)
+                if not job or job.get("job_id") != job_id:
+                    return
+                job["done"] = int(update.get("done") or 0)
+                job["total"] = int(update.get("total") or job["total"])
+                job["backfilled"] = int(update.get("backfilled") or 0)
+                job["current_title"] = str(update.get("current_title") or "")
+
+        def _worker() -> None:
+            try:
+                result = RagSettingsService._execute_backfill(
+                    workspace,
+                    config,
+                    embedding,
+                    model_info,
+                    dim_int,
+                    did_rebuild,
+                    cancel_token=token,
+                    progress=_on_progress,
+                )
+                with self._lock:
+                    job = self._jobs.get(key)
+                    if not job or job.get("job_id") != job_id:
+                        return
+                    cancelled = bool(result.get("cancelled"))
+                    job["status"] = "cancelled" if cancelled else "completed"
+                    job["cancelled"] = cancelled
+                    job["backfilled"] = int(result.get("backfilled") or 0)
+                    if not cancelled:
+                        job["done"] = int(job["total"])
+                    job["current_title"] = ""
+                    job["vector_stats"] = result.get("vector_stats")
+                    job["error_samples"] = result.get("error_samples") or []
+                    job["finished_at"] = time.time()
+            except Exception as exc:
+                with self._lock:
+                    job = self._jobs.get(key)
+                    if not job or job.get("job_id") != job_id:
+                        return
+                    job["status"] = "failed"
+                    job["error"] = redact_secrets(str(exc))
+                    job["current_title"] = ""
+                    job["finished_at"] = time.time()
+
+        thread = threading.Thread(target=_worker, name=f"rag-backfill-{job_id}", daemon=True)
+        thread.start()
+        return dict(initial)
+
+
+_BACKFILL_MANAGER = RagBackfillManager()

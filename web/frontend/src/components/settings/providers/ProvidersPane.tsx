@@ -1,31 +1,54 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, Cpu, Plus, Trash2 } from "lucide-react";
 
 import { api } from "../../../lib/api";
+import { formatProviderCapability } from "../../../lib/retrievalStatus";
 import type { ModelKind, ProviderPreset, ProviderSummary } from "../../../types";
 import { ConfirmDialog } from "../../../ui/Modal";
 import { ProviderFormFields } from "./ProviderFormFields";
 import { classifyModelKind, resolveModelKind } from "./modelKind";
 import { formFromPreset, formFromProvider, type ProviderForm } from "./providerForm";
 
+function serializeProviderForm(form: ProviderForm | null): string {
+  if (!form) return "";
+  return JSON.stringify({
+    name: form.name.trim(),
+    base_url: form.base_url.trim().replace(/\/+$/, ""),
+    api_key: form.api_key.trim(),
+    model_default: form.model_default,
+    models: form.models.map((m) => ({
+      id: m.id,
+      name: m.name || m.id,
+      kind: resolveModelKind(m),
+    })),
+  });
+}
+
 /**
- * 供应商主从面板（2026-10-17 S3：取代 ProviderManagerDialog 嵌套弹窗）。
- * 左列：已配置 / 未配置 / 自定义 + 模板入口；右列：详情或编辑表单。逻辑与原弹窗一致。
+ * 供应商主从面板（2026-10-17 S3）。
+ * 增强：未保存离开保护、编辑态 Escape 收回不误关外层设置弹窗、能力徽章一目了然、危险删除右对齐隔离。
  */
-export function ProvidersPane({ providers, onChanged }: {
+export function ProvidersPane({
+  providers,
+  onChanged,
+  onDirtyChange,
+}: {
   providers: ProviderSummary[];
   onChanged: () => Promise<void> | void;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const [presets, setPresets] = useState<ProviderPreset[]>([]);
   const [selected, setSelected] = useState<string | null>(() => providers.find((item) => item.configured)?.name ?? providers[0]?.name ?? null);
   const [editing, setEditing] = useState<ProviderForm | null>(null);
   const [editingName, setEditingName] = useState<string | null>(null);
+  const initialEditSnapRef = useRef<string>("");
   const [working, setWorking] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [testMsg, setTestMsg] = useState<Record<string, string>>({});
   const [modelInput, setModelInput] = useState<{ id: string; name: string; kind?: ModelKind }>({ id: "", name: "" });
   const [confirmDelete, setConfirmDelete] = useState<ProviderSummary | null>(null);
+  const [pendingDiscard, setPendingDiscard] = useState<null | (() => void)>(null);
 
   useEffect(() => {
     void api.providerPresets().then((result) => setPresets(result.presets)).catch(() => setPresets([]));
@@ -45,32 +68,86 @@ export function ProvidersPane({ providers, onChanged }: {
   const editingPreset = presets.find((item) => item.name === editing?.name);
   const editingKeyless = Boolean(editingPreset?.keyless || editingPreset?.auth_type === "none" || editingPreset?.auth_type === "optional");
 
+  const editingDirty = useMemo(() => {
+    if (!editing) return false;
+    return serializeProviderForm(editing) !== initialEditSnapRef.current;
+  }, [editing]);
+
+  useEffect(() => {
+    onDirtyChange?.(editingDirty);
+  }, [editingDirty, onDirtyChange]);
+
+  useEffect(() => () => {
+    onDirtyChange?.(false);
+  }, [onDirtyChange]);
+
+  function commitExitEdit() {
+    setEditing(null);
+    setEditingName(null);
+    initialEditSnapRef.current = "";
+  }
+
+  function runGuarded(action: () => void) {
+    if (editing && editingDirty) {
+      setPendingDiscard(() => action);
+      return;
+    }
+    action();
+  }
+
+  useEffect(() => {
+    if (!editing || confirmDelete || pendingDiscard) return;
+    const onEscapeCapture = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (editingDirty) {
+        setPendingDiscard(() => () => {
+          setEditing(null);
+          setEditingName(null);
+          initialEditSnapRef.current = "";
+        });
+      } else {
+        setEditing(null);
+        setEditingName(null);
+        initialEditSnapRef.current = "";
+      }
+    };
+    window.addEventListener("keydown", onEscapeCapture, true);
+    return () => window.removeEventListener("keydown", onEscapeCapture, true);
+  }, [confirmDelete, editing, editingDirty, pendingDiscard]);
+
   function startEdit(provider: ProviderSummary) {
-    setEditing(formFromProvider(provider));
+    const form = formFromProvider(provider);
+    initialEditSnapRef.current = serializeProviderForm(form);
+    setEditing(form);
     setEditingName(provider.name);
     setError("");
     setNotice("");
   }
 
   function startAdd(preset?: ProviderPreset) {
-    setEditing(formFromPreset(preset));
-    setEditingName(null);
-    setError("");
-    setNotice("");
+    runGuarded(() => {
+      const form = formFromPreset(preset);
+      initialEditSnapRef.current = serializeProviderForm(form);
+      setEditing(form);
+      setEditingName(null);
+      setError("");
+      setNotice("");
+    });
   }
 
   function cancelEdit() {
-    setEditing(null);
-    setEditingName(null);
+    runGuarded(commitExitEdit);
   }
 
   async function testProvider(provider: ProviderSummary) {
-    setTestMsg((current) => ({ ...current, [provider.name]: "正在测试…" }));
+    setTestMsg((curr) => ({ ...curr, [provider.name]: "正在测试…" }));
     try {
       const result = await api.providerTest(provider.name);
-      setTestMsg((current) => ({ ...current, [provider.name]: result.latency_ms + "ms · 连接正常" }));
+      setTestMsg((curr) => ({ ...curr, [provider.name]: result.latency_ms + "ms · 连接正常" }));
     } catch (reason) {
-      setTestMsg((current) => ({ ...current, [provider.name]: reason instanceof Error ? reason.message : "连接失败" }));
+      setTestMsg((curr) => ({ ...curr, [provider.name]: reason instanceof Error ? reason.message : "连接失败" }));
     }
   }
 
@@ -86,13 +163,13 @@ export function ProvidersPane({ providers, onChanged }: {
         editingName || editing.name.trim() || undefined,
       );
       const firstChat = result.models.find((item) => resolveModelKind(item) === "chat")?.id;
-      setEditing((current) => current && {
-        ...current,
+      setEditing((curr) => curr && {
+        ...curr,
         models: result.models,
         model_default:
-          current.model_default && result.models.some((item) => item.id === current.model_default && resolveModelKind(item) === "chat")
-            ? current.model_default
-            : firstChat || current.model_default || result.models[0]?.id || "",
+          curr.model_default && result.models.some((item) => item.id === curr.model_default && resolveModelKind(item) === "chat")
+            ? curr.model_default
+            : firstChat || curr.model_default || result.models[0]?.id || "",
       });
       if (result.models.length) setNotice("已获取 " + result.models.length + " 个模型，可继续手输或切换类型。");
       else setNotice("没有读取到模型，可手动添加。");
@@ -146,8 +223,7 @@ export function ProvidersPane({ providers, onChanged }: {
       });
       setNotice("已保存。");
       await onChanged();
-      setEditing(null);
-      setEditingName(null);
+      commitExitEdit();
       setSelected(name);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "保存失败。");
@@ -174,13 +250,25 @@ export function ProvidersPane({ providers, onChanged }: {
   }
 
   function renderItem(provider: ProviderSummary) {
-    return <button key={provider.name} type="button" className={"providers-item" + (selected === provider.name ? " active" : "")} onClick={() => { setSelected(provider.name); setEditing(null); setEditingName(null); }}>
-      <span className="providers-dot" data-ready={provider.configured} />
-      <Cpu size={15} />
-      <span className="providers-name">{provider.name}</span>
-      <small>{provider.models?.length || 0}</small>
-    </button>;
+    return (
+      <button
+        key={provider.name}
+        type="button"
+        className={"providers-item" + (selected === provider.name ? " active" : "")}
+        onClick={() => runGuarded(() => {
+          setSelected(provider.name);
+          commitExitEdit();
+        })}
+      >
+        <span className="providers-dot" data-ready={provider.configured} />
+        <Cpu size={15} />
+        <span className="providers-name">{provider.name}</span>
+        <small>{provider.models?.length || 0}</small>
+      </button>
+    );
   }
+
+  const currentCapability = current ? formatProviderCapability(current) : null;
 
   return <div className="providers-pane">
     <div className="providers-list">
@@ -214,7 +302,15 @@ export function ProvidersPane({ providers, onChanged }: {
           <button className="primary-button" type="button" disabled={working || !editing.name.trim() || !editing.base_url.trim()} onClick={() => void saveProvider()}>保存</button>
         </div>
       </> : current ? <>
-        <div className="providers-detail-head"><strong>{current.name}</strong>{current.is_default && <i>默认</i>}</div>
+        <div className="providers-detail-head">
+          <strong>{current.name}</strong>
+          {current.is_default && <i>默认</i>}
+          {currentCapability && (
+            <span className="providers-cap-badge" data-tone={currentCapability.tone}>
+              {currentCapability.badge}
+            </span>
+          )}
+        </div>
         <p className="settings-model-hint">{current.base_url || "未填写 API 地址"}</p>
         <div className="providers-detail-meta">
           <span>默认对话模型：{current.model || "未设置"}</span>
@@ -224,16 +320,13 @@ export function ProvidersPane({ providers, onChanged }: {
           })()}</span>
           <span>{current.configured ? "已配置" : "未配置密钥"}</span>
         </div>
-        {current.supports_embedding === true && (
-          <p className="settings-model-hint">同时支持向量模型，可在「检索与 RAG」直接复用这里的 API 密钥。</p>
-        )}
-        {current.supports_embedding === false && current.embedding_note && (
-          <p className="settings-model-hint">{current.embedding_note}</p>
+        {currentCapability && (
+          <p className="settings-model-hint">{currentCapability.note}</p>
         )}
         <div className="providers-detail-actions">
           <button className="quiet-button" type="button" disabled={!current.configured || working} onClick={() => void testProvider(current)}>测试连接</button>
           <button className="quiet-button" type="button" disabled={working} onClick={() => startEdit(current)}>编辑</button>
-          <button className="quiet-button danger" type="button" disabled={working} onClick={() => setConfirmDelete(current)}><Trash2 size={13} />删除</button>
+          <button className="quiet-button danger providers-delete-btn" type="button" disabled={working} onClick={() => setConfirmDelete(current)}><Trash2 size={13} />删除</button>
         </div>
         {testMsg[current.name] && <p className="settings-model-hint">{testMsg[current.name]}</p>}
       </> : <p className="settings-empty">从左侧选择一个供应商，或从模板添加。</p>}
@@ -246,6 +339,19 @@ export function ProvidersPane({ providers, onChanged }: {
       confirmLabel="删除供应商"
       onCancel={() => setConfirmDelete(null)}
       onConfirm={() => void removeProvider(confirmDelete)}
+    />}
+    {pendingDiscard && <ConfirmDialog
+      danger
+      title="放弃未保存的供应商修改？"
+      detail="离开当前表单后，尚未保存的地址、密钥或模型改动将会丢失。"
+      confirmLabel="放弃修改"
+      cancelLabel="继续编辑"
+      onCancel={() => setPendingDiscard(null)}
+      onConfirm={() => {
+        const fn = pendingDiscard;
+        setPendingDiscard(null);
+        fn();
+      }}
     />}
   </div>;
 }

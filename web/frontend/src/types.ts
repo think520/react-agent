@@ -490,6 +490,9 @@ export interface RagEmbeddingConfig {
   ollama_model: string;
   has_api_key: boolean;
   api_key_source: "saved" | "provider" | "env" | "none";
+  has_saved_custom_key?: boolean;
+  saved_custom_preset?: string;
+  saved_custom_base_url?: string;
 }
 
 export interface RagSemanticStatus {
@@ -523,6 +526,7 @@ export interface RagStatusSummary {
   semantic_status: RagSemanticStatus;
   vector_stats: RagVectorStats;
   error_samples: Array<{ title: string; source: string; error: string }>;
+  sample_queries?: string[];
   needs_backfill: boolean;
   needs_rebuild: boolean;
 }
@@ -564,6 +568,47 @@ export interface RagEmbeddingTestResponse {
   model: string;
   dim: number;
   latency_ms: number;
+  normalized_base_url?: string;
+  url_normalized?: boolean;
+}
+
+export interface RagOllamaModel {
+  name: string;
+  kind: ModelKind;
+  is_embedding: boolean;
+  size_label: string;
+}
+
+export interface RagOllamaDiscoveryResponse {
+  ok: boolean;
+  reachable: boolean;
+  url: string;
+  models: RagOllamaModel[];
+  embedding_models: string[];
+  error: string;
+}
+
+export interface RagBackfillJob {
+  job_id: string;
+  status: "idle" | "running" | "completed" | "cancelled" | "failed";
+  rebuild: boolean;
+  done: number;
+  total: number;
+  backfilled: number;
+  current_title: string;
+  dim: number | null;
+  model: string;
+  error: string;
+  cancelled: boolean;
+  cancel_requested?: boolean;
+  vector_stats?: RagVectorStats | null;
+  error_samples?: Array<{ title: string; source: string; error: string }>;
+}
+
+export interface RagBackfillJobResponse {
+  ok: boolean;
+  job: RagBackfillJob;
+  rag: RagSettingsResponse;
 }
 
 export interface RagBackfillResponse {

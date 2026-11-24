@@ -106,6 +106,7 @@ class QdrantStore:
 
         self._client = None
         self._embedding_dim: int | None = None
+        self._op_lock = threading.RLock()
 
     def client_key(self) -> str:
         """Identity of the client this store would open (P0-15)."""
@@ -115,52 +116,54 @@ class QdrantStore:
 
     def _get_client(self):
         """Lazy-init Qdrant client."""
-        if self._client is not None:
+        with self._op_lock:
+            if self._client is not None:
+                return self._client
+
+            try:
+                from qdrant_client import QdrantClient
+            except ImportError:
+                raise RuntimeError(
+                    "qdrant-client is not installed. "
+                    "Install it with: pip install qdrant-client"
+                )
+
+            if self.mode == "local":
+                self.local_path.mkdir(parents=True, exist_ok=True)
+                self._client = QdrantClient(path=str(self.local_path))
+            elif self.mode == "server":
+                self._client = QdrantClient(url=self.url)
+            else:
+                raise ValueError(f"Unknown Qdrant mode: {self.mode!r}. Use 'local' or 'server'.")
+
             return self._client
-
-        try:
-            from qdrant_client import QdrantClient
-        except ImportError:
-            raise RuntimeError(
-                "qdrant-client is not installed. "
-                "Install it with: pip install qdrant-client"
-            )
-
-        if self.mode == "local":
-            self.local_path.mkdir(parents=True, exist_ok=True)
-            self._client = QdrantClient(path=str(self.local_path))
-        elif self.mode == "server":
-            self._client = QdrantClient(url=self.url)
-        else:
-            raise ValueError(f"Unknown Qdrant mode: {self.mode!r}. Use 'local' or 'server'.")
-
-        return self._client
 
     def init_collection(self, embedding_dim: int) -> None:
         """Create collection if it doesn't exist."""
-        self._embedding_dim = embedding_dim
-        client = self._get_client()
+        with self._op_lock:
+            self._embedding_dim = embedding_dim
+            client = self._get_client()
 
-        try:
-            from qdrant_client.models import Distance, VectorParams
-        except ImportError:
-            raise RuntimeError("qdrant-client is not installed.")
+            try:
+                from qdrant_client.models import Distance, VectorParams
+            except ImportError:
+                raise RuntimeError("qdrant-client is not installed.")
 
-        existing = [c.name for c in client.get_collections().collections]
-        if self.collection not in existing:
-            distance_map = {
-                "cosine": Distance.COSINE,
-                "euclid": Distance.EUCLID,
-                "dot": Distance.DOT,
-            }
-            client.create_collection(
-                collection_name=self.collection,
-                vectors_config=VectorParams(
-                    size=embedding_dim,
-                    distance=distance_map.get(self.distance, Distance.COSINE),
-                ),
-            )
-            logger.info("Created Qdrant collection %s (dim=%d)", self.collection, embedding_dim)
+            existing = [c.name for c in client.get_collections().collections]
+            if self.collection not in existing:
+                distance_map = {
+                    "cosine": Distance.COSINE,
+                    "euclid": Distance.EUCLID,
+                    "dot": Distance.DOT,
+                }
+                client.create_collection(
+                    collection_name=self.collection,
+                    vectors_config=VectorParams(
+                        size=embedding_dim,
+                        distance=distance_map.get(self.distance, Distance.COSINE),
+                    ),
+                )
+                logger.info("Created Qdrant collection %s (dim=%d)", self.collection, embedding_dim)
 
     def upsert(
         self,
@@ -177,19 +180,20 @@ class QdrantStore:
         """
         from qdrant_client.models import PointStruct
 
-        client = self._get_client()
-        points = [
-            PointStruct(id=_chunk_id_to_uuid(cid), vector=vec, payload=pl)
-            for cid, vec, pl in zip(chunk_ids, vectors, payloads)
-        ]
+        with self._op_lock:
+            client = self._get_client()
+            points = [
+                PointStruct(id=_chunk_id_to_uuid(cid), vector=vec, payload=pl)
+                for cid, vec, pl in zip(chunk_ids, vectors, payloads)
+            ]
 
-        # Batch upsert (Qdrant handles large batches well)
-        batch_size = 100
-        for i in range(0, len(points), batch_size):
-            client.upsert(
-                collection_name=self.collection,
-                points=points[i : i + batch_size],
-            )
+            # Batch upsert (Qdrant handles large batches well)
+            batch_size = 100
+            for i in range(0, len(points), batch_size):
+                client.upsert(
+                    collection_name=self.collection,
+                    points=points[i : i + batch_size],
+                )
 
     def search(
         self,
@@ -204,106 +208,111 @@ class QdrantStore:
         """
         from qdrant_client.models import Filter, FieldCondition, MatchValue
 
-        client = self._get_client()
+        with self._op_lock:
+            client = self._get_client()
 
-        query_filter = None
-        if document_id:
-            query_filter = Filter(
-                must=[FieldCondition(key="document_id", match=MatchValue(value=document_id))]
-            )
-
-        results = client.query_points(
-            collection_name=self.collection,
-            query=query_vector,
-            query_filter=query_filter,
-            limit=top_k,
-        )
-
-        hits = []
-        for point in results.points:
-            pl = point.payload or {}
-            hits.append(
-                RetrievalHit(
-                    chunk_id=pl.get("chunk_id", str(point.id)),
-                    document_id=pl.get("document_id", ""),
-                    source=pl.get("source", ""),
-                    text="",  # text not stored in Qdrant; hydrate from SQLite
-                    heading_path=pl.get("heading_path", []),
-                    heading_text=pl.get("heading_text", ""),
-                    page_start=pl.get("page_start"),
-                    page_end=pl.get("page_end"),
-                    slide_start=pl.get("slide_start"),
-                    slide_end=pl.get("slide_end"),
-                    score=point.score,
-                    retrievers=["vector"],
-                    debug={"qdrant_score": point.score, "qdrant_id": str(point.id)},
+            query_filter = None
+            if document_id:
+                query_filter = Filter(
+                    must=[FieldCondition(key="document_id", match=MatchValue(value=document_id))]
                 )
+
+            results = client.query_points(
+                collection_name=self.collection,
+                query=query_vector,
+                query_filter=query_filter,
+                limit=top_k,
             )
-        return hits
+
+            hits = []
+            for point in results.points:
+                pl = point.payload or {}
+                hits.append(
+                    RetrievalHit(
+                        chunk_id=pl.get("chunk_id", str(point.id)),
+                        document_id=pl.get("document_id", ""),
+                        source=pl.get("source", ""),
+                        text="",  # text not stored in Qdrant; hydrate from SQLite
+                        heading_path=pl.get("heading_path", []),
+                        heading_text=pl.get("heading_text", ""),
+                        page_start=pl.get("page_start"),
+                        page_end=pl.get("page_end"),
+                        slide_start=pl.get("slide_start"),
+                        slide_end=pl.get("slide_end"),
+                        score=point.score,
+                        retrievers=["vector"],
+                        debug={"qdrant_score": point.score, "qdrant_id": str(point.id)},
+                    )
+                )
+            return hits
 
     def delete_by_filter(self, document_id: str) -> None:
         """Delete all vectors for a document."""
         from qdrant_client.models import Filter, FieldCondition, MatchValue
 
-        client = self._get_client()
-        client.delete(
-            collection_name=self.collection,
-            points_selector=Filter(
-                must=[FieldCondition(key="document_id", match=MatchValue(value=document_id))]
-            ),
-        )
+        with self._op_lock:
+            client = self._get_client()
+            client.delete(
+                collection_name=self.collection,
+                points_selector=Filter(
+                    must=[FieldCondition(key="document_id", match=MatchValue(value=document_id))]
+                ),
+            )
 
     def get_stats(self) -> dict:
         """Return collection statistics."""
-        client = self._get_client()
-        try:
-            info = client.get_collection(self.collection)
-            # qdrant-client moved these fields around between versions:
-            # `vectors_count` is gone in the installed release. Read them
-            # defensively - a version bump must not turn stats into an error
-            # dict (which is exactly what the old mock-based test allowed).
-            vectors_count = getattr(info, "vectors_count", None)
-            if vectors_count is None:
-                vectors_count = getattr(info, "indexed_vectors_count", None)
-            return {
-                "collection": self.collection,
-                "vectors_count": vectors_count,
-                "points_count": getattr(info, "points_count", None),
-                "mode": self.mode,
-                "embedding_dim": self._embedding_dim,
-            }
-        except Exception as e:
-            return {
-                "collection": self.collection,
-                "error": str(e),
-                "mode": self.mode,
-            }
+        with self._op_lock:
+            client = self._get_client()
+            try:
+                info = client.get_collection(self.collection)
+                # qdrant-client moved these fields around between versions:
+                # `vectors_count` is gone in the installed release. Read them
+                # defensively - a version bump must not turn stats into an error
+                # dict (which is exactly what the old mock-based test allowed).
+                vectors_count = getattr(info, "vectors_count", None)
+                if vectors_count is None:
+                    vectors_count = getattr(info, "indexed_vectors_count", None)
+                return {
+                    "collection": self.collection,
+                    "vectors_count": vectors_count,
+                    "points_count": getattr(info, "points_count", None),
+                    "mode": self.mode,
+                    "embedding_dim": self._embedding_dim,
+                }
+            except Exception as e:
+                return {
+                    "collection": self.collection,
+                    "error": str(e),
+                    "mode": self.mode,
+                }
 
     def delete_collection(self) -> None:
         """Delete the entire collection (for full reindex)."""
-        client = self._get_client()
-        if self.mode == "local":
-            inner = getattr(client, "_client", None)
-            collections = getattr(inner, "collections", None)
-            if isinstance(collections, dict):
-                local_col = collections.get(self.collection)
-                if local_col is not None and hasattr(local_col, "close"):
-                    local_col.close()
-        try:
-            client.delete_collection(self.collection)
-            logger.info("Deleted Qdrant collection %s", self.collection)
-        except Exception:
-            if self.mode != "local":
-                self._embedding_dim = None
-                return  # collection may not exist
-        if self.mode == "local":
-            col_dir = self.local_path / "collection" / self.collection
-            if col_dir.exists():
-                shutil.rmtree(col_dir, ignore_errors=False)
-        self._embedding_dim = None
+        with self._op_lock:
+            client = self._get_client()
+            if self.mode == "local":
+                inner = getattr(client, "_client", None)
+                collections = getattr(inner, "collections", None)
+                if isinstance(collections, dict):
+                    local_col = collections.get(self.collection)
+                    if local_col is not None and hasattr(local_col, "close"):
+                        local_col.close()
+            try:
+                client.delete_collection(self.collection)
+                logger.info("Deleted Qdrant collection %s", self.collection)
+            except Exception:
+                if self.mode != "local":
+                    self._embedding_dim = None
+                    return  # collection may not exist
+            if self.mode == "local":
+                col_dir = self.local_path / "collection" / self.collection
+                if col_dir.exists():
+                    shutil.rmtree(col_dir, ignore_errors=False)
+            self._embedding_dim = None
 
     def close(self) -> None:
         """Close the client connection."""
-        if self._client:
-            self._client.close()
-            self._client = None
+        with self._op_lock:
+            if self._client:
+                self._client.close()
+                self._client = None

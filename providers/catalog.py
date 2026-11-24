@@ -82,6 +82,30 @@ def classify_model_kind(model_id: str) -> str:
     return "chat"
 
 
+_API_ENDPOINT_SUFFIXES = (
+    "/chat/completions",
+    "/embeddings",
+    "/completions",
+    "/models",
+)
+
+
+def normalize_openai_base_url(url: str) -> tuple[str, bool]:
+    """Trim whitespace/slashes and strip accidental OpenAI endpoint suffixes."""
+    trimmed = (url or "").strip().rstrip("/")
+    cleaned = trimmed
+    changed = True
+    while changed and cleaned:
+        changed = False
+        lower = cleaned.lower()
+        for suffix in _API_ENDPOINT_SUFFIXES:
+            if lower.endswith(suffix):
+                cleaned = cleaned[: -len(suffix)].rstrip("/")
+                changed = True
+                break
+    return cleaned, bool(trimmed and cleaned != trimmed)
+
+
 def _same_origin(url_a: str, url_b: str) -> bool:
     a = urlparse((url_a or "").strip())
     b = urlparse((url_b or "").strip())
@@ -90,6 +114,34 @@ def _same_origin(url_a: str, url_b: str) -> bool:
         and a.scheme.lower() == b.scheme.lower()
         and a.netloc.lower() == b.netloc.lower()
     )
+
+
+def find_matching_provider_key(
+    providers_cfg: dict[str, Any],
+    base_url: str,
+    preset: str = "",
+) -> str:
+    """Return API key from any configured provider sharing the same API origin."""
+    target_url, _ = normalize_openai_base_url(base_url)
+    if not target_url or not isinstance(providers_cfg, dict):
+        return ""
+    preset_clean = (preset or "").strip().lower()
+    if preset_clean and isinstance(providers_cfg.get(preset_clean), dict):
+        cand = providers_cfg[preset_clean]
+        cand_url, _ = normalize_openai_base_url(str(cand.get("base_url") or ""))
+        if _same_origin(target_url, cand_url):
+            key = resolve_api_key(cand)
+            if key:
+                return key
+    for cand in providers_cfg.values():
+        if not isinstance(cand, dict):
+            continue
+        cand_url, _ = normalize_openai_base_url(str(cand.get("base_url") or ""))
+        if _same_origin(target_url, cand_url):
+            key = resolve_api_key(cand)
+            if key:
+                return key
+    return ""
 
 
 BUILTIN_PRESETS: dict[str, dict[str, Any]] = {
@@ -466,6 +518,9 @@ def upsert_provider(name: str, entry: dict[str, Any]) -> None:
     catalog = _ensure_catalog()
     # 从模板添加时继承模板的 auth_type / keyless / api_key_env —— 否则本地服务
     # （ollama / lmstudio / vllm）保存一次就会丢掉「免 key」语义。
+    if entry.get("base_url"):
+        cleaned_url, _ = normalize_openai_base_url(str(entry.get("base_url") or ""))
+        entry = {**entry, "base_url": cleaned_url}
     preset = entry.get("preset") or name
     preset_entry = BUILTIN_PRESETS.get(preset)
     if preset_entry:
@@ -491,6 +546,26 @@ def delete_provider(name: str) -> bool:
     return True
 
 
+def _normalize_saved_custom(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    api_key = str(raw.get("api_key") or "").strip()
+    if not api_key:
+        return None
+    cleaned_url, _ = normalize_openai_base_url(str(raw.get("base_url") or ""))
+    dim_raw = raw.get("dim")
+    dim = int(dim_raw) if dim_raw not in (None, "", 0, "0") else None
+    if dim is not None and dim <= 0:
+        dim = None
+    return {
+        "preset": str(raw.get("preset") or "").strip().lower(),
+        "base_url": cleaned_url,
+        "model": str(raw.get("model") or "").strip(),
+        "api_key": api_key,
+        "dim": dim,
+    }
+
+
 def _normalize_embedding(raw: dict[str, Any]) -> dict[str, Any]:
     mode = str(raw.get("mode") or "auto").strip().lower()
     if mode not in VALID_EMBEDDING_MODES:
@@ -499,17 +574,22 @@ def _normalize_embedding(raw: dict[str, Any]) -> dict[str, Any]:
     dim = int(dim_raw) if dim_raw not in (None, "", 0, "0") else None
     if dim is not None and dim <= 0:
         dim = None
-    return {
+    cleaned_url, _ = normalize_openai_base_url(str(raw.get("base_url") or ""))
+    normalized: dict[str, Any] = {
         "mode": mode,
         "provider_name": str(raw.get("provider_name") or "").strip(),
         "preset": str(raw.get("preset") or "").strip().lower(),
-        "base_url": str(raw.get("base_url") or "").strip(),
+        "base_url": cleaned_url,
         "model": str(raw.get("model") or "").strip(),
         "api_key": str(raw.get("api_key") or "").strip(),
         "dim": dim,
         "ollama_url": str(raw.get("ollama_url") or "http://localhost:11434").strip() or "http://localhost:11434",
         "ollama_model": str(raw.get("ollama_model") or "qwen3-embedding:0.6b").strip() or "qwen3-embedding:0.6b",
     }
+    saved_custom = _normalize_saved_custom(raw.get("saved_custom"))
+    if saved_custom:
+        normalized["saved_custom"] = saved_custom
+    return normalized
 
 
 def _effective_custom_url(entry: dict[str, Any]) -> str:
@@ -532,23 +612,40 @@ def get_embedding_config() -> dict[str, Any]:
 
 
 def save_embedding_config(entry: dict[str, Any], *, clear_api_key: bool = False) -> dict[str, Any]:
-    """Persist embedding configuration in provider.json while keeping keys safe."""
+    """Persist embedding configuration in provider.json while keeping keys safe across mode switches."""
     catalog = _ensure_catalog()
     normalized = _normalize_embedding(entry)
     existing = catalog.get("embedding") if isinstance(catalog.get("embedding"), dict) else {}
-    if (
-        normalized["mode"] == "custom"
-        and not normalized["api_key"]
-        and not clear_api_key
-        and existing
-        and existing.get("api_key")
-    ):
-        prev_url = _effective_custom_url(existing)
-        next_url = _effective_custom_url(normalized)
-        if _same_origin(prev_url, next_url):
-            normalized["api_key"] = str(existing.get("api_key") or "")
-    elif clear_api_key:
+    existing_saved_custom = _normalize_saved_custom(existing.get("saved_custom")) if existing else None
+    if not existing_saved_custom and existing and existing.get("api_key"):
+        existing_saved_custom = _normalize_saved_custom(existing)
+
+    if clear_api_key:
         normalized["api_key"] = ""
+        normalized.pop("saved_custom", None)
+    elif normalized["mode"] == "custom":
+        next_url = _effective_custom_url(normalized)
+        if not normalized["api_key"]:
+            for candidate in (existing, existing_saved_custom):
+                if not candidate or not candidate.get("api_key"):
+                    continue
+                if _same_origin(_effective_custom_url(candidate), next_url):
+                    normalized["api_key"] = str(candidate["api_key"])
+                    break
+        if normalized["api_key"]:
+            normalized["saved_custom"] = {
+                "preset": normalized["preset"],
+                "base_url": normalized["base_url"],
+                "model": normalized["model"],
+                "api_key": normalized["api_key"],
+                "dim": normalized["dim"],
+            }
+        else:
+            normalized.pop("saved_custom", None)
+    else:
+        # Preserve previous cloud key across temporary switches (e.g. disabled / ollama / provider).
+        if existing_saved_custom:
+            normalized["saved_custom"] = existing_saved_custom
     catalog["embedding"] = normalized
     save_catalog(catalog)
     return dict(normalized)
@@ -631,10 +728,8 @@ def apply_to_config(config: dict[str, Any]) -> dict[str, Any]:
             model = embedding_cfg.get("model") or str(preset_meta.get("model") or "")
             key = str(embedding_cfg.get("api_key") or "").strip()
             key_env = str(preset_meta.get("api_key_env") or "")
-            if not key and preset and preset in normalized:
-                candidate = normalized[preset]
-                if _same_origin(base_url, str(candidate.get("base_url") or "")):
-                    key = resolve_api_key(candidate)
+            if not key:
+                key = find_matching_provider_key(normalized, base_url, preset=preset)
             rag["embedding_backend"] = "openai_compat"
             rag["embedding_preset"] = preset
             rag["embedding_base_url"] = base_url

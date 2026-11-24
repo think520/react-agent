@@ -244,3 +244,139 @@ def test_rag_settings_and_search_test_respect_library_header(rag_client):
 
     search1 = rag_client.post("/api/settings/rag/search-test", json={"query": "薛定谔方程"}).json()
     assert not any("quantum" in item["source"] for item in search1["results"])
+
+
+def test_rag_sample_queries_url_normalization_and_saved_custom_redaction(rag_client, monkeypatch):
+    rag = rag_client.get("/api/settings/rag").json()
+    samples = rag["status"]["sample_queries"]
+    assert samples
+    assert all(not s.endswith(".md") for s in samples)
+    assert any("贪心" in s or "动态规划" in s for s in samples)
+
+    orig_post = httpx.Client.post
+
+    def fake_ok(self, url, **kwargs):
+        if not str(url).endswith("/embeddings"):
+            return orig_post(self, url, **kwargs)
+        inputs = kwargs["json"]["input"]
+        return httpx.Response(
+            200,
+            json={"data": [{"index": i, "embedding": [0.1] * 4} for i in range(len(inputs))]},
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(httpx.Client, "post", fake_ok)
+    res = rag_client.post("/api/settings/rag/test", json={
+        "mode": "custom",
+        "preset": "siliconflow",
+        "base_url": "https://api.siliconflow.cn/v1/embeddings",
+        "model": "BAAI/bge-m3",
+        "api_key": "sk-secret-keep-888",
+    })
+    assert res.status_code == 200
+    body = res.json()
+    assert body["url_normalized"] is True
+    assert body["normalized_base_url"] == "https://api.siliconflow.cn/v1"
+
+    rag_client.put("/api/settings/rag", json={
+        "mode": "custom",
+        "preset": "siliconflow",
+        "base_url": "https://api.siliconflow.cn/v1",
+        "model": "BAAI/bge-m3",
+        "api_key": "sk-secret-keep-888",
+        "dim": 4,
+    })
+    switched = rag_client.put("/api/settings/rag", json={"mode": "disabled"}).json()
+    assert switched["config"]["has_api_key"] is False
+    assert switched["config"]["has_saved_custom_key"] is True
+    assert "sk-secret-keep-888" not in json.dumps(switched, ensure_ascii=False)
+
+
+def test_rag_ollama_models_discovery_reachable_and_offline(rag_client, monkeypatch):
+    def fake_tags(url, **kwargs):
+        return httpx.Response(
+            200,
+            json={
+                "models": [
+                    {"name": "llama3:8b", "size": 4_000_000_000, "details": {"family": "llama", "families": ["llama"]}},
+                    {"name": "bge-m3:latest", "size": 1_200_000_000, "details": {"family": "bert", "families": ["bert"]}},
+                ],
+            },
+            request=httpx.Request("GET", str(url)),
+        )
+
+    monkeypatch.setattr(httpx, "get", fake_tags)
+    res = rag_client.get("/api/settings/rag/ollama-models").json()
+    assert res["reachable"] is True
+    assert res["embedding_models"] == ["bge-m3:latest"]
+    assert res["models"][0]["name"] == "bge-m3:latest"
+    assert res["models"][0]["is_embedding"] is True
+
+    def fake_offline(url, **kwargs):
+        raise httpx.ConnectError("connection refused", request=httpx.Request("GET", str(url)))
+
+    monkeypatch.setattr(httpx, "get", fake_offline)
+    offline = rag_client.get("/api/settings/rag/ollama-models").json()
+    assert offline["ok"] is True
+    assert offline["reachable"] is False
+    assert offline["embedding_models"] == []
+
+
+def test_rag_background_backfill_and_cancel(rag_client, monkeypatch):
+    import time
+
+    orig_post = httpx.Client.post
+    cancel_on_first = {"active": False}
+
+    def fake_embed_post(self, url, **kwargs):
+        if not str(url).endswith("/embeddings"):
+            return orig_post(self, url, **kwargs)
+        if cancel_on_first["active"]:
+            rag_client.post("/api/settings/rag/backfill/cancel")
+        inputs = kwargs["json"]["input"]
+        return httpx.Response(
+            200,
+            json={"data": [{"index": i, "embedding": [0.25] * 4} for i in range(len(inputs))]},
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(httpx.Client, "post", fake_embed_post)
+    rag_client.put("/api/settings/rag", json={
+        "mode": "custom",
+        "preset": "siliconflow",
+        "base_url": "https://api.siliconflow.cn/v1",
+        "model": "BAAI/bge-m3",
+        "api_key": "sk-bg-key",
+        "dim": 4,
+    })
+
+    start = rag_client.post("/api/settings/rag/backfill", json={"rebuild": False, "background": True}).json()
+    assert start["ok"] is True
+    assert start["job"]["total"] == 2
+
+    status_payload = None
+    for _ in range(50):
+        status_payload = rag_client.get("/api/settings/rag/backfill/status").json()
+        if status_payload["job"]["status"] != "running":
+            break
+        time.sleep(0.05)
+
+    assert status_payload is not None
+    assert status_payload["job"]["status"] == "completed"
+    assert status_payload["job"]["backfilled"] == 2
+    assert status_payload["rag"]["status"]["effective_mode"] == "hybrid"
+
+    # Verify cooperative cancellation stops rebuilding before all docs finish
+    cancel_on_first["active"] = True
+    rag_client.post("/api/settings/rag/backfill", json={"rebuild": True, "background": True})
+    cancelled_payload = None
+    for _ in range(50):
+        cancelled_payload = rag_client.get("/api/settings/rag/backfill/status").json()
+        if cancelled_payload["job"]["status"] != "running":
+            break
+        time.sleep(0.05)
+
+    assert cancelled_payload is not None
+    assert cancelled_payload["job"]["status"] == "cancelled"
+    assert cancelled_payload["job"]["cancelled"] is True
+    assert cancelled_payload["job"]["backfilled"] <= 1

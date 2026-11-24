@@ -86,6 +86,7 @@ class RagEmbeddingTestRequest(BaseModel):
 
 class RagBackfillRequest(BaseModel):
     rebuild: bool = False
+    background: bool = False
 
 
 class RagSearchTestRequest(BaseModel):
@@ -262,9 +263,14 @@ def fetch_provider_models(body: ProviderFetchModelsRequest) -> dict:
     """
     import httpx
     from urllib.parse import urlparse
-    from providers.catalog import classify_model_kind, load_catalog, resolve_api_key
+    from providers.catalog import (
+        classify_model_kind,
+        load_catalog,
+        normalize_openai_base_url,
+        resolve_api_key,
+    )
 
-    base_url = body.base_url.rstrip("/")
+    base_url, _ = normalize_openai_base_url(body.base_url)
     resolved_key = (body.api_key or "").strip()
     if not resolved_key and body.provider_name:
         saved = load_catalog().get("providers", {}).get(body.provider_name.strip())
@@ -516,12 +522,17 @@ def backfill_rag_vectors(request: Request, body: RagBackfillRequest | None = Non
 
     config = get_config()
     workspace = get_request_workspace(request)
+    rebuild = bool(body.rebuild if body else False)
+    background = bool(body.background if body else False)
     try:
-        result = RagSettingsService.backfill_vectors(
-            workspace,
-            config,
-            rebuild=bool(body.rebuild if body else False),
-        )
+        if background:
+            job = RagSettingsService.start_backfill_job(workspace, config, rebuild=rebuild)
+            return {
+                "ok": True,
+                "job": job,
+                "rag": RagSettingsService.get_settings(config, workspace),
+            }
+        result = RagSettingsService.backfill_vectors(workspace, config, rebuild=rebuild)
     except ValueError as exc:
         raise APIError(422, "rag_backfill_invalid", str(exc)) from exc
     except Exception as exc:
@@ -531,6 +542,40 @@ def backfill_rag_vectors(request: Request, body: RagBackfillRequest | None = Non
         "result": result,
         "rag": RagSettingsService.get_settings(config, workspace),
     }
+
+
+@router.get("/rag/backfill/status")
+def rag_backfill_status(request: Request) -> dict:
+    from service.rag_settings_service import RagSettingsService
+
+    config = get_config()
+    workspace = get_request_workspace(request)
+    return {
+        "ok": True,
+        "job": RagSettingsService.get_backfill_job(workspace),
+        "rag": RagSettingsService.get_settings(config, workspace),
+    }
+
+
+@router.post("/rag/backfill/cancel")
+def cancel_rag_backfill(request: Request) -> dict:
+    from service.rag_settings_service import RagSettingsService
+
+    config = get_config()
+    workspace = get_request_workspace(request)
+    return {
+        "ok": True,
+        "job": RagSettingsService.cancel_backfill_job(workspace),
+        "rag": RagSettingsService.get_settings(config, workspace),
+    }
+
+
+@router.get("/rag/ollama-models")
+def list_rag_ollama_models(url: str = "") -> dict:
+    from service.rag_settings_service import RagSettingsService
+
+    config = get_config()
+    return RagSettingsService.probe_ollama_models(ollama_url=url or None, config=config)
 
 
 @router.post("/rag/search-test")

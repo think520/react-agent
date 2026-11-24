@@ -378,7 +378,15 @@ def _vector_payload(chunk: dict, *, document_id: str, source: str, title: str, c
     }
 
 
-def backfill_vectors(sqlite, qdrant, embedding, embedding_dim, guard: StallGuard | None = None) -> int:
+def backfill_vectors(
+    sqlite,
+    qdrant,
+    embedding,
+    embedding_dim,
+    guard: StallGuard | None = None,
+    cancel_token=None,
+    progress=None,
+) -> int:
     """Embed documents whose vectors were never written (P1-18).
 
     Importing while the embedding backend is down records `pending`, and the
@@ -389,11 +397,19 @@ def backfill_vectors(sqlite, qdrant, embedding, embedding_dim, guard: StallGuard
     if not embedding_dim or not embedding.is_available():
         return 0
     guard = guard or StallGuard()
+    pending = sqlite.get_pending_vector_documents()
+    total = len(pending)
     backfilled = 0
-    for document in sqlite.get_pending_vector_documents():
+    for index, document in enumerate(pending, start=1):
+        if cancel_token is not None and cancel_token.is_cancelled():
+            logger.info("Vector backfill cancelled after %d/%d documents", index - 1, total)
+            break
         document_id = document["id"]
+        doc_title = str(document.get("title") or document.get("source") or "")
         chunks = sqlite.get_chunks_by_document(document_id)
         if not chunks:
+            if callable(progress):
+                progress({"done": index, "total": total, "backfilled": backfilled, "current_title": doc_title})
             continue
         try:
             # W2 G3：太久没有进度就别再往下硬试 —— 剩下的仍是 pending，下次同步重试。
@@ -426,6 +442,12 @@ def backfill_vectors(sqlite, qdrant, embedding, embedding_dim, guard: StallGuard
         except Exception as exc:
             logger.warning("Vector backfill failed for %s: %s", document_id, exc)
             sqlite.mark_vector_error(document_id, str(exc))
+        finally:
+            if callable(progress):
+                try:
+                    progress({"done": index, "total": total, "backfilled": backfilled, "current_title": doc_title})
+                except Exception:
+                    pass
     if backfilled:
         logger.info("Backfilled vectors for %d documents", backfilled)
     return backfilled

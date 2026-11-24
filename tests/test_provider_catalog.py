@@ -536,3 +536,71 @@ def test_apply_to_config_merges_embedding_modes_and_reuses_provider_keys(monkeyp
     catalog.save_embedding_config({"mode": "disabled"})
     loaded = ProviderFactory.load_config(cfg_path)
     assert loaded["rag"]["embedding_backend"] == "disabled"
+
+
+def test_normalize_openai_base_url_and_provider_key_reuse_by_origin(monkeypatch, tmp_path):
+    monkeypatch.setenv("BOBODAN_HOME", str(tmp_path / "home"))
+    cleaned, changed = catalog.normalize_openai_base_url("https://api.siliconflow.cn/v1/embeddings/")
+    assert cleaned == "https://api.siliconflow.cn/v1"
+    assert changed is True
+    untouched, not_changed = catalog.normalize_openai_base_url("https://api.siliconflow.cn/v1")
+    assert untouched == "https://api.siliconflow.cn/v1"
+    assert not_changed is False
+
+    catalog.upsert_provider("my-sf", {
+        "preset": "custom",
+        "base_url": "https://api.siliconflow.cn/v1/chat/completions",
+        "api_key": "sk-alias-sf",
+    })
+    saved_provider = catalog.load_catalog()["providers"]["my-sf"]
+    assert saved_provider["base_url"] == "https://api.siliconflow.cn/v1"
+
+    cfg_path = _write_config(tmp_path, "llm: {}\nrag:\n  embedding_backend: auto\n")
+    catalog.save_embedding_config({
+        "mode": "custom",
+        "preset": "siliconflow",
+        "base_url": "https://api.siliconflow.cn/v1/embeddings",
+        "model": "BAAI/bge-m3",
+        "api_key": "",
+    })
+    assert catalog.get_embedding_config()["base_url"] == "https://api.siliconflow.cn/v1"
+    loaded = ProviderFactory.load_config(cfg_path)
+    assert loaded["rag"]["embedding_api_key"] == "sk-alias-sf"
+
+
+def test_saved_custom_key_survives_mode_switches_until_cleared(monkeypatch, tmp_path):
+    monkeypatch.setenv("BOBODAN_HOME", str(tmp_path / "home"))
+    catalog.save_embedding_config({
+        "mode": "custom",
+        "preset": "siliconflow",
+        "base_url": "https://api.siliconflow.cn/v1",
+        "model": "BAAI/bge-m3",
+        "api_key": "sk-emb-keep",
+        "dim": 1024,
+    })
+
+    disabled = catalog.save_embedding_config({"mode": "disabled"})
+    assert disabled["api_key"] == ""
+    assert disabled["saved_custom"]["api_key"] == "sk-emb-keep"
+
+    ollama = catalog.save_embedding_config({"mode": "ollama", "ollama_url": "http://localhost:11434", "ollama_model": "bge-m3"})
+    assert ollama["saved_custom"]["api_key"] == "sk-emb-keep"
+
+    restored = catalog.save_embedding_config({
+        "mode": "custom",
+        "preset": "siliconflow",
+        "base_url": "https://api.siliconflow.cn/v1",
+        "model": "BAAI/bge-m3",
+        "api_key": "",
+    })
+    assert restored["api_key"] == "sk-emb-keep"
+
+    cleared = catalog.save_embedding_config({
+        "mode": "custom",
+        "preset": "siliconflow",
+        "base_url": "https://api.siliconflow.cn/v1",
+        "model": "BAAI/bge-m3",
+        "api_key": "",
+    }, clear_api_key=True)
+    assert cleared["api_key"] == ""
+    assert "saved_custom" not in cleared
