@@ -1,6 +1,6 @@
 # Bobodan 路线图
 
-> **v2.3（2026-11-23，W1-GRAPH-01 / W1-GRAPH-02 知识图谱闭环增强）** · 分支：`main` · 验证：后端 1984、Vitest 419。剩余发布阻塞见 §4。
+> **v2.4（2026-11-26，向量设置 UX 升级 + 对话/划词/卡片体验优化 + 真实模型抽查通过）** · 分支：`main` · 验证：后端 1998、Vitest 439。剩余发布阻塞见 §4。
 >
 > **这是唯一的"现在做什么"文档，控制在两屏。** 只写四件事：当前基线、当前批次、下一批候选、发布阻塞项。交付经过写进 [`../CHANGELOG.md`](../CHANGELOG.md)；v1.5 及以前的完整路线（W1–W5 交付长表、A0–A4、E1–E18、G1–G5 的复测记录）原样归档在 [`archive/delivery/ROADMAP_HISTORY_2026-09_11.md`](archive/delivery/ROADMAP_HISTORY_2026-09_11.md)，只用于追溯。
 
@@ -14,7 +14,7 @@
 |---|---|---|---|---|
 | W1-E6.2 | W1 学习闭环 | 掌握度统一消费契约（事实 / 估计 / 调度三分） | `已验证` | `learning/contract.py`；`tests/test_mastery_contract.py` 23 条；已合入 main |
 | QA-LIVE-01 | 横贯 | 真实后端核心闭环门禁（只替换模型） | `已验证` | `tests/test_live_core_loop.py` 14 条：导入→检索→出题→作答→复习→重启、批改失败、跨库隔离、引用链路、预检索范围、资料移动撤销冲突、整库备份与干净目录恢复 |
-| W2-EVID-01 | W2 检索 | 引用校验第一阶段：确定性引用标签 + 运行时引用门禁 | `已验证` | `rag/citations.py`、`CitationPolicy`；`tests/test_citation_policy.py` 12 条 + 真实链路 5 条。**真实模型未抽查**（标签是否被照抄）——见 §2 |
+| W2-EVID-01 | W2 检索 | 引用校验第一阶段：确定性引用标签 + 运行时引用门禁 | `已验证` | `rag/citations.py`、`CitationPolicy`；`tests/test_citation_policy.py` 12 条 + 真实链路 5 条；2026-11-26 真实模型与真机集中体验抽查通过 |
 | W2-EVID-02 | W2 检索 | 引用支持度：引用真实但结论与原文矛盾时给风险信号 | `已验证` | `service/citation_support.py` 在 `final_answer` 后检测极性/约束/复杂度/低重合度偏差，只产 `support_warnings` 风险提示（「请核对原文」），不修改原文回答也不阻断 `CitationPolicy`；`ChatMessage` 折叠展示；26 条双语基准 `scripts/eval_citation_support.py`（P=1.000 / R=1.000 / F1=1.000 / FPR=0.000），`tests/test_citation_support.py` 6 条 |
 | W2-CITE-CODE-01 | W2 检索 | Markdown 代码示例中的引用形状文本保持原样 | `已验证` | `citations.ts` 在 Markdown AST 解析后只转换普通文本节点；`ChatMessage.test.tsx` 覆盖正文、行内代码和围栏代码 |
 | FE-ONBOARD-01 | 横贯 | 跳过引导不提交空偏好或默认开关 | `已验证` | `OnboardingDialog.test.tsx`；跳过与完成分别处理 |
@@ -40,8 +40,8 @@
 
 同一时间只有**一个主交付批次 + 一个不互相阻塞的验证批次**。
 
-- **主批次：W1-GRAPH-01 与 W1-GRAPH-02 已完成**（已合入 `main`；后续转入 `W5-RC-01` Windows 桌面打包与安装 / 升级 / 退出 / 卸载验收）。
-- **验证批次：真实模型抽查引用标签**。用真实模型问 3–5 个基于资料的问题，确认回答带 `[Sxxxxxx]` 且门禁不误伤；不照抄就改提示位置，而不是放宽门禁。
+- **主批次：已完成向量设置 UX 升级、后台非阻塞索引与对话/划词/确认卡片三批交互打磨**（并已合并 `main`）；下一步待选：`W1-QUALITY-01`（题目 / 批改质量）或 `W5-RC-01`（Windows 桌面打包与安装 / 升级 / 退出 / 卸载验收）。
+- **验证批次：已完成 `W2-EVID-01` 真实模型与真机集中体验抽查**。
 
 ## 3. 下一批候选（按依赖排序）
 
@@ -58,7 +58,7 @@
 
 1. ~~**W4-RESTORE-01** 整体备份 / 恢复~~：`已验证`（干净目录异地恢复、不含密钥与迁移/恢复回滚已验收）。
 2. **W5-RC-01** 干净机器安装、sidecar 生命周期、升级 / 退出 / 卸载契约（细则见 `PROJECT_GUIDE.md` 发布验收）。
-3. **W2-EVID-01 真实模型抽查**通过（§2 验证批次）。
+3. ~~**W2-EVID-01 真实模型抽查**~~：`已验证`（2026-11-26 真机集中体验 + 真实模型抽查通过）。
 4. 核心 P0（E6.2、QA-LIVE-01、EVID-01）保持绿灯。
 
 ---
