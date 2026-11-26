@@ -140,6 +140,13 @@ export function AttributionBadges({ attribution, onOpenSources }: { attribution?
   const visibleGroups = orderedGroups.slice(0, 2);
   return (
     <div className="source-row" aria-label="回答来源">
+      {visibleGroups.length > 0 && (onOpenSources ? (
+        <button className="source-summary-pill" type="button" title="展开全部引用来源" onClick={() => onOpenSources(attribution)}>
+          共 {groups.length} 份来源
+        </button>
+      ) : (
+        <span className="source-summary-pill">共 {groups.length} 份来源</span>
+      ))}
       {visibleGroups.length ? visibleGroups.map((group) => {
         const source = group.sources[0];
         const location = source.heading || (source.page ? `第 ${source.page} 页` : source.slide ? `第 ${source.slide} 页` : "");

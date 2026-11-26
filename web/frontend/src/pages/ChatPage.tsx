@@ -31,13 +31,13 @@ import {} from "../lib/commandRouter";
 import {} from "../lib/errors";
 import { parseMentionDraft } from "../lib/mention";
 import {} from "../lib/settingsIntent";
-import {} from "../stores/handoffStore";
+import { useHandoffStore } from "../stores/handoffStore";
 import { MAX_CHAT_ATTACHMENTS, prepareChatAttachment } from "../lib/chatAttachments";
 import {
   setAttachments, setMentionDismissed, setMentionIndex, setMentionTab, setPaletteDismissed, setPaletteIndex,
   setReferences, setWebOnce, setInlineError, useChatUiStore,
 } from "../stores/chatStore";
-import { notifyError } from "../stores/noticeStore";
+import { notifyError, notifyInfo } from "../stores/noticeStore";
 import { useUiStore } from "../stores/uiStore";
 import type { ChatArtifact, ChatAttachment, KnowledgeContextArtifact, WikiPlanArtifact } from "../types";
 
@@ -741,6 +741,34 @@ export function ChatPage() {
             truncated={truncated}
             onContinue={() => { clearTruncated(); void send(undefined, "请从中断处继续写，不要重复已经写过的内容。"); }}
             onPreparePractice={preparePractice}
+            onFollowUp={(prompt) => void send(undefined, prompt)}
+            onSelectionExplain={(quote) => {
+              void send(undefined, "请用更直觉的方式详细解释你刚才回答里的这段内容：\n\n> " + quote.replace(/\n/g, "\n> "));
+            }}
+            onSelectionQuote={(quote) => {
+              const snippet = "> " + quote.replace(/\n/g, "\n> ") + "\n\n";
+              setDraft((current) => (current.trim() ? current.trimEnd() + "\n\n" + snippet : snippet));
+              inputRef.current?.focus();
+            }}
+            onSelectionPractice={(quote) => {
+              useHandoffStore.getState().setPracticeTopic(quote.slice(0, 400));
+              navigate("/practice");
+            }}
+            onSelectionSaveNote={(quote) => {
+              const title = quote.replace(/\s+/g, " ").trim().slice(0, 24) || "对话知识点摘录";
+              void api.createMemoryKnowledge({
+                scope: "library",
+                kind: "course_insight",
+                title,
+                content: quote,
+                pinned: false,
+                references: [],
+              }).then(() => {
+                notifyInfo("已保存到当前资料库的个人知识");
+              }).catch((reason) => {
+                notifyError(reason instanceof Error ? reason.message : "保存知识失败");
+              });
+            }}
             onRetry={retryMessage}
             renderArtifact={artifactSurface}
             onOpenReference={openReference}

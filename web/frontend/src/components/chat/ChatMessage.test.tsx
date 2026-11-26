@@ -1,4 +1,4 @@
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -161,5 +161,58 @@ describe("AssistantMessage citations", () => {
     /></MemoryRouter>);
 
     expect(container.querySelector(".citation-support-warning")).toBeNull();
+  });
+
+  it("renders copy button and follow-up chips only on latest finished message, and triggers onFollowUp", () => {
+    const onFollowUp = vi.fn();
+    const message: ChatMessage = {
+      role: "assistant",
+      content: "动态规划把原问题拆成重叠子问题并记忆化。",
+    };
+    const { rerender } = render(
+      <MemoryRouter>
+        <AssistantMessage
+          message={message}
+          index={0}
+          isLatest
+          assistantName="Bobodan"
+          status={null}
+          brandState="ready"
+          sending={false}
+          error=""
+          onPreparePractice={vi.fn()}
+          onFollowUp={onFollowUp}
+          onRetry={vi.fn()}
+          renderArtifact={() => null}
+          onOpenSources={vi.fn()}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole("button", { name: "复制回答" })).toBeInTheDocument();
+    const chip = screen.getByRole("button", { name: "出 2 道小题考我" });
+    fireEvent.click(chip);
+    expect(onFollowUp).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <MemoryRouter>
+        <AssistantMessage
+          message={message}
+          index={0}
+          isLatest={false}
+          assistantName="Bobodan"
+          status={null}
+          brandState="ready"
+          sending={false}
+          error=""
+          onPreparePractice={vi.fn()}
+          onFollowUp={onFollowUp}
+          onRetry={vi.fn()}
+          renderArtifact={() => null}
+          onOpenSources={vi.fn()}
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.queryByRole("button", { name: "出 2 道小题考我" })).toBeNull();
   });
 });

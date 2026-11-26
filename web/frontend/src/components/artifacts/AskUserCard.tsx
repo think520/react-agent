@@ -26,8 +26,14 @@ export function AskUserCard({ artifact, busy, onAnswer, onSkip }: {
   const skipped = resolved && Boolean(artifact.closure) && artifact.closure !== "answered";
 
   if (resolved) {
-    return <section className={["ask-user-card", "resolved", skipped ? "skipped" : ""].filter(Boolean).join(" ")}>
-      <header><span><CircleHelp size={15} />需要你选择</span><strong>{skipped ? "没有作答，已跳过" : "已回答"}</strong></header>
+    return <section
+      className={["ask-user-card", "hitl-card", "resolved", skipped ? "skipped" : ""].filter(Boolean).join(" ")}
+      data-state={skipped ? "rejected" : "approved"}
+    >
+      <header>
+        <span><CircleHelp size={15} />需要你选择</span>
+        <strong className="hitl-status-pill">{skipped ? "没有作答，已跳过" : "已回答"}</strong>
+      </header>
       <div className="ask-user-summary">
         {artifact.questions.map((question) => (
           <div key={question.id}><small>{question.prompt}</small><p>{answersById.get(question.id) || (skipped ? "未回答" : "—")}</p></div>
@@ -59,25 +65,31 @@ export function AskUserCard({ artifact, busy, onAnswer, onSkip }: {
     if (!question.multi_select) return (draft[question.id] || "").trim();
     return picks(question.id).join(", ");
   }
-  return <section className="ask-user-card">
-    <header><span><CircleHelp size={15} />需要你选择</span><strong>回答后 Bobodan 会继续</strong></header>
+  return <section className="ask-user-card hitl-card" data-state="pending">
+    <header><span><CircleHelp size={15} />需要你选择</span><strong className="hitl-status-pill">回答后 Bobodan 会继续</strong></header>
     <div className="ask-user-questions">
       {artifact.questions.map((question) => (
         <div key={question.id} className="ask-user-question">
           <p>{question.prompt}</p>
           {question.options && question.options.length > 0
             ? <div className="ask-user-options">
-                {question.options.map((option) => (
-                  <button
-                    key={option}
-                    type="button"
-                    className={question.multi_select
-                      ? (picks(question.id).includes(option) ? "active" : "")
-                      : (draft[question.id] === option ? "active" : "")}
-                    aria-pressed={question.multi_select ? picks(question.id).includes(option) : undefined}
-                    onClick={() => choose(question, option)}
-                  >{option}</button>
-                ))}
+                {question.options.map((option) => {
+                  const selectedOption = question.multi_select
+                    ? picks(question.id).includes(option)
+                    : draft[question.id] === option;
+                  return (
+                    <button
+                      key={option}
+                      type="button"
+                      className={selectedOption ? "active" : ""}
+                      aria-pressed={question.multi_select ? selectedOption : undefined}
+                      onClick={() => choose(question, option)}
+                    >
+                      {selectedOption && <Check size={13} className="ask-user-pick-icon" aria-hidden="true" />}
+                      {option}
+                    </button>
+                  );
+                })}
               </div>
             : <input
                 value={draft[question.id] || ""}

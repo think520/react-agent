@@ -6,6 +6,7 @@ import remarkGfm from "remark-gfm";
 import type { PluggableList } from "unified";
 
 import type { ProcessBrandState } from "../../hooks/useChatStream";
+import { buildFollowUpSuggestions } from "../../lib/chatFollowUps";
 import { remarkCitations, type CitationTarget } from "../../lib/citations";
 import { readerLocation } from "../../lib/documentLinks";
 import { BobodanProcess, PersonalizationChip, RunSummary } from "../../pages/chat/chatPrimitives";
@@ -108,26 +109,32 @@ export function normalizeMessageArtifacts(artifacts: ChatArtifact[] | undefined)
   return result;
 }
 
-export function AssistantMessage({ message, index, assistantName, status, brandState, sending, error, onPreparePractice, onRetry, renderArtifact, onOpenSources }: {
+export function AssistantMessage({ message, index, isLatest = false, assistantName, status, brandState, sending, error, onPreparePractice, onFollowUp, onRetry, renderArtifact, onOpenSources }: {
   message: ChatMessage;
   index: number;
+  isLatest?: boolean;
   assistantName: string;
   status: string | null;
   brandState: ProcessBrandState;
   sending: boolean;
   error: string;
   onPreparePractice: (index: number) => void;
+  onFollowUp?: (prompt: string) => void;
   onRetry: (index: number, retryFailed?: boolean) => void;
   renderArtifact: (artifact: ChatArtifact) => React.ReactNode;
   onOpenSources: (attribution: Attribution) => void;
 }) {
   const visibleArtifacts = useMemo(() => normalizeMessageArtifacts(message.artifacts), [message.artifacts]);
+  const followUps = useMemo(
+    () => (isLatest && onFollowUp ? buildFollowUpSuggestions(message) : []),
+    [isLatest, message, onFollowUp],
+  );
   return <article className={"assistant-message " + (message.failed ? "failed" : "")}>
     <div className="assistant-heading"><img src={message.failed ? "/assets/brand/expressions/bobodan-expression-curious.webp" : "/assets/brand/expressions/bobodan-expression-neutral.webp"} alt="" /><span>{assistantName}</span></div>
     {message.pending && status && <BobodanProcess state={brandState} detail={status} />}
     {!message.pending && <RunSummary artifact={message.artifacts?.find((artifact): artifact is RunSummaryArtifact => artifact.type === "run_summary")} />}
     {!message.pending && message.process?.length ? <ProcessFoldBlock steps={message.process} /> : null}
-    <BlockErrorBoundary><div className="answer-prose"><AnswerMarkdown attribution={message.attribution} content={message.content || (message.pending ? "正在整理回答…" : message.failed ? "回答没有完成。" : "本轮没有生成可显示的内容。")} /></div></BlockErrorBoundary>
+    <BlockErrorBoundary><div className="answer-prose" data-selectable-answer={message.pending ? undefined : "true"}><AnswerMarkdown attribution={message.attribution} content={message.content || (message.pending ? "正在整理回答…" : message.failed ? "回答没有完成。" : "本轮没有生成可显示的内容。")} /></div></BlockErrorBoundary>
     {visibleArtifacts.map((artifact) => <BlockErrorBoundary key={artifact.artifact_id}>{renderArtifact(artifact)}</BlockErrorBoundary>)}
     {!message.pending && (message.attribution?.support_warnings?.length ?? 0) > 0 && (
       <details className="citation-support-warning">
@@ -153,7 +160,15 @@ export function AssistantMessage({ message, index, assistantName, status, brandS
     )}
     <AttributionBadges attribution={message.attribution} onOpenSources={onOpenSources} />
     <PersonalizationChip references={message.personalization} />
-    {!message.pending && !message.failed && message.content && !message.artifacts?.some((artifact) => artifact.type === "practice_ready") && <AnswerActions onPreparePractice={() => onPreparePractice(index)} />}
+    {!message.pending && !message.failed && message.content && !message.artifacts?.some((artifact) => artifact.type === "practice_ready") && (
+      <AnswerActions
+        content={message.content}
+        onPreparePractice={() => onPreparePractice(index)}
+        followUps={followUps}
+        disabled={sending}
+        onFollowUp={onFollowUp}
+      />
+    )}
     {message.failed && <AnswerFailure message={error || "AI 连接暂时不可用，请稍后重试。"} disabled={sending} onRetry={() => onRetry(index, true)} />}
     {message.stopped && <AnswerFailure message="回答已停止，只生成了部分内容。" disabled={sending} onRetry={() => onRetry(index)} />}
   </article>;

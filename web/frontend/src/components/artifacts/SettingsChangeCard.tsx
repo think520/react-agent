@@ -1,4 +1,4 @@
-import { Check } from "lucide-react";
+import { Check, SlidersHorizontal } from "lucide-react";
 
 import type { SettingsChangeArtifact } from "../../types";
 
@@ -18,8 +18,16 @@ export function SettingsChangeCard({ artifact, busy, onResolve }: {
   busy: boolean;
   onResolve: (artifact: SettingsChangeArtifact, action: "apply" | "reject") => void;
 }) {
-  return <section className={`settings-change-card ${artifact.status}`}>
-    <header><span>设置变更</span><strong>{artifact.status === "pending" ? "确认后才会生效" : artifact.status === "applied" ? "设置已更新" : "已取消修改"}</strong></header>
+  const dataState = artifact.status === "pending"
+    ? "pending"
+    : artifact.status === "applied"
+      ? "approved"
+      : "rejected";
+  return <section className={`settings-change-card hitl-card ${artifact.status}`} data-state={dataState}>
+    <header>
+      <span><SlidersHorizontal size={14} />设置变更</span>
+      <strong className="hitl-status-pill">{artifact.status === "pending" ? "确认后才会生效" : artifact.status === "applied" ? "设置已更新" : "已取消修改"}</strong>
+    </header>
     <div className="settings-change-list">{artifact.changes.map((change) => <div key={change.key}><span>{change.label}</span><del>{displaySettingValue(change.before)}</del><i>→</i><strong>{displaySettingValue(change.after)}</strong></div>)}</div>
     {artifact.status === "pending" && <footer><button className="quiet-button" disabled={busy} onClick={() => onResolve(artifact, "reject")}>取消</button><button className="primary-button" disabled={busy} onClick={() => onResolve(artifact, "apply")}><Check size={15} />确认修改</button></footer>}
   </section>;

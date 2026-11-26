@@ -7,14 +7,16 @@
  */
 
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
-import { List, NotebookPen, Quote, X } from "lucide-react";
+import { BookOpen, Copy, Highlighter, List, MessageSquareText, NotebookPen, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { createPortal } from "react-dom";
 import { useNavigate, useOutletContext } from "react-router-dom";
 
 import type { AppOutletContext } from "./AppShell";
+import type { SelectionAnchor } from "../hooks/useTextSelection";
 import { EmptyState, LoadingState } from "./common";
+import { SelectionActionBar } from "./SelectionActionBar";
 import { api, documentAssetUrl, documentRawEmbedUrl, downloadDocumentRaw, fetchDocumentRawText, splitFrontmatter } from "../lib/api";
 import { HIGHLIGHT_CLASS, highlightQuote, unwrapHighlight } from "../lib/domHighlight";
 import { anchorDraftFromRange } from "../lib/readerAnchors";
@@ -30,6 +32,7 @@ import {
   mergeDocumentReferences,
 } from "../lib/readerNoteDraft";
 import { useHandoffStore } from "../stores/handoffStore";
+import { notifyInfo } from "../stores/noticeStore";
 import { useReaderTabsStore } from "../stores/readerTabsStore";
 import type { DocumentSection, DocumentSummary, PersonalKnowledgeItem } from "../types";
 
@@ -326,7 +329,29 @@ export function DocumentReader({
   // 选区工具条要**贴着选区**出现（用户反馈：原来钉在正文顶部，选到文章中间时离得很远）。
   // 记下 Range 本身，滚动时按它重算位置 —— Range 会跟着文档走，不需要缓存坐标。
   const selectionRangeRef = useRef<Range | null>(null);
-  const [selectionAnchor, setSelectionAnchor] = useState<{ x: number; y: number } | null>(null);
+  const [selectionAnchor, setSelectionAnchor] = useState<SelectionAnchor | null>(null);
+
+  function computeAnchor(range: Range): SelectionAnchor {
+    const startEl = range.startContainer instanceof Element
+      ? range.startContainer
+      : range.startContainer.parentElement;
+    const rect = typeof range.getBoundingClientRect === "function"
+      ? range.getBoundingClientRect()
+      : startEl?.getBoundingClientRect() || { left: 200, top: 120, bottom: 140, width: 80 };
+    const placement = rect.top < 76 ? "below" : "above";
+    return {
+      x: rect.left + rect.width / 2,
+      y: placement === "above" ? rect.top - 10 : rect.bottom + 10,
+      placement,
+    };
+  }
+
+  function clearReaderSelection() {
+    setSelectionQuote("");
+    selectionRangeRef.current = null;
+    setSelectionAnchor(null);
+    window.getSelection()?.removeAllRanges();
+  }
 
   function captureSelection() {
     const selection = window.getSelection();
@@ -339,32 +364,43 @@ export function DocumentReader({
     }
     const range = selection.getRangeAt(0).cloneRange();
     selectionRangeRef.current = range;
-    const rect = range.getBoundingClientRect();
-    setSelectionAnchor({ x: rect.left + rect.width / 2, y: rect.top });
+    setSelectionAnchor(computeAnchor(range));
   }
 
   useEffect(() => {
     const reposition = () => {
       const range = selectionRangeRef.current;
       if (!range) return;
-      const rect = range.getBoundingClientRect();
-      setSelectionAnchor({ x: rect.left + rect.width / 2, y: rect.top });
+      setSelectionAnchor(computeAnchor(range));
+    };
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && selectionRangeRef.current) {
+        setSelectionQuote("");
+        selectionRangeRef.current = null;
+        setSelectionAnchor(null);
+        window.getSelection()?.removeAllRanges();
+      }
     };
     window.addEventListener("scroll", reposition, true);
     window.addEventListener("resize", reposition);
+    window.addEventListener("keydown", onEscape);
     return () => {
       window.removeEventListener("scroll", reposition, true);
       window.removeEventListener("resize", reposition);
+      window.removeEventListener("keydown", onEscape);
     };
   }, []);
 
-  /** 气泡的落点：贴着选区上沿，并且始终留在视口内（选到很靠边时也要点得到）。 */
-  const selectionToolbarStyle = selectionAnchor
-    ? {
-        left: Math.min(Math.max(selectionAnchor.x, 160), Math.max(160, window.innerWidth - 160)),
-        top: Math.min(Math.max(selectionAnchor.y - 10, 64), Math.max(64, window.innerHeight - 24)),
-      }
-    : undefined;
+  async function copySelection() {
+    if (!selectionQuote) return;
+    try {
+      await navigator.clipboard?.writeText(selectionQuote);
+      notifyInfo("已复制选中内容");
+      clearReaderSelection();
+    } catch {
+      clearReaderSelection();
+    }
+  }
 
   function askAboutSelection() {
     if (!selectionQuote || !selected) return;
@@ -723,7 +759,18 @@ export function DocumentReader({
             </button>
           </div>
         )}
-        {selectionQuote && createPortal(<div className={selectionAnchor ? "selection-toolbar floating" : "selection-toolbar"} style={selectionToolbarStyle}><Quote size={15} /><span>已选择 {selectionQuote.length} 个字符</span><button className="quiet-button" onClick={askAboutSelection}>带到对话</button><button className="quiet-button" onClick={createPracticeFromSelection}>基于此出题</button><button className="quiet-button" onClick={() => void saveAnchorFromSelection()}>划线</button><button className="quiet-button" onClick={() => void saveNoteFromSelection()}>记笔记</button><button className="quiet-button" onClick={() => setSelectionQuote("")}>取消</button></div>, document.body)}
+        <SelectionActionBar
+          quote={selectionQuote}
+          anchor={selectionAnchor}
+          actions={[
+            { id: "ask", label: "带到对话", icon: <MessageSquareText size={13} />, primary: true, onClick: askAboutSelection },
+            { id: "practice", label: "基于此出题", icon: <BookOpen size={13} />, onClick: createPracticeFromSelection },
+            { id: "highlight", label: "划线", icon: <Highlighter size={13} />, onClick: () => void saveAnchorFromSelection() },
+            { id: "note", label: "记笔记", icon: <NotebookPen size={13} />, onClick: () => void saveNoteFromSelection() },
+            { id: "copy", label: "复制", icon: <Copy size={13} />, onClick: () => void copySelection() },
+          ]}
+          onClose={clearReaderSelection}
+        />
         {detailLoading && !sections.length ? <LoadingState label="正在打开资料…" state="reading" /> : detailError && !sections.length && !showOriginal ? (
           <EmptyState compact title="暂时无法读取文本" description="读取失败；请重试或检查 Bobodan 后端连接。" state="resting" />
         ) : showOriginal ? (

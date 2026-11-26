@@ -3,8 +3,8 @@
  * 这里不放状态：只接收 props，或做不依赖 React 的格式转换。
  */
 import {} from "../../lib/documentLinks";
-import { Fragment } from "react";
-import { Brain, Check } from "lucide-react";
+import { Fragment, useState } from "react";
+import { Brain, Check, ChevronRight } from "lucide-react";
 import {} from "react-router-dom";
 
 import type {} from "../../components/AppShell";
@@ -77,7 +77,7 @@ for (const state of ["thinking", "reading", "writing", "ready"] as const) {
 export function BobodanProcess({ state, detail }: { state: ProcessBrandState; detail: string }) {
   return <div className={`bobodan-process ${state}`} role="status">
     <BrandIllustration state={state} size={52} />
-    <div><strong>{processTitle(state)}</strong><small>{detail}</small><span className="bobodan-process-ink" aria-hidden="true"><i /><i /><i /></span></div>
+    <div><strong className="process-shimmer">{processTitle(state)}</strong><small>{detail}</small><span className="bobodan-process-ink" aria-hidden="true"><i /><i /><i /></span></div>
   </div>;
 }
 
@@ -107,6 +107,11 @@ const TOOL_LABELS: Record<string, string> = {
 };
 
 export function RunSummary({ artifact }: { artifact?: RunSummaryArtifact }) {
+  const hasDegradation = Boolean(artifact?.operations.some(
+    (op) => op.tool_name === "rag_search" && (op.semantic_available === false || Boolean(op.grep_unreadable)),
+  ));
+  const [open, setOpen] = useState(hasDegradation);
+
   if (!artifact) return null;
   const hitCount = artifact.operations.reduce((total, item) => total + (item.hit_count || 0), 0);
   const documentCount = artifact.operations.reduce((total, item) => total + (item.document_count || 0), 0);
@@ -114,30 +119,48 @@ export function RunSummary({ artifact }: { artifact?: RunSummaryArtifact }) {
   const summary = artifact.operations.length
     ? [documentCount ? `${documentCount} 份资料` : "", hitCount ? `${hitCount} 个片段` : "", relationCount ? `${relationCount} 条关系` : ""].filter(Boolean).join(" · ") || `完成 ${artifact.operations.length} 项查询`
     : "直接回答";
-  return <details className={`run-summary ${artifact.status}`}>
-    <summary><Check size={14} /><strong>{artifact.status === "completed" ? "处理完成" : "处理未完成"}</strong><span>{summary}</span><small>{formatDuration(artifact.total_elapsed)}</small></summary>
-    {artifact.operations.length > 0 && <div>{artifact.operations.map((operation, index) => <Fragment key={`${operation.tool_name}:${index}`}><p>
-      <span>{TOOL_LABELS[operation.tool_name] || "学习工具"}</span>
-      {operation.query && <q>{operation.query}</q>}
-      {operation.operation && <code>{operation.operation}</code>}
 
-      {/* P1-22: non-text material cannot be grepped, so an empty result must not
-          read as “the material does not say it”. */}
-      {operation.tool_name === "rag_search" && !!operation.grep_unreadable && (
-        <span className="retrieval-degraded">
-          {operation.grep_unreadable_sources?.length
-            ? `${operation.grep_unreadable_sources[0]} 等 ${operation.grep_unreadable} 份非文本资料无法原文定位`
-            : `${operation.grep_unreadable} 份非文本资料无法原文定位`}
-        </span>
-      )}
-      <small>{operation.status === "completed" ? "完成" : "失败"} · {formatDuration(operation.elapsed || 0)}</small>
-    </p>
-      {/* W2 降级可见性：说清"为什么是纯文本检索 + 下一步"（<details> 不能嵌在 <p> 里）。 */}
-      {operation.tool_name === "rag_search" && operation.semantic_available === false && (
-        <RetrievalDegradedNotice reason={operation.semantic_reason} hitCount={operation.hit_count} />
-      )}
-    </Fragment>)}</div>}
-  </details>;
+  return <div className={`run-summary ${artifact.status}`} data-open={open}>
+    <button
+      type="button"
+      className="run-summary-trigger"
+      aria-expanded={open}
+      onClick={() => setOpen((current) => !current)}
+    >
+      <Check size={14} className="run-summary-check" aria-hidden="true" />
+      <strong>{artifact.status === "completed" ? "处理完成" : "处理未完成"}</strong>
+      <span className="run-summary-summary">{summary}</span>
+      <small className="run-summary-elapsed">{formatDuration(artifact.total_elapsed)}</small>
+      <ChevronRight size={14} className="run-summary-chevron" aria-hidden="true" />
+    </button>
+    {artifact.operations.length > 0 && (
+      <div className="run-summary-panel" aria-hidden={!open}>
+        <div className="run-summary-panel-inner">
+          {artifact.operations.map((operation, index) => <Fragment key={`${operation.tool_name}:${index}`}><p className="run-op-row">
+            <span className="run-op-chip">{TOOL_LABELS[operation.tool_name] || "学习工具"}</span>
+            {operation.query && <q>{operation.query}</q>}
+            {operation.operation && <code>{operation.operation}</code>}
+
+            {/* P1-22: non-text material cannot be grepped, so an empty result must not
+                read as “the material does not say it”. */}
+            {operation.tool_name === "rag_search" && !!operation.grep_unreadable && (
+              <span className="retrieval-degraded">
+                {operation.grep_unreadable_sources?.length
+                  ? `${operation.grep_unreadable_sources[0]} 等 ${operation.grep_unreadable} 份非文本资料无法原文定位`
+                  : `${operation.grep_unreadable} 份非文本资料无法原文定位`}
+              </span>
+            )}
+            <small className="run-op-status" data-failed={operation.status !== "completed"}>{operation.status === "completed" ? "完成" : "失败"} · {formatDuration(operation.elapsed || 0)}</small>
+          </p>
+            {/* W2 降级可见性：说清"为什么是纯文本检索 + 下一步"（<details> 不能嵌在 <p> 里）。 */}
+            {operation.tool_name === "rag_search" && operation.semantic_available === false && (
+              <RetrievalDegradedNotice reason={operation.semantic_reason} hitCount={operation.hit_count} />
+            )}
+          </Fragment>)}
+        </div>
+      </div>
+    )}
+  </div>;
 }
 
 export function initialDraft(sessionId: string | undefined, peekOnly = false) {
