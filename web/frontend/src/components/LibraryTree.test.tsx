@@ -191,7 +191,7 @@ describe("资料库文件夹树", () => {
     // 展开后对文件做归档
     fireEvent.click(screen.getByRole("button", { name: /展开 ai-agents-from-zero/ }));
     fireEvent.click(screen.getByLabelText("1-1-学习.md 的更多操作"));
-    fireEvent.click(screen.getByText("归档（可从「已归档」恢复）"));
+    fireEvent.click(screen.getByText("归档"));
     expect(onArchiveDocument).toHaveBeenCalledWith("doc-1", "1-1-学习.md");
   });
 });

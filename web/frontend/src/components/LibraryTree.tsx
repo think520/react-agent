@@ -231,7 +231,7 @@ function TreeFolder({
             <summary aria-label={`${folder.name} 的更多操作`}><MoreHorizontal size={14} /></summary>
             <div>
               <button type="button" onClick={() => onDeleteFolder(folder.path)}>
-                删文件夹（资料移回库根，一份都不删）
+                删除文件夹
               </button>
             </div>
           </details>
@@ -358,7 +358,7 @@ function TreeFile({
               {onMoveDocument && <button type="button" onClick={() => setRenaming(true)}>重命名</button>}
               {onArchiveDocument && (
                 <button type="button" onClick={() => onArchiveDocument(file.document_id as string, file.name)}>
-                  归档（可从「已归档」恢复）
+                  归档
                 </button>
               )}
             </div>

@@ -129,7 +129,7 @@ export function AssistantMessage({ message, index, isLatest = false, assistantNa
     () => (isLatest && onFollowUp ? buildFollowUpSuggestions(message) : []),
     [isLatest, message, onFollowUp],
   );
-  return <article className={"assistant-message " + (message.failed ? "failed" : "")}>
+  return <article className={`assistant-message ${isLatest ? "is-latest" : "is-history"} ${message.failed ? "failed" : ""}`}>
     <div className="assistant-heading"><img src={message.failed ? "/assets/brand/expressions/bobodan-expression-curious.webp" : "/assets/brand/expressions/bobodan-expression-neutral.webp"} alt="" /><span>{assistantName}</span></div>
     {message.pending && status && <BobodanProcess state={brandState} detail={status} />}
     {!message.pending && <RunSummary artifact={message.artifacts?.find((artifact): artifact is RunSummaryArtifact => artifact.type === "run_summary")} />}

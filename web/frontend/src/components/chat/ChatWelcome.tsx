@@ -1,4 +1,4 @@
-import { ArrowRight, BookOpen, BookOpenCheck, Brain, FilePlus2, FolderOpen } from "lucide-react";
+import { ArrowRight, BookOpen, BookOpenCheck, FilePlus2, FolderOpen } from "lucide-react";
 
 import type { ProcessBrandState } from "../../hooks/useChatStream";
 import { BobodanProcess } from "../../pages/chat/chatPrimitives";
@@ -34,7 +34,6 @@ export function ChatWelcome({ libraryName, error, composer, wikiPlanLoading, sta
       <h2>今天想学点什么？</h2>
       <div className="welcome-context">
         <span><FolderOpen size={16} />{libraryName || "尚未选择资料库"}</span>
-        <span><Brain size={16} />记忆随学习沉淀</span>
       </div>
     </div>
     {error && <ErrorNotice message={error} />}

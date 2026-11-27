@@ -290,7 +290,7 @@ export function NotesPage() {
             </div>
             <div className="note-editor-toolbar-actions">
               <button className="quiet-button" type="button" onClick={() => setPreview((value) => !value)}><Eye size={16} />{preview ? "编辑" : "预览"}</button>
-              <IconButton label="关闭编辑器" onClick={closeEditor}><X size={18} /></IconButton>
+              <IconButton label="关闭编辑器" title="关闭编辑器（Esc）" onClick={closeEditor}><X size={18} /></IconButton>
             </div>
           </header>
           {preview ? (
@@ -309,8 +309,8 @@ export function NotesPage() {
                 </div>
               </details>
             )}
-            <span className={"note-editor-hint " + (draftContentLength > MAX_NOTE_CONTENT_LENGTH ? "over-limit" : "")}>草稿自动保留 · {draftContentLength}/{MAX_NOTE_CONTENT_LENGTH} · Ctrl+Enter 保存 · Esc 关闭</span>
-            <button className="primary-button" disabled={working || draftContentLength > MAX_NOTE_CONTENT_LENGTH} onClick={() => void saveNote()}><Check size={16} />保存笔记</button>
+            <span className={"note-editor-hint " + (draftContentLength > MAX_NOTE_CONTENT_LENGTH ? "over-limit" : "")}>{draftContentLength >= 4000 ? `${draftContentLength}/${MAX_NOTE_CONTENT_LENGTH}` : "已自动暂存"}</span>
+            <button className="primary-button" title="Ctrl+Enter 保存" disabled={working || draftContentLength > MAX_NOTE_CONTENT_LENGTH} onClick={() => void saveNote()}><Check size={16} />保存笔记</button>
           </footer>
         </section>
       )}

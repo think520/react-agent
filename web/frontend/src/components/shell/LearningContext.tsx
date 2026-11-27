@@ -4,7 +4,7 @@
  */
 import { useState } from "react";
 import { NavLink } from "react-router-dom";
-import { BookOpen, FileText, Library, Map, PenLine, Sparkles } from "lucide-react";
+import { BookOpen, FileText, Library, Map, PenLine } from "lucide-react";
 
 import { readerLocation } from "../../lib/documentLinks";
 import { groupAttributionSources, textValue } from "../common";
@@ -41,10 +41,6 @@ export function LearningContext({
         <button className={tab === "learning" ? "active" : ""} role="tab" aria-selected={tab === "learning"} onClick={() => setTab("learning")}>学习</button>
       </div>
       {tab === "sources" ? <>
-        <section className="context-section">
-          <div className="context-heading"><Sparkles size={16} />回答边界</div>
-          <p className="context-copy">优先使用本地资料；网页来源、AI 补充和待核实内容会分别标注。</p>
-        </section>
         <section className="context-section">
           <div className="context-heading"><Library size={16} />当前资料范围</div>
           {documents.length ? <div className="context-list">{documents.slice(0, 5).map((document) => (

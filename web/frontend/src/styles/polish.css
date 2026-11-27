@@ -448,7 +448,7 @@
 .message-file-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .message-file-chip small { flex: 0 0 auto; color: var(--faint); font-size: 12px; }
 
-.starter-actions { gap: 8px; margin-top: 18px; }
+.starter-actions { gap: var(--space-2); margin-top: var(--space-4); }
 .starter-actions button {
   min-height: 34px;
   border: 0;

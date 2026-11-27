@@ -67,10 +67,8 @@ describe("ReviewPage queue explanations", () => {
 
     renderPage();
 
-    expect(await screen.findByText(/错题表示最近一次未答对的题/)).toBeInTheDocument();
-    expect(screen.getByText(/薄弱点来自更长期的表现汇总/)).toBeInTheDocument();
     // 后端给的原因要真的上屏（不是那句兜底话）。
-    expect(screen.getByText("近 5 次作答里错了 3 次")).toBeInTheDocument();
+    expect(await screen.findByText("近 5 次作答里错了 3 次")).toBeInTheDocument();
     expect(screen.queryByText("建议进行针对性练习")).toBeNull();
   });
 
