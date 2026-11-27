@@ -9,8 +9,8 @@ export function SettingsPage({ tab, children }: { tab: string; children: ReactNo
   return <div className="settings-page" data-settings-page={tab}>{children}</div>;
 }
 
-export function SettingsHeading({ eyebrow, title }: { eyebrow: string; title: string }) {
-  return <div className="settings-page-heading"><span>{eyebrow}</span><h2>{title}</h2></div>;
+export function SettingsHeading({ eyebrow, title }: { eyebrow?: string; title: string }) {
+  return <div className="settings-page-heading">{eyebrow && <span>{eyebrow}</span>}<h2>{title}</h2></div>;
 }
 
 export function SettingsSection({ title, description, footer, children }: {

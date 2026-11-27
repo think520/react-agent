@@ -1,6 +1,6 @@
 /* 对话里的 Wiki 计划卡与运行进度（原 app.css 开头）。
    拆自 app.css（2026-11-11），层叠顺序由 app.css 里的 @import 顺序保证 —— 别调换。 */
-.wiki-plan-compose input { min-height: 40px; border: 1px solid var(--border-strong); border-radius: 7px; padding: 0 10px; background: var(--paper-soft); color: var(--ink); outline: 0; }
+.wiki-plan-compose input { min-height: 40px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); padding: 0 10px; background: var(--paper-soft); color: var(--ink); outline: 0; }
 .wiki-plan-compose input:focus { border-color: var(--blue-soft); }
 .wiki-run-scope { display: grid; grid-template-columns: repeat(3, 1fr); border-bottom: 1px solid var(--border); background: rgba(237,229,214,.2); }
 .wiki-run-scope > div { display: grid; gap: 3px; padding: 12px 20px; }
@@ -12,7 +12,7 @@
 .wiki-run-thinking i:nth-child(2) { width: 9px; height: 9px; animation-delay: var(--dur-base); }
 .wiki-run-thinking i:nth-child(3) { animation-delay: 320ms; }
 @keyframes wiki-ink-thought { 0%, 100% { opacity: .22; transform: translateY(1px); } 45% { opacity: .78; transform: translateY(-1px); } }
-.composer-scope .scope-mode-toggle { width: auto; height: 22px; border: 1px solid rgba(27,54,93,.16); border-radius: 5px; padding: 0 6px; background: rgba(27,54,93,.05); color: var(--blue); font-size: 12px; }
+.composer-scope .scope-mode-toggle { width: auto; height: 22px; border: 1px solid rgba(27,54,93,.16); border-radius: var(--radius-sm); padding: 0 6px; background: rgba(27,54,93,.05); color: var(--blue); font-size: 12px; }
 
 @media (prefers-reduced-motion: reduce) {
   .wiki-run-thinking i { animation: none; opacity: .48; transform: none; }

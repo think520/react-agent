@@ -151,8 +151,8 @@ describe("漂移棘轮（只允许变小）", () => {
   });
 
   it("不在 §7 刻度上的 border-radius 数量不超过预算", () => {
-    // 2026-09-14：73；Chat：69；Practice·Review：65；Library·Reader：60；2026-10-28 实测：58（预算收紧到 58）。刻度只允许 6 / 8 / 12 / 16，其余进棘轮。
-    const BUDGET = 58;
+    // 2026-09-14：73；Chat：69；Practice·Review：65；Library·Reader：60；2026-10-28 实测：58；2026-11-27 实测：14（收紧到 14）。刻度只允许 6 / 8 / 12 / 16，其余进棘轮。
+    const BUDGET = 14;
     const scale = new Set([0, 6, 8, 12, 16]);
     const offScale = (cssText.match(/border-radius:\s*([0-9]+)px/g) ?? [])
       .map((match: string) => parseInt(match.replace(/\D+/g, ""), 10))

@@ -269,19 +269,17 @@ export function NotesPage() {
       <div className="page-container notes-container">
       <header className="notes-header">
         <div>
-          <span>Personal Notes</span>
           <h2>我的笔记</h2>
-          <p>你自己的思考、结论和摘录。引用资料后，阅读原文时也能看到这些笔记。</p>
         </div>
         <div className="notes-header-actions">
           <SearchField className="notes-search" value={query} onChange={setQuery} placeholder="搜索笔记" ariaLabel="搜索笔记" />
           <button className="quiet-button" onClick={() => setManagerOpen(true)}>管理全部</button>
-          <button className="primary-button" onClick={startNew}><Plus size={15} />写笔记</button>
+          <button className="primary-button" onClick={startNew}><Plus size={16} />写笔记</button>
         </div>
       </header>
 
       {error && <div className="settings-error">{error}</div>}
-      {notice && <div className="settings-notice"><Check size={14} />{notice}</div>}
+      {notice && <div className="settings-notice"><Check size={16} />{notice}</div>}
 
       {draft && (
         <section className="note-editor">
@@ -291,8 +289,8 @@ export function NotesPage() {
               <h3>{draftTitle || "无标题笔记"}</h3>
             </div>
             <div className="note-editor-toolbar-actions">
-              <button className="quiet-button" type="button" onClick={() => setPreview((value) => !value)}><Eye size={14} />{preview ? "编辑" : "预览"}</button>
-              <IconButton label="关闭编辑器" onClick={closeEditor}><X /></IconButton>
+              <button className="quiet-button" type="button" onClick={() => setPreview((value) => !value)}><Eye size={16} />{preview ? "编辑" : "预览"}</button>
+              <IconButton label="关闭编辑器" onClick={closeEditor}><X size={18} /></IconButton>
             </div>
           </header>
           {preview ? (
@@ -303,7 +301,7 @@ export function NotesPage() {
           <footer className="note-editor-footer">
             {documents.length > 0 && (
               <details className="note-references">
-                <summary><BookOpen size={13} />关联资料{draft.references.length ? `（${draft.references.length}）` : ""}</summary>
+                <summary><BookOpen size={16} />关联资料{draft.references.length ? `（${draft.references.length}）` : ""}</summary>
                 <div className="note-reference-list">
                   {documents.slice(0, 100).map((doc) => (
                     <label key={doc.document_id}><input type="checkbox" checked={draft.references.some((ref) => ref.document_id === doc.document_id)} disabled={working} onChange={() => toggleReference(doc.document_id, doc.title)} /><span>{doc.title}</span></label>
@@ -312,7 +310,7 @@ export function NotesPage() {
               </details>
             )}
             <span className={"note-editor-hint " + (draftContentLength > MAX_NOTE_CONTENT_LENGTH ? "over-limit" : "")}>草稿自动保留 · {draftContentLength}/{MAX_NOTE_CONTENT_LENGTH} · Ctrl+Enter 保存 · Esc 关闭</span>
-            <button className="primary-button" disabled={working || draftContentLength > MAX_NOTE_CONTENT_LENGTH} onClick={() => void saveNote()}><Check size={15} />保存笔记</button>
+            <button className="primary-button" disabled={working || draftContentLength > MAX_NOTE_CONTENT_LENGTH} onClick={() => void saveNote()}><Check size={16} />保存笔记</button>
           </footer>
         </section>
       )}
@@ -322,29 +320,29 @@ export function NotesPage() {
           {filtered.map((item) => (
             <article key={item.id}>
               <div className="note-item-head">
-                <IconButton label={item.pinned ? "取消置顶" : "置顶"} className={item.pinned ? "active" : ""} onClick={() => void togglePin(item)}><Pin size={15} /></IconButton>
+                <IconButton label={item.pinned ? "取消置顶" : "置顶"} className={item.pinned ? "active" : ""} onClick={() => void togglePin(item)}><Pin size={16} /></IconButton>
                 <h3>{item.title}</h3>
                 <span className="note-item-meta">{item.scope === "global" ? "全局" : "本资料库"}</span>
               </div>
               <p>{item.content}</p>
               {(item.references || []).length > 0 && (
                 <div className="note-item-refs">
-                  <BookOpen size={12} />
+                  <BookOpen size={16} />
                   {(item.references || []).map((ref) => <button key={ref.document_id} className="text-link" type="button" onClick={() => window.location.assign(readerLocation({ document_id: ref.document_id, collection: "material" }) || "/library")}>{ref.title}</button>)}
                 </div>
               )}
               <div className="note-item-actions">
                 <small>更新于 {new Date(item.updated_at).toLocaleString("zh-CN")}</small>
                 <div>
-                  <IconButton label="编辑" onClick={() => startEdit(item)}><Pencil size={15} /></IconButton>
-                  <IconButton label="删除" onClick={() => void removeNote(item)}><Trash2 size={15} /></IconButton>
+                  <IconButton label="编辑" onClick={() => startEdit(item)}><Pencil size={16} /></IconButton>
+                  <IconButton label="删除" onClick={() => void removeNote(item)}><Trash2 size={16} /></IconButton>
                 </div>
               </div>
             </article>
           ))}
           {!filtered.length && (query
             ? <p className="settings-empty">没有匹配的笔记。</p>
-            : <EmptyState title="还没有笔记" description="记录你的思考、结论和摘录。笔记可关联资料，阅读原文时也能看到。" state="thinking" action={<button className="primary-button" onClick={startNew}><Plus size={15} />写第一条笔记</button>} />)}
+            : <EmptyState title="还没有笔记" description="记录你的思考、结论和摘录。笔记可关联资料，阅读原文时也能看到。" state="thinking" action={<button className="primary-button" onClick={startNew}><Plus size={16} />写第一条笔记</button>} />)}
         </div>
       )}
 

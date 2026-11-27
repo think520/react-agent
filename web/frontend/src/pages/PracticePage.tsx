@@ -405,7 +405,7 @@ export function PracticePage() {
     <section className="page-scroll">
       {confirmElement}
       <div className="page-container practice-start">
-        <header className="page-heading"><div><span>Practice</span><h2>开始一轮练习</h2><p>默认生成 5 题，题目和批改结果会回流到掌握度与今日复习。</p></div></header>
+        <header className="page-heading"><div><h2>开始一轮练习</h2></div></header>
         <nav className="wiki-view-tabs practice-view-tabs" aria-label="练习视图">
           <button type="button" className="active" aria-current="page">开始练习</button>
           <button type="button" onClick={() => navigate("/practice/bank")}>题库</button>
@@ -493,7 +493,7 @@ export function PracticePage() {
           )}
           {(selectedScopeGroup || selectedDocuments.length > 0) && (
             <div className="practice-scope">
-              <BookOpen size={15} />
+              <BookOpen size={16} />
               <span>
                 {selectedScopeGroup
                   ? `已选范围：${selectedScopeGroup.label}（${effectiveScope.documentIds.length} 份资料）${
@@ -508,19 +508,19 @@ export function PracticePage() {
           {webConsent && <section className="practice-web-consent">
             <BrandIllustration state="reading" size={54} />
             <div><strong>本地资料暂时不足</strong><p>{webConsent.reason}</p>{webConsent.suggestedQuery && <small>建议按“{webConsent.suggestedQuery}”继续查找</small>}</div>
-            <button type="button" className="primary-button" disabled={working} onClick={() => void createPractice(undefined, true)}><Globe2 size={15} />联网找资料出题</button>
+            <button type="button" className="primary-button" disabled={working} onClick={() => void createPractice(undefined, true)}><Globe2 size={16} />联网找资料出题</button>
           </section>}
         </form>
         {active.length > 0 && <section className="resume-section"><h3>继续未完成练习</h3>{active.map((item) => (
           <button className="resume-row" key={item.practice_session_id} onClick={() => navigate(`/practice/${item.practice_session_id}`)}>
-            <span><BookOpen size={17} /><strong>练习 #{item.practice_session_id}</strong><small>{item.question_count} 题 · {formatRelativeDate(item.updated_at)}</small></span><ArrowRight size={17} />
+            <span><BookOpen size={16} /><strong>练习 #{item.practice_session_id}</strong><small>{item.question_count} 题 · {formatRelativeDate(item.updated_at)}</small></span><ArrowRight size={16} />
           </button>
         ))}</section>}
       </div>
     </section>
   );
 
-  if (error && !session) return <section className="page-scroll"><div className="page-container"><ErrorNotice message={error} action={<button className="quiet-button" onClick={() => id && void loadSession(id)}><RotateCcw size={15} />重试</button>} /></div></section>;
+  if (error && !session) return <section className="page-scroll"><div className="page-container"><ErrorNotice message={error} action={<button className="quiet-button" onClick={() => id && void loadSession(id)}><RotateCcw size={16} />重试</button>} /></div></section>;
 
   if (session && session.progress.completed) {
     return (

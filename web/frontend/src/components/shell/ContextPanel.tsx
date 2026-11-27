@@ -46,7 +46,7 @@ export function ContextPanel({ view }: { view: ContextPanelView }) {
               : desktop && rightAutoCollapsed
                 ? setPreview("right", false)
                 : setContextOpen(false)}
-          ><X /></IconButton>
+          ><X size={18} strokeWidth={1.5} /></IconButton>
         </div>
         {conceptDetailId ? (
           <ConceptSidebar

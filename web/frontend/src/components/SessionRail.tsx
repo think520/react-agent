@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { MoreHorizontal, RefreshCw, Trash2 } from "lucide-react";
+import { Pencil, RefreshCw, Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import { api } from "../lib/api";
@@ -62,7 +62,7 @@ export function SessionRail({ sessions, loading, activeSessionId, refreshSession
   return (
     <div className="session-section">
       {confirmElement}
-      <div className="section-label"><span>最近对话</span><IconButton label="刷新会话" onClick={() => void refreshSessions()}><RefreshCw size={15} /></IconButton></div>
+      <div className="section-label"><span>最近对话</span><IconButton label="刷新会话" onClick={() => void refreshSessions()}><RefreshCw size={16} /></IconButton></div>
       <SearchField
         className="session-search"
         size="sm"
@@ -84,8 +84,8 @@ export function SessionRail({ sessions, loading, activeSessionId, refreshSession
               </button>
             )}
             <div className="session-actions">
-              <IconButton label="重命名" onClick={() => { setEditingId(session.chat_session_id); setEditingName(session.name || ""); }}><MoreHorizontal size={15} /></IconButton>
-              <IconButton label="删除会话" onClick={() => void removeSession(session)}><Trash2 size={14} /></IconButton>
+              <IconButton label="重命名" onClick={() => { setEditingId(session.chat_session_id); setEditingName(session.name || ""); }}><Pencil size={16} /></IconButton>
+              <IconButton label="删除会话" onClick={() => void removeSession(session)}><Trash2 size={16} /></IconButton>
             </div>
           </div>
         ))}</section>)}</div>

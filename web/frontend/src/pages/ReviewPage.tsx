@@ -122,10 +122,10 @@ export function ReviewPage() {
   return (
     <section className="page-scroll">
       <div className="page-container review-container">
-        <header className="page-heading"><div><span>Review</span><h2>今天的复习</h2><p>先处理到期内容，再回到新的学习任务。</p></div><div className="heading-actions"><button className="quiet-button" onClick={() => navigate("/practice/bank")}><Library size={16} />题库</button><button className="quiet-button" onClick={() => void loadQueue()}><RefreshCw size={16} />刷新</button></div></header>
+        <header className="page-heading"><div><h2>今天的复习</h2></div><div className="heading-actions"><button className="quiet-button" onClick={() => navigate("/practice/bank")}><Library size={16} />题库</button><button className="quiet-button" onClick={() => void loadQueue()}><RefreshCw size={16} />刷新</button></div></header>
         {error && <ErrorNotice message={error} />}
         {loading ? <LoadingState label="正在整理复习队列…" state="thinking" /> : items.length ? <>
-          {queue?.personalization?.length ? <details className="personalization-chip review-personalization"><summary><Brain size={13} />复习排序依据 <span>{queue.personalization.length}</span></summary><div>{queue.personalization.map((reference) => <section key={reference.id}><strong>{reference.title}</strong><p>{reference.content}</p><small>{reference.scope === "global" ? "全局" : "当前资料库"}</small></section>)}</div></details> : null}
+          {queue?.personalization?.length ? <details className="personalization-chip review-personalization"><summary><Brain size={16} />复习排序依据 <span>{queue.personalization.length}</span></summary><div>{queue.personalization.map((reference) => <section key={reference.id}><strong>{reference.title}</strong><p>{reference.content}</p><small>{reference.scope === "global" ? "全局" : "当前资料库"}</small></section>)}</div></details> : null}
           {/* W1 E6：先把"今天下一件该做什么"说出来（纯函数引擎给优先级）。 */}
           {nextObjectiveText(queue?.next_objective) && (
             <p className="review-objective">{nextObjectiveText(queue?.next_objective)}</p>
@@ -161,7 +161,7 @@ export function ReviewPage() {
                   </div>
                 )}
               </div>
-              <button className="quiet-button" disabled={Boolean(workingId)} onClick={() => void startReview(item)}>{workingId === item.id ? "正在准备" : item.kind === "错题" ? "生成变式题" : "开始复习"}<ArrowRight size={15} /></button>
+              <button className="quiet-button" disabled={Boolean(workingId)} onClick={() => void startReview(item)}>{workingId === item.id ? "正在准备" : item.kind === "错题" ? "生成变式题" : "开始复习"}<ArrowRight size={16} /></button>
             </article>
           ))}</div>
           {(queue?.wrong_total || 0) > queue!.wrong_answers.length && (
@@ -170,8 +170,8 @@ export function ReviewPage() {
               <button className="text-link" type="button" onClick={() => navigate("/practice/bank")}>在题库中查看全部</button>
             </p>
           )}
-        </> : <EmptyState state="resting" title="今天没有到期内容" description={nextReview || "可以开始一轮新练习，或回到资料库继续阅读。"} action={<button className="primary-button" onClick={() => navigate("/practice")}><BookOpenCheck size={17} />开始练习</button>} />}
-        <section className="review-note"><Target size={20} /><div><strong>复习不是重新读一遍</strong><p>Bobodan 会优先让你主动回忆，再用解释和资料定位补齐缺口。</p></div><CheckCircle2 size={18} /></section>
+        </> : <EmptyState state="resting" title="今天没有到期内容" description={nextReview || "可以开始一轮新练习，或回到资料库继续阅读。"} action={<button className="primary-button" onClick={() => navigate("/practice")}><BookOpenCheck size={16} />开始练习</button>} />}
+        <section className="review-note"><Target size={18} /><div><strong>复习不是重新读一遍</strong><p>Bobodan 会优先让你主动回忆，再用解释和资料定位补齐缺口。</p></div><CheckCircle2 size={18} /></section>
       </div>
     </section>
   );

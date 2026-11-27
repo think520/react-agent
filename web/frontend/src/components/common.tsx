@@ -11,6 +11,10 @@ export function IconButton({ label, className = "", ...props }: ButtonHTMLAttrib
   return <button className={`icon-button ${className}`} aria-label={label} title={label} {...props} />;
 }
 
+export function IconBox({ children, className = "" }: { children: ReactNode; className?: string }) {
+  return <span className={`ui-icon-box ${className}`.trim()} aria-hidden="true">{children}</span>;
+}
+
 /**
  * Inline status line. Pass a `state` to get theBobodan-branded variant used
  * by running surfaces (DESIGN.md §9) — callers previously hand-rolled the

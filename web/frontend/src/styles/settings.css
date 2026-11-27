@@ -74,11 +74,11 @@
 .settings-main { padding: 20px clamp(18px,3.2vw,40px) 32px; }
 .settings-main > * { max-width: 680px; }
 .settings-page { gap: 14px; }
-.settings-page-heading { margin-bottom: 16px; }
-.settings-page-heading h2 { margin-top: 2px; font-size: 22px; }
+.settings-page-heading { margin-bottom: var(--space-4); }
+.settings-page-heading h2 { margin-top: 0; font-size: 22px; font-weight: 600; }
 .settings-page-heading > span { font-size: 12px; }
 .settings-section-head { padding: 12px 16px 10px; }
-.settings-section-head h3 { font-size: 14px; }
+.settings-section-head h3 { font-size: 15px; font-weight: 600; }
 .settings-section-head p { margin-top: 3px; font-size: 12px; }
 .settings-section-body { gap: 8px; padding: 10px 16px 12px; }
 .settings-section-footer { padding: 8px 16px; }

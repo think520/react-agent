@@ -401,7 +401,7 @@ export function QuestionBankPage() {
       {confirmElement}
       <div className="page-container review-container">
         <header className="page-heading">
-          <div><span>Practice</span><h2>题库</h2><p>已经生成过的题目都在这里，按最近一次作答的状态归类。</p></div>
+          <div><h2>题库</h2></div>
           <div className="heading-actions">
             <button className="quiet-button" type="button" disabled={transfer === "markdown"} onClick={() => void exportMarkdown()}><Download size={16} />导出 Markdown</button>
             <button className="quiet-button" type="button" disabled={transfer === "backup"} onClick={() => void exportBackup()}><Download size={16} />备份</button>
@@ -446,7 +446,7 @@ export function QuestionBankPage() {
                   onChange={(event) => setNewSetName(event.target.value)}
                 />
                 <button className="quiet-button" disabled={setsWorking}>
-                  <FolderPlus size={15} />存为练习集（{bank?.total ?? 0} 题）
+                  <FolderPlus size={16} />存为练习集（{bank?.total ?? 0} 题）
                 </button>
               </form>
             </div>
@@ -470,10 +470,10 @@ export function QuestionBankPage() {
                       {item.name}<small>{item.question_count} 题</small>
                     </button>
                     <button className="quiet-button" type="button" disabled={setsWorking || item.question_count === 0 || starting === `set-${item.id}`} onClick={() => void practiceSet(item)}>
-                      <Play size={14} />练这集
+                      <Play size={16} />练这集
                     </button>
-                    <button className="icon-button" type="button" aria-label={`重命名 ${item.name}`} onClick={() => { setRenamingId(item.id); setRenameDraft(item.name); }}><Pencil size={14} /></button>
-                    <button className="icon-button" type="button" aria-label={`删除 ${item.name}`} onClick={() => void deleteSet(item)}><Trash2 size={14} /></button>
+                    <button className="icon-button" type="button" aria-label={`重命名 ${item.name}`} onClick={() => { setRenamingId(item.id); setRenameDraft(item.name); }}><Pencil size={16} /></button>
+                    <button className="icon-button" type="button" aria-label={`删除 ${item.name}`} onClick={() => void deleteSet(item)}><Trash2 size={16} /></button>
                   </>}
                 </div>
               ))}</div>}
@@ -514,12 +514,12 @@ export function QuestionBankPage() {
           <DropdownSelect ariaLabel="按题型筛选" value={qtype} onChange={changeFilter(setQtype)} options={TYPE_OPTIONS} />
           <DropdownSelect ariaLabel="按难度筛选" value={difficulty} onChange={changeFilter(setDifficulty)} options={DIFFICULTY_OPTIONS} />
           <DropdownSelect ariaLabel="按资料筛选" value={source} onChange={changeFilter(setSource)} options={sourceOptions} />
-          {filtersActive && <button className="quiet-button" type="button" onClick={clearFilters}><X size={14} />清除筛选</button>}
+          {filtersActive && <button className="quiet-button" type="button" onClick={clearFilters}><X size={16} />清除筛选</button>}
         </div>
 
         {conceptPool.length > 0 && (
           <div className="bank-concepts">
-            {concept && <button type="button" className="quiet-button" onClick={() => { setConcept(""); setPage(0); }}>概念：{concept}<X size={13} /></button>}
+            {concept && <button type="button" className="quiet-button" onClick={() => { setConcept(""); setPage(0); }}>概念：{concept}<X size={16} /></button>}
             {!concept && conceptPool.slice(0, 8).map((entry) => (
               <button type="button" className="bank-concept" key={entry.concept} onClick={() => { setConcept(entry.concept); setPage(0); }}>{entry.concept}<small>{entry.count}</small></button>
             ))}
@@ -529,7 +529,7 @@ export function QuestionBankPage() {
         {filtersActive && (bank?.total || 0) > 0 && (
           <div className="bank-bulk">
             <button className="quiet-button" type="button" disabled={starting === "selection"} onClick={() => void practiceSelection()}>
-              <Play size={15} />{starting === "selection" ? "正在准备" : `练这 ${practiceCount} 道${BULK_NOUNS[state] || "题"}`}
+              <Play size={16} />{starting === "selection" ? "正在准备" : `练这 ${practiceCount} 道${BULK_NOUNS[state] || "题"}`}
             </button>
           </div>
         )}

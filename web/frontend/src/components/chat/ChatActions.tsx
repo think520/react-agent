@@ -40,7 +40,7 @@ export function AnswerActions({
     <div className="answer-footer-block">
       <div className="answer-actions">
         <button className="quiet-button" type="button" onClick={onPreparePractice}>
-          <BookOpen size={15} />
+          <BookOpen size={16} />
           生成 5 道练习
         </button>
         {content && (
@@ -50,7 +50,7 @@ export function AnswerActions({
             aria-label={copied ? "已复制回答" : "复制回答"}
             onClick={() => void handleCopy()}
           >
-            {copied ? <Check size={15} /> : <Copy size={15} />}
+            {copied ? <Check size={16} /> : <Copy size={16} />}
             {copied ? "已复制" : "复制"}
           </button>
         )}
@@ -66,7 +66,7 @@ export function AnswerActions({
               onClick={() => onFollowUp(item.prompt)}
             >
               <span>{item.label}</span>
-              <ArrowUpRight size={13} aria-hidden="true" />
+              <ArrowUpRight size={16} aria-hidden="true" />
             </button>
           ))}
         </div>
@@ -76,5 +76,5 @@ export function AnswerActions({
 }
 
 export function AnswerFailure({ message, disabled, onRetry }: { message: string; disabled: boolean; onRetry: () => void }) {
-  return <div className="answer-failure"><span>{message}</span><button className="quiet-button" disabled={disabled} onClick={onRetry}><RotateCcw size={15} />重新发送本轮</button></div>;
+  return <div className="answer-failure"><span>{message}</span><button className="quiet-button" disabled={disabled} onClick={onRetry}><RotateCcw size={16} />重新发送本轮</button></div>;
 }

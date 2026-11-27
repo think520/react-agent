@@ -33,8 +33,8 @@ export function ChatWelcome({ libraryName, error, composer, wikiPlanLoading, sta
       <BrandIllustration state="ready" size={112} alt="Bobodan" />
       <h2>今天想学点什么？</h2>
       <div className="welcome-context">
-        <span><FolderOpen size={14} />{libraryName || "尚未选择资料库"}</span>
-        <span><Brain size={14} />记忆随学习沉淀</span>
+        <span><FolderOpen size={16} />{libraryName || "尚未选择资料库"}</span>
+        <span><Brain size={16} />记忆随学习沉淀</span>
       </div>
     </div>
     {error && <ErrorNotice message={error} />}
@@ -46,9 +46,9 @@ export function ChatWelcome({ libraryName, error, composer, wikiPlanLoading, sta
     <div className="starter-actions">
       <button onClick={() => onApplyPrompt("根据我的资料，帮我梳理今天最值得学习的三个知识点。")}>梳理学习重点</button>
       <button onClick={() => onApplyPrompt("请先用直觉解释，再给出严谨推导。")}>先讲直觉，再补证明</button>
-      <button disabled={documentImporting} onClick={onImport}><FilePlus2 size={15} />{documentImporting ? "正在导入" : "导入资料"}</button>
-      <button onClick={onOpenPractice}><BookOpen size={15} />开始练习</button>
-      <button onClick={onOpenExperience}><BookOpenCheck size={15} />体验示例课</button>
+      <button disabled={documentImporting} onClick={onImport}><FilePlus2 size={16} />{documentImporting ? "正在导入" : "导入资料"}</button>
+      <button onClick={onOpenPractice}><BookOpen size={16} />开始练习</button>
+      <button onClick={onOpenExperience}><BookOpenCheck size={16} />体验示例课</button>
     </div>
   </div>;
 }

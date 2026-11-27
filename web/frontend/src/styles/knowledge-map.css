@@ -53,7 +53,7 @@
 .ui-confirm h3 { margin: 0; color: var(--blue); font-family: var(--font-reading); font-size: 17px; font-weight: 500; }
 .ui-confirm-detail { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.7; }
 .ui-confirm footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
-.danger-button { display: inline-flex; min-height: 32px; align-items: center; gap: 6px; border: 1px solid rgba(147,77,67,.35); border-radius: 7px; padding: 0 12px; background: rgba(147,77,67,.08); color: #9a493a; transition: background var(--dur-base) var(--ease-out), color var(--dur-base) var(--ease-out); }
+.danger-button { display: inline-flex; min-height: 32px; align-items: center; gap: 6px; border: 1px solid rgba(147,77,67,.35); border-radius: var(--radius-md); padding: 0 12px; background: rgba(147,77,67,.08); color: #9a493a; transition: background var(--dur-base) var(--ease-out), color var(--dur-base) var(--ease-out); }
 .danger-button:hover { background: rgba(147,77,67,.14); }
 .km-dialog {
   width: min(380px, calc(100vw - 48px));
@@ -86,7 +86,7 @@
   gap: 2px;
   background: var(--paper, #fff);
   border: 1px solid var(--border, #ddd);
-  border-radius: 7px;
+  border-radius: var(--radius-md);
   padding: 2px;
 }
 .km-tab {
@@ -94,7 +94,7 @@
   align-items: center;
   gap: 5px;
   padding: 4px 10px;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   font-size: 13px;
   color: var(--muted, #7a7060);
   background: transparent;
@@ -127,7 +127,7 @@
   gap: 6px;
   margin-left: auto;
   padding: 4px 12px;
-  border-radius: 20px;
+  border-radius: var(--radius-pill);
   background: var(--blue, #1b365d);
   color: #fff;
   font-size: 12px;

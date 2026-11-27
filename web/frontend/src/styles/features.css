@@ -36,7 +36,7 @@
 @keyframes ui-fade-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
 
 /* Block-level error fallback: quiet, keeps the message around it intact. */
-.ui-block-error { display: inline-block; padding: 8px 11px; border-left: 2px solid var(--clay); border-radius: 4px; background: var(--clay-wash); color: var(--muted); font-size: 12px; }
+.ui-block-error { display: inline-block; padding: 8px 11px; border-left: 2px solid var(--clay); border-radius: var(--radius-sm); background: var(--clay-wash); color: var(--muted); font-size: 12px; }
 
 /* Keyboard shortcut reference (ShortcutsDialog). */
 .shortcuts-dialog { display: grid; gap: 14px; width: min(460px, 100%); max-height: 80vh; overflow-y: auto; border: 1px solid var(--border-strong); border-radius: 8px; padding: 20px 22px 24px; background: var(--paper-soft); box-shadow: var(--shadow-dialog); }
@@ -131,14 +131,14 @@
 
 /* ConceptSidebar graph editing (TASKS_LIBRARY_REWORK task 4). */
 .sidebar-title-actions { display: flex; gap: 4px; align-items: center; }
-.sidebar-edit-form { display: grid; gap: 8px; border: 1px solid var(--border); border-radius: 7px; padding: 10px; margin: 8px 0; }
+.sidebar-edit-form { display: grid; gap: 8px; border: 1px solid var(--border); border-radius: var(--radius-md); padding: 10px; margin: 8px 0; }
 .sidebar-edit-form label { display: grid; gap: 4px; color: var(--blue); font-size: 12px; font-weight: 650; }
 .sidebar-edit-form input, .sidebar-edit-form textarea { width: 100%; border: 1px solid var(--border-strong); border-radius: 6px; padding: 7px 9px; background: var(--paper-soft); color: var(--ink); font: inherit; font-size: 12px; }
 .sidebar-edit-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .sidebar-add-relation { display: grid; gap: 6px; margin-top: 8px; }
 .sidebar-add-relation input, .sidebar-add-relation select { width: 100%; border: 1px solid var(--border-strong); border-radius: 6px; padding: 6px 8px; background: var(--paper-soft); color: var(--ink); font-size: 12px; }
 .sidebar-rel-candidates { display: grid; gap: 2px; max-height: 140px; overflow-y: auto; }
-.sidebar-rel-candidates button { display: flex; align-items: center; gap: 6px; border: 0; border-radius: 5px; padding: 5px 7px; background: transparent; color: var(--ink); font-size: 12px; text-align: left; }
+.sidebar-rel-candidates button { display: flex; align-items: center; gap: 6px; border: 0; border-radius: var(--radius-sm); padding: 5px 7px; background: transparent; color: var(--ink); font-size: 12px; text-align: left; }
 .sidebar-rel-candidates button:hover { background: var(--blue-wash); color: var(--blue); }
 .rel-delete { opacity: 0; }
 .sidebar-rel-item:hover .rel-delete { opacity: 1; }
@@ -162,7 +162,7 @@
 .library-tree-row .library-tree-name { display: inline-flex; align-items: center; gap: 6px; min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .library-tree-row .library-tree-meta { flex: 0 0 auto; color: var(--muted); font-size: 12px; }
 .library-tree-row .library-tree-meta em { font-style: normal; color: var(--clay); }
-.library-tree-disclosure { display: inline-flex; width: 18px; height: 18px; align-items: center; justify-content: center; border: 0; border-radius: 4px; background: transparent; color: var(--muted); cursor: pointer; }
+.library-tree-disclosure { display: inline-flex; width: 18px; height: 18px; align-items: center; justify-content: center; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--muted); cursor: pointer; }
 .library-tree-dot { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; background: var(--border-strong); }
 .library-tree-dot.complete { background: var(--sage-deep); }
 .library-tree-dot.pending { background: var(--clay); }

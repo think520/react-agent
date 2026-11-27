@@ -12,7 +12,7 @@ import { toErrorMessage } from "../lib/errors";
 import { notifyError } from "../stores/noticeStore";
 import { useUiStore } from "../stores/uiStore";
 import type { ActivePracticeSummary, Attribution, ChatSessionSummary, DataLoadStatus, DocumentSummary, KnowledgeContext, LibraryMigrationPreview, LibrarySummary, ReviewQueue, SettingsSummary } from "../types";
-import { IconButton } from "./common";
+import { IconBox, IconButton } from "./common";
 import { OnboardingDialog } from "./OnboardingDialog";
 import { ShortcutsDialog } from "./ShortcutsDialog";
 import { LibrarySetupDialog } from "./LibrarySetupDialog";
@@ -485,15 +485,15 @@ export function AppShell() {
             alt=""
           />
           <div><strong>Bobodan</strong><span>Local learning companion</span></div>
-          <IconButton label="收起导航" className="mobile-only" onClick={() => setSidebarOpen(false)}><ChevronLeft /></IconButton>
+          <IconButton label="收起导航" className="mobile-only" onClick={() => setSidebarOpen(false)}><ChevronLeft size={18} /></IconButton>
         </div>
-        <button className="new-chat-button" onClick={() => { setLastChatSession(null); navigate("/chat"); }}><span><Plus size={17} />新对话</span><kbd>Ctrl N</kbd></button>
+        <button className="new-chat-button" onClick={() => { setLastChatSession(null); navigate("/chat"); }}><span><IconBox><Plus size={18} /></IconBox>新对话</span><kbd>Ctrl N</kbd></button>
         <nav className="primary-nav">
           {navItems.map(({ to, label, icon: Icon }) => {
             const target = to === "/chat" ? chatNavTarget : to;
             return (
               <NavLink to={target} key={to} className={({ isActive }) => (isActive || (to === "/chat" && section === "chat")) ? "nav-item active" : "nav-item"}>
-                <Icon size={18} /><span>{label}</span>
+                <IconBox><Icon size={18} /></IconBox><span>{label}</span>
               </NavLink>
             );
           })}
@@ -507,18 +507,18 @@ export function AppShell() {
         <div className="profile-row">
           <span className="profile-avatar">库</span>
           <span><strong>{activeLibrary?.name || "尚未选择资料库"}</strong><small>{settings?.default_provider || "等待连接 AI"}</small></span>
-          <button ref={settingsButtonRef} className="icon-button" aria-label="打开设置" title="打开设置" onClick={() => openSettings()}><Settings size={17} /></button>
+          <button ref={settingsButtonRef} className="icon-button" aria-label="打开设置" title="打开设置" onClick={() => openSettings()}><Settings size={18} /></button>
         </div>
       </aside>
 
       <main className="main-column">
         <header className="topbar">
-          <IconButton label="打开导航" className="menu-button" onClick={() => setSidebarOpen(true)}><Menu /></IconButton>
-          <IconButton label={leftOpen ? "收起左栏" : "展开左栏"} className="panel-toggle desktop-panel-toggle" onClick={() => togglePanel("left")}><PanelLeft /></IconButton>
+          <IconButton label="打开导航" className="menu-button" onClick={() => setSidebarOpen(true)}><Menu size={18} /></IconButton>
+          <IconButton label={leftOpen ? "收起左栏" : "展开左栏"} className="panel-toggle desktop-panel-toggle" onClick={() => togglePanel("left")}><PanelLeft size={18} /></IconButton>
           <div className="topbar-title"><span>{meta[0]}</span><h1>{title}</h1></div>
-          <IconButton label="键盘快捷键" onClick={() => setShortcutsOpen(true)}><Keyboard size={17} /></IconButton>
-          <IconButton label={rightOpen ? "收起右栏" : "展开右栏"} className="panel-toggle desktop-panel-toggle" onClick={() => togglePanel("right")}><PanelRight /></IconButton>
-          <IconButton label="学习上下文" className="context-button" onClick={() => setContextOpen(true)}><PanelRight /></IconButton>
+          <IconButton label="键盘快捷键" onClick={() => setShortcutsOpen(true)}><Keyboard size={18} /></IconButton>
+          <IconButton label={rightOpen ? "收起右栏" : "展开右栏"} className="panel-toggle desktop-panel-toggle" onClick={() => togglePanel("right")}><PanelRight size={18} /></IconButton>
+          <IconButton label="学习上下文" className="context-button" onClick={() => setContextOpen(true)}><PanelRight size={18} /></IconButton>
         </header>
         <Outlet context={outletContext} />
       </main>
@@ -528,7 +528,7 @@ export function AppShell() {
       <nav className="mobile-nav" aria-label="移动端主导航">
         {navItems.map(({ to, label, icon: Icon }) => {
           const target = to === "/chat" ? chatNavTarget : to;
-          return <NavLink to={target} key={to} className={({ isActive }) => (isActive || (to === "/chat" && section === "chat")) ? "active" : ""}><Icon /><span>{label}</span></NavLink>;
+          return <NavLink to={target} key={to} className={({ isActive }) => (isActive || (to === "/chat" && section === "chat")) ? "active" : ""}><Icon size={18} /><span>{label}</span></NavLink>;
         })}
       </nav>
       {(sidebarOpen || contextOpen) && <button className="scrim" aria-label="关闭浮层" onClick={() => { setSidebarOpen(false); setContextOpen(false); }} />}
