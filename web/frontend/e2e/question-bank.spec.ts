@@ -432,13 +432,15 @@ test("the bank exports Markdown and a backup file", async ({ page }) => {
   await page.goto("/practice/bank");
 
   const markdownDownload = page.waitForEvent("download");
-  await page.getByRole("button", { name: "导出 Markdown" }).click();
+  await page.getByRole("button", { name: "题库更多操作" }).click();
+  await page.getByRole("menuitem", { name: "导出 Markdown" }).click();
   expect((await markdownDownload).suggestedFilename()).toMatch(/\.md$/);
   // D9: excluding third-party questions is announced, not silent.
   await expect(page.locator(".notice-center")).toContainText("第三方");
 
   const backupDownload = page.waitForEvent("download");
-  await page.getByRole("button", { name: "备份" }).click();
+  await page.getByRole("button", { name: "题库更多操作" }).click();
+  await page.getByRole("menuitem", { name: "备份" }).click();
   expect((await backupDownload).suggestedFilename()).toMatch(/\.json$/);
 });
 
@@ -452,7 +454,7 @@ test("restoring a backup warns before replacing the bank", async ({ page }) => {
   });
 
   await page.goto("/practice/bank");
-  await page.locator(".bank-restore input[type=file]").setInputFiles({
+  await page.locator(".bank-restore-input").setInputFiles({
     name: "bank.json",
     mimeType: "application/json",
     buffer: Buffer.from(JSON.stringify({

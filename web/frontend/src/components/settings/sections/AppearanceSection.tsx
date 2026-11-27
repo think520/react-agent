@@ -9,7 +9,7 @@ export function AppearanceSection({ appearance, patch }: {
   patch: (patch: Record<string, unknown>) => void;
 }) {
   return <>
-    <SettingsSection title="阅读排版" description="高频操作仍使用系统黑体，正文阅读可以选择今楷或宋体。">
+    <SettingsSection title="阅读排版">
       <SettingsRow label="阅读字体">
         <SettingsSegmented label="阅读字体" value={appearance.reading_font} onChange={(value) => patch({ appearance: { reading_font: value } })} options={[{ value: "jin-kai", label: "今楷" }, { value: "noto-serif", label: "宋体" }]} />
       </SettingsRow>
@@ -20,7 +20,7 @@ export function AppearanceSection({ appearance, patch }: {
         <SettingsSegmented label="内容宽度" value={appearance.content_width} onChange={(value) => patch({ appearance: { content_width: value } })} options={[{ value: 640, label: "窄" }, { value: 720, label: "标准" }, { value: 800, label: "宽" }]} />
       </SettingsRow>
     </SettingsSection>
-    <SettingsSection title="主题" description="主题只翻转颜色变量，不改布局与字体；跟随系统时会实时响应系统切换。">
+    <SettingsSection title="主题">
       <SettingsRow label="主题">
         <SettingsSegmented label="主题" value={appearance.theme} onChange={(value) => patch({ appearance: { theme: value } })} options={[{ value: "system", label: "跟随系统" }, { value: "light", label: "浅色" }, { value: "dark", label: "深色" }]} />
       </SettingsRow>
@@ -29,7 +29,7 @@ export function AppearanceSection({ appearance, patch }: {
       </SettingsRow>
     </SettingsSection>
     <SettingsSection title="界面感受">
-      <SettingsRow label="纸张纹理" hint="保持轻微，不影响正文对比度">
+      <SettingsRow label="纸张纹理">
         <SettingsToggle label="纸张纹理" checked={appearance.paper_texture} onChange={(value) => patch({ appearance: { paper_texture: value } })} />
       </SettingsRow>
       <SettingsRow label="会话列表密度">

@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { ArrowRight, Bookmark, BookmarkCheck, CircleHelp, Download, FolderPlus, Pencil, Play, RefreshCw, Trash2, Upload, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { ArrowRight, Bookmark, BookmarkCheck, CircleHelp, Download, FolderPlus, MoreHorizontal, Pencil, Play, RefreshCw, Trash2, Upload, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import { AttributionBadges, EmptyState, ErrorNotice, LoadingState, formatRelativeDate } from "../components/common";
@@ -8,7 +8,7 @@ import { api } from "../lib/api";
 import { toErrorMessage } from "../lib/errors";
 import { useHandoffStore } from "../stores/handoffStore";
 import { notifyInfo } from "../stores/noticeStore";
-import { SearchField } from "../ui";
+import { DesktopMenu, SearchField } from "../ui";
 import { useConfirm } from "../ui/Modal";
 import type { QuestionBank, QuestionBankItem, QuestionSetSummary } from "../types";
 
@@ -41,6 +41,7 @@ export function QuestionBankPage() {
   const [transfer, setTransfer] = useState("");
   // null = follow the data (open as soon as a set exists); explicit after a toggle.
   const [setsOpen, setSetsOpen] = useState<boolean | null>(null);
+  const restoreInputRef = useRef<HTMLInputElement>(null);
   const { confirm, confirmElement } = useConfirm();
 
   useEffect(() => {
@@ -403,21 +404,30 @@ export function QuestionBankPage() {
         <header className="page-heading">
           <div><h2>题库</h2></div>
           <div className="heading-actions">
-            <button className="quiet-button" type="button" disabled={transfer === "markdown"} onClick={() => void exportMarkdown()}><Download size={16} />导出 Markdown</button>
-            <button className="quiet-button" type="button" disabled={transfer === "backup"} onClick={() => void exportBackup()}><Download size={16} />备份</button>
-            <label className="quiet-button bank-restore">
-              <Upload size={16} />{transfer === "restore" ? "正在恢复" : "恢复"}
-              <input
-                type="file"
-                accept="application/json,.json"
-                aria-label="选择题库备份文件"
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  event.target.value = "";
-                  if (file) void restoreBackup(file);
-                }}
-              />
-            </label>
+            <input
+              ref={restoreInputRef}
+              className="bank-restore-input"
+              type="file"
+              accept="application/json,.json"
+              aria-label="选择题库备份文件"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                if (file) void restoreBackup(file);
+              }}
+            />
+            <DesktopMenu
+              triggerLabel="更多"
+              triggerIcon={<MoreHorizontal size={18} />}
+              triggerClassName="desktop-menu-trigger-toolbar"
+              ariaLabel="题库更多操作"
+              align="right"
+              items={[
+                { id: "export-md", label: "导出 Markdown", icon: <Download size={16} />, disabled: transfer === "markdown", onSelect: () => void exportMarkdown() },
+                { id: "export-backup", label: "备份", icon: <Download size={16} />, disabled: transfer === "backup", onSelect: () => void exportBackup() },
+                { id: "restore-backup", label: transfer === "restore" ? "正在恢复" : "恢复", icon: <Upload size={16} />, disabled: transfer === "restore", onSelect: () => restoreInputRef.current?.click() },
+              ]}
+            />
             <button className="quiet-button" type="button" onClick={() => void load()}><RefreshCw size={16} />刷新</button>
           </div>
         </header>

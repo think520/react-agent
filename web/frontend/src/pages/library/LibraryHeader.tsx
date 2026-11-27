@@ -22,6 +22,7 @@ import {} from "../../components/DocumentReader";
 import {} from "../../components/ScrollIndicator";
 import {} from "../../stores/readerTabsStore";
 import { Modal } from "../../ui/Modal";
+import { DesktopMenu } from "../../ui";
 import type { DocumentSummary, WikiEditablePage, WikiGenerationMode, WikiHealth, WikiPlan, WikiRepairPlan, WikiRunEstimate, WikiScopeMode, WikiTask } from "../../types";
 
 import type { Dispatch, ReactNode, SetStateAction } from "react";
@@ -257,13 +258,16 @@ export function LibraryHeader(props: LibraryHeaderProps) {
           <FolderOpen size={16} />{syncingFolder ? "正在同步文件夹…" : "同步文件夹"}
         </button>
       )}
-      <details className="library-more-menu">
-        <summary><MoreHorizontal size={18} /><span>更多</span></summary>
-        <div>
-          {collection === "material" && <button type="button" onClick={() => selectCollection("wiki")}>历史整理</button>}
-          <button type="button" onClick={() => openLibrarySetup()}><Settings2 size={16} />资料库管理</button>
-        </div>
-      </details>
+      <DesktopMenu
+        triggerLabel="更多"
+        triggerIcon={<MoreHorizontal size={18} />}
+        triggerClassName="desktop-menu-trigger-toolbar"
+        align="right"
+        items={[
+          ...(collection === "material" ? [{ id: "wiki", label: "历史整理", onSelect: () => selectCollection("wiki") }] : []),
+          { id: "setup", label: "资料库管理", icon: <Settings2 size={16} />, onSelect: () => openLibrarySetup() },
+        ]}
+      />
       {collection === "material" && <button className="primary-button" disabled={documentImporting} onClick={startDocumentImport}><Upload size={16} />{documentImporting ? "正在建立索引" : "导入资料"}</button>}
     </div>
   </header>

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ChevronDown, ChevronRight, FileText, Folder, FolderOpen, FolderPlus, MoreHorizontal } from "lucide-react";
 
 import type { KnowledgeTreeFile, KnowledgeTreeFolder } from "../lib/api";
+import { DesktopMenu, type DesktopMenuItem } from "../ui";
 
 /**
  * 只读 + 写操作的文件夹树（E17 ② ③）。
@@ -28,6 +29,18 @@ function loadExpanded(): Set<string> {
 
 export function collectFiles(tree: KnowledgeTreeFolder): KnowledgeTreeFile[] {
   return [...tree.files, ...tree.children.flatMap(collectFiles)];
+}
+
+export function collectFolders(tree: KnowledgeTreeFolder): Array<{ path: string; label: string }> {
+  const list: Array<{ path: string; label: string }> = [{ path: "", label: "资料库根目录" }];
+  const visit = (folder: KnowledgeTreeFolder) => {
+    for (const child of folder.children) {
+      list.push({ path: child.path, label: child.path });
+      visit(child);
+    }
+  };
+  visit(tree);
+  return list;
 }
 
 export function filterTree(folder: KnowledgeTreeFolder, query: string): KnowledgeTreeFolder | null {
@@ -106,6 +119,7 @@ export function LibraryTree({
   }, []);
 
   const visible = filterTree(tree, query) ?? { ...tree, children: [], files: [] };
+  const allFolders = collectFolders(tree);
 
   return (
     <>
@@ -134,6 +148,7 @@ export function LibraryTree({
             folder={folder}
             depth={0}
             expanded={expanded}
+            allFolders={allFolders}
             onToggle={toggle}
             selectedFolder={selectedFolder}
             onSelectFolder={onSelectFolder}
@@ -150,6 +165,7 @@ export function LibraryTree({
             file={file}
             depth={0}
             active={activeDocumentId === file.document_id}
+            allFolders={allFolders}
             onOpenDocument={onOpenDocument}
             onMoveDocument={onMoveDocument}
             onArchiveDocument={onArchiveDocument}
@@ -164,6 +180,7 @@ function TreeFolder({
   folder,
   depth,
   expanded,
+  allFolders,
   onToggle,
   selectedFolder,
   onSelectFolder,
@@ -176,6 +193,7 @@ function TreeFolder({
   folder: KnowledgeTreeFolder;
   depth: number;
   expanded: Set<string>;
+  allFolders: Array<{ path: string; label: string }>;
   onToggle: (path: string) => void;
   selectedFolder: string;
   onSelectFolder: (path: string) => void;
@@ -187,17 +205,18 @@ function TreeFolder({
   const pending = files.filter((file) => treeStatusTone(file) !== "complete").length;
   const selected = selectedFolder === folder.path;
   const [renaming, setRenaming] = useState<string | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   return (
     <li role="treeitem" aria-expanded={open} aria-selected={selected}>
-      <div className={`library-tree-row folder ${selected ? "selected" : ""}`} style={{ paddingLeft: 6 + depth * 14 }}>
+      <div className={`library-tree-row folder ${selected ? "selected" : ""} ${menuOpen ? "menu-open" : ""}`} style={{ paddingLeft: 6 + depth * 14 }}>
         <button
           className="library-tree-disclosure"
           type="button"
           aria-label={open ? `折叠 ${folder.name}` : `展开 ${folder.name}`}
           onClick={() => onToggle(folder.path)}
         >
-          {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
         </button>
         {renaming === "folder" ? (
           <input
@@ -218,23 +237,28 @@ function TreeFolder({
           />
         ) : (
           <button className="library-tree-name" type="button" onClick={() => onSelectFolder(folder.path)}>
-            {open ? <FolderOpen size={15} /> : <Folder size={15} />}
+            {open ? <FolderOpen size={16} /> : <Folder size={16} />}
             <span>{folder.name}</span>
           </button>
         )}
-        <span className="library-tree-meta">
+        <span
+          className="library-tree-meta"
+          title={`${folder.material_count} 份${pending > 0 ? ` · ${pending} 份未提取` : ""}`}
+        >
           {folder.material_count} 份
-          {pending > 0 && <em> · {pending} 份未提取</em>}
+          {pending > 0 && <em className="library-tree-pending"> · {pending} 份未提取</em>}
         </span>
         {onDeleteFolder && (
-          <details className="library-tree-actions">
-            <summary aria-label={`${folder.name} 的更多操作`}><MoreHorizontal size={14} /></summary>
-            <div>
-              <button type="button" onClick={() => onDeleteFolder(folder.path)}>
-                删除文件夹
-              </button>
-            </div>
-          </details>
+          <div className="library-tree-actions">
+            <DesktopMenu
+              compactTrigger
+              ariaLabel={`${folder.name} 的更多操作`}
+              triggerIcon={<MoreHorizontal size={16} />}
+              align="right"
+              onOpenChange={setMenuOpen}
+              items={[{ id: "delete-folder", label: "删除文件夹", danger: true, onSelect: () => onDeleteFolder(folder.path) }]}
+            />
+          </div>
         )}
       </div>
       {open && (
@@ -265,6 +289,7 @@ function TreeFolder({
                   folder={child}
                   depth={depth + 1}
                   expanded={expanded}
+                  allFolders={allFolders}
                   onToggle={onToggle}
                   selectedFolder={selectedFolder}
                   onSelectFolder={onSelectFolder}
@@ -281,6 +306,7 @@ function TreeFolder({
                   file={file}
                   depth={depth + 1}
                   active={activeDocumentId === file.document_id}
+                  allFolders={allFolders}
                   onOpenDocument={onOpenDocument}
                   onMoveDocument={onMoveDocument}
                   onArchiveDocument={onArchiveDocument}
@@ -298,6 +324,7 @@ function TreeFile({
   file,
   depth,
   active,
+  allFolders,
   onOpenDocument,
   onMoveDocument,
   onArchiveDocument,
@@ -305,10 +332,14 @@ function TreeFile({
   file: KnowledgeTreeFile;
   depth: number;
   active: boolean;
+  allFolders: Array<{ path: string; label: string }>;
   onOpenDocument: (documentId: string) => void;
 } & TreeActions) {
   const tone = treeStatusTone(file);
   const [renaming, setRenaming] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const currentParent = file.path.includes("/") ? file.path.slice(0, file.path.lastIndexOf("/")) : "";
+  const moveTargets = allFolders.filter((target) => target.path !== currentParent);
   const detail = [
     file.indexed ? `${file.chunk_count} 个片段` : "还没同步进索引",
     file.modified_at ? `更新于 ${new Date(file.modified_at).toLocaleDateString("zh-CN")}` : "",
@@ -316,9 +347,32 @@ function TreeFile({
     .filter(Boolean)
     .join(" · ");
 
+  const menuItems: DesktopMenuItem[] = [];
+  if (onMoveDocument && file.document_id) {
+    menuItems.push({ id: "rename", label: "重命名", onSelect: () => setRenaming(true) });
+    if (moveTargets.length > 0) {
+      menuItems.push({
+        id: "move",
+        label: "移动到",
+        children: moveTargets.map((target) => ({
+          id: `move-${target.path || "root"}`,
+          label: target.label,
+          onSelect: () => onMoveDocument(file.document_id as string, target.path ? `${target.path}/${file.name}` : file.name),
+        })),
+      });
+    }
+  }
+  if (onArchiveDocument && file.document_id) {
+    menuItems.push({
+      id: "archive",
+      label: "归档",
+      onSelect: () => onArchiveDocument(file.document_id as string, file.name),
+    });
+  }
+
   return (
     <li role="treeitem" aria-selected={active}>
-      <div className={`library-tree-row file ${active ? "active" : ""}`} style={{ paddingLeft: 6 + depth * 14 }}>
+      <div className={`library-tree-row file ${active ? "active" : ""} ${menuOpen ? "menu-open" : ""}`} style={{ paddingLeft: 6 + depth * 14 }}>
         {renaming && file.document_id ? (
           <input
             className="library-tree-rename"
@@ -332,8 +386,7 @@ function TreeFile({
               if (event.key === "Enter" && value && value !== file.name) {
                 const documentId = file.document_id;
                 if (!documentId) return;
-                const parent = file.path.includes("/") ? file.path.slice(0, file.path.lastIndexOf("/")) : "";
-                onMoveDocument?.(documentId, parent ? `${parent}/${value}` : value);
+                onMoveDocument?.(documentId, currentParent ? `${currentParent}/${value}` : value);
                 setRenaming(false);
               }
             }}
@@ -346,23 +399,22 @@ function TreeFile({
             disabled={!file.document_id}
             onClick={() => file.document_id && onOpenDocument(file.document_id)}
           >
-            <FileText size={15} />
+            <FileText size={16} />
             <span className="library-tree-name">{file.name}</span>
             <span className={`library-tree-dot ${tone}`} title={TONE_LABEL[tone]} aria-label={TONE_LABEL[tone]} />
           </button>
         )}
-        {(onMoveDocument || onArchiveDocument) && file.document_id && (
-          <details className="library-tree-actions">
-            <summary aria-label={`${file.name} 的更多操作`}><MoreHorizontal size={14} /></summary>
-            <div>
-              {onMoveDocument && <button type="button" onClick={() => setRenaming(true)}>重命名</button>}
-              {onArchiveDocument && (
-                <button type="button" onClick={() => onArchiveDocument(file.document_id as string, file.name)}>
-                  归档
-                </button>
-              )}
-            </div>
-          </details>
+        {menuItems.length > 0 && (
+          <div className="library-tree-actions">
+            <DesktopMenu
+              compactTrigger
+              ariaLabel={`${file.name} 的更多操作`}
+              triggerIcon={<MoreHorizontal size={16} />}
+              align="right"
+              onOpenChange={setMenuOpen}
+              items={menuItems}
+            />
+          </div>
         )}
       </div>
     </li>

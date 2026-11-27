@@ -188,10 +188,15 @@ describe("资料库文件夹树", () => {
     fireEvent.keyDown(input, { key: "Enter" });
     expect(onCreateFolder).toHaveBeenCalledWith("ai-agents-from-zero/第一章");
 
-    // 展开后对文件做归档
+    // 展开后对文件做归档与移动到子菜单
     fireEvent.click(screen.getByRole("button", { name: /展开 ai-agents-from-zero/ }));
     fireEvent.click(screen.getByLabelText("1-1-学习.md 的更多操作"));
-    fireEvent.click(screen.getByText("归档"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "移动到" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "ai-agents-from-zero/assets" }));
+    expect(onMoveDocument).toHaveBeenCalledWith("doc-1", "ai-agents-from-zero/assets/1-1-学习.md");
+
+    fireEvent.click(screen.getByLabelText("1-1-学习.md 的更多操作"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "归档" }));
     expect(onArchiveDocument).toHaveBeenCalledWith("doc-1", "1-1-学习.md");
   });
 });

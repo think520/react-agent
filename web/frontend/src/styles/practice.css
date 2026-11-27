@@ -13,8 +13,7 @@
 .bank-toolbar .mention-tabs small { font-size: 12px; opacity: 0.75; }
 .bank-search { min-width: 180px; flex: 1 1 220px; max-width: 100%; }
 .bank-toolbar .dropdown-trigger { min-height: 36px; border: 1px solid var(--border); border-radius: 8px; padding: 0 10px; background: var(--paper-soft); font-size: 13px; }
-.bank-restore { cursor: pointer; }
-.bank-restore input { display: none; }
+.bank-restore-input { display: none; }
 
 .bank-sets { border: 1px solid var(--border); border-radius: 8px; padding: 0 14px; margin: 0 0 12px; background: var(--paper-soft); }
 .bank-sets > summary { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; min-height: 44px; cursor: pointer; color: var(--blue); font-family: var(--font-reading); font-size: 14px; font-weight: 500; list-style: none; }

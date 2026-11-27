@@ -11,10 +11,11 @@
 .context-panel { background: var(--surface-0); }
 .settings-nav { background: var(--surface-0); }
 .library-tree-pane, .document-rail { background: var(--surface-0); }
-.settings-section { border-color: var(--border-subtle); background: var(--surface-2); }
+.settings-section { background: var(--surface-2); }
 .ui-modal-panel { background: var(--surface-3); box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-dialog); }
+.ui-modal-panel:focus, .ui-modal-panel:focus-visible { outline: 0; }
 .slash-palette, .mention-palette { border: 0; background: var(--surface-3); box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-lift); }
-.library-more-menu > div { border: 0; background: var(--surface-3); box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-float); }
+.desktop-menu-panel { border: 0; background: var(--surface-3); box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-float); }
 .notice { border: 0; background: var(--surface-3); box-shadow: 0 0 0 var(--hairline) var(--ring), var(--shadow-float); }
 
 
@@ -471,7 +472,7 @@
 /* ── 浮层与交互手感统一（暖纸发丝环 + 物理弹簧轻反馈）── */
 .dropdown-panel,
 .reader-more-actions > div,
-.library-tree-actions > div,
+.desktop-menu-panel,
 .km-force-params > div,
 .note-reference-list {
   border: 0;

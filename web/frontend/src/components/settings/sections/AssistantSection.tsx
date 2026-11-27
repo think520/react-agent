@@ -12,7 +12,7 @@ export function AssistantSection({ assistant, setAssistant }: {
   return <>
     <div className="settings-identity">
       <BrandIllustration state="listening" size={92} alt="Bobodan" />
-      <div><span>品牌角色</span><h3>Bobodan</h3><p>三花猫品牌保持固定，你可以调整它陪伴学习的方式。</p></div>
+      <div><h3>Bobodan</h3></div>
     </div>
     <SettingsSection
       title="称呼与教学方式"
@@ -21,7 +21,7 @@ export function AssistantSection({ assistant, setAssistant }: {
       <SettingsField label="助手昵称">
         <input maxLength={60} value={assistant.display_name} onChange={(event) => setAssistant({ ...assistant, display_name: event.target.value })} />
       </SettingsField>
-      <SettingsRow label="教学方式" hint="决定默认如何展开一次讲解">
+      <SettingsRow label="教学方式">
         <SettingsSegmented label="教学方式" value={assistant.teaching_style} onChange={(value) => setAssistant({ ...assistant, teaching_style: value })} options={[{ value: "guided", label: "引导式" }, { value: "explanatory", label: "讲解式" }, { value: "practice", label: "陪练式" }]} />
       </SettingsRow>
       <SettingsRow label="回答深度">

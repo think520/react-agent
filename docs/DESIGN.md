@@ -245,7 +245,7 @@ Chat 用对话主骨架，但视觉像阅读器和笔记本：中央对话、资
 
 **规则**：相邻两层必须能区分（明度差 ≥ 2/255，或靠发丝边区分）；同一屏最多 4 层，超过就是「卡片套卡片」。
 
-**表面落位清单（M3 ✓）**：Surface 0 = `.sidebar` / `.context-panel` / `.settings-nav` / `.library-tree-pane` / `.document-rail`；Surface 1 = `.page-scroll` / `.settings-main`；Surface 2 = `.settings-section`（+ `--border-subtle` 发丝边）；Surface 3 = `.ui-modal-panel` / `.slash-palette` / `.mention-palette` / `.library-more-menu > div` / `.notice`（+ `--ring` 外环 + 阴影档位）；**输入区**（`.composer` / `.settings-field input` / `.settings-search` / `.document-search`）同样走 Surface 3 + ring，焦点色用 `color-mix(in srgb, var(--accent) 35%, transparent)`，不再写裸 rgba。契约测试：`designTokens.test.ts` 的「M3 表面阶梯落位」。
+**表面落位清单（M3 ✓）**：Surface 0 = `.sidebar` / `.context-panel` / `.settings-nav` / `.library-tree-pane` / `.document-rail`；Surface 1 = `.page-scroll` / `.settings-main`；Surface 2 = `.settings-section`（无重边框，仅靠 tonal 阶梯区分）；Surface 3 = `.ui-modal-panel` / `.slash-palette` / `.mention-palette` / `.desktop-menu-panel` / `.notice`（+ `--ring` 外环 + 阴影档位）；**输入区**（`.composer` / `.settings-field input` / `.settings-search` / `.document-search`）同样走 Surface 3 + ring，焦点色用 `color-mix(in srgb, var(--accent) 35%, transparent)`，不再写裸 rgba。契约测试：`designTokens.test.ts` 的「M3 表面阶梯落位」。
 
 ### 4.5 发丝边与外环 ✅ 已实施（M3，2026-10-17）
 
@@ -258,7 +258,7 @@ Chat 用对话主骨架，但视觉像阅读器和笔记本：中央对话、资
 
 > 说明：`--hairline` / `--ring` 已加入 `:root` 与 §4.6 表（M3 ✓），契约测试见 §16.3 第 8–10 条。2dppx 下 `--hairline` 减半为 `0.5px`（`@media (min-resolution: 2dppx)`）。
 
-**浮层落地清单（M3 ✓）**：`.ui-modal-panel`（所有弹窗）、`.slash-palette` / `.mention-palette`（输入区浮层）、`.library-more-menu > div`（更多菜单）、`.notice`（通知卡片）—— 全部改为 `box-shadow: 0 0 0 var(--hairline) var(--ring), <既有阴影档位>`，不再使用 `border: 1px solid rgba(...)`。契约测试在 `designTokens.test.ts` 的「M3 浮层发丝边/外环」用例里。
+**浮层落地清单（M3 ✓）**：`.ui-modal-panel`（所有弹窗）、`.slash-palette` / `.mention-palette`（输入区浮层）、`.desktop-menu-panel`（桌面多级菜单）、`.notice`（通知卡片）—— 全部改为 `box-shadow: 0 0 0 var(--hairline) var(--ring), <既有阴影档位>`，不再使用 `border: 1px solid rgba(...)`。契约测试在 `designTokens.test.ts` 的「M3 浮层发丝边/外环」用例里。
 
 ### CSS Tokens
 

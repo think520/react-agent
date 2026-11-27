@@ -367,7 +367,7 @@ function lastRuleBody(css: string, selector: string): string {
 }
 
 describe("M3 浮层发丝边/外环（DESIGN.md §4.5）", () => {
-  const overlays = [".ui-modal-panel", ".slash-palette", ".mention-palette", ".library-more-menu > div", ".notice"];
+  const overlays = [".ui-modal-panel", ".slash-palette", ".mention-palette", ".desktop-menu-panel", ".notice"];
 
   it("关键浮层都使用 --hairline + --ring 外环", () => {
     for (const selector of overlays) {
@@ -390,7 +390,7 @@ describe("M3 浮层发丝边/外环（DESIGN.md §4.5）", () => {
   });
 
   it("菜单与通知不再使用硬 rgba 描边", () => {
-    for (const selector of [".slash-palette", ".mention-palette", ".library-more-menu > div", ".notice"]) {
+    for (const selector of [".slash-palette", ".mention-palette", ".desktop-menu-panel", ".notice"]) {
       expect(lastRuleBody(APP_CSS, selector), selector).not.toMatch(/border:\s*1px solid rgba\(/);
     }
   });
@@ -407,7 +407,7 @@ describe("M3 表面阶梯落位（DESIGN.md §4.4）", () => {
     [".ui-modal-panel", "--surface-3"],
     [".slash-palette", "--surface-3"],
     [".mention-palette", "--surface-3"],
-    [".library-more-menu > div", "--surface-3"],
+    [".desktop-menu-panel", "--surface-3"],
     [".notice", "--surface-3"],
   ];
 

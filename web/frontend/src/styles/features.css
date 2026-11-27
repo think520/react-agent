@@ -162,6 +162,7 @@
 .library-tree-row .library-tree-name { display: inline-flex; align-items: center; gap: 6px; min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .library-tree-row .library-tree-meta { flex: 0 0 auto; color: var(--muted); font-size: 12px; }
 .library-tree-row .library-tree-meta em { font-style: normal; color: var(--clay); }
+.library-tree-pending { display: none; }
 .library-tree-disclosure { display: inline-flex; width: 18px; height: 18px; align-items: center; justify-content: center; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--muted); cursor: pointer; }
 .library-tree-dot { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; background: var(--border-strong); }
 .library-tree-dot.complete { background: var(--sage-deep); }
@@ -196,12 +197,30 @@
 .library-tree-actions { position: relative; flex: 0 0 auto; opacity: 0; pointer-events: none; transition: opacity var(--dur-fast) var(--ease-out); }
 .library-tree-row:hover .library-tree-actions,
 .library-tree-row:focus-within .library-tree-actions,
-.library-tree-actions[open] { opacity: 1; pointer-events: auto; }
-.library-tree-actions > summary { display: inline-flex; width: 20px; height: 20px; align-items: center; justify-content: center; border-radius: var(--radius-sm); color: var(--muted); cursor: pointer; list-style: none; }
-.library-tree-actions > summary::-webkit-details-marker { display: none; }
-.library-tree-actions > div { position: absolute; z-index: 20; right: 0; top: 22px; display: grid; min-width: 190px; border: 1px solid var(--border-strong); border-radius: var(--radius-md); padding: 4px; background: var(--paper); box-shadow: var(--shadow-float); }
-.library-tree-actions button { border: 0; border-radius: var(--radius-sm); padding: 7px 9px; background: transparent; color: var(--ink); text-align: left; font-size: 12.5px; cursor: pointer; }
-.library-tree-actions button:hover { background: var(--paper-soft); }
+.library-tree-row.menu-open .library-tree-actions { opacity: 1; pointer-events: auto; }
+
+/* 桌面端多级菜单原语（DesktopMenu）：统一发丝环 + 开启/关闭延时 + 安全三角区 */
+.desktop-menu { position: relative; display: inline-flex; align-items: center; }
+.desktop-menu-trigger { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-1); border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--muted); font-size: 13px; cursor: pointer; transition: border-color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+.desktop-menu-trigger-toolbar { min-height: 36px; border-color: var(--border); padding: 0 var(--space-3); }
+.desktop-menu-trigger-toolbar:hover,
+.desktop-menu.is-open .desktop-menu-trigger-toolbar { border-color: var(--border-strong); color: var(--blue); }
+.desktop-menu-trigger-compact { width: 24px; height: 24px; padding: 0; }
+.desktop-menu-trigger-compact:hover,
+.desktop-menu.is-open .desktop-menu-trigger-compact { background: var(--paper-soft); color: var(--blue); }
+.desktop-menu-panel { z-index: 1200; display: grid; min-width: 176px; max-width: 280px; gap: 2px; border-radius: var(--radius-lg); padding: var(--space-1); }
+.desktop-menu-submenu { z-index: 1210; max-height: min(280px, calc(100dvh - 24px)); overflow-y: auto; }
+.desktop-menu-item { display: flex; width: 100%; min-height: 34px; align-items: center; gap: var(--space-2); border: 0; border-radius: var(--radius-md); padding: 0 var(--space-2); background: transparent; color: var(--ink); font: inherit; font-size: 13px; text-align: left; cursor: pointer; transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+.desktop-menu-item > span:not(.desktop-menu-item-icon) { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.desktop-menu-item:hover:not(:disabled),
+.desktop-menu-item.active:not(:disabled) { background: var(--blue-wash); color: var(--blue); }
+.desktop-menu-item.danger { color: var(--danger); }
+.desktop-menu-item.danger:hover:not(:disabled),
+.desktop-menu-item.danger.active:not(:disabled) { background: var(--clay-wash); color: var(--danger); }
+.desktop-menu-item:disabled { opacity: 0.45; cursor: not-allowed; }
+.desktop-menu-item-icon { display: inline-flex; width: 20px; height: 20px; flex: 0 0 auto; align-items: center; justify-content: center; color: inherit; }
+.desktop-menu-chevron { margin-left: auto; color: var(--faint); }
+.desktop-menu-divider { height: 1px; margin: var(--space-1) var(--space-2); background: var(--border-subtle); }
 .note-editor-hint.over-limit { color: var(--danger); }
 /* ⑤：整理建议面板（树上，只提议 → 执行 → 撤销）。 */
 .library-organize { margin-top: 10px; color: var(--muted); font-size: 12.5px; }
@@ -225,7 +244,7 @@
    · **wiki**：列表 | 正文（树只在资料集合里渲染）。
    这条必须排在 list-only 那条之后：同优先级下后写的才生效。 */
 .library-workspace.with-tree,
-.library-workspace.list-only.with-tree { grid-template-columns: 240px minmax(0, 1fr); }
+.library-workspace.list-only.with-tree { grid-template-columns: 280px minmax(0, 1fr); }
 .library-reader-placeholder { display: flex; align-items: center; justify-content: center; min-width: 0; }
 .library-workspace.list-only.with-tree .document-rail { max-width: none; margin: 0; }
 
